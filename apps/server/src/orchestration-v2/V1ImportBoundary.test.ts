@@ -18,6 +18,7 @@ const legacyReaders = ["orchestration-v2/legacy/", "persistence/Migrations/"] as
  */
 const legacyReaderFiles: Record<string, string> = {
   // Provider history for settings migration reads V1 thread sessions once at load.
+  "team/TeamConversationImport.ts": "one-time import of the shipped Teams conversation database",
   "serverSettings.ts": "one-time provider history for settings migration",
 };
 const retiredPaths = [

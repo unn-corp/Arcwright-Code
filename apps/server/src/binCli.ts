@@ -1,3 +1,4 @@
+import { teamServiceCommand } from "./cli/server.ts";
 import { backupCommand } from "./cli/backup.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -72,6 +73,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       acpMcpCallCommand,
       startCommand,
       serveCommand,
+      teamServiceCommand,
       appCommand,
       pairCommand,
       authCommand,

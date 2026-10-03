@@ -2,6 +2,7 @@ import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
 import { ComposerHostMaintenanceStatus } from "../chat/ComposerHostMaintenanceStatus";
 import { HostUpdateSettings } from "./HostUpdateSettings";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
+import { TeamsConnectionsSettings } from "./TeamsConnection";
 import {
   ChevronRightIcon,
   ChevronsLeftRightEllipsisIcon,
@@ -3694,6 +3695,7 @@ export function ConnectionsSettings() {
 
   const primarySettings = (
     <>
+      <TeamsConnectionsSettings />
       {primaryEnvironmentId !== null ? (
         <>
           <SettingsSection

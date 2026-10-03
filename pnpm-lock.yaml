@@ -525,6 +525,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.276
         version: 0.3.276(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(zod@4.6.5))(zod@4.6.5)
+      '@clerk/backend':
+        specifier: 3.18.1
+        version: 3.18.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@cursor/sdk':
         specifier: 1.0.35
         version: 1.0.35
@@ -850,7 +853,7 @@ importers:
     dependencies:
       '@clerk/backend':
         specifier: 3.18.1
-        version: 3.18.1(react-dom@19.3.0(react@19.3.0))(react@19.2.6)
+        version: 3.18.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@effect/sql-pg':
         specifier: 4.0.1
         version: 4.0.1(effect@4.0.1(patch_hash=a33cba07c41f32374c2aaa86ea4a84d3ab9a872a78c94b65e929b19f8361856f))
@@ -12649,9 +12652,9 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
-  '@clerk/backend@3.18.1(react-dom@19.3.0(react@19.3.0))(react@19.2.6)':
+  '@clerk/backend@3.18.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@clerk/shared': 4.33.0(react-dom@19.3.0(react@19.3.0))(react@19.2.6)
+      '@clerk/shared': 4.33.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       standardwebhooks: 1.0.0
       tslib: 2.8.1
     transitivePeerDependencies:

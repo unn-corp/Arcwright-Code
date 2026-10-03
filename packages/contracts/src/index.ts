@@ -177,3 +177,31 @@ export {
 export * from "./threadExport.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+
+export {
+  CollaborationUser,
+  SideThread,
+  SideThreadArchivedPayload,
+  SideThreadAttachment,
+  SideThreadAuthor,
+  SideThreadCreatedPayload,
+  SideThreadGifAttachment,
+  SideThreadId,
+  SideThreadLinkedRef,
+  SideThreadMarkedReadPayload,
+  SideThreadMessage,
+  SideThreadMessageEditedPayload,
+  SideThreadMessageId,
+  SideThreadMessagePostedPayload,
+  SideThreadMessageReactedPayload,
+  SideThreadMessageReaction,
+  SideThreadPostAttachment,
+  SideThreadReadMarker,
+  SideThreadShellMessagePreview,
+  SideThreadShellSummary,
+  SideThreadUnarchivedPayload,
+} from "./orchestration.ts";
+
+export { TeamDiscussionCommand } from "./orchestration.ts";
+
+export { LOCAL_TEAM_RPC_TAGS, LocalTeamRpcGroup, TeamNativeRpcGroup } from "./rpc.ts";

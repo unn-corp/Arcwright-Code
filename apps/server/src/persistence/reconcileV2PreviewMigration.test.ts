@@ -134,11 +134,11 @@ describe("V2 preview upgrade", () => {
 
       const executed = yield* runMigrations();
       const alreadyApplied = new Set([
-        38, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 94,
+        38, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 94, 95, 96, 97, 98,
       ]);
       assert.deepStrictEqual(
         executed,
-        migrationManifest.filter(([id]) => id >= 36 && id <= 94 && !alreadyApplied.has(id)),
+        migrationManifest.filter(([id]) => id >= 36 && !alreadyApplied.has(id)),
       );
       assert.deepStrictEqual(yield* runMigrations(), []);
       const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`

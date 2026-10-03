@@ -1,3 +1,7 @@
+import { LocalTeamProjects } from "./team/LocalTeamProjects.ts";
+import { LocalTeamAccount } from "./team/LocalTeamAccount.ts";
+import { localTeamAccountHttpApiLayer } from "./team/localAccountHttp.ts";
+import { teamSpacesRouteLayer } from "./team/http.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
 import * as Random from "effect/Random";
@@ -804,8 +808,10 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(voiceHttpApiLayer.pipe(Layer.provide(OpenWhispr.layer))),
       Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
       Layer.provide(WebhookRoute.layer.pipe(Layer.provide(RelayDeliveryProof.layer))),
+      Layer.provide(localTeamAccountHttpApiLayer),
       Layer.provide(AuthHttp.layerAuthenticatedAuth),
     ),
+    teamSpacesRouteLayer,
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
     CodexCloudHttp.layer,
@@ -832,6 +838,7 @@ const layerMakeRoutes = Layer.mergeAll(
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
+  Layer.provide(LocalTeamAccount.layer),
   Layer.provide(layerPullRequestService),
   // The stream route and the WebSocket RPCs share one browser.
   Layer.provide(ServerBrowser.layer.pipe(Layer.provide(DesktopBrowserChannel.layer))),
@@ -1398,6 +1405,8 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(OrganizationWorkIntentStoreLive),
       // The connect routes and the startup/shutdown link work share one instance.
       Layer.provide(CloudLink.layer),
+      Layer.provide(LocalTeamProjects.layer),
+      Layer.provide(LocalTeamAccount.layer),
       Layer.provideMerge(layerRuntimeServices),
       Layer.provideMerge(organizationLiveWorkReadinessLayers),
       Layer.provideMerge(

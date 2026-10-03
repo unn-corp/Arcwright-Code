@@ -37,6 +37,20 @@ contains Git submodule entries, preserve their root-relative registration in `.g
 initialization disabled. GitHub checkout's credential cleanup traverses these entries even during
 a sparse checkout; missing root metadata can stop every build before dependency installation.
 
+## Shared team projects
+
+[Teams operations](team-projects.md) owns the service deployment and upgrade procedure;
+[project settings](../user/project-settings.md#shared-projects) covers account and
+checkout setup. The dedicated [conversation service](../../apps/server/src/team/TeamConversation.ts)
+owns shared text, discussion, and receipts. It must not load the personal provider runtime.
+The [local publisher](../../apps/server/src/team/LocalTeamProjectStore.ts) reads canonical
+v2 events and projections while preserving the bounded Teams wire protocol. Keep
+[legacy import](../../apps/server/src/team/TeamConversationImport.test.ts),
+[migration compatibility](../../apps/server/src/persistence/Migrations.test.ts), and
+[local publication](../../apps/server/src/team/LocalTeamProjects.test.ts) regressions
+when changing either side. Web, desktop, and the fork APK share the Teams UI;
+upstream mobile retains its separate local conversation experience.
+
 ## Product branding
 
 The fork is named **Arcwright Code** across web, Electron, the standalone Android APK, and

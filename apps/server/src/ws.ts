@@ -1,3 +1,6 @@
+import { LocalTeamProjects } from "./team/LocalTeamProjects.ts";
+import { makeTeamWsRpcLayer } from "./teamWs.ts";
+import { LOCAL_TEAM_RPC_TAGS } from "@t3tools/contracts";
 import { BUILD_IDENTITY } from "./appVersion.ts";
 import * as OrganizationStore from "./organizations/OrganizationStore.ts";
 import * as OrganizationCorrelationRecovery from "./organizations/OrganizationCorrelationRecovery.ts";
@@ -562,6 +565,7 @@ const CoreWsRpcGroup = WsRpcGroup.omit(
   WS_METHODS.codexCloudRead,
   WS_METHODS.codexCloudCommand,
   WS_METHODS.codexCloudWorkerSetup,
+  ...LOCAL_TEAM_RPC_TAGS,
   WS_METHODS.threadExport,
   WS_METHODS.codexSessionsList,
   WS_METHODS.codexSessionsResume,
@@ -1291,6 +1295,7 @@ const makeCoreWsRpcLayer = (
 ) =>
   CoreWsRpcGroup.toLayer(
     Effect.gen(function* () {
+      const localTeams = yield* LocalTeamProjects;
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -1802,6 +1807,7 @@ const makeCoreWsRpcLayer = (
             buildIdentity: BUILD_IDENTITY,
             runLimits: true,
             threadExport: true,
+            teams: true,
             auth,
             cwd: config.cwd,
             keybindingsConfigPath: config.keybindingsConfigPath,
@@ -1938,17 +1944,42 @@ const makeCoreWsRpcLayer = (
             Effect.andThen(
               startup
                 .enqueueCommand(
-                  // A retry also restarts the preparation work the launch owns.
-                  (command.type === "prepared-run.retry"
-                    ? threadLaunch.retryPreparation(command)
-                    : ThreadMessageIntake.dispatchCommand(
-                        ThreadManagementService.withCreationProvenance(command, {
-                          createdBy: "user",
-                          creationSource:
-                            "creationSource" in command ? command.creationSource : "web",
-                        }),
-                      )
-                  ).pipe(Effect.provide(intakeContext)),
+                  localTeams.dispatchWithPublication(
+                    {
+                      commandId: command.commandId,
+                      threadId:
+                        "threadId" in command
+                          ? command.threadId
+                          : "targetThreadId" in command
+                            ? command.targetThreadId
+                            : command.parentThreadId,
+                      ...(command.type === "thread.create"
+                        ? { creationProjectId: command.projectId }
+                        : {}),
+                    },
+                    Effect.gen(function* () {
+                      // Cross-thread operations must also authorize the source workspace.
+                      if ("sourceThreadId" in command)
+                        yield* localTeams.guard({
+                          commandId: command.commandId,
+                          threadId: command.sourceThreadId,
+                        });
+                      return yield* (
+                        // A retry also restarts the preparation work the launch owns.
+                        (
+                          command.type === "prepared-run.retry"
+                            ? threadLaunch.retryPreparation(command)
+                            : ThreadMessageIntake.dispatchCommand(
+                                ThreadManagementService.withCreationProvenance(command, {
+                                  createdBy: "user",
+                                  creationSource:
+                                    "creationSource" in command ? command.creationSource : "web",
+                                }),
+                              )
+                        ).pipe(Effect.provide(intakeContext))
+                      );
+                    }),
+                  ),
                 )
                 .pipe(
                   Effect.tap(() => recordClientCommandAnalytics(command)),
@@ -2048,38 +2079,45 @@ const makeCoreWsRpcLayer = (
             Effect.andThen(
               startup
                 .enqueueCommand(
-                  ThreadMessageIntake.launchThread({
-                    commandId: input.commandId,
-                    ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-                    ...(input.reuseExistingThread === undefined
-                      ? {}
-                      : { reuseExistingThread: input.reuseExistingThread }),
-                    projectId: input.projectId,
-                    title: input.title,
-                    ...(input.generateTitle === undefined
-                      ? {}
-                      : { generateTitle: input.generateTitle }),
-                    modelSelection: input.modelSelection,
-                    runtimeMode: input.runtimeMode,
-                    interactionMode: input.interactionMode,
-                    workspaceStrategy: input.workspaceStrategy,
-                    ...(input.initialMessage === undefined
-                      ? {}
-                      : {
-                          initialMessage: {
-                            ...(input.initialMessage.messageId === undefined
-                              ? {}
-                              : { messageId: input.initialMessage.messageId }),
-                            text: input.initialMessage.text,
-                            attachments: input.initialMessage.attachments,
-                            ...(input.initialMessage.context === undefined
-                              ? {}
-                              : { context: input.initialMessage.context }),
-                          },
-                        }),
-                    createdBy: "user",
-                    creationSource: input.creationSource ?? "web",
-                  }).pipe(Effect.provide(intakeContext)),
+                  localTeams.launchWithPublication(
+                    {
+                      commandId: input.commandId,
+                      threadId: input.threadId ?? ThreadId.make(input.commandId),
+                      ...(input.reuseExistingThread ? {} : { creationProjectId: input.projectId }),
+                    },
+                    ThreadMessageIntake.launchThread({
+                      commandId: input.commandId,
+                      ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+                      ...(input.reuseExistingThread === undefined
+                        ? {}
+                        : { reuseExistingThread: input.reuseExistingThread }),
+                      projectId: input.projectId,
+                      title: input.title,
+                      ...(input.generateTitle === undefined
+                        ? {}
+                        : { generateTitle: input.generateTitle }),
+                      modelSelection: input.modelSelection,
+                      runtimeMode: input.runtimeMode,
+                      interactionMode: input.interactionMode,
+                      workspaceStrategy: input.workspaceStrategy,
+                      ...(input.initialMessage === undefined
+                        ? {}
+                        : {
+                            initialMessage: {
+                              ...(input.initialMessage.messageId === undefined
+                                ? {}
+                                : { messageId: input.initialMessage.messageId }),
+                              text: input.initialMessage.text,
+                              attachments: input.initialMessage.attachments,
+                              ...(input.initialMessage.context === undefined
+                                ? {}
+                                : { context: input.initialMessage.context }),
+                            },
+                          }),
+                      createdBy: "user",
+                      creationSource: input.creationSource ?? "web",
+                    }).pipe(Effect.provide(intakeContext)),
+                  ),
                 )
                 .pipe(
                   Effect.tap(() =>
@@ -2099,6 +2137,13 @@ const makeCoreWsRpcLayer = (
                     projection: projectThreadProjectionForWire(result.projection),
                   })),
                   Effect.catchTags({
+                    LocalTeamProjectError: (cause) =>
+                      new OrchestrationV2ThreadLaunchError({
+                        commandId: input.commandId,
+                        projectId: input.projectId,
+                        message: cause.message,
+                        cause,
+                      }),
                     AttachmentClaimError: (cause) =>
                       new OrchestrationV2ThreadLaunchError({
                         commandId: input.commandId,
@@ -3226,6 +3271,7 @@ const makeCoreWsRpcLayer = (
 const makeWsRpcLayer = (...args: Parameters<typeof makeCoreWsRpcLayer>) =>
   Layer.mergeAll(
     makeCoreWsRpcLayer(...args),
+    makeTeamWsRpcLayer(),
     makeForkWsRpcLayer(args[0]),
     makeForkExtraWsRpcLayer(args[0]),
   );

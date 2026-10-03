@@ -474,6 +474,10 @@
     "./worktreeStorage": {
       "types": "./src/worktreeStorage.ts",
       "import": "./src/worktreeStorage.ts"
+    },
+    "./sideThread": {
+      "types": "./src/sideThread.ts",
+      "import": "./src/sideThread.ts"
     }
   },
   "scripts": {

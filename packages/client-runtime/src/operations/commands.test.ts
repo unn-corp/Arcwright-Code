@@ -1,3 +1,7 @@
+import { RpcPermissionGuard } from "../rpc/client.ts";
+import { LOCAL_TEAM_METHODS } from "@t3tools/contracts/teamProjects";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import {
   CheckpointId,
   CheckpointRef,
@@ -39,6 +43,7 @@ import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFix
 import {
   archiveThread,
   cancelQueuedRun,
+  createThread,
   createProject,
   dismissThreadUserInput,
   editQueuedRun,
@@ -73,6 +78,7 @@ const TARGET = new PrimaryConnectionTarget({
 
 const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(function* (input: {
   readonly commands: OrchestrationV2Command[];
+  readonly saveIntent?: () => Effect.Effect<void>;
   readonly projects: ProjectMutation[];
   readonly launches?: OrchestrationV2ThreadLaunchInput[];
   readonly projection?: OrchestrationV2ThreadProjection;
@@ -80,6 +86,9 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   readonly advertiseServerResolvedCommandContext?: boolean;
 }) {
   const client = {
+    [LOCAL_TEAM_METHODS.state]: () => Effect.succeed([]),
+    [LOCAL_TEAM_METHODS.control]: () =>
+      (input.saveIntent?.() ?? Effect.void).pipe(Effect.as({ state: null })),
     [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
       Effect.sync(() => {
         input.commands.push(command);
@@ -1024,3 +1033,69 @@ describe("V2 environment commands", () => {
     }).pipe(Effect.provide(layerTestCrypto)),
   );
 });
+
+it.effect("waits for the durable shared choice before requesting thread creation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dispatched: OrchestrationV2Command[] = [];
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const supervisor = yield* makeSupervisor({
+        commands: dispatched,
+        projects: [],
+        saveIntent: () =>
+          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      });
+      const creation = yield* createThread({
+        threadId: ThreadId.make("shared-new"),
+        projectId: ProjectId.make("project"),
+        title: "New shared thread",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("claude"),
+          model: "chosen-local-provider",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        teamPublication: { projectId: ProjectId.make("project"), generation: "one", shared: true },
+      }).pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(entered);
+      expect(dispatched).toEqual([]);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(creation)).toEqual({ sequence: 1 });
+      expect(dispatched[0]?.type).toBe("thread.create");
+      expect(dispatched[0]).not.toHaveProperty("teamPublication");
+    }),
+  ).pipe(
+    Effect.provide(layerTestCrypto),
+    Effect.provideService(RpcPermissionGuard, { authorize: () => Effect.void }),
+  ),
+);
+
+it.effect("rejects peer commands centrally before contacting a personal environment", () =>
+  Effect.gen(function* () {
+    const dispatched: OrchestrationV2Command[] = [];
+    const supervisor = yield* makeSupervisor({ commands: dispatched, projects: [] });
+    const threadId = ThreadId.make("thread-1");
+    const source: import("@t3tools/contracts/teamProjects").TeamThreadSource = {
+      displayProjectRef: { projectId: ProjectId.make("project") },
+      readSource: { kind: "shared", sourceId: "peer", threadId },
+      executionRef: null,
+      discussionRef: null,
+      assetSource: "unavailable",
+      fileSource: "unavailable",
+      contentFormat: "plain-text",
+      access: { execute: false, publish: false, discuss: true, markRead: true },
+    };
+    const result = yield* archiveThread({ threadId, teamSource: source }).pipe(
+      Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+      Effect.exit,
+    );
+    expect(result._tag).toBe("Failure");
+    expect(dispatched).toEqual([]);
+  }).pipe(Effect.provide(layerTestCrypto)),
+);

@@ -1,3 +1,6 @@
+import { runTeamService } from "../team/server.ts";
+import { requireTeamServiceConfiguration } from "../team/serviceConfig.ts";
+import { resolveTeamServiceConfig, teamServiceCommandFlags } from "./config.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -7,7 +10,6 @@ import { Command, GlobalFlag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import * as ServerConfig from "../config.ts";
-import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
@@ -23,6 +25,7 @@ const runServerCommand = (
   Effect.gen(function* () {
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
+    const { runServer } = yield* Effect.promise(() => import("../server.ts"));
     return yield* runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
   });
 
@@ -65,6 +68,19 @@ export const serveCommand = Command.make("serve", { ...sharedServerCommandFlags 
     runServerCommand(flags, {
       startupPresentation: "headless",
       forceAutoBootstrapProjectFromCwd: false,
+    }),
+  ),
+);
+
+export const teamServiceCommand = Command.make("team-service", teamServiceCommandFlags).pipe(
+  Command.withDescription(
+    "Run the Teams collaboration service; agents run on teammates' local machines.",
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      yield* requireTeamServiceConfiguration;
+      const config = yield* resolveTeamServiceConfig(flags, yield* GlobalFlag.LogLevel);
+      return yield* runTeamService.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
     }),
   ),
 );

@@ -21,6 +21,11 @@ import * as DateTime from "effect/DateTime";
 import { formatSubagentDisplayTitle } from "./subagentDisplay.ts";
 
 export interface EnvironmentProject extends OrchestrationProjectShell {
+  readonly sharedTeam?: {
+    readonly serviceUrl: string;
+    readonly sharedProjectId: string;
+    readonly subject: string;
+  };
   readonly environmentId: EnvironmentId;
 }
 

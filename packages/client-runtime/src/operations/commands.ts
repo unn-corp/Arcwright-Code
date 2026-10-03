@@ -1,3 +1,6 @@
+import { canExecuteTeamSource } from "../state/teamExecution.ts";
+import { LOCAL_TEAM_METHODS, type TeamThreadSource } from "@t3tools/contracts/teamProjects";
+import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
   type ThreadLinkedPullRequest,
@@ -32,9 +35,21 @@ import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 
-import { getInitialServerConfig, request, requestIdempotentCommand } from "../rpc/client.ts";
+import {
+  getInitialServerConfig,
+  request,
+  requestGuarded,
+  requestIdempotentCommand,
+} from "../rpc/client.ts";
 
+export type TeamPublicationChoice = {
+  readonly projectId: import("@t3tools/contracts").ProjectId;
+  readonly generation: string;
+  readonly shared: boolean;
+};
 interface CommandMetadata {
+  readonly threadId?: ThreadId;
+  readonly teamSource?: TeamThreadSource;
   readonly commandId?: CommandId;
   readonly createdAt?: string;
   readonly creationSource?: OrchestrationV2CreationSource;
@@ -67,6 +82,7 @@ export interface DeleteProjectInput extends CommandMetadata {
 }
 
 export interface CreateThreadInput extends CommandMetadata {
+  readonly teamPublication?: TeamPublicationChoice;
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
   readonly title: string;
@@ -164,6 +180,7 @@ interface StartThreadBootstrap {
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
+  readonly teamPublication?: TeamPublicationChoice;
   readonly manualContinuationOfRunId?: RunId;
   readonly message: {
     readonly messageId: MessageId;
@@ -261,6 +278,13 @@ export interface EditQueuedRunInput extends ThreadCommandInput {
 const allocateCommandId = Effect.fn("EnvironmentCommands.allocateCommandId")(function* (
   input: CommandMetadata,
 ) {
+  if (
+    input.teamSource &&
+    (!input.threadId || !canExecuteTeamSource(input.teamSource, input.threadId))
+  )
+    return yield* new OrchestrationDispatchCommandError({
+      message: "Shared conversations cannot run local agent commands.",
+    });
   if (input.commandId !== undefined) return input.commandId;
   const crypto = yield* Crypto.Crypto;
   return CommandId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie));
@@ -268,6 +292,53 @@ const allocateCommandId = Effect.fn("EnvironmentCommands.allocateCommandId")(fun
 
 const dispatch = (command: OrchestrationV2Command) =>
   requestIdempotentCommand(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, command);
+
+const saveNewThreadSharing = Effect.fn("EnvironmentCommands.saveNewThreadSharing")(
+  function* (input: {
+    readonly commandId: import("@t3tools/contracts").CommandId;
+    readonly threadId: import("@t3tools/contracts").ThreadId;
+    readonly projectId: import("@t3tools/contracts").ProjectId;
+    readonly worktreePath: string | null;
+    readonly teamSource?: TeamThreadSource;
+    readonly teamPublication?: TeamPublicationChoice;
+  }) {
+    if (input.teamSource && !canExecuteTeamSource(input.teamSource, input.threadId))
+      return yield* new OrchestrationDispatchCommandError({
+        message: "Shared conversations cannot run local agent commands.",
+      });
+    let choice = input.teamPublication;
+    if (!choice) {
+      const config = yield* getInitialServerConfig();
+      if (!config.teams) return;
+      const projects = yield* request(LOCAL_TEAM_METHODS.state, {});
+      const link = projects.find((project) => project.link.projectId === input.projectId)?.link;
+      if (link)
+        choice = {
+          projectId: link.projectId,
+          generation: link.generation,
+          shared: input.worktreePath === null,
+        };
+    }
+    if (choice && input.worktreePath !== null) choice = { ...choice, shared: false };
+    if (choice)
+      yield* requestGuarded(LOCAL_TEAM_METHODS.control, {
+        action: "intent",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        ...choice,
+      });
+  },
+  (effect) =>
+    effect.pipe(
+      Effect.mapError(
+        () =>
+          new OrchestrationDispatchCommandError({
+            message:
+              "Could not save the shared conversation choice. Refresh your Teams connection before starting work.",
+          }),
+      ),
+    ),
+);
 
 const getProjection = (threadId: ThreadId) =>
   request(ORCHESTRATION_V2_WS_METHODS.getThreadProjection, { threadId });
@@ -393,9 +464,11 @@ export const deleteProject = Effect.fn("EnvironmentCommands.deleteProject")(func
 export const createThread = Effect.fn("EnvironmentCommands.createThread")(function* (
   input: CreateThreadInput,
 ) {
+  const commandId = yield* allocateCommandId(input);
+  yield* saveNewThreadSharing({ ...input, commandId });
   return yield* dispatch({
     type: "thread.create",
-    commandId: yield* allocateCommandId(input),
+    commandId,
     createdBy: "user",
     creationSource: input.creationSource ?? "web",
     threadId: input.threadId,
@@ -627,6 +700,20 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
   input: StartThreadTurnInput,
 ) {
   const commandId = yield* allocateCommandId(input);
+  if (input.teamSource && !canExecuteTeamSource(input.teamSource, input.threadId))
+    return yield* new OrchestrationDispatchCommandError({
+      message: "Shared conversations cannot run local agent commands.",
+    });
+  if (input.bootstrap?.createThread)
+    yield* saveNewThreadSharing({
+      commandId,
+      threadId: input.threadId,
+      projectId: input.bootstrap.createThread.projectId,
+      worktreePath: input.bootstrap.prepareWorktree
+        ? "pending-worktree"
+        : input.bootstrap.createThread.worktreePath,
+      ...(input.teamPublication ? { teamPublication: input.teamPublication } : {}),
+    });
   const attachments = yield* persistAttachments(
     input.threadId,
     input.message.messageId,

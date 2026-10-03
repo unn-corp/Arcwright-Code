@@ -3,6 +3,8 @@ import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
+import type { TeamSharedMessage } from "@t3tools/contracts/teamProjects";
+import { ArrowUpIcon, ClockIcon } from "lucide-react";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -508,11 +510,45 @@ interface MessagesTimelineProps {
   loadEarlier?: CitationHistoryPage | null;
 }
 
+/** Peer content cannot reach native Markdown, asset, citation, diff, or execution hooks. */
+export const MessagesTimeline = memo(function MessagesTimeline(
+  props:
+    | MessagesTimelineProps
+    | {
+        readonly contentFormat: "plain-text";
+        readonly messages: ReadonlyArray<TeamSharedMessage>;
+      },
+) {
+  if ("contentFormat" in props) {
+    return (
+      <div
+        className="min-h-0 flex-1 overflow-auto px-4 py-5"
+        data-testid="shared-messages-timeline"
+      >
+        <div className="mx-auto flex max-w-3xl flex-col gap-5">
+          {props.messages.map((message) => (
+            <article key={message.id} className="min-w-0">
+              <div className="mb-1 text-xs text-muted-foreground">
+                {message.author?.displayName ?? message.role} -{" "}
+                {new Date(message.createdAt).toLocaleString()}
+              </div>
+              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                {message.text}
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return <NativeMessagesTimeline {...props} />;
+});
+
 // ---------------------------------------------------------------------------
 // MessagesTimeline — list owner
 // ---------------------------------------------------------------------------
 
-export const MessagesTimeline = memo(function MessagesTimeline({
+const NativeMessagesTimeline = memo(function NativeMessagesTimeline({
   citationRequest = null,
   citationHistoryLoading = false,
   onCiteAssistantText,

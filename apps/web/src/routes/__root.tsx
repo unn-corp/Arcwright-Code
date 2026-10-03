@@ -16,6 +16,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { NativeTeamProjectDialog } from "../components/team/NativeTeamProjects";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
@@ -85,6 +86,8 @@ import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
+    if (location.pathname === "/spaces")
+      return { authGateState: { status: "hosted-static" } as const };
     if (location.pathname === "/pair" && hasHostedPairingRequest(new URL(window.location.href))) {
       return {
         authGateState: {
@@ -157,7 +160,12 @@ function RootRouteView() {
     };
   }, [pathname]);
 
-  if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
+  if (
+    pathname === "/spaces" ||
+    pathname === "/pair" ||
+    pathname === "/connect" ||
+    pathname === "/connect-agent"
+  ) {
     return (
       <>
         <DocumentTitleSync />
@@ -200,6 +208,7 @@ function RootRouteView() {
 
   const appShell = (
     <CommandPalette>
+      <NativeTeamProjectDialog />
       <AppSidebarLayout>
         <Outlet />
       </AppSidebarLayout>

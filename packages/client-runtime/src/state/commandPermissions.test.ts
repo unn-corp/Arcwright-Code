@@ -1,3 +1,4 @@
+import { LOCAL_TEAM_METHODS } from "@t3tools/contracts/teamProjects";
 import { requestGuarded, runStreamGuarded } from "../rpc/client.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -332,4 +333,30 @@ it.effect("rejects protected unary and streamed RPCs outside a guarded command",
     expect(streamed._tag).toBe("EnvironmentAuthorizationError");
     expect(writes).toBe(0);
   }),
+);
+
+it.effect(
+  "allows Teams sharing with operate permission but requires access-write for linking",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        const teams = createCommandPermissions(runtime, LOCAL_TEAM_METHODS.control);
+        for (const action of ["intent", "publish", "stop-publication"]) {
+          expect(registry.get(teams.permissionAtom(env, { action }))).toBe(true);
+          yield* teams.authorize(registry, env, { action });
+        }
+        expect(registry.get(teams.permissionAtom(env, { action: "link" }))).toBe(false);
+        expect(
+          (yield* teams.authorize(registry, env, { action: "link" }).pipe(Effect.flip))
+            .requiredScope,
+        ).toBe(AuthAccessWriteScope);
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(
+          (yield* teams.authorize(registry, env, { action: "publish" }).pipe(Effect.flip))
+            .requiredScope,
+        ).toBe(AuthOrchestrationOperateScope);
+      }),
+    ),
 );

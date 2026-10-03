@@ -51,8 +51,10 @@ export function automationThreadShell(
         : active
           ? "running"
           : "completed";
+  // Personal creation provenance is not a shared Teams author identity.
+  const { createdBy: _createdBy, ...shell } = thread;
   return Schema.decodeSync(OrchestrationThreadShell)({
-    ...thread,
+    ...shell,
     createdAt: iso(thread.createdAt),
     updatedAt: iso(thread.updatedAt),
     archivedAt: iso(thread.archivedAt),

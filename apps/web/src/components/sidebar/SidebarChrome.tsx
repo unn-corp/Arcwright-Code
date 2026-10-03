@@ -1,4 +1,5 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { useTeamProjectDialog } from "../team/NativeTeamProjects";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon, UsersIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -201,6 +202,14 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         </SidebarMenuItem>
       ) : (
         <>
+          <SidebarUtilityItem
+            icon={<UsersIcon />}
+            label="Team projects"
+            onClick={() => {
+              closeMobileSidebar();
+              useTeamProjectDialog.getState().open({ action: "open" });
+            }}
+          />
           <SidebarUtilityItem
             icon={<SettingsIcon />}
             label="Settings"

@@ -19,6 +19,7 @@ import {
   moveThreadContextDrag as moveThreadContextDragGhost,
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
+import { SharedProjectThreads } from "./team/SharedProjectThreads";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
@@ -6102,6 +6103,22 @@ export default function Sidebar() {
             </div>
           ) : null}
         </SidebarGroup>
+        {projectGroups
+          .filter(
+            (group) => !scopedProjectGroup || group.projectKey === scopedProjectGroup.projectKey,
+          )
+          .map((group) => (
+            <div key={group.projectKey} className="px-2">
+              {group.memberProjects.map((member) => (
+                <SharedProjectThreads
+                  key={member.physicalProjectKey}
+                  environmentId={member.environmentId}
+                  projectId={member.id}
+                  title={group.displayName}
+                />
+              ))}
+            </div>
+          ))}
       </SidebarContent>
       <SidebarChromeFooter />
     </>

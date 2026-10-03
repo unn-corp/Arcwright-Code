@@ -1,3 +1,4 @@
+import { NativeTeamProjectSettings } from "../team/NativeTeamProjects";
 import { useAtomValue } from "@effect/atom-react";
 import { CodexCloudPanel } from "../codexCloud/CodexCloudPanel";
 import { useComposerMenuState } from "../chat/useComposerMenuState";
@@ -1127,6 +1128,14 @@ function ProjectDetail({
             projectId={representative.id}
           />
         </SettingsSection>
+        <SettingsSection title="Shared project">
+          <NativeTeamProjectSettings
+            key={`${representative.environmentId}:${representative.id}`}
+            environmentId={representative.environmentId}
+            projectId={representative.id}
+          />
+        </SettingsSection>
+
         <SettingsSection title="Product context">
           <SettingsRow
             title="Product document"

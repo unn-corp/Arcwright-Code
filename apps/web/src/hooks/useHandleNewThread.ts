@@ -40,6 +40,7 @@ interface NewThreadWorkspaceOptions {
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
   startFromOrigin?: boolean;
+  teamLocalOnly?: boolean;
 }
 
 // The workspace options the caller passed explicitly, shaped for the draft
@@ -50,6 +51,7 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
     ...(options?.branch !== undefined ? { branch: options.branch } : {}),
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
+    ...(options?.teamLocalOnly !== undefined ? { teamLocalOnly: options.teamLocalOnly } : {}),
     ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
   };
 }
@@ -64,7 +66,7 @@ export function useNewThreadHandler() {
   }, [router]);
 
   return useCallback(
-    (
+    async (
       projectRef: ScopedProjectRef,
       options?: {
         branch?: string | null;
@@ -72,11 +74,17 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        teamLocalOnly?: boolean;
+        canCreate?: () => Promise<boolean>;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
       // prepared checkout, a task to write — addresses that one rather than looking the project
       // up again and finding whichever draft it happens to hold.
     ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
+      const requestingRouteHref = router.state.location.href;
+      const routeChangedSinceRequest = () => router.state.location.href !== requestingRouteHref;
+      if (options?.canCreate && (!(await options.canCreate()) || routeChangedSinceRequest()))
+        return null;
       const projects = readProjects();
       const targetServerSettings =
         environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
@@ -90,8 +98,6 @@ export function useNewThreadHandler() {
         setLogicalProjectDraftThreadId,
         setModelSelection,
       } = useComposerDraftStore.getState();
-      const requestingRouteHref = router.state.location.href;
-      const routeChangedSinceRequest = () => router.state.location.href !== requestingRouteHref;
       const currentRouteTarget = getCurrentRouteTarget();
       // A new thread carries the user's working mode from the thread being
       // viewed. The target project's configured model still wins; interaction
@@ -189,6 +195,7 @@ export function useNewThreadHandler() {
       // fresh draft instead — the remap in the store preserves invested
       // drafts rather than deleting them.
       const emptyStoredDraftThread =
+        !options?.teamLocalOnly &&
         reusableStoredDraftThread &&
         !composerDraftHasUserContent(getComposerDraft(reusableStoredDraftThread.draftId))
           ? reusableStoredDraftThread
@@ -207,7 +214,8 @@ export function useNewThreadHandler() {
             hasBranchOption ||
             hasWorktreePathOption ||
             hasEnvModeOption ||
-            hasStartFromOriginOption;
+            hasStartFromOriginOption ||
+            options?.teamLocalOnly !== undefined;
           // Resurrecting an empty stored draft must not resurrect its stale
           // context: explicit workspace options win outright; otherwise the
           // env context resets to the configured defaults so drafts seeded
@@ -292,6 +300,8 @@ export function useNewThreadHandler() {
           // targets a different physical member of the logical project,
           // createDraftThreadState treats the remap as a project change and
           // would otherwise wipe branch/worktree, undoing the write above.
+          if (options?.canCreate && (!(await options.canCreate()) || routeChangedSinceRequest()))
+            return null;
           setLogicalProjectDraftThreadId(
             logicalProjectKey,
             projectRef,
@@ -327,6 +337,7 @@ export function useNewThreadHandler() {
       }
 
       if (
+        !options?.teamLocalOnly &&
         latestActiveDraftThread &&
         currentRouteTarget?.kind === "draft" &&
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
@@ -339,10 +350,13 @@ export function useNewThreadHandler() {
           hasBranchOption ||
           hasWorktreePathOption ||
           hasEnvModeOption ||
-          hasStartFromOriginOption
+          hasStartFromOriginOption ||
+          options?.teamLocalOnly !== undefined
         ) {
           setDraftThreadContext(currentRouteTarget.draftId, pickExplicitWorkspaceOptions(options));
         }
+        if (options?.canCreate && (!(await options.canCreate()) || routeChangedSinceRequest()))
+          return null;
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
           threadId: latestActiveDraftThread.threadId,
           createdAt: latestActiveDraftThread.createdAt,
@@ -370,6 +384,7 @@ export function useNewThreadHandler() {
         // reuse the winner instead, like the synchronous path above does.
         const racedDraft = getDraftSessionByLogicalProjectKey(logicalProjectKey);
         if (
+          !options?.teamLocalOnly &&
           racedDraft &&
           // Only a draft REGISTERED during the await counts as a raced
           // winner. An invested draft this invocation deliberately declined
@@ -386,6 +401,8 @@ export function useNewThreadHandler() {
           // this invocation's defaults here instead would clobber the
           // winner's explicit picks and could pair its worktreePath with a
           // contradictory envMode.
+          if (options?.canCreate && (!(await options.canCreate()) || routeChangedSinceRequest()))
+            return null;
           setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, racedDraft.draftId, {
             threadId: racedDraft.threadId,
             createdAt: racedDraft.createdAt,
@@ -398,14 +415,18 @@ export function useNewThreadHandler() {
             params: { draftId: racedDraft.draftId },
             replace: options?.replace ?? false,
           });
+          if (options?.teamLocalOnly && getCurrentRouteTarget()?.kind !== "draft") return null;
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
         }
+        if (options?.canCreate && (!(await options.canCreate()) || routeChangedSinceRequest()))
+          return null;
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
           envMode: initialEnvMode,
+          ...(options?.teamLocalOnly !== undefined ? { teamLocalOnly: options.teamLocalOnly } : {}),
           startFromOrigin:
             options?.startFromOrigin ??
             resolveNewDraftStartFromOrigin({
@@ -427,6 +448,10 @@ export function useNewThreadHandler() {
           params: { draftId },
           replace: options?.replace ?? false,
         });
+        if (options?.teamLocalOnly) {
+          const target = getCurrentRouteTarget();
+          if (target?.kind !== "draft" || target.draftId !== draftId) return null;
+        }
         return { draftId, threadId };
       })();
     },

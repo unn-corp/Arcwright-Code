@@ -1,6 +1,8 @@
 import { ForkSidebarUpdateStatus } from "./sidebar/ForkSidebarUpdateStatus";
 import { useServerConfigs } from "../state/entities";
 import { useExportThread } from "../hooks/useExportThread";
+import { SharedProjectThreads } from "./team/SharedProjectThreads";
+import { useTeamProjectDialog } from "./team/NativeTeamProjects";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -1724,7 +1726,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const actionHandlers = new Map<string, () => Promise<void> | void>();
         const makeLeaf = (
-          action: "rename" | "grouping" | "copy-path" | "delete",
+          action: "rename" | "grouping" | "copy-path" | "delete" | "share",
           member: SidebarProjectGroupMember,
           options?: {
             destructive?: boolean;
@@ -1734,6 +1736,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           const id = `${action}:${member.physicalProjectKey}`;
           actionHandlers.set(id, () => {
             switch (action) {
+              case "share":
+                useTeamProjectDialog.getState().open({
+                  action: "share",
+                  environmentId: member.environmentId,
+                  projectId: member.id,
+                });
+                return;
               case "rename":
                 openProjectRenameDialog(member);
                 return;
@@ -1757,7 +1766,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         };
 
         const buildTargetedItem = (
-          action: "rename" | "grouping" | "copy-path" | "delete",
+          action: "rename" | "grouping" | "copy-path" | "delete" | "share",
           label: string,
           options?: {
             destructive?: boolean;
@@ -1799,6 +1808,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const clicked = await api.contextMenu.show(
           [
+            buildTargetedItem("share", "Share this project"),
             buildTargetedItem("rename", "Rename", {
               isDisabled: (member) =>
                 !readEnvironmentScope(member.environmentId, AuthOrchestrationOperateScope),
@@ -2569,6 +2579,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         </Tooltip>
       </div>
 
+      {projectExpanded &&
+        project.memberProjects.map((member) => (
+          <SharedProjectThreads
+            key={member.physicalProjectKey}
+            environmentId={member.environmentId}
+            projectId={member.id}
+          />
+        ))}
       <SidebarProjectThreadList
         projectKey={project.projectKey}
         projectExpanded={projectExpanded}

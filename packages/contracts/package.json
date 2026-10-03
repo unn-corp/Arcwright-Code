@@ -22,6 +22,26 @@
     "./maintenance": {
       "types": "./src/maintenance.ts",
       "import": "./src/maintenance.ts"
+    },
+    "./teamSpaces": {
+      "types": "./src/teamSpaces.ts",
+      "import": "./src/teamSpaces.ts"
+    },
+    "./teamPublication": {
+      "types": "./src/teamPublication.ts",
+      "import": "./src/teamPublication.ts"
+    },
+    "./teamProjects": {
+      "types": "./src/teamProjects.ts",
+      "import": "./src/teamProjects.ts"
+    },
+    "./teamPresence": {
+      "types": "./src/teamPresence.ts",
+      "import": "./src/teamPresence.ts"
+    },
+    "./teamFiles": {
+      "types": "./src/teamFiles.ts",
+      "import": "./src/teamFiles.ts"
     }
   },
   "scripts": {

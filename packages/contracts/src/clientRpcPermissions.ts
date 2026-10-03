@@ -1,3 +1,9 @@
+import {
+  LOCAL_TEAM_METHODS,
+  LOCAL_TEAM_MEMBERS_METHOD,
+  LOCAL_TEAM_ACCEPT_METHOD,
+} from "./teamProjects.ts";
+import { LOCAL_TEAM_FILES_METHOD } from "./teamFiles.ts";
 import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput } from "./git.ts";
 import { ForkMaintenanceActionInput } from "./maintenance.ts";
@@ -13,6 +19,11 @@ import { WS_METHODS } from "./rpc.ts";
 export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.codexCloudCommand]: AuthOrchestrationOperateScope,
   [WS_METHODS.codexCloudWorkerSetup]: AuthAccessWriteScope,
+  [LOCAL_TEAM_METHODS.control]: AuthAccessWriteScope,
+  [LOCAL_TEAM_FILES_METHOD]: AuthAccessWriteScope,
+  [LOCAL_TEAM_MEMBERS_METHOD]: AuthAccessWriteScope,
+  [LOCAL_TEAM_ACCEPT_METHOD]: AuthAccessWriteScope,
+  [LOCAL_TEAM_METHODS.discuss]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverUpdateMaintenancePolicy]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverRunMaintenanceAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverRecoverMaintenance]: AuthAccessWriteScope,
@@ -56,6 +67,14 @@ export function clientRpcRequiredScopes(
   method: string,
   input: unknown,
 ): readonly AuthEnvironmentScope[] {
+  if (
+    method === LOCAL_TEAM_METHODS.control &&
+    typeof input === "object" &&
+    input !== null &&
+    "action" in input &&
+    (input.action === "intent" || input.action === "publish" || input.action === "stop-publication")
+  )
+    return [AuthOrchestrationOperateScope];
   if (method === WS_METHODS.serverRunMaintenanceAction && input !== undefined) {
     const { action } = decodeMaintenanceAction(input);
     if (action === "confirm-bootstrap" || action === "acknowledge-automation-review")

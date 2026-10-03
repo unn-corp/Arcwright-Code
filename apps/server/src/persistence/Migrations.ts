@@ -1,3 +1,17 @@
+import {
+  reconcileTeamMigrationHistory,
+  skipRecordedTeamMigration,
+} from "./reconcileTeamMigrationHistory.ts";
+import TeamMigration55 from "./Migrations/055_TeamSpaces.ts";
+import TeamMigration56 from "./Migrations/056_ThreadCollaboration.ts";
+import TeamMigration57 from "./Migrations/057_TeamPublication.ts";
+import TeamMigration58 from "./Migrations/058_TeamPublicationMessageOrder.ts";
+import TeamMigration59 from "./Migrations/059_TeamFiles.ts";
+import TeamMigration60 from "./Migrations/060_TeamPublicationIntents.ts";
+import TeamMigration61 from "./Migrations/061_TeamCreationIntentReceipts.ts";
+import TeamMigration62 from "./Migrations/062_RepairForkMigrationCollisions.ts";
+import TeamMigration63 from "./Migrations/063_TeamRoster.ts";
+import TeamConversationMigration from "./Migrations/208_TeamConversations.ts";
 /**
  * Migration runner with an inline loader.
  *
@@ -223,14 +237,45 @@ export const migrationEntries = [
   [96, "RemoveRedundantProjectionIndexes", Migration0096],
   [97, "ScheduledTaskWebhooks", Migration0097],
   [98, "WebhookRelayDeliveries", Migration0098],
+  [199, "TeamSpaces", skipRecordedTeamMigration("TeamSpaces", TeamMigration55)],
+  [200, "ThreadCollaboration", skipRecordedTeamMigration("ThreadCollaboration", TeamMigration56)],
+  [201, "TeamPublication", skipRecordedTeamMigration("TeamPublication", TeamMigration57)],
+  [
+    202,
+    "TeamPublicationMessageOrder",
+    skipRecordedTeamMigration("TeamPublicationMessageOrder", TeamMigration58),
+  ],
+  [203, "TeamFiles", skipRecordedTeamMigration("TeamFiles", TeamMigration59)],
+  [
+    204,
+    "TeamPublicationIntents",
+    skipRecordedTeamMigration("TeamPublicationIntents", TeamMigration60),
+  ],
+  [
+    205,
+    "TeamCreationIntentReceipts",
+    skipRecordedTeamMigration("TeamCreationIntentReceipts", TeamMigration61),
+  ],
+  [
+    206,
+    "RepairForkMigrationCollisions",
+    skipRecordedTeamMigration("RepairForkMigrationCollisions", TeamMigration62),
+  ],
+  [207, "TeamRoster", skipRecordedTeamMigration("TeamRoster", TeamMigration63)],
+  [208, "TeamConversations", TeamConversationMigration],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
 
-const makeMigrationLoader = (throughId?: number) =>
+const makeMigrationLoader = (
+  throughId?: number,
+  entries: ReadonlyArray<
+    readonly [number, string, (typeof migrationEntries)[number][2]]
+  > = migrationEntries,
+) =>
   Migrator.fromRecord(
     Object.fromEntries(
-      migrationEntries
+      entries
         .filter(([id]) => throughId === undefined || id <= throughId)
         .map(([id, name, migration]) => [`${id}_${name}`, migration]),
     ),
@@ -259,11 +304,12 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  const entries = yield* reconcileTeamMigrationHistory(migrationEntries, toMigrationInclusive);
   const previewMigrations =
-    toMigrationInclusive === undefined ? yield* reconcileV2PreviewMigration(migrationEntries) : [];
+    toMigrationInclusive === undefined ? yield* reconcileV2PreviewMigration(entries) : [];
   const executedMigrations = [
     ...previewMigrations,
-    ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
+    ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive, entries) })),
   ];
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
@@ -279,7 +325,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     readonly migration_id: number;
     readonly name: string;
   }>`SELECT migration_id, name FROM effect_sql_migrations`;
-  const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
+  const manifestNames = new Map<number, string>(entries.map(([id, name]) => [id, name]));
   const divergent = recorded.flatMap((row) => {
     const expected = manifestNames.get(row.migration_id);
     if (expected === undefined) {
