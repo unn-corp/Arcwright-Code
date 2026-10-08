@@ -12,6 +12,12 @@ An explicit manual nightly with both `publish=true` and `commission=true` can pu
 hardware verification while schedules stay disabled. Required coordinator, updater, retained-runtime,
 and recovery-helper checks still must all pass; missing or failed safety evidence blocks every release.
 
+Desktop launchers can disable the Arcwright Code updater with
+`ARCWRIGHT_CODE_DISABLE_AUTO_UPDATE=1`. Set it to `0` to enable the updater on the
+next launch. This name takes precedence over the legacy `T3CODE_DISABLE_AUTO_UPDATE`
+alias, including when explicitly enabling updates. Automatic installation remains a
+separate saved preference in App updates and retains coordinator admission checks.
+
 ## What a release is
 
 | Item               | Rule                                                                                                                                                         |
@@ -299,11 +305,17 @@ interaction still blocks publication.
   apply release-list pagination to it. Once 100 tags exist, that would repeatedly read the same
   response and stall allocation. The REST adapter regression tests cover both 100 and 101 tags.
 - **Recovery APKs.** The manifest retains the primary predecessor plus the newest three eligible
-  exact normal-build identities per channel, the verified updater baseline, and a required promotion
-  source. This fixed window lets recent installs resume with an exact-source recovery APK without
+  exact normal-build identities per channel, the verified updater baseline, a required promotion
+  source, and any explicitly requested older eligible tags. The default window lets recent installs
+  resume with an exact-source recovery APK without
   recursively copying older manifests' recovery matrices. Sources are deduplicated by version and
   commit, rebuilt with `--kind recovery`, and assigned unique codes above the release normal code.
-  A device rolled back to an identity outside this window must first use a still-cached signed
+  For a known older installed phone, add its normal release tag to `android_recovery_tags` on the
+  next manual release. Planning refuses missing, draft, withdrawn, or failed sources; the additional
+  recovery follows the same pinned rebuild, signing, installation-code, and validation gates.
+  Older clients may select only the newest release and cannot request an intermediate version.
+  Do not sideload an otherwise ineligible candidate to bypass their recovery checks.
+  Without explicit coverage, a device rolled back outside this window must first use a still-cached signed
   recovery to reach a retained identity, or use the documented manual bootstrap path; do not assume
   every historical recovery remains available in each new release.
   Extra recovery builds use the current builder against the exact retained source checkout. The
@@ -438,6 +450,29 @@ Failed or incomplete process reads preserve prior children. If the owner exits w
 activity, the coordinator retains that uncertainty; a replacement runtime's own process census is
 insufficient to clear it. Investigate the recorded owner and children before any external stopped-work
 installation. Never remove leases or registry records just to make an update proceed.
+Linux process probes treat a validated `/proc/<pid>/stat` state `Z` as exited: zombies retain
+their PID and start ticks until reaped but cannot run commands. Active states, reused-PID identity
+checks, unreadable observations, the idle window, and Windows admission remain enforced.
+Using a newer `maintenance check` or `maintenance install` CLI still delegates to the running
+controller. For an older Cloud runtime blocked only by verified zombies:
+
+1. Verify complete activity and process reads, no actual turns, pending work, tools, terminals,
+   leases, unknown observations, or transaction fence. Preserve the original home, coordinator
+   namespace, installed version, environment identity, and owned launcher/server identities.
+2. Orderly stop that verified idle managed runtime through its original launcher lifecycle.
+   Do not stop active agents or signal the zombie children.
+3. Run the verified corrected native CLI's `maintenance fence status` against the original
+   coordinator namespace. Its normal store reconciliation must remove the exited registration and
+   zombie descendants without unresolved uncertainty. An empty registry still blocks installation.
+4. Start the same installed version through the original Cloud start flow. Require the same
+   environment identity, home, coordinator, and current activity protocol, with a fresh process
+   owner and no inherited command blocker. Preserve pairing, data, and account setup.
+5. Let the fresh participant satisfy the five-minute idle window, then use its native controller
+   to check and install the exact reviewed release digest. All normal admission, snapshot,
+   artifact, trial, health-receipt, and recovery checks still apply.
+
+If any prerequisite is uncertain, preserve the blocker and investigate; this repair does not
+replace an artifact or authorize bypassing update admission.
 
 1. Build the baseline from an updater-equipped commit and keep the same signing key as the phone's
    installed app. Never uninstall to bring a phone onto it.
@@ -502,7 +537,11 @@ Do these in order. Each is outside the repository.
    publish a complete, validated candidate to the trusted GitHub feed. A rehearsal artifact or draft
    cannot be installed through the in-product updater. Keep `FORK_RELEASES_ENABLED` unset or false.
    On real Windows/Linux desktops, verify that active registered agents defer installation; let work
-   finish normally before updating. On the phone, verify the foreground and local-operation guards.
+   finish normally before updating. On the phone, follow the
+   [paired-phone commissioning checklist](./android-pwa.md#paired-phone-commissioning) to capture
+   current device policy, verify foreground/local-operation guards, and preserve saved connections.
+   Notification-service changes also require the
+   [connection notification regression check](./android-pwa.md#connection-notification-regression).
    Exercise both in-product update and native/external recovery, preserving connections and data.
    This is the proof no automated check here provides. Test recovery into the actual retained
    predecessor, not only a fixture installer. Commissioning found that earlier updater-equipped
@@ -527,6 +566,13 @@ Do these in order. Each is outside the repository.
 `main`. `publish` defaults to off. Before automatic publishing is commissioned, only an explicit
 nightly with both `publish=true` and `commission=true` may publish. This does not skip validation or
 enable scheduled runs; stable publication still requires the commissioned gate.
+
+`android_recovery_tags` defaults to `[]`. Supply a JSON array of up to eight published eligible
+release tags still installed on supported phones, for example
+`["fork-v1.0.1-nightly.20261007.69"]`. The planner freezes their exact source identities and
+deduplicates them against ordinary coverage. Keep recording actual phone versions before a
+release; this input does not authorize an installation or change a device's saved policy.
+The CLI equivalent is `plan --android-recovery-tags '<JSON array>'`.
 
 **Withdraw or restore.** Actions, Fork release withdrawal, with the version and a reason. Withdrawing
 rewrites only the release notes (a marker line) so devices and installers stop offering it; the tag,

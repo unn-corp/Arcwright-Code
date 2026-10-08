@@ -53,9 +53,6 @@ import * as AgentDashboardDecisionFollowUp from "./agentDashboard/AgentDashboard
 import * as ServerConfig from "./config.ts";
 import { withUntracedRequests } from "./http.ts";
 import * as ServerHttp from "./http.ts";
-import * as CodexCloud from "./codexCloud/CodexCloudService.ts";
-import * as CodexCloudCli from "./codexCloud/CodexCloudCli.ts";
-import * as CodexCloudHttp from "./codexCloud/http.ts";
 import { agentDashboardFeedRouteLayer } from "./agentDashboard/AgentDashboardFeedRoutes.ts";
 import { organizationIntakeHttpRouteLayer } from "./organizations/http.ts";
 import { voiceHttpApiLayer } from "./voice/http.ts";
@@ -648,11 +645,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ReplayMarkers.layer,
 ).pipe(
   // Core Services
-  Layer.provideMerge(
-    CodexCloud.layer.pipe(
-      Layer.provide(CodexCloudCli.layer.pipe(Layer.provide(ProcessRunner.layer))),
-    ),
-  ),
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
@@ -814,7 +806,6 @@ const layerMakeRoutes = Layer.mergeAll(
     teamSpacesRouteLayer,
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
-    CodexCloudHttp.layer,
     organizationIntakeHttpRouteLayer,
     agentDashboardFeedRouteLayer,
     operatorRouteLayer,

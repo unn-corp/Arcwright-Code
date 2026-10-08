@@ -1,7 +1,13 @@
 # Voice dictation
 
-The T3 voice composer records audio locally, sends it to an OpenWhispr Whisper service on the
-connected T3 server, and inserts the returned transcript into the composer. The desktop build can also
+Arcwright Code records audio on the device you are using, uploads the clip through your authenticated
+connection to the composer's environment, and inserts the returned text into the draft. That
+environment processes the clip with its own OpenWhispr Whisper service, just as it does for a
+recording made on that computer. This applies to both the main and annotation composers.
+
+Your client device does not need OpenWhispr or a local transcription service installed. It needs
+microphone access; transcription must be configured on the environment you are accessing. If that
+environment's service is unavailable, dictation reports the problem. The desktop build can also
 send configured start and end keybinds to the focused desktop application on Linux.
 
 ## One-click setup
@@ -17,6 +23,12 @@ agent runs on that remote machine. Run OpenWhispr on each T3 server where you wa
 the microphone stays on the phone or computer running the client.
 
 ## Requirements
+
+The desktop preview browser can also request microphone access for the local app at
+`http://127.0.0.1:5274`. Choose **Allow microphone** or **Deny** when prompted. The choice is
+saved for that browser profile; incognito choices last only for the session. Camera access is
+blocked. Clear the profile's site data to choose again. This permission is separate from T3's
+composer dictation settings.
 
 - A connected T3 desktop, web, or PWA client with voice dictation enabled.
 - An OpenWhispr Whisper service on the connected T3 server, listening at `http://127.0.0.1:8178/inference`. The endpoint
@@ -39,6 +51,14 @@ the microphone stays on the phone or computer running the client.
 5. Click the microphone while startup or transcription is pending to cancel. A stalled
    transcription stops after about a minute so you can try again.
 
-If transcription fails, check that OpenWhispr is running on the connected T3 server and that `http://127.0.0.1:8178/inference` responds on that server. If keybinds do not reach the
-focused application on Linux, check that `ydotool` is installed and its input daemon is running
-with permission for your user.
+You can also dictate a preview annotation in the desktop app. Click **Annotate** to capture the
+current page into a saved modal, then use its microphone to add your comment. It uses the same
+microphone and transcription settings as the main composer. Finish or cancel transcription
+before attaching or sending the annotation.
+
+The captured screenshot, element details, marks, and comment stay in the modal when the preview
+navigates or reloads. A completed capture also restores after an app reload. **Close**, Escape,
+and clicking outside the modal ask you to confirm discarding it; **Keep editing** preserves it.
+Use **Attach to draft** or **Send** when you are finished. Sending requires the original thread
+to be open; otherwise you can attach the annotation to that thread's draft. Discarding the
+annotation also cancels dictation.

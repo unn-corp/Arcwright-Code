@@ -19,6 +19,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { NativeTeamProjectDialog } from "../components/team/NativeTeamProjects";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
+import { PreviewAnnotationEditorHost } from "../components/preview/PreviewAnnotationEditor";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
@@ -245,6 +246,7 @@ function RootRouteView() {
           {isAndroidPwa ? <AndroidNotificationCoordinator /> : null}
           <ReopenClosedViewShortcut />
           <ConfirmDialogHost />
+          <PreviewAnnotationEditorHost />
           <CustomSnoozeDialogHost />
           <SlowRpcRequestToastCoordinator />
           <PermissionUpdateNotice />

@@ -139,6 +139,11 @@ own phone execution. [PreviewView.tsx](../../apps/web/src/components/preview/Pre
 [TemporaryShareProxy.ts](../../apps/server/src/preview/TemporaryShareProxy.ts) own host sharing and
 cleanup. Desktop/headless automation and recordings now use the host's
 [ServerBrowser.ts](../../apps/server/src/preview/ServerBrowser.ts) and desktop CDP channel.
+Desktop page text insertion belongs to the attached tab's WebContents, without switching the
+visible tab or desktop focus. [DesktopBrowserHost.test.ts](../../apps/desktop/src/preview/DesktopBrowserHost.test.ts)
+covers two-tab draft isolation and failed insertion without retrying into another guest. Root
+keyboard events require that same guest to have desktop focus; otherwise they fail with instructions
+to select the requested tab or operate its DOM controls, without moving focus or replaying input.
 The server encodes recordings, enforces the attachment size limit, and persists conversation
 attachments; the retired Electron renderer upload helper is no longer an admission boundary.
 [ServerBrowser.test.ts](../../apps/server/src/preview/ServerBrowser.test.ts) covers broker routing and
@@ -189,6 +194,26 @@ the existing cover/unfolded resize checks.
 [OpenWhisprVoiceInput.tsx](../../apps/web/src/components/chat/OpenWhisprVoiceInput.tsx)
 uses the shared client-operation guard; its [interaction tests](../../apps/web/src/components/chat/OpenWhisprVoiceInput.test.tsx)
 cover denied admission, cancelled permission acquisition, and pending transcription.
+Desktop preview annotations use the same recorder in
+[PreviewAnnotationEditor.tsx](../../apps/web/src/components/preview/PreviewAnnotationEditor.tsx).
+The app-root modal owns a frozen screenshot and extracted element metadata, independently of the
+preview tab's navigation or lifetime. The typed snapshot IPC captures both in the desktop process;
+the inspected page never owns the editor or microphone. Keep the draft, original thread, marks,
+and comment in the IndexedDB-backed [editor store](../../apps/web/src/previewAnnotationEditorStore.ts)
+so app reloads restore completed captures. Escape, backdrop clicks, and Close request discard
+approval; only explicit discard or successful attachment/submission clears the session. Capture
+and attachment failures must leave the modal open. Unmounting cancels dictation and late transcripts
+cannot update another session. Keep capture, persistence, dismissal, and send regression tests
+alongside these modules.
+
+Preview-page microphone permissions are separate from the annotation editor's recorder.
+[MicrophonePermission.ts](../../apps/desktop/src/preview/MicrophonePermission.ts), installed by
+[BrowserSession.ts](../../apps/desktop/src/preview/BrowserSession.ts), prompts only for top-level,
+audio-only requests from `http://127.0.0.1:5274`. Both Electron handlers enforce that exact origin
+and media type; video, mixed requests, and subframes remain denied. Store Allow/Deny in the
+partition's own storage directory, keep incognito choices in memory, and reset the choice during
+profile site-data clearing. Keep profile isolation, persistence, navigation-during-prompt, and
+camera-denial checks in [MicrophonePermission.test.ts](../../apps/desktop/src/preview/MicrophonePermission.test.ts).
 
 **Verification and coupling.** Keep the corresponding component, pointer, drag, and draft tests
 with these modules. Verify keyboard and touch interaction, one Send/microphone/prompt, opening
@@ -252,24 +277,82 @@ authorization.
 
 ## Experimental Codex Cloud integration
 
-**Behavior and delivery.** Projects can bind cloud tasks to a configured Codex
-account and published environment. A separate outbound worker experiment supports
-successive Codex/Claude jobs in an ephemeral checkout. This is source delivery with
-fixture verification; live cloud/account commissioning remains required. Existing
-local conversations and checkpoints do not become cloud sessions. See the
-[user setup](../user/providers-codex.md#run-work-in-codex-cloud) and
-[network boundary](../internals/remote.md#ephemeral-cloud-workers).
+**Behavior and delivery.** A compatible T3 server inside a Codex Cloud VM supports
+ordinary environment-local conversations through a private HTTP/WebSocket route.
+Live Squidhub commissioning verified Claude and owner-only Personal Codex chats;
+clarity-relay also verified independent Personal sign-in, completed Codex turns,
+and conversation persistence across a Browser reload. Unnamed and Work remain
+uncommissioned. Tunnel provisioning and VM lifecycle remain experimental, and
+pairing a test Browser does not pair the user's desktop profile. See
+[user setup](../user/cloud-environments.md) and
+[network architecture](../internals/remote.md#cloud-vm-environments).
 
-**Ownership and verification.** The [cloud service](../../apps/server/src/codexCloud)
-owns account isolation, submission records, credentials, and worker job lifecycle.
-The [shared panel](../../apps/web/src/components/codexCloud) supplies web, desktop,
-and fork APK controls; upstream native mobile has no panel. RPC permissions,
-MCP caller limits, and maintenance admission apply to cloud commands. Preserve the
-optional `codexCloudTasks` descriptor capability for mixed-version connections.
-Run the focused cloud CLI/service/worker tests and the shared command-permission
-suite when changing these paths. Provider login changes must not redirect existing
-jobs, and worker reconnection must not replay uncertain edits. Do not commission by
-starting a development server against the installed T3 data home.
+The [Linux VM setup helper](../../scripts/cloud-environment.py) initializes only
+a fresh private home with the verified fork installer and runs the native service
+launcher without an OS service manager. It enables existing per-host maintenance
+controls; `setup` combines fresh initialization and managed launch, while
+status/update/auto-update call the same authenticated operator controller.
+`setup/init --repository` with the account list and confirmed owner derives
+`repository (Owner) — Codex Cloud`; `--name` accepts an explicit name instead.
+Both store a repository label, passed as `T3CODE_ENVIRONMENT_LABEL`
+to the launcher and every restarted runtime. Server descriptor naming resolves
+that override before host discovery, leaving the persisted environment ID intact.
+It requires delivery of the updated server label resolver as well as the helper;
+older release archives still publish their discovered hostname.
+`export-accounts` reads a source settings file and exports only Codex provider IDs,
+labels, and enabled preferences. `setup/init --accounts` requires a confirmed
+`--owner-account` ID and seeds only that owner by default, including its new-chat
+and text-generation selections. `--include-account` explicitly opts additional
+IDs into fresh setup; later additions use the existing Providers flow. When the
+default `codex` slot is not selected, its legacy configuration is disabled so
+registry hydration cannot silently add an enabled ambient-login provider. All
+selected entries use a VM-local shared workspace home; separate browser sign-ins and
+the existing protected provider credential stores own their sessions. No host
+paths, environment variables, or credentials are exported. Subsequent starts
+preserve provider changes. The helper's tests cover export privacy, malformed
+lists, owner selection, explicit extras, fresh seeding, and refusal to rewrite
+configured homes. An isolated live Squidhub VM verified owner-only Personal
+selection, independent managed browser sign-in, a completed GPT-6-Luna turn,
+and a follow-up after pairing through the private route. Unnamed, Work, and
+multi-account Codex authentication and inference remain uncommissioned.
+Client environment naming belongs to the shared connection catalog and its
+web/desktop/fork Android Connections menu and upstream mobile details. Overrides
+are device-local presentation data, survive discovery/route refresh, and never
+replace the registry's live connection target. Server naming remains the default
+for clients without an override. Removing a saved environment forgets its name.
+Fresh cloud homes seed the native update policy with automatic installation on
+(or `init --auto off`), without confirming bootstrap review. Later policy changes
+persist through that controller, retain pins and all activity blockers, and are
+never rewritten by a subsequent start. It never
+replaces an existing home, fabricates launcher context, or bypasses activity,
+snapshot, trial, health, or recovery admission. Verify its fresh-home refusal,
+recorded-version selection, duplicate-start lock, and owned-process shutdown with
+`python3 scripts/cloud-environment.test.py`. Initial managed-launch commissioning
+used isolated Linux state; transition of the existing Squidhub server and a live
+cloud binary replacement remain uncommissioned. See
+[cloud environment updates](../user/updating.md#cloud-vm-environments) and the
+[Codex Cloud setup runbook](../user/cloud-environments.md). Reusable image preparation
+and task startup are documented separately; tunnel provisioning, client pairing,
+and account/VM lifecycle automation remain uncommissioned.
+
+Native Linux server startup also provisions the detached Organization launch
+broker. Preserve its bootstrap in `cli/server.ts` and command registration in
+`binCli.ts`; the launcher cannot quiesce scopes without it. Keep the native broker
+CLI/quiescence regression in `OrganizationScopeLaunchBrokerCli.test.ts` and guarded
+older-home provisioning tests in `maintenance/scopeBrokerBootstrap.test.ts` with
+release update verification. The supported `maintenance scope-broker` operation
+uses a verified corrected CLI only to provision that broker for an existing idle
+managed home; it does not install that CLI's build or relax update admission.
+
+**Ownership and verification.** The [managed setup helper](../../scripts/cloud-environment.py)
+owns fresh VM setup and managed launch. Ordinary environment connections and
+provider adapters own pairing, account isolation, conversation execution, and
+maintenance admission. The former Cloud tasks panel, controller worker service,
+and their RPC/MCP transports have been removed. Existing saved controller data
+is not migrated into VM conversations or deleted from installed data homes.
+Run the helper's focused tests and normal connection/provider suites when changing
+these paths. Do not commission by starting a development server against the
+installed T3 data home.
 
 ## Checkpoints and model compatibility
 

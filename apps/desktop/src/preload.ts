@@ -110,6 +110,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   getLocalEnvironmentBearerToken: () =>
     ipcRenderer.invoke(IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL),
+  getLocalEnvironmentEnabled: () =>
+    ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL),
+  setLocalEnvironmentEnabled: (enabled) =>
+    ipcRenderer.invoke(IpcChannels.SET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL, enabled),
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),
@@ -409,6 +413,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         tabId,
         enabled,
       }),
+    captureAnnotationSnapshot: (tabId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_CAPTURE_ANNOTATION_SNAPSHOT_CHANNEL, { tabId }),
     pickElement: (tabId) => ipcRenderer.invoke(IpcChannels.PREVIEW_PICK_ELEMENT_CHANNEL, { tabId }),
     cancelPickElement: (tabId) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_CANCEL_PICK_ELEMENT_CHANNEL, {

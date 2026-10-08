@@ -51,7 +51,16 @@ export const reconcileTeamMigrationHistory = Effect.fn("reconcileTeamMigrationHi
   const legacy = history.some((row) => row.migration_id === 55 && row.name === "TeamSpaces");
   const integrated = history.some((row) => row.migration_id === 95 && row.name === "TeamSpaces");
   // Upstream and early v2 previews have their own identity-aware reconciler.
-  if (history.some((row) => row.name === "OrchestrationV2" && row.migration_id <= 55))
+  const upstream =
+    !legacy &&
+    !integrated &&
+    history.some((row) => row.migration_id === 36 && row.name === "ProjectionThreadsPinned") &&
+    !history.some(
+      (row) =>
+        (row.migration_id === 53 && row.name === "ProjectionThreadsActiveOrderKey") ||
+        (row.migration_id === 54 && row.name === "ProjectionThreadPullRequests"),
+    );
+  if (upstream || history.some((row) => row.name === "OrchestrationV2" && row.migration_id <= 55))
     return entries;
   const desktopNames = new Map<number, string>([
     [36, "ProjectionThreadsPinned"],

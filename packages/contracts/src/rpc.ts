@@ -70,15 +70,6 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import {
-  CodexCloudReadInput,
-  CodexCloudSnapshot,
-  CodexCloudCommandInput,
-  CodexCloudCommandResult,
-  CodexCloudWorkerSetupInput,
-  CodexCloudWorkerSetupResult,
-  CodexCloudError,
-} from "./codexCloud.ts";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   CodexAuthCallbackInput,
@@ -586,9 +577,6 @@ import {
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
-  codexCloudRead: "codexCloud.read",
-  codexCloudCommand: "codexCloud.command",
-  codexCloudWorkerSetup: "codexCloud.workerSetup",
   // Project registry methods
   organizationsList: "organizations.list",
   organizationsCreate: "organizations.create",
@@ -2113,22 +2101,6 @@ export const WsCodexSessionsListRpc = Rpc.make(WS_METHODS.codexSessionsList, {
   error: Schema.Union([ForkMaintenanceError, EnvironmentAuthorizationError]),
 });
 
-const WsCodexCloudReadRpc = Rpc.make(WS_METHODS.codexCloudRead, {
-  payload: CodexCloudReadInput,
-  success: CodexCloudSnapshot,
-  error: Schema.Union([CodexCloudError, ForkMaintenanceError, EnvironmentAuthorizationError]),
-});
-const WsCodexCloudCommandRpc = Rpc.make(WS_METHODS.codexCloudCommand, {
-  payload: CodexCloudCommandInput,
-  success: CodexCloudCommandResult,
-  error: Schema.Union([CodexCloudError, ForkMaintenanceError, EnvironmentAuthorizationError]),
-});
-const WsCodexCloudWorkerSetupRpc = Rpc.make(WS_METHODS.codexCloudWorkerSetup, {
-  payload: CodexCloudWorkerSetupInput,
-  success: CodexCloudWorkerSetupResult,
-  error: Schema.Union([CodexCloudError, ForkMaintenanceError, EnvironmentAuthorizationError]),
-});
-
 export const WsCodexSessionsResumeRpc = Rpc.make(WS_METHODS.codexSessionsResume, {
   payload: CodexSessionsResumeInput,
   success: CodexSessionsResumeResult,
@@ -2940,9 +2912,6 @@ export const LocalTeamRpcGroup = RpcGroup.make(
 );
 
 export const WsRpcGroup = RpcGroup.make(
-  WsCodexCloudReadRpc,
-  WsCodexCloudCommandRpc,
-  WsCodexCloudWorkerSetupRpc,
   WsThreadExportRpc,
   WsOrganizationsListRpc,
   WsOrganizationsCreateRpc,
@@ -3292,9 +3261,6 @@ export const ForkWsRpcGroup = RpcGroup.make(
 ).middleware(RpcScopeAuthorization);
 
 export const ForkExtraWsRpcGroup = RpcGroup.make(
-  WsCodexCloudReadRpc,
-  WsCodexCloudCommandRpc,
-  WsCodexCloudWorkerSetupRpc,
   WsThreadExportRpc,
   WsCodexSessionsListRpc,
   WsCodexSessionsResumeRpc,
