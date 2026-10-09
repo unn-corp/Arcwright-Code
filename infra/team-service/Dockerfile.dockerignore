@@ -8,6 +8,16 @@
 !LICENSE
 !NOTICE.md
 !THIRD_PARTY_NOTICES.md
+!third-party-licenses.config.json
+# License texts the web build's third-party manifest reads.
+!native/
+!native/libghostty-vt/
+!native/libghostty-vt/LICENSE
+!apps/mobile/modules/
+!apps/mobile/modules/t3-composer-editor/
+!apps/mobile/modules/t3-composer-editor/LICENSE
+!apps/mobile/modules/t3-markdown-text/
+!apps/mobile/modules/t3-markdown-text/LICENSE
 !patches/
 !patches/**
 !assets/
@@ -39,6 +49,9 @@
 **/.env.*
 **/secrets
 **/secrets/**
+# Server source for secret requests; it holds code, never credentials.
+!apps/server/src/secrets/
+!apps/server/src/secrets/*.ts
 **/node_modules
 **/node_modules/**
 **/dist
