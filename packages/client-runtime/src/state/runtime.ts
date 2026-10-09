@@ -634,7 +634,14 @@ export function createEnvironmentCommand<R, ER, Input, A, E>(
     execute: (target, registry) =>
       runInEnvironment(
         target.environmentId,
-        options.execute(target.input, registry, target.environmentId),
+        options.execute(target.input, registry, target.environmentId).pipe(
+          // Composite commands may make protected calls, such as saving a Teams
+          // sharing choice before thread.create; check them against the live grant.
+          Effect.provideService(RpcPermissionGuard, {
+            authorize: (id, method, payload) =>
+              createCommandPermissions(runtime, method).authorize(registry, id, payload),
+          }),
+        ),
       ),
   });
 }
