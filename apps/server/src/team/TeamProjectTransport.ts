@@ -64,8 +64,17 @@ export const makeTeamProjectTransport = Effect.gen(function* () {
       ).pipe(HttpClientRequest.bearerToken(credential.accessToken));
       if (body !== undefined) outgoing = yield* HttpClientRequest.bodyJson(outgoing, body);
       const response = yield* http.execute(outgoing);
-      if (response.status === 401 || response.status === 403)
-        return yield* localTeamError("access");
+      if (response.status === 401 || response.status === 403) {
+        const denial = yield* response.json.pipe(Effect.orElseSucceed(() => null));
+        return yield* localTeamError(
+          typeof denial === "object" &&
+            denial !== null &&
+            "error" in denial &&
+            denial.error === "project_deleted"
+            ? "deleted"
+            : "access",
+        );
+      }
       if (response.status !== 200) return yield* localTeamError("network");
       let bytes = 0;
       const text = yield* response.stream.pipe(
@@ -194,7 +203,18 @@ export const makeTeamProjectTransport = Effect.gen(function* () {
     membership: (credential: TeamProjectCredential, command: unknown) =>
       request(credential, "/api/team/command", command).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(TeamCommandResult)),
-        Effect.mapError(() => localTeamError("access")),
+        Effect.mapError((error) =>
+          isLocalProjectError(error) && error.reason === "deleted"
+            ? error
+            : localTeamError("access"),
+        ),
+      ),
+    deleteProject: (credential: TeamProjectCredential, spaceId: string) =>
+      request(credential, "/api/team/command", { action: "deleteProject", spaceId }).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(TeamCommandResult)),
+        Effect.mapError((error) =>
+          isLocalProjectError(error) ? error : localTeamError("network"),
+        ),
       ),
     create: (
       credential: TeamProjectCredential,

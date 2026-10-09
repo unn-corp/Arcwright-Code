@@ -159,6 +159,27 @@ export const makeTeamNativeProjects = Effect.gen(function* () {
       ),
     { idleTimeToLive: "30 seconds" },
   );
+  // Drops a deleted project's conversation database and shared files. Safe to repeat.
+  const remove = Effect.fn("TeamNativeProjects.remove")(function* (spaceId: string) {
+    if (!projectPattern.test(spaceId)) return;
+    yield* runtimes.invalidate(spaceId);
+    for (const directory of [
+      path.join(root, spaceId),
+      path.join(config.stateDir, "team-repositories", spaceId),
+    ])
+      yield* fs.remove(directory, { recursive: true, force: true });
+  });
+  // Finish cleanup for projects whose deletion was interrupted by a restart.
+  yield* Effect.forEach(
+    spaces.deletedProjects,
+    (spaceId) =>
+      remove(spaceId).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Deleted shared project storage could not be removed.", cause),
+        ),
+      ),
+    { discard: true },
+  );
 
   const open = Effect.fn("TeamNativeProjects.open")(function* (spaceId: string) {
     if (!projectPattern.test(spaceId)) return yield* denied();
@@ -294,6 +315,10 @@ export const makeTeamNativeProjects = Effect.gen(function* () {
             )
               return yield* denied("command_not_supported");
             break;
+          case "thread.delete":
+            // Removing a conversation for everyone is reserved for project owners.
+            yield* spaces.requireRole(identity.userId, spaceId, true, true);
+            break;
           case "thread.archive":
           case "thread.unarchive":
           case "sidethread.create":
@@ -316,7 +341,9 @@ export const makeTeamNativeProjects = Effect.gen(function* () {
           yield* runtime.requireThread(
             projectId,
             input.threadId,
-            input.type === "thread.unarchive" || input.type === "thread.archive",
+            input.type === "thread.unarchive" ||
+              input.type === "thread.archive" ||
+              input.type === "thread.delete",
           );
         if ("sideThreadId" in input && input.sideThreadId !== sideThreadIdForThread(input.threadId))
           return yield* denied();
@@ -435,7 +462,7 @@ export const makeTeamNativeProjects = Effect.gen(function* () {
       repository,
     };
   });
-  return { connect };
+  return { connect, remove };
 });
 export class TeamNativeProjects extends Context.Service<
   TeamNativeProjects,

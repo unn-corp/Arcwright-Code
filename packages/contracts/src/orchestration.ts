@@ -1834,6 +1834,15 @@ const ThreadPublicationArchiveCommand = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+/** Issued only by the authenticated cloud publication boundary; never a client command. */
+const ThreadPublicationSettleCommand = Schema.Struct({
+  type: Schema.Literal("thread.publication.settle"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  settled: Schema.Boolean,
+  updatedAt: IsoDateTime,
+});
+
 const ThreadPublicationMessageCommand = Schema.Struct({
   type: Schema.Literal("thread.publication.message"),
   commandId: CommandId,
@@ -1910,6 +1919,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadHistoryImportCommand,
   ThreadPublicationMessageCommand,
   ThreadPublicationArchiveCommand,
+  ThreadPublicationSettleCommand,
   ThreadBootstrapHistoryImportCommand,
   ThreadMessageUserAppendCommand,
   ThreadProposedPlanUpsertCommand,

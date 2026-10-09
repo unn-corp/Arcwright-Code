@@ -97,6 +97,7 @@ export const TeamCommand = Schema.Union([
   }),
   Schema.Struct({ action: Schema.Literal("stopRun"), spaceId: Id, runId: Id }),
   Schema.Struct({ action: Schema.Literal("message"), spaceId: Id, text: Text }),
+  Schema.Struct({ action: Schema.Literal("deleteProject"), spaceId: Id }),
 ]);
 export type TeamCommand = typeof TeamCommand.Type;
 export interface TeamIdentity {

@@ -8,6 +8,7 @@ import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import {
+  AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
@@ -58,6 +59,7 @@ import { useClientSettings } from "./useSettings";
 import * as ThreadUndo from "./threadUndo";
 import { showThreadUndoNotice } from "./showThreadUndoNotice";
 import { useAtomCommand } from "../state/use-atom-command";
+import { teamLinksValueAtom, teamProjects } from "../state/teamProjects";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 
@@ -306,6 +308,7 @@ export function useThreadActions() {
   });
   const markThreadUnread = useMarkThreadUnread();
   const stopThreadSession = useOrchestrationCommand(threadEnvironment.stopSession);
+  const teamControl = useAtomCommand(teamProjects.control, { reportFailure: false });
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
     reportFailure: false,
   });
@@ -522,6 +525,46 @@ export function useThreadActions() {
         shouldDeleteWorktree = confirmationResult.value;
       }
 
+      // A project owner on this machine's owner session may also remove the shared copy.
+      const sharedLink = appAtomRegistry
+        .get(teamLinksValueAtom(threadRef.environmentId))
+        .find((entry) => entry.link.projectId === thread.projectId);
+      const sharedCopy = sharedLink?.publications.find(
+        (publication) =>
+          publication.threadId === threadRef.threadId &&
+          publication.sharedThreadId !== null &&
+          publication.status !== "deleted",
+      );
+      if (
+        sharedCopy &&
+        sharedLink?.link.role === "owner" &&
+        localApi &&
+        readEnvironmentScope(threadRef.environmentId, AuthAccessWriteScope)
+      ) {
+        const confirmationResult = await settlePromise(() =>
+          localApi.dialogs.confirm(
+            [
+              "This conversation is shared with your team.",
+              "",
+              "Also delete the shared copy for everyone?",
+            ].join("\n"),
+            { variant: "destructive" },
+          ),
+        );
+        if (confirmationResult._tag === "Failure") return confirmationResult;
+        if (confirmationResult.value) {
+          const sharedResult = await teamControl({
+            environmentId: threadRef.environmentId,
+            input: {
+              action: "delete-shared-thread",
+              projectId: thread.projectId,
+              threadId: threadRef.threadId,
+            },
+          });
+          if (sharedResult._tag === "Failure") return sharedResult;
+        }
+      }
+
       if (thread.runtime !== null) {
         await stopThreadSession({
           environmentId: threadRef.environmentId,
@@ -649,6 +692,7 @@ export function useThreadActions() {
       resolveThreadTarget,
       sidebarThreadSortOrder,
       stopThreadSession,
+      teamControl,
     ],
   );
 

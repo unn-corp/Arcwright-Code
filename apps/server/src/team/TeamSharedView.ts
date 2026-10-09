@@ -27,7 +27,14 @@ export const sharedSummary = (
   mappings: ReadonlyArray<LocalTeamPublicationRow>,
   thread: Pick<
     OrchestrationThreadShell,
-    "id" | "title" | "modelSelection" | "createdBy" | "createdAt" | "updatedAt" | "archivedAt"
+    | "id"
+    | "title"
+    | "modelSelection"
+    | "createdBy"
+    | "createdAt"
+    | "updatedAt"
+    | "archivedAt"
+    | "settledAt"
   > &
     Pick<Partial<OrchestrationThreadShell>, "teamDiscussion">,
 ): TeamSharedThreadSummary => {
@@ -43,6 +50,7 @@ export const sharedSummary = (
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     archivedAt: thread.archivedAt,
+    settledAt: thread.settledAt,
     source: {
       displayProjectRef: { projectId },
       readSource: owned

@@ -26,7 +26,8 @@ export function SharedProjectThreads({
   return preferred?.preferred === JSON.stringify([environmentId, projectId]) &&
     link &&
     link.status !== "account-changed" &&
-    link.status !== "access-revoked" ? (
+    link.status !== "access-revoked" &&
+    link.status !== "deleted" ? (
     <SharedProjectThreadList
       key={`${link.id}:${link.generation}`}
       environmentId={environmentId}
@@ -56,16 +57,20 @@ function SharedProjectThreadList({
   const shared = useEnvironmentQuery(
     teamProjects.project({ environmentId, sourceScope, input: { projectId } }),
   );
-  const threads = useMemo(
-    () =>
+  // Settled conversations follow the active ones, as in the local sidebar.
+  const threads = useMemo(() => {
+    const visible =
       shared.data?.filter(
         (thread) =>
           thread.source.executionRef === null &&
           !owned.has(thread.id) &&
           thread.archivedAt === null,
-      ) ?? [],
-    [shared.data, owned],
-  );
+      ) ?? [];
+    return [
+      ...visible.filter((thread) => !thread.settledAt),
+      ...visible.filter((thread) => thread.settledAt),
+    ];
+  }, [shared.data, owned]);
   return (
     <div className="px-2 text-sm">
       {threads.length > 0 && (
@@ -102,6 +107,7 @@ function SharedProjectThreadList({
           <span className="truncate text-xs text-muted-foreground">
             {thread.createdBy?.displayName ?? "Team member"} - {thread.display.provider}{" "}
             {thread.display.model}
+            {thread.settledAt ? " - settled" : ""}
           </span>
         </Link>
       ))}

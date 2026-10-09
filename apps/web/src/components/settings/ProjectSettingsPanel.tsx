@@ -1125,6 +1125,7 @@ function ProjectDetail({
             key={`${representative.environmentId}:${representative.id}`}
             environmentId={representative.environmentId}
             projectId={representative.id}
+            projectTitle={representative.title}
           />
         </SettingsSection>
 

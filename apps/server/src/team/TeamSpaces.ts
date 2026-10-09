@@ -37,12 +37,22 @@ export const makeTeamSpaces = Effect.gen(function* () {
   const versions = new Map<string, number>();
   const accessVersion = (spaceId: string, userId: string) =>
     versions.get(`${spaceId}:${userId}`) ?? 0;
+  // A deleted project keeps only its row and creation event, plus a project.deleted
+  // event, so stale clients learn it was deleted rather than seeing a generic denial.
+  const deletedProjects = new Set(
+    (yield* sql<{
+      spaceId: string;
+    }>`SELECT space_id AS "spaceId" FROM team_events WHERE kind='project.deleted'`).map(
+      (row) => row.spaceId,
+    ),
+  );
   // Hold this permit through the native dispatch receipt. A queued native write
   // cannot outlive a concurrent membership removal or role change.
   const withAuthority = authority.withPermits(1);
   const project = Effect.fn("TeamSpaces.project")(function* (spaceId: string) {
     if (!/^[a-f0-9]{32}$/.test(spaceId))
       return yield* new TeamDenied({ reason: "project_access_denied" });
+    if (deletedProjects.has(spaceId)) return yield* new TeamDenied({ reason: "project_deleted" });
     const rows = yield* sql<{ id: string; name: string; creator: string; createdAt: number }>`
       SELECT s.id,s.name,e.actor AS creator,e.created_at AS "createdAt"
       FROM team_spaces s JOIN team_events e ON e.space_id=s.id AND e.kind='project.created'
@@ -330,9 +340,11 @@ export const makeTeamSpaces = Effect.gen(function* () {
   const list = Effect.fn("TeamSpaces.list")(function* (userId: string) {
     const role = yield* rosterRole(userId);
     if (!role) return [];
-    return role === "owner"
-      ? yield* sql<TeamSpace>`SELECT id,name,'owner' AS role FROM team_spaces ORDER BY name,id`
-      : yield* sql<TeamSpace>`SELECT s.id,s.name,CASE WHEN EXISTS(SELECT 1 FROM team_events e WHERE e.space_id=s.id AND e.kind='project.created' AND e.actor=${userId}) THEN 'owner' ELSE m.role END AS role FROM team_spaces s JOIN team_members m ON m.space_id=s.id WHERE m.user_id=${userId} ORDER BY s.name,s.id`;
+    const spaces =
+      role === "owner"
+        ? yield* sql<TeamSpace>`SELECT id,name,'owner' AS role FROM team_spaces ORDER BY name,id`
+        : yield* sql<TeamSpace>`SELECT s.id,s.name,CASE WHEN EXISTS(SELECT 1 FROM team_events e WHERE e.space_id=s.id AND e.kind='project.created' AND e.actor=${userId}) THEN 'owner' ELSE m.role END AS role FROM team_spaces s JOIN team_members m ON m.space_id=s.id WHERE m.user_id=${userId} ORDER BY s.name,s.id`;
+    return spaces.filter((space) => !deletedProjects.has(space.id));
   });
   const snapshot = Effect.fn("TeamSpaces.snapshot")(function* (
     userId: string,
@@ -459,6 +471,22 @@ export const makeTeamSpaces = Effect.gen(function* () {
       command.action === "stopRun"
     )
       return yield* new TeamDenied({ reason: "agents_run_locally" });
+    if (command.action === "deleteProject") {
+      // Project owners only: the creator or a team owner.
+      yield* requireRole(userId, command.spaceId, true, true);
+      const removedMembers = (yield* sql<{
+        userId: string;
+      }>`SELECT user_id AS "userId" FROM team_members WHERE space_id=${command.spaceId}`).map(
+        (row) => row.userId,
+      );
+      yield* sql`DELETE FROM team_invites WHERE space_id=${command.spaceId}`;
+      yield* sql`DELETE FROM team_revocations WHERE space_id=${command.spaceId}`;
+      yield* sql`DELETE FROM team_runs WHERE space_id=${command.spaceId}`;
+      yield* sql`DELETE FROM team_members WHERE space_id=${command.spaceId}`;
+      yield* sql`DELETE FROM team_events WHERE space_id=${command.spaceId} AND kind<>'project.created'`;
+      yield* record(command.spaceId, userId, "project.deleted", "");
+      return { spaceId: command.spaceId, removedMembers };
+    }
     const spaceId = command.spaceId;
     yield* requireRole(
       userId,
@@ -534,7 +562,16 @@ export const makeTeamSpaces = Effect.gen(function* () {
   });
   const commandWithAudit = (identity: TeamIdentity, command: TeamCommand, mayCreate = false) =>
     execute(identity, command, mayCreate).pipe(
-      Effect.tap(() => {
+      Effect.tap((result) => {
+        if ("removedMembers" in result)
+          return Effect.gen(function* () {
+            deletedProjects.add(result.spaceId);
+            for (const userId of new Set([...(result.removedMembers ?? []), identity.userId])) {
+              const key = `${result.spaceId}:${userId}`;
+              versions.set(key, accessVersion(result.spaceId, userId) + 1);
+              yield* PubSub.publish(accessChanges, { spaceId: result.spaceId, userId });
+            }
+          });
         if (
           command.action !== "removeMember" &&
           command.action !== "setRole" &&
@@ -550,8 +587,9 @@ export const makeTeamSpaces = Effect.gen(function* () {
           });
         });
       }),
+      Effect.map((result) => ("removedMembers" in result ? { spaceId: result.spaceId } : result)),
       Effect.tapError((error) =>
-        error instanceof TeamDenied && "spaceId" in command
+        error instanceof TeamDenied && "spaceId" in command && !deletedProjects.has(command.spaceId)
           ? Effect.gen(function* () {
               const exists = yield* sql`SELECT id FROM team_spaces WHERE id=${command.spaceId}`;
               if (exists.length)
@@ -587,6 +625,7 @@ export const makeTeamSpaces = Effect.gen(function* () {
     withAuthority,
     accessVersion,
     accessChanges,
+    deletedProjects: deletedProjects as ReadonlySet<string>,
   };
 });
 export class TeamSpaces extends Context.Service<

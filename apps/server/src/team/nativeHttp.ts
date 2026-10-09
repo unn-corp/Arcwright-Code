@@ -126,15 +126,22 @@ const json = (value: unknown) =>
 const safe = <E, R>(effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
   effect.pipe(
     Effect.provideService(HttpServerRequest.MaxBodySize, ByteSize.bytes(2048)),
-    Effect.catchCause(() =>
-      HttpServerResponse.json(
-        { error: "project_access_denied" },
+    Effect.catchCause((cause) => {
+      // Former members learn the project was deleted; every other failure stays opaque.
+      const deleted = cause.reasons.some(
+        (reason) =>
+          reason._tag === "Fail" &&
+          reason.error instanceof TeamDenied &&
+          reason.error.reason === "project_deleted",
+      );
+      return HttpServerResponse.json(
+        { error: deleted ? "project_deleted" : "project_access_denied" },
         {
           status: 403,
           headers: { "cache-control": "no-store" },
         },
-      ),
-    ),
+      );
+    }),
   );
 
 export const teamNativeRoutes = (auth: TeamAuthentication) =>

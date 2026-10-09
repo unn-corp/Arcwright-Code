@@ -1,10 +1,18 @@
 import { useRouter } from "@tanstack/react-router";
 import { TeamDiscussionButton } from "./TeamDiscussion";
-import { useEffect } from "react";
-import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { useEffect, useState } from "react";
+import {
+  AuthAccessWriteScope,
+  type EnvironmentId,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { teamProjects, sharedProjectSourceScope } from "../../state/teamProjects";
 import { useEnvironmentQuery } from "../../state/query";
+import { useEnvironmentScope } from "../../state/session";
+import { readLocalApi } from "../../localApi";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useComposerDraftStore, type DraftId } from "../../composerDraftStore";
@@ -52,6 +60,36 @@ function AuthorizedSharedChatView({
     reportDefect: false,
   });
   const links = useEnvironmentQuery(teamProjects.state({ environmentId, input: {} }));
+  const control = useAtomCommand(teamProjects.control, { reportFailure: false });
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  // Project owners delete teammates' conversations from this machine's owner session only.
+  const canDeleteForEveryone =
+    useEnvironmentScope(environmentId, AuthAccessWriteScope) &&
+    links.data?.find((entry) => entry.link.projectId === projectId)?.link.role === "owner";
+  const deleteForEveryone = async () => {
+    const title = current?.thread.title ?? "this conversation";
+    const confirmed = await (readLocalApi()?.dialogs.confirm(
+      `Delete "${title}" for everyone?\nTeammates lose this shared conversation. Their local copies stay on their machines.`,
+      { variant: "destructive" },
+    ) ?? Promise.resolve(false));
+    if (!confirmed) return;
+    setDeleting(true);
+    setDeleteError("");
+    const result = await control({
+      environmentId,
+      input: { action: "delete-shared-thread", projectId, threadId },
+    });
+    setDeleting(false);
+    if (result._tag === "Failure") {
+      const error = squashAtomCommandFailure(result);
+      setDeleteError(
+        error instanceof Error ? error.message : "The shared conversation could not be deleted.",
+      );
+      return;
+    }
+    void router.navigate({ to: "/", replace: true });
+  };
   const current =
     stream.data?.snapshot &&
     (!snapshot.data || stream.data.snapshot.snapshotSequence >= snapshot.data.snapshotSequence)
@@ -135,14 +173,31 @@ function AuthorizedSharedChatView({
             {current?.thread.createdBy?.displayName ?? "Team member"} -{" "}
             {current?.thread.display.provider} {current?.thread.display.model}
             {current?.memberStatus ? ` - ${current.memberStatus.status} (member reported)` : ""}
+            {current?.thread.settledAt ? " - settled" : ""}
           </p>
         </div>
-        {current?.thread.source.access.discuss && (
-          <Button variant="outline" onClick={() => void continueLocally()}>
-            Continue with my agent
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {current?.thread.source.access.discuss && (
+            <Button variant="outline" onClick={() => void continueLocally()}>
+              Continue with my agent
+            </Button>
+          )}
+          {canDeleteForEveryone && current && (
+            <Button
+              variant="destructive-outline"
+              disabled={deleting}
+              onClick={() => void deleteForEveryone()}
+            >
+              Delete for everyone
+            </Button>
+          )}
+        </div>
       </header>
+      {deleteError && (
+        <p role="alert" className="px-4 pt-2 text-sm text-destructive">
+          {deleteError}
+        </p>
+      )}
       <div className="px-4 py-2">
         <TeamDiscussionButton
           environmentId={environmentId}
@@ -175,12 +230,17 @@ export function SharedChatView(props: {
     !link ||
     link.status === "account-changed" ||
     link.status === "access-revoked" ||
-    link.status === "root-changed"
+    link.status === "root-changed" ||
+    link.status === "deleted"
   )
     return (
       <SidebarInset>
         <div className="p-4">
-          <p>Reconnect this project's Teams account before viewing shared conversations.</p>
+          <p>
+            {link?.status === "deleted"
+              ? "The owner deleted this shared project. Its shared conversations are no longer available."
+              : "Reconnect this project's Teams account before viewing shared conversations."}
+          </p>
         </div>
       </SidebarInset>
     );

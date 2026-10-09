@@ -55,6 +55,7 @@ export const teamSpacesRouteLayer = Layer.unwrap(
     return Layer.unwrap(
       Effect.gen(function* () {
         const spaces = yield* TeamSpaces;
+        const native = yield* TeamNativeProjects;
         yield* spaces.bootstrapOwners([...creators]);
         const changes = yield* PubSub.sliding<string>(128);
         const tickets = new Map<
@@ -96,6 +97,15 @@ export const teamSpacesRouteLayer = Layer.unwrap(
           if (body.length > 16384) return HttpServerResponse.empty({ status: 413 });
           const input = yield* decodeCommand(body);
           const result = yield* spaces.execute(identity, input, creators.has(identity.userId));
+          // The deletion is committed; leftover storage is retried at the next startup.
+          if (input.action === "deleteProject")
+            yield* native
+              .remove(result.spaceId)
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Deleted shared project storage could not be removed.", cause),
+                ),
+              );
           yield* PubSub.publish(changes, result.spaceId);
           return yield* json(result);
         });

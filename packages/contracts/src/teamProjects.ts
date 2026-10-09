@@ -25,6 +25,7 @@ export const TeamSyncStatus = Schema.Literals([
   "access-revoked",
   "root-changed",
   "reset-required",
+  "deleted",
 ]);
 export type TeamSyncStatus = typeof TeamSyncStatus.Type;
 export const LocalTeamProjectLink = Schema.Struct({
@@ -99,6 +100,13 @@ export const LocalTeamProjectControl = Schema.Union([
     threadId: ThreadId,
   }),
   Schema.Struct({ action: Schema.Literal("publish"), projectId: ProjectId, threadId: ThreadId }),
+  // Owner-only: removes the shared copy for every member. Local folders and threads stay.
+  Schema.Struct({ action: Schema.Literal("delete-shared"), projectId: ProjectId }),
+  Schema.Struct({
+    action: Schema.Literal("delete-shared-thread"),
+    projectId: ProjectId,
+    threadId: ThreadId,
+  }),
 ]);
 export type LocalTeamProjectControl = typeof LocalTeamProjectControl.Type;
 export const LocalTeamProjectControlResult = Schema.Struct({
@@ -114,6 +122,8 @@ export const TeamSharedThreadSummary = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),
+  // Set while the publisher has settled the conversation on their machine.
+  settledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 export type TeamSharedThreadSummary = typeof TeamSharedThreadSummary.Type;
 export const TeamSharedMessage = Schema.Struct({
@@ -192,6 +202,7 @@ export class LocalTeamProjectError extends Schema.TaggedError<LocalTeamProjectEr
       "storage",
       "invalid",
       "limit",
+      "deleted",
     ]),
     message: Schema.String,
   },

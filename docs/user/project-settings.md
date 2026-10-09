@@ -282,6 +282,15 @@ publishing Git history does not automatically commit, reset, or merge your check
 Pause live files or unlink the project to stop synchronization. Unlinking keeps your
 local checkout, conversations, and already shared history.
 
+Settling or deleting a conversation, or removing a project, only changes your own
+machine. To remove shared data for everyone, the project creator or a team owner uses
+**Delete for everyone**: in Project settings for the whole project, or on a teammate's
+shared conversation. Deleting your own shared conversation also offers to delete its
+shared copy. These actions are available only from the T3 environment's owner session,
+not from browsers or phones paired with standard access. Deleting for everyone cannot
+be undone. Local folders and conversations on every machine stay, and teammates see the
+project as deleted.
+
 Agents and provider credentials stay on your own machine. Shared access controls
 limit collaboration and new agent starts through T3; they do not sandbox an agent's
 access to your local operating system. Shared file operations currently require a

@@ -81,6 +81,12 @@ export const makeTeamPublications = Effect.fnUntraced(function* (input: {
       return yield* denied("publisher");
     return value;
   });
+  // A project owner deleted this shared conversation; the publisher stops syncing it.
+  const requireLive = Effect.fnUntraced(function* (threadId: string) {
+    const deleted =
+      yield* sql`SELECT 1 FROM team_conversation_threads WHERE thread_id=${threadId} AND json_extract(state_json,'$.deletedAt') IS NOT NULL`;
+    if (deleted.length) return yield* denied("deleted");
+  });
   const guard = <A, E>(effect: Effect.Effect<A, E>) =>
     effect.pipe(
       input.withAuthority,
@@ -108,6 +114,7 @@ export const makeTeamPublications = Effect.fnUntraced(function* (input: {
     yield* sql`INSERT INTO team_publications(publication_id,project_id,subject,installation_id,capability_hash,thread_id)
       VALUES(${registration.publicationId},${input.projectId},${input.member.subject},${registration.installationId},${publicationHash(registration.capability)},${threadId}) ON CONFLICT(publication_id) DO NOTHING`;
     const publisher = yield* owner(registration);
+    yield* requireLive(threadId);
     return {
       threadId,
       revision: publisher.revision,
@@ -125,6 +132,7 @@ export const makeTeamPublications = Effect.fnUntraced(function* (input: {
     if (Buffer.byteLength(encoded) > TEAM_PUBLICATION_MAX_BYTES) return yield* denied("limit");
     const publisher = yield* owner(batch);
     const threadId = ThreadId.make(publisher.thread_id);
+    yield* requireLive(threadId);
     const digest = publicationHash(encoded);
     const toRevision = batch.fromRevision + batch.changes.length;
     const existing = (yield* sql<{
@@ -255,6 +263,15 @@ export const makeTeamPublications = Effect.fnUntraced(function* (input: {
             commandId,
             threadId,
             archived: change.archived,
+            updatedAt: change.updatedAt,
+          };
+          break;
+        case "settle":
+          command = {
+            type: "thread.publication.settle",
+            commandId,
+            threadId,
+            settled: change.settled,
             updatedAt: change.updatedAt,
           };
           break;

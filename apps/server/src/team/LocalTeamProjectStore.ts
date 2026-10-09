@@ -454,6 +454,10 @@ export const makeLocalTeamProjectStore = Effect.gen(function* () {
       case "thread.unarchived":
         changes.push({ kind: "archive", archived: event.type === "thread.archived", updatedAt });
         break;
+      case "thread.settled":
+      case "thread.unsettled":
+        changes.push({ kind: "settle", settled: event.type === "thread.settled", updatedAt });
+        break;
     }
     return changes;
   });
@@ -472,7 +476,17 @@ export const makeLocalTeamProjectStore = Effect.gen(function* () {
     let drained = true;
     let historyCursor = mapping.history_cursor;
     let historyOffset = mapping.history_offset;
-    if (mapping.revision === 0) changes.push(yield* decodeInitial(mapping.initial_json));
+    if (mapping.revision === 0) {
+      changes.push(yield* decodeInitial(mapping.initial_json));
+      // Later settle events replay from the cursor; carry the state at sharing time.
+      const shell = yield* query.getThreadShellById(ThreadId.make(mapping.thread_id));
+      if (Option.isSome(shell) && shell.value.settledAt !== null)
+        changes.push({
+          kind: "settle",
+          settled: true,
+          updatedAt: DateTime.formatIso(shell.value.settledAt),
+        });
+    }
     const history = (yield* sql<{
       ordinal: number;
       message_id: string;

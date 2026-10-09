@@ -3,7 +3,7 @@ import { randomUUID } from "../../lib/utils";
 import { ProjectMembers } from "./ProjectMembers";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { AuthAccessWriteScope, type EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import type { LocalTeamFilesControl, LocalTeamFilesResult } from "@t3tools/contracts/teamFiles";
 import type { LocalTeamProjectControl } from "@t3tools/contracts/teamProjects";
 import type { TeamProjectMemberSelections } from "@t3tools/contracts/teamSpaces";
@@ -20,6 +20,7 @@ import { teamProjects, sharedProjectSourceScope } from "../../state/teamProjects
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
+import { useEnvironmentScope } from "../../state/session";
 import { useHandleNewThread } from "../../hooks/useHandleNewThread";
 import { TeamsConnectionContent } from "../settings/TeamsConnection";
 import { Button } from "../ui/button";
@@ -40,6 +41,12 @@ export const useTeamProjectDialog = create<{
   open: (target) => set({ target }),
   close: () => set({ target: null }),
 }));
+const INACTIVE_LINK_STATUSES: ReadonlySet<string> = new Set([
+  "account-changed",
+  "access-revoked",
+  "root-changed",
+  "deleted",
+]);
 function failureText(result: { cause: Parameters<typeof squashAtomCommandFailure>[0]["cause"] }) {
   const error = squashAtomCommandFailure(result);
   return error instanceof Error
@@ -102,7 +109,17 @@ function NativeTeamProjectForm({
   const account = useAtomCommand(localTeamAccountCommand, { reportFailure: false });
   const files = useAtomCommand(teamProjects.files, { reportFailure: false });
   const { handleNewThread } = useHandleNewThread();
+  const links = useEnvironmentQuery(
+    supportsTeams && environmentId && target.action === "open"
+      ? teamProjects.state({ environmentId, input: {} })
+      : null,
+  );
   const [selected, setSelected] = useState("");
+  // A shared project already checked out on this environment is reopened from its local project.
+  const openedLocally = links.data?.find(
+    (entry) =>
+      entry.link.sharedProjectId === selected && !INACTIVE_LINK_STATUSES.has(entry.link.status),
+  );
   const [destination, setDestination] = useState("");
   const [name, setName] = useState("");
   const [members, setMembers] = useState<TeamProjectMemberSelections>([]);
@@ -349,6 +366,23 @@ function NativeTeamProjectForm({
                       ))}
                     </select>
                   </label>
+                  {openedLocally && environmentId && (
+                    <div className="flex flex-col gap-2">
+                      <p role="status">This shared project is already open on this environment.</p>
+                      <Button
+                        className="self-start"
+                        variant="outline"
+                        onClick={() => {
+                          onComplete();
+                          void handleNewThread(
+                            scopeProjectRef(environmentId, openedLocally.link.projectId),
+                          );
+                        }}
+                      >
+                        Go to project
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
               {action !== "open" &&
@@ -379,7 +413,7 @@ function NativeTeamProjectForm({
                     in Open shared project or Settings &gt; Connections &gt; Teams.
                   </p>
                 ))}
-              {(action === "open" || directory.canCreateProjects) && (
+              {(action === "open" ? !openedLocally : directory.canCreateProjects) && (
                 <>
                   {action !== "share" ? (
                     <div className="flex flex-col gap-2">
@@ -468,14 +502,21 @@ function NativeTeamProjectForm({
 export function NativeTeamProjectSettings({
   environmentId,
   projectId,
+  projectTitle,
 }: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
+  projectTitle: string;
 }) {
   const links = useEnvironmentQuery(teamProjects.state({ environmentId, input: {} }));
   const linked = links.data?.find((entry) => entry.link.projectId === projectId);
-  const hasAccess =
-    linked && !["account-changed", "access-revoked", "root-changed"].includes(linked.link.status);
+  const hasAccess = linked && !INACTIVE_LINK_STATUSES.has(linked.link.status);
+  // Deleting for everyone needs the project owner role and this machine's owner session.
+  const canDeleteForEveryone =
+    useEnvironmentScope(environmentId, AuthAccessWriteScope) &&
+    linked?.link.role === "owner" &&
+    linked.link.status !== "deleted";
+  const [confirmTitle, setConfirmTitle] = useState("");
   const state = useEnvironmentQuery(
     hasAccess && linked
       ? teamProjects.filesState({
@@ -494,7 +535,7 @@ export function NativeTeamProjectSettings({
     setBusy(true);
     setError("");
     const result =
-      input.action === "unlink"
+      input.action === "unlink" || input.action === "delete-shared"
         ? await control({ environmentId, input })
         : await files({ environmentId, input: input as LocalTeamFilesControl });
     if (result._tag === "Failure") setError(failureText(result));
@@ -583,6 +624,44 @@ export function NativeTeamProjectSettings({
             Unlinking retains your local checkout and shared history. Git synchronization never
             automatically commits or merges changes.
           </p>
+          {linked.link.status === "deleted" && (
+            <p role="status">
+              The owner deleted this shared project. Your local folder and conversations stay on
+              this machine. Unlink the project to stop showing it as shared.
+            </p>
+          )}
+          {canDeleteForEveryone && (
+            <form
+              className="flex flex-col gap-2 rounded border border-destructive/40 p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (confirmTitle === projectTitle) void run({ action: "delete-shared", projectId });
+              }}
+            >
+              <p>
+                Delete this shared project for everyone. Teammates lose access to its shared files
+                and conversations. Local folders and conversations on every machine stay.
+              </p>
+              <label htmlFor="team-delete-confirm" className="text-muted-foreground">
+                Type {projectTitle} to confirm
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  id="team-delete-confirm"
+                  value={confirmTitle}
+                  disabled={busy}
+                  onChange={(event) => setConfirmTitle(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  disabled={busy || !projectTitle || confirmTitle !== projectTitle}
+                >
+                  Delete for everyone
+                </Button>
+              </div>
+            </form>
+          )}
           {linked.link.role !== "viewer" && (
             <form
               className="flex gap-2"

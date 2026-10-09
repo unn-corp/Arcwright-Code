@@ -249,7 +249,9 @@ export function createSharedProjectVisibilitySelector() {
       { preferred: string; environmentId: string; ownedThreadIds: Set<string> }
     >();
     for (const { environmentId, state } of links) {
-      if (["account-changed", "access-revoked", "root-changed"].includes(state.link.status))
+      if (
+        ["account-changed", "access-revoked", "root-changed", "deleted"].includes(state.link.status)
+      )
         continue;
       const key = sharedProjectBoundaryKey(state.link);
       const existing = next.get(key);

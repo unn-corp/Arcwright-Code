@@ -80,7 +80,9 @@ const sanitize = (error: unknown): LocalTeamProjectError => {
         ? "access"
         : error.reason === "unavailable"
           ? "network"
-          : "reset_required",
+          : error.reason === "deleted"
+            ? "deleted"
+            : "reset_required",
     );
   return localTeamError("network");
 };
@@ -92,6 +94,9 @@ const safe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       return Effect.fail(sanitize(failure?._tag === "Fail" ? failure.error : undefined));
     }),
   );
+const isDeletedPublication = (error: unknown) =>
+  isPublicationError(error) && error.reason === "deleted";
+const ownerOnly = (message: string) => new LocalTeamProjectError({ reason: "access", message });
 const matches = (row: LocalTeamLinkRow, credential: TeamProjectCredential) =>
   row.service_url === credential.serviceUrl &&
   row.issuer === credential.issuer &&
@@ -325,7 +330,9 @@ export const makeLocalTeamProjects = (
                 ? "root-changed"
                 : error.reason === "reset_required" || error.reason === "limit"
                   ? "reset-required"
-                  : "offline",
+                  : error.reason === "deleted"
+                    ? "deleted"
+                    : "offline",
         )
         .pipe(Effect.ensuring(PubSub.publish(linkChanges, undefined)), Effect.ignore);
     const flushConnection = Effect.fnUntraced(function* (
@@ -334,14 +341,28 @@ export const makeLocalTeamProjects = (
     ) {
       yield* checked(row);
       for (const mapping of yield* store.publications(row.link_id)) {
-        if (mapping.status === "reset-required" || mapping.paused === 1) continue;
+        if (
+          mapping.status === "reset-required" ||
+          mapping.status === "deleted" ||
+          mapping.paused === 1
+        )
+          continue;
         if (row.role === "viewer") {
           yield* store.publicationStatus(mapping.publication_id, "access-revoked");
           continue;
         }
         yield* store.assertHistory(mapping);
         const registration = yield* store.registration(row, mapping);
-        yield* connection.register(registration);
+        // An owner deleted this shared conversation. Stop syncing only this thread.
+        const markDeleted = store
+          .publicationStatus(mapping.publication_id, "deleted")
+          .pipe(Effect.as(null));
+        if (
+          (yield* connection
+            .register(registration)
+            .pipe(Effect.catchIf(isDeletedPublication, () => markDeleted))) === null
+        )
+          continue;
         // Yield fairly during long imports without constructing an unbounded batch.
         for (let page = 0; page < 64; page++) {
           yield* checked(row);
@@ -366,18 +387,21 @@ export const makeLocalTeamProjects = (
             break;
           }
           if (pending.changes.length === 0) continue;
-          const receipt = yield* connection.publish({
-            ...registration,
-            fromRevision: pending.fromRevision,
-            changes: pending.changes,
-          });
+          const receipt = yield* connection
+            .publish({
+              ...registration,
+              fromRevision: pending.fromRevision,
+              changes: pending.changes,
+            })
+            .pipe(Effect.catchIf(isDeletedPublication, () => markDeleted));
+          if (!receipt) break;
           yield* checked(row);
           yield* store.acknowledge(current, pending, receipt.threadId, receipt.revision);
         }
       }
       const statuses = new Set(
         (yield* store.publications(row.link_id))
-          .filter((item) => item.paused !== 1)
+          .filter((item) => item.paused !== 1 && item.status !== "deleted")
           .map((item) => item.status),
       );
       yield* store.status(
@@ -460,7 +484,7 @@ export const makeLocalTeamProjects = (
           ).pipe(Effect.result);
           if (result._tag === "Failure") {
             yield* markFailure(row, result.failure);
-            if (result.failure.reason === "unlinked") return;
+            if (result.failure.reason === "unlinked" || result.failure.reason === "deleted") return;
             if (result.failure.reason !== "network") yield* Queue.take(wake);
             else yield* Effect.sleep("5 seconds");
           }
@@ -521,23 +545,77 @@ export const makeLocalTeamProjects = (
         }),
       );
     }).pipe(Effect.mapError(() => localTeamError("storage")));
+    // Stops the link's worker and forgets it locally. The checkout and threads remain.
+    const detachLink = Effect.fnUntraced(function* (row: LocalTeamLinkRow) {
+      const detachedLinkId = row.link_id;
+      closingLinks.add(detachedLinkId);
+      yield* invalidate((linked) => linked.link_id === detachedLinkId, "unlinked");
+      const worker = workers.get(row.link_id);
+      if (worker) {
+        yield* Fiber.interrupt(worker.fiber);
+        workers.delete(row.link_id);
+      }
+      yield* store.detach(row);
+      closingLinks.delete(detachedLinkId);
+    });
     const control = Effect.fnUntraced(
       function* (input: LocalTeamProjectControl) {
         let row = yield* store.link(input.projectId);
         if (input.action === "unlink") {
-          if (row) {
-            const detachedLinkId = row.link_id;
-            closingLinks.add(detachedLinkId);
-            yield* invalidate((linked) => linked.link_id === detachedLinkId, "unlinked");
-            const worker = workers.get(row.link_id);
-            if (worker) {
-              yield* Fiber.interrupt(worker.fiber);
-              workers.delete(row.link_id);
-            }
-            yield* store.detach(row);
-            closingLinks.delete(detachedLinkId);
-          }
+          if (row) yield* detachLink(row);
           return { state: null };
+        }
+        if (input.action === "delete-shared") {
+          if (!row) return yield* localTeamError("unlinked");
+          yield* checked(row);
+          if (row.role !== "owner")
+            return yield* ownerOnly("Only the shared project's owner can delete it for everyone.");
+          const linked = row;
+          yield* Effect.scoped(
+            account.withCredential((credential) =>
+              matches(linked, credential)
+                ? transport.deleteProject(credential, linked.space_id)
+                : Effect.fail(localTeamError("changed")),
+            ),
+          ).pipe(
+            // A retry after the service committed the deletion still detaches locally.
+            Effect.catchIf(
+              (error) => isLocalProjectError(error) && error.reason === "deleted",
+              () => Effect.void,
+            ),
+          );
+          yield* detachLink(linked);
+          return { state: null };
+        }
+        if (input.action === "delete-shared-thread") {
+          if (!row) return yield* localTeamError("unlinked");
+          const mapping = (yield* store.publications(row.link_id)).find(
+            (item) => item.thread_id === input.threadId,
+          );
+          // A local thread is addressed through its publication; a teammate's by its shared id.
+          const sharedThreadId = mapping ? mapping.shared_thread_id : input.threadId;
+          if (sharedThreadId)
+            yield* Effect.scoped(
+              authorized(row, (connection, current) =>
+                current.role === "owner"
+                  ? connection.discussion({
+                      type: "thread.delete",
+                      commandId: CommandId.make(`team-delete:${NodeCrypto.randomUUID()}`),
+                      threadId: ThreadId.make(sharedThreadId),
+                    })
+                  : Effect.fail(
+                      ownerOnly(
+                        "Only the shared project's owner can delete a conversation for everyone.",
+                      ),
+                    ),
+              ),
+            );
+          if (mapping) {
+            yield* store.pause(mapping.publication_id, true);
+            yield* store.publicationStatus(mapping.publication_id, "deleted");
+          }
+          yield* PubSub.publish(linkChanges, undefined);
+          return { state: yield* store.describe(row) };
         }
         if (input.action === "stop-publication") {
           if (!row) return yield* localTeamError("unlinked");
@@ -640,7 +718,9 @@ export const makeLocalTeamProjects = (
         return { state: yield* store.describe(row) };
       },
       (operation, input) =>
-        input.action === "unlink" ? operation : writes.withPermits(1)(operation),
+        input.action === "unlink" || input.action === "delete-shared"
+          ? operation
+          : writes.withPermits(1)(operation),
       safe,
     );
     const rowFor = (projectId: ProjectId) =>
@@ -668,6 +748,7 @@ export const makeLocalTeamProjects = (
         )
           return yield* localTeamError("root_changed");
       }
+      if (row.status === "deleted") return yield* localTeamError("deleted");
       if (row.role === "viewer" || row.status === "access-revoked")
         return yield* localTeamError("access");
       yield* Effect.scoped(

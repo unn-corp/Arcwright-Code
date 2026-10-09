@@ -343,9 +343,16 @@ export const makeTeamConversation = Effect.gen(function* () {
                     eventType = "thread.created";
                     payload = { ...thread, threadId: thread.id };
                   } else {
-                    if (Option.isNone(existing)) return yield* invalid();
+                    // A deleted conversation accepts no further writes, including publications.
+                    if (Option.isNone(existing) || existing.value.deletedAt !== null)
+                      return yield* invalid();
                     thread = existing.value;
                     switch (command.type) {
+                      case "thread.delete":
+                        thread = { ...thread, deletedAt: now, updatedAt: now };
+                        eventType = "thread.deleted";
+                        payload = { threadId: thread.id, deletedAt: now };
+                        break;
                       case "thread.meta.update":
                         thread = {
                           ...thread,
@@ -385,6 +392,22 @@ export const makeTeamConversation = Effect.gen(function* () {
                         };
                         break;
                       }
+                      case "thread.publication.settle":
+                        occurredAt = command.updatedAt;
+                        thread = {
+                          ...thread,
+                          settledOverride: command.settled ? "settled" : null,
+                          settledAt: command.settled ? command.updatedAt : null,
+                        };
+                        eventType = command.settled ? "thread.settled" : "thread.unsettled";
+                        payload = command.settled
+                          ? {
+                              threadId: thread.id,
+                              settledAt: command.updatedAt,
+                              updatedAt: command.updatedAt,
+                            }
+                          : { threadId: thread.id, reason: "user", updatedAt: command.updatedAt };
+                        break;
                       case "thread.publication.message": {
                         const previous = thread.messages.find((m) => m.id === command.messageId);
                         if (

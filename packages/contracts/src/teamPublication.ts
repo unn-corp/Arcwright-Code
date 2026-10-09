@@ -52,6 +52,11 @@ export const TeamPublicationChange = Schema.Union([
     archived: Schema.Boolean,
     updatedAt: IsoDateTime,
   }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  Schema.Struct({
+    kind: Schema.Literal("settle"),
+    settled: Schema.Boolean,
+    updatedAt: IsoDateTime,
+  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
 ]);
 export type TeamPublicationChange = typeof TeamPublicationChange.Type;
 
@@ -89,6 +94,7 @@ export class TeamPublicationError extends Schema.TaggedError<TeamPublicationErro
       "limit",
       "reset_required",
       "unavailable",
+      "deleted",
     ]),
     message: Schema.String,
   },
