@@ -593,11 +593,16 @@ export async function validateDestination(destination: string) {
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (
-    stat &&
-    (!stat.isDirectory() || stat.isSymbolicLink() || (await NodeFSP.readdir(destination)).length)
-  )
-    throw fileError("destination");
+  if (stat && (!stat.isDirectory() || stat.isSymbolicLink()))
+    throw fileError(
+      "destination",
+      "The local project folder must be a folder, not a file or link. Choose an empty folder.",
+    );
+  if (stat && (await NodeFSP.readdir(destination)).length)
+    throw fileError(
+      "destination",
+      "The local project folder isn't empty. Choose an empty folder, or create a new one.",
+    );
   return stat ? `${stat.dev}:${stat.ino}` : null;
 }
 export async function installCheckout(
@@ -605,7 +610,11 @@ export async function installCheckout(
   destination: string,
   identity: string | null,
 ) {
-  if ((await validateDestination(destination)) !== identity) throw fileError("destination");
+  if ((await validateDestination(destination)) !== identity)
+    throw fileError(
+      "destination",
+      "The local project folder changed while the project was downloading. Choose an empty folder and retry.",
+    );
   if (identity) await NodeFSP.rmdir(destination); // rmdir refuses a concurrently populated directory.
   // Rename never targets an existing directory; final identity check above preserves nonempty destinations.
   await NodeFSP.rename(staging, destination);
