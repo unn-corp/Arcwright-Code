@@ -1,5 +1,19 @@
 import type { ForkUpdateStatus } from "@t3tools/contracts";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
+
+/** A coordinator may own multiple installations; aliases suppress only an explicitly identical target. */
+export function sameForkReplacementTarget(
+  left: ForkUpdateStatus | null,
+  right: ForkUpdateStatus | null,
+): boolean {
+  return Boolean(
+    left?.coordinatorId &&
+    left.controllerId &&
+    right?.coordinatorId === left.coordinatorId &&
+    right.controllerId === left.controllerId,
+  );
+}
+
 export const forkPhaseLabels: Record<ForkUpdateStatus["phase"], string> = {
   idle: "Up to date",
   checking: "Checking…",
@@ -59,10 +73,10 @@ export function forkStatusDescription(status: ForkUpdateStatus): string {
 }
 /** Settings renders the phase and alert separately; detail should add information rather than repeat either. */
 export function forkStatusDetail(status: ForkUpdateStatus): string | null {
-  const description = forkStatusDescription(status);
-  return description === forkPhaseLabels[status.phase] || description === status.lastError
-    ? null
-    : description;
+  if (!status.blockers.length) return null;
+  return status.blockers
+    .map((blocker) => `${forkWaitingLabels[blocker.reason]}: ${blocker.label}`)
+    .join("; ");
 }
 /** Confirmation identity includes every restore cutoff; an asynchronously changed option is rejected. */
 export function recoveryFingerprint(option: ForkUpdateStatus["recoveryOptions"][number]): string {

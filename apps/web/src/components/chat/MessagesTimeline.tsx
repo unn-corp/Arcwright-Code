@@ -1,3 +1,8 @@
+import {
+  MessageReplyActions,
+  MessageReplyThreadDialog,
+  openMessageReplyMenu,
+} from "./MessageReplies";
 import { ComputerUseAppIcon } from "~/components/Icons";
 import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
@@ -298,6 +303,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  onOpenReplyChain: (id: MessageId) => void;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
@@ -312,6 +318,7 @@ interface TimelineRowSharedState {
   /** Projection runs, for recovering handoff models on legacy items. */
   runs: ReadonlyArray<HandoffTimelineRun>;
   activeThreadEnvironmentId: EnvironmentId;
+  onReplyToMessage?: ((message: ChatMessage) => void) | undefined;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onRunShellCommand: ((command: string) => void) | undefined;
@@ -468,6 +475,8 @@ interface MessagesTimelineProps {
     readonly scopeId: string;
   }) => void;
   supportsConversationRollback: boolean;
+  loadReplyChain?: import("./MessageReplies").LoadReplyChain | undefined;
+  onReplyToMessage?: ((message: ChatMessage) => void) | undefined;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   onRunShellCommand?: (command: string) => void;
@@ -578,6 +587,8 @@ const NativeMessagesTimeline = memo(function NativeMessagesTimeline({
   onForkFromRun,
   onRollbackCheckpoint,
   supportsConversationRollback,
+  onReplyToMessage,
+  loadReplyChain,
   onRevertToTurnCount,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   onRunShellCommand,
@@ -1199,8 +1210,24 @@ const NativeMessagesTimeline = memo(function NativeMessagesTimeline({
     };
   }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
 
+  const [replyChainSelection, setReplyChainSelection] = useState<{
+    threadKey: string;
+    messageId: MessageId;
+  } | null>(null);
+  const replyChainMessageId =
+    replyChainSelection?.threadKey === routeThreadKey ? replyChainSelection.messageId : null;
+  const openReplyChain = useCallback(
+    (messageId: MessageId) => setReplyChainSelection({ threadKey: routeThreadKey, messageId }),
+    [routeThreadKey],
+  );
+  const replyMessages = useMemo(
+    () => timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
+    [timelineEntries],
+  );
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      onReplyToMessage,
+      onOpenReplyChain: openReplyChain,
       citationRequest: readyCitationRequest,
       listRef,
       timestampFormat,
@@ -1237,6 +1264,8 @@ const NativeMessagesTimeline = memo(function NativeMessagesTimeline({
       workGroupViewState,
     }),
     [
+      onReplyToMessage,
+      openReplyChain,
       readyCitationRequest,
       listRef,
       timestampFormat,
@@ -1379,6 +1408,15 @@ const NativeMessagesTimeline = memo(function NativeMessagesTimeline({
   return (
     <TimelineRowCtx value={sharedState}>
       <TimelineRowActivityCtx value={activityState}>
+        <MessageReplyThreadDialog
+          key={`${routeThreadKey}:${replyChainMessageId}`}
+          messages={replyMessages}
+          selectedId={replyChainMessageId}
+          loadChain={loadReplyChain}
+          onClose={() => setReplyChainSelection(null)}
+          onReply={onReplyToMessage}
+          renderMessage={renderReplyThreadMessage}
+        />
         <TooltipScrollDismissArea
           ref={setTimelineViewportElement}
           className="relative h-full min-h-0"
@@ -1808,6 +1846,7 @@ type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["grouped
 type TimelineRow = MessagesTimelineRow;
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const replyContext = use(TimelineRowCtx);
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =
@@ -1842,6 +1881,15 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           ? "group/assistant"
           : null,
       )}
+      onContextMenu={
+        row.kind === "message" && replyContext.onReplyToMessage
+          ? (event) => {
+              void openMessageReplyMenu(event, row.message, replyContext.onReplyToMessage!).catch(
+                (error) => console.error("Message reply menu failed", error),
+              );
+            }
+          : undefined
+      }
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
       data-message-id={
@@ -1849,6 +1897,13 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
+      {row.kind === "message" && (
+        <MessageReplyActions
+          message={row.message}
+          onReply={replyContext.onReplyToMessage}
+          onOpenChain={replyContext.onOpenReplyChain}
+        />
+      )}
       {isWorkLogRow ? (
         <WorkLogBlock
           continues={row.continuesWorkLog}
@@ -1889,6 +1944,24 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
     </div>
   );
 });
+
+function renderReplyThreadMessage(message: ChatMessage) {
+  const row: Extract<TimelineRow, { kind: "message" }> = {
+    kind: "message",
+    id: `reply:${message.id}`,
+    message,
+    createdAt: message.createdAt,
+    durationStart: message.createdAt,
+    showAssistantMeta: false,
+    showAssistantCopyButton: false,
+    assistantCopyStreaming: false,
+  };
+  return message.role === "user" ? (
+    <UserTimelineRow row={row} />
+  ) : (
+    <AssistantTimelineRow row={row} />
+  );
+}
 
 function WorktreeSetupTimelineRow({
   row,

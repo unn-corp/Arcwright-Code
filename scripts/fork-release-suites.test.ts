@@ -56,6 +56,7 @@ describe("the required suites", () => {
       "Snapshot",
       "Transaction",
       "Controller",
+      "Feed",
       "RecoveryHelper",
     ]) {
       assert.include(coordinator, part);
@@ -77,6 +78,7 @@ describe("the required suites", () => {
       "src/organizations/OrganizationLiveWorkExecutor.test.ts",
       "src/organizations/OrganizationScopeLaunchBrokerCli.test.ts",
       "src/maintenance/scopeBrokerBootstrap.test.ts",
+      "src/orchestration-v2/ProjectionRecovery.test.ts",
       "src/discord/Layers/DiscordBridge.integration.test.ts",
     ])
       assert.include(runtime, file);

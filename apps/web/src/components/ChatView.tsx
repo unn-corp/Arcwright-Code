@@ -1,6 +1,6 @@
+import { replyContext } from "@t3tools/shared/messageReplies";
+import { ComposerMessageReply } from "./chat/MessageReplies";
 import { registerPreviewAnnotationSender } from "../previewAnnotationEditorStore";
-import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
-import { ComposerHostMaintenanceStatus } from "./chat/ComposerHostMaintenanceStatus";
 import { elementContextToPreviewAnnotation } from "../lib/elementContext";
 import { type WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { isMacPlatform } from "../lib/utils";
@@ -602,24 +602,6 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ServerUpdateAction } from "./ServerUpdateAction";
-import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
-import {
-  ComposerServerUpdateIcon,
-  ComposerServerUpdateStatus,
-} from "./chat/ComposerServerUpdateStatus";
-import {
-  buildVersionMismatchDismissalKey,
-  dismissServerUpdateFailure,
-  dismissVersionMismatch,
-  isServerUpdateFailureDismissed,
-  isVersionMismatchDismissed,
-  resolveServerConfigVersionMismatch,
-  resolveServerSelfUpdateCapability,
-  serverUpdateGuidance,
-  supportsDesktopAppUpdate,
-  supportsServerUpdateThreadContinuation,
-} from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "./chat/composerPromptHistory";
 
@@ -1655,6 +1637,9 @@ export default function ChatView(props: ChatViewProps) {
   const interruptThreadTurn = useOrchestrationCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
+  const getMessageReplyChain = useAtomCommand(threadEnvironment.getMessageReplyChain, {
+    reportFailure: false,
+  });
   const loadEarlierThreadHistory = useAtomCommand(threadEnvironment.loadEarlierHistory, {
     label: "load earlier thread history",
     reportFailure: false,
@@ -1823,6 +1808,44 @@ export default function ChatView(props: ChatViewProps) {
     const draft = store.getComposerDraft(composerDraftTarget);
     return draft ? composerDraftHasUserContent({ ...draft, prompt: "" }) : false;
   });
+  const composerReplyTo = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.replyTo ?? null,
+  );
+  const setComposerReplyTo = useComposerDraftStore((store) => store.setReplyTo);
+  const buildReplyMessageContext = useCallback(
+    (input: Parameters<typeof buildMessageContext>[0]) =>
+      replyContext(buildMessageContext(input), composerReplyTo),
+    [composerReplyTo],
+  );
+  const loadMessageReplyChain = useCallback(
+    async (messageId: MessageId, offset: number) => {
+      const result = await getMessageReplyChain({
+        environmentId,
+        input: { threadId, messageId, offset },
+      });
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      return {
+        messages: result.value.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          text: message.text,
+          context: message.context,
+          attachments: message.attachments,
+          runId: message.runId,
+          streaming: message.streaming,
+          createdBy: message.createdBy,
+          creationSource: message.creationSource,
+          ...(message.scheduledTaskId ? { scheduledTaskId: message.scheduledTaskId } : {}),
+          ...(message.senderThreadId ? { senderThreadId: message.senderThreadId } : {}),
+          createdAt: DateTime.formatIso(message.createdAt),
+          updatedAt: DateTime.formatIso(message.updatedAt),
+        })),
+        nextOffset: result.value.nextOffset,
+      };
+    },
+    [getMessageReplyChain, environmentId, threadId],
+  );
+
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
@@ -3073,52 +3096,9 @@ export default function ChatView(props: ChatViewProps) {
     (!draftThread?.branch || draftThread.environmentSelection === "auto") &&
     !draftThread?.worktreePath,
   );
-  const autoUpdateEnvironments = useMemo(
-    () =>
-      automaticEnvironment
-        ? logicalProjectEnvironments.flatMap(({ environmentId }) => {
-            const environment = environmentById.get(environmentId);
-            return environment ? [environment] : [];
-          })
-        : [],
-    [automaticEnvironment, logicalProjectEnvironments, environmentById],
-  );
-  const autoBalanceUpdateBanner = useAutoBalanceUpdateBanner(autoUpdateEnvironments);
-  const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
-  const versionMismatchDismissKey =
-    versionMismatch && activeThread
-      ? buildVersionMismatchDismissalKey(activeThread.environmentId, versionMismatch)
-      : null;
-  const [dismissedVersionMismatchKey, setDismissedVersionMismatchKey] = useState<string | null>(
-    null,
-  );
-  const versionMismatchDismissed =
-    versionMismatchDismissKey === dismissedVersionMismatchKey ||
-    isVersionMismatchDismissed(versionMismatchDismissKey);
-  const showVersionMismatchBanner =
-    versionMismatch !== null && versionMismatchDismissKey !== null && !versionMismatchDismissed;
-  const versionMismatchServerLabel = activeThread
-    ? `${environmentById.get(activeThread.environmentId)?.label ?? serverConfig?.environment.label ?? activeThread.environmentId} server`
-    : "server";
-  const handleDismissVersionMismatch = useCallback(() => {
-    if (!versionMismatchDismissKey) return;
-    dismissVersionMismatch(versionMismatchDismissKey);
-    setDismissedVersionMismatchKey(versionMismatchDismissKey);
-  }, [setDismissedVersionMismatchKey, versionMismatchDismissKey]);
-  const serverUpdateEnvironmentId = activeThread?.environmentId ?? null;
-  const versionMismatchSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
-  const versionMismatchInstallation = serverConfig?.environment.capabilities.serverInstallation;
-  const versionMismatchDesktopAppUpdate = supportsDesktopAppUpdate(serverConfig);
-  const versionMismatchThreadContinuation = supportsServerUpdateThreadContinuation(serverConfig);
   const serverUpdateState = useAtomValue(
-    serverEnvironment.updateStateAtom(serverUpdateEnvironmentId),
+    serverEnvironment.updateStateAtom(activeThread?.environmentId ?? null),
   );
-  const [dismissedServerUpdateState, setDismissedServerUpdateState] = useState<
-    typeof serverUpdateState | null
-  >(null);
-  const serverUpdateFailureDismissed =
-    serverUpdateState === dismissedServerUpdateState ||
-    isServerUpdateFailureDismissed(serverUpdateState);
   const systemComposerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const items: ComposerBannerStackItem[] = [];
     const updateRunning = serverUpdateState.status === "running";
@@ -3128,7 +3108,7 @@ export default function ChatView(props: ChatViewProps) {
       (unavailableConnection.phase === "connecting" ||
         unavailableConnection.phase === "reconnecting");
     // While an update runs, transient connect blips are expected (the server
-    // restarts) and the update banner already shows progress. Hard failure
+    // restarts) and the sidebar already shows progress. Hard failure
     // phases still surface so the Reconnect action stays reachable.
     const suppressUnavailableBanner =
       environmentReconnecting && (updateRunning || !reconnectWarningGraceElapsed);
@@ -3166,108 +3146,13 @@ export default function ChatView(props: ChatViewProps) {
         ),
       });
     }
-    if (
-      !automaticEnvironment &&
-      serverUpdateEnvironmentId &&
-      (serverUpdateState.status === "idle"
-        ? showVersionMismatchBanner
-        : !serverUpdateFailureDismissed)
-    ) {
-      const updateInProgress = serverUpdateState.status === "running";
-      const updateFailed = serverUpdateState.status === "failed";
-      items.push({
-        id: `server-version:${serverUpdateEnvironmentId}`,
-        variant: updateFailed ? "error" : "default",
-        // Prioritize update progress over passive notices, but keep activity attached.
-        priority: updateInProgress ? "urgent" : "notice",
-        icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
-        title:
-          updateInProgress || updateFailed ? (
-            <ComposerServerUpdateStatus
-              state={serverUpdateState}
-              serverLabel={versionMismatchServerLabel}
-            />
-          ) : versionMismatch ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    className="block max-w-full cursor-help truncate rounded-sm text-left"
-                  >
-                    {versionMismatchServerLabel} is older than this app
-                  </button>
-                }
-              />
-              <TooltipPopup side="top">
-                {versionMismatchServerLabel} {versionMismatch.serverVersion}{" "}
-                <span aria-hidden="true">→</span> {versionMismatch.clientVersion}
-              </TooltipPopup>
-            </Tooltip>
-          ) : (
-            `${versionMismatchServerLabel} is older than this app`
-          ),
-        description:
-          !updateInProgress &&
-          !updateFailed &&
-          versionMismatchSelfUpdate !== null &&
-          (versionMismatchSelfUpdate !== "desktop-managed" || !versionMismatchDesktopAppUpdate)
-            ? serverUpdateGuidance(versionMismatchSelfUpdate)
-            : undefined,
-        actions:
-          updateInProgress ||
-          !versionMismatch ||
-          (versionMismatchSelfUpdate === "desktop-managed" &&
-            !versionMismatchDesktopAppUpdate) ? undefined : (
-            <ServerUpdateAction
-              environmentId={serverUpdateEnvironmentId}
-              serverLabel={versionMismatchServerLabel}
-              forkMaintenance={serverConfig?.environment.capabilities.forkMaintenance}
-              selfUpdate={versionMismatchSelfUpdate}
-              installation={versionMismatchInstallation}
-              desktopAppUpdate={versionMismatchDesktopAppUpdate}
-              threadContinuation={versionMismatchThreadContinuation}
-              targetVersion={versionMismatch.clientVersion}
-              label={updateFailed ? "Retry" : "Update"}
-              variant="ghost"
-            />
-          ),
-        ...(updateInProgress || (!updateFailed && !versionMismatchDismissKey)
-          ? {}
-          : {
-              dismissLabel: "Dismiss update notice",
-              onDismiss: () => {
-                if (updateFailed) {
-                  dismissServerUpdateFailure(serverUpdateState);
-                  setDismissedServerUpdateState(serverUpdateState);
-                }
-                dismissVersionMismatch(versionMismatchDismissKey);
-                setDismissedVersionMismatchKey(versionMismatchDismissKey);
-              },
-            }),
-      });
-    }
-    if (autoBalanceUpdateBanner) items.push(autoBalanceUpdateBanner);
     return items;
   }, [
-    automaticEnvironment,
-    autoBalanceUpdateBanner,
     activeEnvironmentUnavailableState,
     handleReconnectActiveEnvironment,
     navigate,
-    setDismissedVersionMismatchKey,
-    showVersionMismatchBanner,
     reconnectWarningGraceElapsed,
-    serverUpdateFailureDismissed,
     serverUpdateState,
-    versionMismatch,
-    versionMismatchDismissKey,
-    serverUpdateEnvironmentId,
-    versionMismatchSelfUpdate,
-    versionMismatchInstallation,
-    versionMismatchDesktopAppUpdate,
-    versionMismatchThreadContinuation,
-    versionMismatchServerLabel,
   ]);
   const providerInstanceEntries = useMemo(
     () =>
@@ -4690,6 +4575,11 @@ export default function ChatView(props: ChatViewProps) {
       const target = queuedEditDraftTargetFor(request.runId);
       clearComposerDraftContent(target);
       setComposerDraftPrompt(target, request.text);
+      setComposerReplyTo(
+        target,
+        serverProjection?.messages.find((message) => message.id === request.messageId)?.context
+          ?.replyTo ?? null,
+      );
       setEditingQueuedRun({
         threadId: activeThread.id,
         runId: request.runId,
@@ -4709,7 +4599,21 @@ export default function ChatView(props: ChatViewProps) {
       serverProjection,
       scheduleComposerFocus,
       setComposerDraftPrompt,
+      setComposerReplyTo,
     ],
+  );
+  const replyToChatMessage = useCallback(
+    (message: ChatMessage) => {
+      if (message.role === "system" || !canOperateThread) return;
+      setComposerReplyTo(composerDraftTarget, {
+        threadId,
+        messageId: message.id,
+        role: message.role,
+        text: message.text.slice(0, 4000),
+      });
+      scheduleComposerFocus();
+    },
+    [canOperateThread, composerDraftTarget, threadId, setComposerReplyTo, scheduleComposerFocus],
   );
   const cancelEditingQueuedRun = useCallback(() => {
     if (editingQueuedRun === null) return;
@@ -8897,6 +8801,7 @@ export default function ChatView(props: ChatViewProps) {
               attachments: uploads,
               context: {
                 version: 1,
+                ...(composerReplyTo ? { replyTo: composerReplyTo } : {}),
                 records: [
                   ...new Map(
                     [
@@ -8907,7 +8812,7 @@ export default function ChatView(props: ChatViewProps) {
                             (attachment) => attachment.id === record.attachmentId,
                           ),
                       ),
-                      ...(buildMessageContext({
+                      ...(buildReplyMessageContext({
                         terminalContexts: composerTerminalContexts.filter(
                           (context) => context.text.trim().length > 0,
                         ),
@@ -9056,7 +8961,7 @@ export default function ChatView(props: ChatViewProps) {
       composerRef.current?.resetCursorState();
       const followUpSent = await onSubmitPlanFollowUp({
         text: followUp.text,
-        context: buildMessageContext({
+        context: buildReplyMessageContext({
           terminalContexts: sendableComposerTerminalContexts,
           reviewComments: composerReviewComments,
           previewAnnotations: composerPreviewAnnotations,
@@ -9065,6 +8970,7 @@ export default function ChatView(props: ChatViewProps) {
         interactionMode: followUp.interactionMode,
       });
       if (!followUpSent) {
+        setComposerReplyTo(composerDraftTarget, composerReplyTo);
         promptRef.current = followUpPromptSnapshot;
         composerTerminalContextsRef.current = [...followUpTerminalContexts];
         restorePlanFollowUpComposer({
@@ -9176,7 +9082,7 @@ export default function ChatView(props: ChatViewProps) {
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
     const buildOutgoingMessageContext = (attachmentIds: ReadonlyArray<string>) =>
-      buildMessageContext({
+      buildReplyMessageContext({
         terminalContexts: composerTerminalContextsSnapshot,
         reviewComments: composerReviewCommentsSnapshot,
         previewAnnotations: composerPreviewAnnotationsSnapshot,
@@ -9588,6 +9494,7 @@ export default function ChatView(props: ChatViewProps) {
             );
             setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
             setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
+            setComposerReplyTo(composerDraftTarget, composerReplyTo);
             if (composerRef.current && currentRouteThreadKeyRef.current === routeThreadKey) {
               promptRef.current = messageTextForSend;
               composerRef.current.resetCursorState({
@@ -9997,6 +9904,7 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
         setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
         setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
+        setComposerReplyTo(composerDraftTarget, composerReplyTo);
         composerRef.current?.resetCursorState({
           cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
           prompt: promptForSend,
@@ -11092,15 +11000,6 @@ export default function ChatView(props: ChatViewProps) {
       : {}),
     onComposerFocusRequest: scheduleComposerFocus,
     ...(isServerThread && isGitRepo ? { onOpenChanges: openChangesFromThreadPanel } : {}),
-    versionMismatch:
-      showVersionMismatchBanner && versionMismatch
-        ? {
-            clientVersion: versionMismatch.clientVersion,
-            serverVersion: versionMismatch.serverVersion,
-            serverLabel: versionMismatchServerLabel,
-          }
-        : null,
-    onDismissVersionMismatch: handleDismissVersionMismatch,
     onRunProjectScript: runProjectScript,
     onAddProjectScript: saveProjectScript,
     onUpdateProjectScript: updateProjectScript,
@@ -11114,8 +11013,7 @@ export default function ChatView(props: ChatViewProps) {
     threadPanelPresentation,
     threadPanelPopoverHandle,
     threadPanelShortcutLabel: shortcutLabelForCommand(keybindings, "threadPanel.toggle"),
-    threadPanelHasAttention:
-      activeEnvironmentUnavailableState !== null || showVersionMismatchBanner,
+    threadPanelHasAttention: activeEnvironmentUnavailableState !== null,
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
@@ -11331,6 +11229,10 @@ export default function ChatView(props: ChatViewProps) {
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 footer={paintOnlyDisplayedTimeline ? null : threadStatusLine}
                 listRef={legendListRef}
+                onReplyToMessage={
+                  paintOnlyDisplayedTimeline || !canOperateThread ? undefined : replyToChatMessage
+                }
+                loadReplyChain={paintOnlyDisplayedTimeline ? undefined : loadMessageReplyChain}
                 timelineEntries={displayedTimeline.entries}
                 providerStatuses={
                   environmentById.get(
@@ -11442,13 +11344,10 @@ export default function ChatView(props: ChatViewProps) {
                 ref={draftHeroTransition.transitionGroupRef}
                 className={cn("chat-composer-lane w-full", isDraftHeroState && "my-auto py-4")}
               >
-                <div
+                <ComposerSurface.VoiceRoot
+                  phase={voiceInputPhase}
                   data-chat-composer-stack="true"
-                  className={cn(
-                    "group/composer-stack chat-composer-voice-root pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)",
-                    voiceInputPhase === "recording" && "chat-voice-recording-active",
-                    voiceInputPhase === "transcribing" && "ring-2 ring-primary/40",
-                  )}
+                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
                 >
                   {isDraftHeroState ? (
                     // Keep the headline in the measured stack. Auto margins center
@@ -11497,6 +11396,12 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell
                       contextStrip={showComposerContextStrip || showComposerModelStrip}
                     >
+                      {composerReplyTo && (
+                        <ComposerMessageReply
+                          target={composerReplyTo}
+                          onCancel={() => setComposerReplyTo(composerDraftTarget, null)}
+                        />
+                      )}
                       <ComposerSurface.Host
                         inert={isSavingQueuedEdit}
                         aria-busy={isSavingQueuedEdit}
@@ -11709,15 +11614,6 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       </ComposerSurface.Host>
                       <div className="min-h-0">
-                        {serverUpdateEnvironmentId ? (
-                          <ComposerHostMaintenanceStatus
-                            environmentId={serverUpdateEnvironmentId}
-                            label={versionMismatchServerLabel}
-                            supported={supportsForkMaintenanceAdmission(
-                              serverConfig?.environment.capabilities.forkMaintenance,
-                            )}
-                          />
-                        ) : null}
                         <div
                           data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
                           className="relative z-0"
@@ -11788,7 +11684,7 @@ export default function ChatView(props: ChatViewProps) {
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
                     />
                   </div>
-                </div>
+                </ComposerSurface.VoiceRoot>
               </div>
             </div>
 

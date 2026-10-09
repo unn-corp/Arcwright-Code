@@ -16,6 +16,7 @@ import type * as Schema from "effect/Schema";
 
 type Migration = Effect.Effect<void, SqlError.SqlError | Schema.SchemaError, SqlClient.SqlClient>;
 type Entry = readonly [number, string, Migration];
+const TEAM_ID_START = 199;
 const teamNames = [
   "TeamSpaces",
   "ThreadCollaboration",
@@ -32,7 +33,7 @@ export const skipRecordedTeamMigration = (name: string, migration: Migration): M
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const applied =
-      yield* sql`SELECT 1 FROM effect_sql_migrations WHERE name=${name} AND migration_id < 199`;
+      yield* sql`SELECT 1 FROM effect_sql_migrations WHERE name=${name} AND migration_id < ${TEAM_ID_START}`;
     if (applied.length === 0) yield* migration;
   });
 
@@ -108,8 +109,23 @@ export const reconcileTeamMigrationHistory = Effect.fn("reconcileTeamMigrationHi
   }
   const latest = history.at(-1)?.migration_id ?? 0;
   const recorded = new Set(history.map((row) => row.migration_id));
+  // Fork migrations added after Teams ids were recorded sit below the latest
+  // ledger row, where Effect's Migrator skips them. Apply those directly.
+  const latestFork = Math.max(
+    0,
+    ...history.filter((row) => row.migration_id < TEAM_ID_START).map((row) => row.migration_id),
+  );
+  const appendedFork = entries.filter(
+    ([id]) =>
+      id > latestFork &&
+      id < TEAM_ID_START &&
+      id < latest &&
+      !recorded.has(id) &&
+      (throughId === undefined || id <= throughId),
+  );
+  const appendedIds = new Set(appendedFork.map(([id]) => id));
   for (const [id, name] of entries) {
-    if (id <= latest && !recorded.has(id))
+    if (id <= latest && !recorded.has(id) && !appendedIds.has(id))
       return yield* new Migrator.MigrationError({
         kind: "BadState",
         message: `Database history is missing migration ${id}_${name}.`,
@@ -130,6 +146,10 @@ export const reconcileTeamMigrationHistory = Effect.fn("reconcileTeamMigrationHi
             continue;
           for (const [id, , migration] of entries) if (id >= start && id <= end) yield* migration;
           yield* sql`INSERT INTO fork_migration_compatibility(name) VALUES (${receipt})`;
+        }
+        for (const [id, name, migration] of appendedFork) {
+          yield* migration;
+          yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
         }
       }),
     )

@@ -9,10 +9,12 @@ import { GitPreparePullRequestThreadInput } from "./git.ts";
 import { ForkMaintenanceActionInput } from "./maintenance.ts";
 import {
   AuthAccessWriteScope,
+  AuthOrchestrationReadScope,
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
+import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
@@ -22,6 +24,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [LOCAL_TEAM_MEMBERS_METHOD]: AuthAccessWriteScope,
   [LOCAL_TEAM_ACCEPT_METHOD]: AuthAccessWriteScope,
   [LOCAL_TEAM_METHODS.discuss]: AuthOrchestrationOperateScope,
+  [ORCHESTRATION_V2_WS_METHODS.getMessageReplyChain]: AuthOrchestrationReadScope,
   [WS_METHODS.serverUpdateMaintenancePolicy]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverRunMaintenanceAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverRecoverMaintenance]: AuthAccessWriteScope,

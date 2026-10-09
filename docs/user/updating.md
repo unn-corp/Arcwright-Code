@@ -38,10 +38,15 @@ both Windows and WSL homes; review the affected homes rather than assuming one
 connection means one database. Standalone and development runtimes participate
 in activity checks but do not replace their own binaries automatically.
 
-Conversation update notices identify the host. A protocol mismatch requires
+Sidebar update notices identify the host and keep update progress outside the
+chat composer. Machine details and **Update all** remain available there when
+choosing an environment. A protocol mismatch requires
 updating the side named by the notice. Available releases, waiting, installation,
 verification, and failure are different states. Stop remains an agent action;
 an updater never stops work to obtain an installation window.
+An idle conversation can still show a waiting reason when a provider helper
+process remains alive. The host keeps waiting until that process finishes or
+its ownership and idle state can be verified.
 Compatibility notices compare the included T3 versions, independently of Arcwright
 release availability. An internal `1.x` installer number does not make a `0.0.45`
 host incompatible by itself.
@@ -136,6 +141,14 @@ separate stopped-work transition before it can use managed updates. Do not run
 initialization over its home.
 
 ## Why installation waits
+
+Check and download reports completion separately from installation; blocked
+installation keeps its waiting reasons visible alongside network errors.
+
+If GitHub temporarily limits release checks, App updates shows when checks can
+resume and keeps the downloaded build. Wait until that time before checking again.
+Installation still needs a fresh release check, so a downloaded build cannot be
+installed while its release cannot be verified.
 
 All agent work in registered fork runtimes belonging to that local OS user must be stopped,
 including desktop, background services, standalone, development, and explicitly

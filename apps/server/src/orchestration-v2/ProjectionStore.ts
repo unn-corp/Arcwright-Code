@@ -1,3 +1,4 @@
+import { messageReplyChain } from "@t3tools/shared/messageReplies";
 import {
   latestRootProviderFailure,
   latestUnheldRun,
@@ -131,9 +132,11 @@ export const ProjectionStoreV2Error = Schema.Union([
 ]);
 export type ProjectionStoreV2Error = typeof ProjectionStoreV2Error.Type;
 
+/** Runtime recovery includes idle sessions to reconcile after restart; active-runtime is maintenance work only. */
 export type ProjectionRecoveryKind =
   | "queued-runs"
   | "runtime"
+  | "active-runtime"
   | "subagent-results"
   | "delegated-completions";
 
@@ -280,6 +283,9 @@ export interface ProjectionRecordFilter {
   readonly messageRoles?: ReadonlyArray<OrchestrationV2ConversationMessage["role"]>;
   readonly turnItemRunId?: RunId;
   readonly messageIds?: ReadonlyArray<MessageId>;
+  readonly messageReplyChainId?: MessageId;
+  readonly messageOffset?: number;
+  readonly messageLimit?: number;
   readonly messageRunIds?: ReadonlyArray<RunId>;
   readonly turnItemRunIds?: ReadonlyArray<RunId | null>;
   readonly runIds?: ReadonlyArray<RunId>;
@@ -524,6 +530,7 @@ function needsRecovery(
       );
     }
     case "runtime":
+    case "active-runtime":
       return (
         projection.runs.some(
           (run) =>
@@ -532,7 +539,10 @@ function needsRecovery(
         ) ||
         projection.runtimeRequests.some((request) => request.status === "pending") ||
         projection.providerSessions.some(
-          (session) => session.status !== "stopped" && session.status !== "error",
+          (session) =>
+            session.status !== "stopped" &&
+            session.status !== "error" &&
+            (kind === "runtime" || session.status !== "ready"),
         ) ||
         projection.providerThreads.some(
           (thread) =>
@@ -3029,10 +3039,32 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               ? sql<PayloadRow>`
                 SELECT payload_json FROM orchestration_v2_projection_messages
                 WHERE thread_id = ${threadId}
+                  ${
+                    filter?.messageReplyChainId === undefined
+                      ? sql``
+                      : sql`AND message_id IN (
+                    WITH RECURSIVE chain(id) AS (
+                      SELECT ${filter.messageReplyChainId}
+                      UNION
+                      SELECT json_extract(parent.payload_json, '$.context.replyTo.messageId')
+                      FROM orchestration_v2_projection_messages AS parent JOIN chain ON parent.message_id = chain.id
+                      WHERE parent.thread_id = ${threadId}
+                        AND json_extract(parent.payload_json, '$.context.replyTo.threadId') = parent.thread_id
+                        AND json_extract(parent.payload_json, '$.context.replyTo.messageId') IS NOT NULL
+                      UNION
+                      SELECT child.message_id
+                      FROM orchestration_v2_projection_messages AS child JOIN chain ON json_extract(child.payload_json, '$.context.replyTo.messageId') = chain.id
+                      WHERE child.thread_id = ${threadId}
+                        AND json_extract(child.payload_json, '$.context.replyTo.threadId') = child.thread_id
+                    ) SELECT id FROM chain
+                  )`
+                  }
                   ${filter?.messageIds === undefined ? sql`` : sql`AND message_id IN (SELECT value FROM json_each(${encodeIdList(filter.messageIds)}))`}
                   ${filter?.messageRoles === undefined ? sql`` : sql`AND role IN (SELECT value FROM json_each(${encodeIdList(filter.messageRoles)}))`}
                   ${filter?.messageRunIds === undefined ? sql`` : sql`AND run_id IN (SELECT value FROM json_each(${encodeIdList(filter.messageRunIds)}))`}
                 ORDER BY created_at ASC, message_id ASC
+                  ${filter?.messageLimit === undefined ? sql`` : sql`LIMIT ${filter.messageLimit} OFFSET ${filter.messageOffset ?? 0}`}
+
               `
               : sql<PayloadRow>`
                 SELECT payload_json FROM orchestration_v2_projection_messages AS message
@@ -3510,6 +3542,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   ELSE 0 END
               `;
             case "runtime":
+            case "active-runtime":
               return sql`
                 WITH pending_provider_threads AS MATERIALIZED (
                   SELECT provider_thread_id, thread_id, owner_node_id
@@ -3538,6 +3571,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 CROSS JOIN orchestration_v2_projection_provider_session_bindings AS bindings
                   ON bindings.provider_session_id = sessions.provider_session_id
                 WHERE sessions.status NOT IN ('stopped', 'error')
+                  ${kind === "active-runtime" ? sql`AND sessions.status != 'ready'` : sql``}
                 UNION
                 SELECT thread_id FROM pending_provider_threads
                 UNION
@@ -5974,13 +6008,28 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             return yield* new ProjectionStoreThreadNotFoundError({ threadId });
           const selected = {
             ...projection,
-            messages: projection.messages.filter(
-              (row) =>
-                (filter?.messageRunIds === undefined ||
-                  (row.runId !== null && filter.messageRunIds.includes(row.runId))) &&
-                (filter?.messageIds === undefined || filter.messageIds.includes(row.id)) &&
-                (filter?.messageRoles === undefined || filter.messageRoles.includes(row.role)),
-            ),
+            messages: (filter?.messageReplyChainId === undefined
+              ? projection.messages
+              : messageReplyChain(
+                  projection.messages.filter(
+                    (row) => !row.context?.replyTo || row.context.replyTo.threadId === threadId,
+                  ),
+                  filter.messageReplyChainId,
+                )
+            )
+              .filter(
+                (row) =>
+                  (filter?.messageRunIds === undefined ||
+                    (row.runId !== null && filter.messageRunIds.includes(row.runId))) &&
+                  (filter?.messageIds === undefined || filter.messageIds.includes(row.id)) &&
+                  (filter?.messageRoles === undefined || filter.messageRoles.includes(row.role)),
+              )
+              .slice(
+                filter?.messageOffset ?? 0,
+                filter?.messageLimit === undefined
+                  ? undefined
+                  : (filter.messageOffset ?? 0) + filter.messageLimit,
+              ),
             runs:
               filter?.runIds === undefined
                 ? projection.runs

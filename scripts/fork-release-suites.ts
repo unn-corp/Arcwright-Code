@@ -83,6 +83,7 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "src/forkMaintenanceSnapshot.test.ts",
       "src/forkMaintenanceTransaction.test.ts",
       "src/forkMaintenanceController.test.ts",
+      "src/forkMaintenanceFeed.test.ts",
       "src/buildVersion.test.ts",
       "src/forkRecoveryHelper.test.ts",
       "src/forkDesktopHandoff.test.ts",
@@ -103,6 +104,7 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
     required: [
       "src/maintenance/MaintenanceHost.test.ts",
       "src/maintenance/MaintenanceCoordinator.test.ts",
+      "src/orchestration-v2/ProjectionRecovery.test.ts",
       "src/maintenance/IdleProcessRoots.test.ts",
       "src/storageCleanup.test.ts",
       "src/diagnostics/ProcessDiagnostics.test.ts",
@@ -175,6 +177,7 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
     results: "vitest",
     required: [
       "src/state/forkUpdates.test.ts",
+      "src/components/settings/ForkUpdateControls.test.tsx",
       "src/lib/backgroundActivityReporter.test.ts",
       "src/state/hostForkUpdates.test.ts",
       "src/state/hostUpdateBatcher.test.ts",

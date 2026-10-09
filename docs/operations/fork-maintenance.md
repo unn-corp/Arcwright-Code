@@ -226,6 +226,25 @@ The APK native container zeroes handled bars/cutout/IME insets before forwarding
 see [shell inset maintenance](./android-pwa.md#shell-insets-and-folded-layouts). Verify native header
 alignment and keyboard hide after live fold changes as well as browser viewport tests.
 
+## Direct message replies
+
+**Behavior and ownership.** Web/desktop and the fork Android web bundle expose
+right-click/touch Reply, a persisted composer quote, and a focused reply-thread
+dialog. [MessageReplies.tsx](../../apps/web/src/components/chat/MessageReplies.tsx)
+and [messageReplies.ts](../../packages/shared/src/messageReplies.ts) own the UI
+and graph traversal. V2 message context holds links; the event sink links assistant
+output, and `t3_message_reply` lets live agents choose earlier user messages.
+The [composer guide](../user/composer.md#reply-to-a-message) describes use and the
+[internals guide](../internals/composer-context-references.md#direct-message-replies)
+describes persistence and bounded history reads. React Native UI is uncommissioned.
+
+**Verification and coupling.** Keep reply graph, composer persistence, UI action,
+SQL pagination/index, canonical target, queued edit, cycle rejection, provider
+projection, and MCP ownership tests with this feature. New paired hosts must ship
+the reply-chain RPC and MCP tool. Compare upstream reply semantics before merging
+future context, timeline, composer, and tool refactors; do not drop assistant
+context or flatten a focused thread into the whole transcript.
+
 ## Stop, commands, and run recovery
 
 **Behavior and reason.** Stop must remain reachable while work or cancellation is pending.
@@ -371,6 +390,9 @@ state; [provider](../../apps/server/src/provider) and
 Run the relevant checkpoint/provider regression tests when syncing upstream. Model availability
 comes from the live provider catalog, not a documentation snapshot. Confirm whether upstream has
 incorporated equivalent behavior before retaining compatibility patches.
+`ClaudeAdapterV2` continuation turns drain the wake buffer before the turn becomes active and stop
+replaying once a live result has closed the turn; otherwise a race leaves an agent-created run
+`running` forever and every follow-up message stays queued. Keep the wake-race regression test.
 The Git budget and refresh policy are owned by [vcs](../../apps/server/src/vcs) and
 [background](../../apps/server/src/background); checkpoint policy is enforced by the V2
 [CheckpointService](../../apps/server/src/orchestration-v2/CheckpointService.ts). Retain their focused
@@ -426,6 +448,25 @@ admission reopens. Keep oldest-first polling from moving the cursor past an unco
 This is host functionality, not an APK or cloud-push feature.
 
 ## Updates and recovery
+
+Maintenance uses the `active-runtime` projection selector; restart recovery keeps
+`runtime`, which also reconciles ready provider sessions. A ready session alone is
+not active work. Keep one shared `IdleProcessRoots` service at server scope so
+spawn sites and the collector use the same exact PID/creation identity registry.
+Only a verified provider root is exempt: terminal shells, unregistered helper
+children (including a lingering code-mode host), reused PIDs, and unknown process
+observations still hold installation. A completed turn does not prove those
+children have exited; never stop sessions or clear their records to obtain admission.
+
+GitHub feed rate limits are different from ordinary network failures. Respect the
+controller's `nextCheckAt` for desktop automatic checks; four-minute wakeups do not
+override the normal four-hour feed cadence or failure backoff. Explicit checks can
+run sooner unless GitHub's enforced cooldown is still active. Respect the
+advertised reset time and `Retry-After` delay, keep the staged artifact, and report
+an offline blocker while the cooldown is active. Repeated manual checks and install
+requests must not consume more requests during that period. Installation still
+requires a fresh eligible release listing afterward; cached metadata never admits
+an update when the release origin cannot be checked.
 
 ### Resolve an unknown orphan after offline verification
 
@@ -548,8 +589,12 @@ serializes distinct replacement targets under their explicit coordinator ID and 
 by the controller's affected-home identity; [its tests](../../apps/web/src/state/hostUpdateBatcher.test.ts)
 cover aliases, separate homes, independent devices, offline results, and retry. Both sidebars
 use [ForkSidebarUpdateStatus.tsx](../../apps/web/src/components/sidebar/ForkSidebarUpdateStatus.tsx),
-and the application menu opens the canonical settings surface. Conversation notices use
-[ComposerHostMaintenanceStatus.tsx](../../apps/web/src/components/chat/ComposerHostMaintenanceStatus.tsx).
+and the application menu opens the canonical settings surface. Host notices and machine
+compatibility/update actions live in the shared sidebar footer through
+[SidebarHostUpdateNotices.tsx](../../apps/web/src/components/sidebar/SidebarHostUpdateNotices.tsx),
+including remote web/APK environments. The composer and conversation details do not render
+update cards. Host notices use the selected thread/draft environment, falling back to the primary
+environment outside a conversation; the machine list retains independent update targets.
 Recovery and restored-automation review have separate dialogs and interaction tests. When these
 surfaces move, update Settings search, navigation, both sidebars, user routes, and the relevant
 interaction tests together. Electron/native/host services retain installation authority; UI adapters

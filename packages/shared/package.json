@@ -478,6 +478,10 @@
     "./sideThread": {
       "types": "./src/sideThread.ts",
       "import": "./src/sideThread.ts"
+    },
+    "./messageReplies": {
+      "types": "./src/messageReplies.ts",
+      "import": "./src/messageReplies.ts"
     }
   },
   "scripts": {

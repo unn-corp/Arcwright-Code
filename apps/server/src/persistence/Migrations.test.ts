@@ -264,13 +264,34 @@ it.effect("upgrades UNN through 94 by appending Teams migrations", () =>
     const applied = yield* runMigrations();
     assert.deepEqual(
       applied.map(([id]) => id),
-      [95, 96, 97, 98, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208],
+      [95, 96, 97, 98, 99, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208],
     );
     assert.deepEqual(
       yield* sql`SELECT migration_id,name FROM effect_sql_migrations WHERE migration_id <= 94 ORDER BY migration_id`,
       before,
     );
     assert.equal((yield* sql`SELECT name FROM sqlite_master WHERE name = 'team_spaces'`).length, 1);
+    assert.deepEqual(yield* runMigrations(), []);
+  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+);
+
+it.effect("applies fork migrations added below an already recorded Teams ledger", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations();
+    // A Teams install from before fork migration 99 existed.
+    yield* sql`DROP INDEX orchestration_v2_message_reply_parent_idx`;
+    yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 99`;
+    yield* runMigrations();
+    assert.deepEqual(
+      yield* sql`SELECT migration_id,name FROM effect_sql_migrations ORDER BY migration_id`,
+      migrationManifest.map(([migration_id, name]) => ({ migration_id, name })),
+    );
+    assert.equal(
+      (yield* sql`SELECT 1 FROM sqlite_master WHERE name = 'orchestration_v2_message_reply_parent_idx'`)
+        .length,
+      1,
+    );
     assert.deepEqual(yield* runMigrations(), []);
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
