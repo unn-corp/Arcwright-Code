@@ -22,16 +22,19 @@ it("registers native broker commands and enforces the host platform", async () =
       const help = NodeChildProcess.spawnSync(
         process.execPath,
         [entry, "__organization-launch-broker", "--help"],
-        { encoding: "utf8", timeout: 10_000 },
+        // Cold source imports on Windows CI include the complete server graph.
+        { encoding: "utf8", timeout: 60_000 },
       );
+      NodeAssert.ifError(help.error);
       NodeAssert.equal(help.status, 0, help.stderr);
       NodeAssert.match(help.stdout, /__organization-launch-broker/);
       NodeAssert.match(help.stdout, /--base-dir/);
       const unsupported = NodeChildProcess.spawnSync(
         process.execPath,
         [entry, "maintenance", "scope-broker", "--base-dir", baseDir],
-        { encoding: "utf8", timeout: 10_000 },
+        { encoding: "utf8", timeout: 60_000 },
       );
+      NodeAssert.ifError(unsupported.error);
       // Effect CLI renders structured failures through its console; the diagnostic may use either stream.
       const unsupportedOutput = `${unsupported.stdout}\n${unsupported.stderr}`;
       NodeAssert.equal(unsupported.status, 1, unsupportedOutput);
@@ -80,4 +83,4 @@ it("registers native broker commands and enforces the host platform", async () =
     if (child.exitCode === null) await new Promise<void>((resolve) => child.once("exit", resolve));
     await NodeFSP.rm(baseDir, { recursive: true, force: true });
   }
-});
+}, 130_000);

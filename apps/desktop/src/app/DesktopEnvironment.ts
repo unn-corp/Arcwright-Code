@@ -112,10 +112,15 @@ export function resolveDesktopAppBranding(input: {
   readonly appVersion: string;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
+  const preview = /^\d+\.\d+\.\d+-(nightly|preview)\.\d{8}\.(\d+)$/.exec(input.appVersion);
   return {
     baseName: APP_BASE_NAME,
     stageLabel,
-    displayName: input.isDevelopment ? `${APP_BASE_NAME} (Dev)` : APP_BASE_NAME,
+    displayName: input.isDevelopment
+      ? `${APP_BASE_NAME} (Dev)`
+      : preview
+        ? `${APP_BASE_NAME} — ${preview[1] === "preview" ? "Local Nightly" : "Nightly"} ${preview[2]}`
+        : APP_BASE_NAME,
   };
 }
 

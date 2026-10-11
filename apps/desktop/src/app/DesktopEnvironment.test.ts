@@ -39,18 +39,19 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
-  it.each(["0.0.45", "1.0.1-nightly.20261007.50"])(
-    "keeps installed branding independent of channel for %s",
-    (appVersion) => {
-      const branding = DesktopEnvironment.resolveDesktopAppBranding({
-        isDevelopment: false,
-        appVersion,
-      });
-      assert.equal(branding.displayName, "Arcwright Code");
-      assert.equal(branding.baseName, "Arcwright Code");
-      assert.equal(branding.stageLabel, appVersion.includes("nightly") ? "Nightly" : "Alpha");
-    },
-  );
+  it.each([
+    ["0.0.45", "Arcwright Code"],
+    ["1.0.1-nightly.20261007.50", "Arcwright Code — Nightly 50"],
+    ["1.0.1-preview.20261011.1", "Arcwright Code — Local Nightly 1"],
+  ])("names installed build %s while preserving its base identity", (appVersion, displayName) => {
+    const branding = DesktopEnvironment.resolveDesktopAppBranding({
+      isDevelopment: false,
+      appVersion,
+    });
+    assert.equal(branding.displayName, displayName);
+    assert.equal(branding.baseName, "Arcwright Code");
+    assert.equal(branding.stageLabel, appVersion === "0.0.45" ? "Alpha" : "Nightly");
+  });
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

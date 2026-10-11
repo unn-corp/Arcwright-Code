@@ -499,6 +499,37 @@ The proof shows the baseline files are what they claim. It does not show the bas
 first rehearsal's update and recovery validations do, because they install the baseline and update from
 it.
 
+## Local desktop builds and menu replacement
+
+For an explicitly requested local Linux nightly, build a fresh AppImage from the committed source:
+
+```bash
+node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64 \
+  --build-version 1.0.1-preview.YYYYMMDD.N --output-dir /absolute/local-output
+```
+
+Use a fresh local preview counter for that date. Local previews show **Arcwright Code — Local
+Nightly N** and do not advertise themselves as published releases. Published nightlies show
+**Arcwright Code — Nightly N**. The app derives this name at every launch, including its Linux menu
+entry; package IDs, WM class, URL scheme, pairing, and data-home identity stay stable.
+
+Every installation must go through the device maintenance coordinator with normal activity,
+idle-window, snapshot, trial, and health checks. A local build is not permission to bypass those
+checks or create release eligibility or installed-build receipts manually. Keep the previous binary
+and recovery assets until the new build is healthy. Close the old desktop only after the coordinator
+permits replacement, then launch the installed build against its original home.
+
+After **each** successful installation, verify the canonical menu entry
+`~/.local/share/applications/com.t3tools.T3Code.desktop` names the new build and launches its installed
+binary or stable managed launcher. Preserve its icon, `StartupWMClass`, and `t3code` URL association.
+Back up and retire obsolete duplicate entries such as `t3-code.desktop` and per-build
+`arcwright-code-nightly-N.desktop`; retain separate development and capture-tool entries. Refresh
+the desktop database and desktop shell menu cache, then verify one visible installed-app option,
+the correct build name after a second launch, a ready backend, and working saved connections.
+Record the exact source commit, version, artifact digest, coordinator transaction, health result, and
+retired entry names in the private installation record. Do not rerun first-launch migration or copy
+the database simply to update a menu entry.
+
 ## Commissioning
 
 Do these in order. Each is outside the repository.
