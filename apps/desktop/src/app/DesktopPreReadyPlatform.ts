@@ -11,6 +11,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import * as DesktopEarlyElectronStartup from "./DesktopEarlyElectronStartup.ts";
 import { resolveDesktopAppBranding } from "./DesktopEnvironment.ts";
+import { desktopLauncherIconName } from "./DesktopLauncherIcon.ts";
 import { renderUrlHandlerDesktopEntry } from "./DesktopLinuxUrlHandler.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 
@@ -68,7 +69,7 @@ export const make = Effect.gen(function* () {
           "applications",
         );
         NodeFS.mkdirSync(applicationsDir, { recursive: true });
-        const iconPath = Electron.app.isPackaged
+        let iconPath = Electron.app.isPackaged
           ? NodePath.posix.join(
               applicationsDir,
               "..",
@@ -79,13 +80,17 @@ export const make = Effect.gen(function* () {
         if (iconPath !== undefined) {
           try {
             NodeFS.mkdirSync(NodePath.posix.dirname(iconPath), { recursive: true });
-            NodeFS.copyFileSync(
-              NodePath.posix.join(
-                Electron.app.getAppPath(),
-                "apps/desktop/prod-resources/icon.png",
-              ),
-              iconPath,
+            const source = NodePath.posix.join(
+              Electron.app.getAppPath(),
+              "apps/desktop/prod-resources/icon.png",
             );
+            iconPath = NodePath.posix.join(
+              applicationsDir,
+              "..",
+              "icons",
+              desktopLauncherIconName(linux.linuxDesktopEntryName, NodeFS.readFileSync(source)),
+            );
+            NodeFS.copyFileSync(source, iconPath);
           } catch {
             // Icon installation is optional; registration retries after readiness.
           }
@@ -97,7 +102,10 @@ export const make = Effect.gen(function* () {
               isDevelopment: linux.isDevelopment,
               appVersion: Electron.app.getVersion(),
             }).displayName,
-            execTarget: process.env.APPIMAGE?.trim() || process.execPath,
+            execTarget:
+              process.env.T3CODE_URL_HANDLER_EXEC_TARGET?.trim() ||
+              process.env.APPIMAGE?.trim() ||
+              process.execPath,
             scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
             launcher: Boolean(process.env.APPIMAGE?.trim()) && !linux.isDevelopment,
             ...(iconPath === undefined ? {} : { iconPath }),

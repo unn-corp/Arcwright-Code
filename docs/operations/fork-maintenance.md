@@ -65,7 +65,9 @@ repair; this feature does not clear locks or bypass maintenance fencing.
 The fork is named **Arcwright Code** across web, Electron, the standalone Android APK, and
 Expo mobile variants. The transparent masters in [assets/arcwright](../../assets/arcwright)
 own the wordmark and AC lightning mark; [the asset guide](../../assets/README.md) explains
-regeneration and verification. Header images, launchers, splash screens, notifications, and
+regeneration and verification. Linux desktop registration uses content-derived icon filenames so KDE and other desktop caches do not retain a previous logo. Keep pre-ready and URL-handler registration on the same icon identity.
+
+Header images, launchers, splash screens, notifications, and
 widgets must use these shared outputs. Keep installed package IDs, signing identities, URL
 schemes, legacy data folders, and recovery artifact names compatible when changing display names.
 Installed Android, Windows and Linux application names are exactly **Arcwright Code**. Channel
@@ -101,6 +103,9 @@ the runbook cover release APK behavior. Test in-place, same-key installation and
 connections, system permission changes, cover/unfolded dimensions, and live resize. Changes to
 shared Settings or client-runtime require an APK rebuild. Never uninstall to upgrade; losing the
 signing identity prevents normal in-place replacement.
+Pairing QR scanning uses the bundled web client and the shell's existing camera permission
+boundary. Verify desktop QR decoding, permission denial, and camera release on cancellation;
+check the camera on a phone before commissioning the APK.
 
 ## Phone alerts
 
@@ -218,10 +223,12 @@ alongside these modules.
 Preview-page microphone permissions are separate from the annotation editor's recorder.
 [MicrophonePermission.ts](../../apps/desktop/src/preview/MicrophonePermission.ts), installed by
 [BrowserSession.ts](../../apps/desktop/src/preview/BrowserSession.ts), prompts only for top-level,
-audio-only requests from `http://127.0.0.1:5274`. Both Electron handlers enforce that exact origin
-and media type; video, mixed requests, and subframes remain denied. Store Allow/Deny in the
-partition's own storage directory, keep incognito choices in memory, and reset the choice during
-profile site-data clearing. Keep profile isolation, persistence, navigation-during-prompt, and
+audio-only requests from any HTTP(S) webpage origin. Chromium's secure-context requirements
+still apply. Keep each origin's saved choice independent and preserve legacy loopback choices.
+Both Electron handlers enforce the exact requested origin and media type; video, mixed requests,
+and subframes remain denied. Store Allow/Deny in the partition's own storage directory, keep
+incognito choices in memory, and reset choices during profile site-data clearing. Reject opaque
+and non-web origins. Keep profile isolation, persistence, navigation-during-prompt, and
 camera-denial checks in [MicrophonePermission.test.ts](../../apps/desktop/src/preview/MicrophonePermission.test.ts).
 
 **Verification and coupling.** Keep the corresponding component, pointer, drag, and draft tests
