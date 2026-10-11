@@ -58,6 +58,16 @@ Read ports from the `[dev-runner]` output. Worktrees derive stable preferences f
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.
 
+### Diagnosing slow startup
+
+Check `userdata/logs/server-child.log` for readiness timeouts, SQLite blocking warnings,
+and event-loop stalls before assuming startup is copying the database. V1 initialization
+only snapshots `state.sqlite` when `statev2.sqlite` is absent. Provider recovery uses an
+index of unfinished provider work and indexed ownership lookups; preserve those query
+plans when modifying recovery. Index creation runs once during schema upgrade and
+does not discard history. Keep installation/recovery snapshots until their coordinator
+references are reviewed; do not delete a database or run a live `VACUUM` to repair lag.
+
 ### Sharing and remote debugging
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL

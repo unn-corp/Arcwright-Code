@@ -48,3 +48,28 @@ A WSL backend needs a Linux monitor even though Electron runs on Windows. Window
 desktop packages currently supply only the Windows executable, so native process
 telemetry for the WSL backend is unavailable. The inherited Electron power feed
 still works.
+
+## Agent start admission
+
+[AgentStartAdmission](../../apps/server/src/resourceTelemetry/AgentStartAdmission.ts) uses the
+shared five-second [HostResources](../../apps/server/src/resourceTelemetry/HostResources.ts)
+cache, independent of the optional native process collector. Each environment holds new starts,
+restarts, and restart continuations below 10% available RAM, with a reserve bounded between
+512 MiB and 8 GiB. It resumes when available RAM reaches 125% of that reserve. Invalid memory
+samples hold new starts until a valid sample recovers; CPU load does not impose a concurrency cap.
+WSL reads Linux resources for its backend rather than Windows desktop process telemetry.
+
+[EffectWorker](../../apps/server/src/orchestration-v2/EffectWorker.ts) applies admission before
+claiming durable outbox rows. Held work stays pending without consuming attempts, leases, or
+worker slots. Interrupts and cleanup remain eligible. Per-thread ordering remains intact until
+cancellation removes a held start; restart continuations retain the existing recovery bypass.
+Workers recheck held due work after five seconds rather than polling it every 25 ms, while outbox
+notifications still wake them for new control work. Transition logs explain holds and resumption.
+
+This is an admission safeguard, not a memory limit on running providers or their subprocesses.
+Several starts can share a cached sample, and running jobs or unrelated applications can grow
+after admission. Idle provider sessions retain their existing release policy. The isolated
+[outbox/worker tests](../../apps/server/src/orchestration-v2/EffectOutbox.memory.test.ts) verify
+20-start resumption and Stop under pressure; they do not certify sustained operation of 20 real
+providers. Installed builds receive this behavior only after the changed server is packaged and
+installed through the maintenance coordinator.

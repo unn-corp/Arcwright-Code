@@ -41,6 +41,7 @@ import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/http";
 
 import { APP_VERSION } from "../branding";
+import { isAndroidPwa } from "../env";
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
 import * as PrimaryEnvironmentHttpLayer from "../environments/primary/httpLayer";
 import {
@@ -60,14 +61,15 @@ import {
 import * as ConnectionStorage from "./storage";
 import { clientPresentationMetadata } from "./clientMetadata";
 import { installBrowserConnectionWakeups } from "./browserWakeups";
+import { browserNetworkStatus } from "./browserConnectivity";
 
 let nextObservedRpcRequestId = 0;
 
 function currentNetworkStatus(): "unknown" | "offline" | "online" {
-  if (typeof navigator === "undefined") {
-    return "unknown";
-  }
-  return navigator.onLine ? "online" : "offline";
+  return browserNetworkStatus(
+    typeof navigator === "undefined" ? undefined : navigator,
+    isAndroidPwa,
+  );
 }
 
 const layerConnectivity = Connectivity.layer({
@@ -75,8 +77,8 @@ const layerConnectivity = Connectivity.layer({
   changes: Stream.callback((queue) =>
     Effect.acquireRelease(
       Effect.sync(() => {
-        const online = () => Queue.offerUnsafe(queue, "online");
-        const offline = () => Queue.offerUnsafe(queue, "offline");
+        const online = () => Queue.offerUnsafe(queue, currentNetworkStatus());
+        const offline = () => Queue.offerUnsafe(queue, currentNetworkStatus());
         window.addEventListener("online", online);
         window.addEventListener("offline", offline);
         return { online, offline };

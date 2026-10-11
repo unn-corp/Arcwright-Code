@@ -37,6 +37,29 @@ contains Git submodule entries, preserve their root-relative registration in `.g
 initialization disabled. GitHub checkout's credential cleanup traverses these entries even during
 a sparse checkout; missing root metadata can stop every build before dependency installation.
 
+## Agent memory admission
+
+New agent starts, restarts, and restart continuations are held under host memory pressure without
+claiming their durable effects. Existing agents, cancellation, interrupts, and cleanup keep their
+normal paths. The guard runs in the server for desktop, standalone, web, mobile, and Android callers;
+each paired environment uses its own host's RAM. Source behavior requires a packaged server update;
+build 82 does not include it.
+
+Ownership: [AgentStartAdmission](../../apps/server/src/resourceTelemetry/AgentStartAdmission.ts),
+[HostResources](../../apps/server/src/resourceTelemetry/HostResources.ts),
+[EffectOutbox](../../apps/server/src/orchestration-v2/EffectOutbox.ts), and
+[EffectWorker](../../apps/server/src/orchestration-v2/EffectWorker.ts). Production wiring belongs to
+[server.ts](../../apps/server/src/server.ts). The
+[resource architecture](../internals/resource-telemetry.md#agent-start-admission) specifies thresholds,
+sampling and ordering; [usage guidance](../user/usage.md#running-several-agents) explains waiting.
+
+Verification: `AgentStartAdmission.test.ts`, `EffectOutbox.memory.test.ts`, `EffectWorker.test.ts`,
+and `FoundationPersistence.test.ts` cover hysteresis, 20 pending starts, resumption, control work,
+cancellation, and durable ordering. Sustained real-provider load and packaged-device validation
+remain separate release checks. Admission cannot prevent an already-running tool or unrelated
+application from exhausting memory. OS-killed runtimes still require verified coordinator lock
+repair; this feature does not clear locks or bypass maintenance fencing.
+
 ## Product branding
 
 The fork is named **Arcwright Code** across web, Electron, the standalone Android APK, and

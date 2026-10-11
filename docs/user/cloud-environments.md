@@ -29,7 +29,8 @@ configured accounts do not mean multiple simultaneous defaults. The helper
 initially selects the owner. If a different configured account should be the chat
 default, change it through normal T3 settings after pairing. Extra accounts do not
 change the VM's owner or its name. Each account needs independent sign-in in the VM.
-Claude uses its own subscription sign-in. Names are labels, not proof of identity.
+Claude is optional: install and connect it only when explicitly requested. It uses
+its own subscription sign-in. Names are labels, not proof of identity.
 
 Keep the published environment name/ID, owning ChatGPT account, running task URL/ID,
 T3 server ID, actual checkout path, configured accounts, and requested devices in
@@ -89,7 +90,7 @@ Devices to connect: desktop and Android phone
 Local repository path: <path, or not available>
 Copy application configuration: <no, or selected files/variable names>
 Configuration destination: <environment variables, network secrets, or personal vault>
-Claude subscription: <yes or no>
+Claude subscription: no (request explicitly if wanted)
 Private gateway: <known host/HTTPS origin, or ask the operator to provision one>
 ```
 
@@ -142,9 +143,10 @@ a fresh task; an existing task retains its own state.
 In the Cloud setup conversation, ask Codex to prepare the tools with this prompt:
 
 ```text
-Prepare this repository for ordinary T3 Codex and Claude chats inside cloud tasks.
+Prepare this repository for ordinary T3 Codex chats inside cloud tasks.
 Keep the repository's existing setup. Install Python 3, curl or wget, tar,
-and sha256sum or shasum. Install Codex CLI and Claude Code using their supported installers.
+and sha256sum or shasum. Install Codex CLI using its supported installer.
+Install Claude Code only if the user explicitly requested it for this environment.
 Place matching trusted copies of cloud-environment.py and install.sh from
 unn-corp/t3code in /opt/t3-cloud-tools, creating that directory if permitted,
 or use a writable tool directory and record its actual path instead.
@@ -204,14 +206,21 @@ phase. Network-secret placeholders are not local CLI login files or SSH keys.
 ## Start a task and run the server
 
 Start a task in the published environment on its owning account. Use a private,
-writable T3 data directory outside the repository; each new task needs a fresh
-home and T3 identity. Keep it out of the reusable snapshot. With the helpers at
-the prepared path, one command installs a verified release and starts the managed
-launcher with automatic updates enabled:
+writable T3 data directory in the task's retained workspace, outside the repository;
+each new task needs a fresh home and T3 identity. For example, reserve
+`/workspace/t3-cloud-private/Squidhub` after publication with owner-only permissions
+(`0700`). Use a task-specific suffix if several tasks share a filesystem. Verify
+that the chosen directory actually survives this task's executor replacement;
+the location alone is not a durability guarantee. Keep it out of Git and every
+reusable published snapshot. With the helpers at the prepared path, these commands
+install a verified release and start the managed launcher with automatic updates enabled:
 
 ```sh
+umask 077
+mkdir -p /workspace/t3-cloud-private/Squidhub
+chmod 700 /workspace/t3-cloud-private/Squidhub
 python3 /opt/t3-cloud-tools/cloud-environment.py setup \
-  --home /tmp/t3-cloud-task-home --port 13882 --repository unn-corp/Squidhub \
+  --home /workspace/t3-cloud-private/Squidhub/home --port 13882 --repository unn-corp/Squidhub \
   --accounts /opt/t3-cloud-tools/accounts.json --owner-account codex
 ```
 
@@ -223,6 +232,19 @@ remain disabled; enable the account in Providers before using it if necessary.
 For manual provider configuration, omit `--accounts` and `--repository`, and pass
 the standard name with `--name` instead. Account selection applies only
 to fresh setup; it never overwrites accounts in an existing home.
+
+Fresh setup uses T3's **managed Codex** provider. After pairing, select this VM
+in **Settings → Providers**, choose its owning account, and click **Continue
+with ChatGPT**. This installs T3's compatible Codex runtime and starts the VM's
+own subscription sign-in. When ChatGPT asks for an agent name, use the same
+`repository (Account) — Codex Cloud` name. Complete sign-in from the client that
+started it. If the final localhost page cannot return to the remote VM, use the
+owning client's private redirect-URL field; never paste that URL into a chat.
+
+A successful standalone `codex login` does not sign in T3's managed provider.
+Keep the managed provider's custom binary override empty. If an existing CLI is
+deliberately selected instead, use its supported existing-CLI mode and verify an
+actual T3 turn; CLI login status alone does not establish app-server readiness.
 
 Additional accounts are optional. After pairing, select this VM in **Settings →
 Providers**, add a Codex account, and complete its separate browser sign-in. To
@@ -263,6 +285,10 @@ For a reusable Start skill, use these instructions:
 ```text
 Start the managed T3 environment for this task using the prepared helper.
 Verify the repository checkout path, writable process home, and private T3 home.
+Keep task-private state under a verified retained workspace directory outside
+the checkout, with owner-only permissions, never /tmp or a reusable snapshot.
+Record the executor boot ID and all retained paths. On resume, verify the files
+and original T3 identity before starting any stopped launcher or tunnel.
 On initial setup use --repository with the actual repository and exported owning
 account, or use --name to pass the explicit name
 'Squidhub (Personal) — Codex Cloud'. On subsequent starts use its saved name.
@@ -506,14 +532,52 @@ Treat a disconnected saved environment as a reachability problem first. Do not
 silently send its work to a PC checkout, switch accounts, initialize another home,
 or create a replacement task while diagnosing it.
 
+During fleet commissioning, four existing tasks resumed on executors with new
+boot IDs. Their `/workspace` repositories, copied application `.env` files, and
+prepared tools survived, while their `/tmp` T3 homes, tunnel keys, and provider
+authentication disappeared. A saved Cloud chat or repository does not prove
+that its T3 runtime state survived. Use a task-private retained workspace directory
+such as `/workspace/t3-cloud-private/<repository>/home`, outside the checkout,
+and verify its retention on the actual task. If the chosen location falls inside
+a Git working tree, exclude it locally and verify `git check-ignore` before
+creating private state. Directory permissions must be `0700`; private files must
+be owner-only. Create it only after publishing the reusable environment, and never
+publish or snapshot that signed-in task state as reusable setup.
+
+Keep the writable provider process home, tunnel keys, private logs, and original
+maintenance coordinator storage in verified retained locations too. Record the
+executor boot ID from `/proc/sys/kernel/random/boot_id`, the T3 UUID, paths, and
+owned PID creation identities in the private handoff. After an executor change,
+old PIDs and sockets are not current ownership evidence; use the normal helper
+and native maintenance checks to establish current state before resuming.
+
+Arrange an encrypted private backup outside the Cloud task for its durable T3
+data and conversation history, with a recorded destination, identity, timestamp,
+and verified recovery procedure. Use a consistent stopped-work or supported
+snapshot procedure; copying a live database arbitrarily is not a verified backup.
+Keep private backup content out of Git, chats, reusable images, and shared
+artifacts. The setup helper does not create backups, and the existing encrypted
+pairing-link handoff is not a home-backup transport. Do not report backup or
+restore support as available until the actual transfer and recovery are verified.
+
+[OpenAI's saved-state guidance](https://learn.chatgpt.com/docs/environments/cloud-environments#reuse-and-update-saved-state)
+describes continuing an existing task's saved files; its
+[VM specifications](https://learn.chatgpt.com/docs/environments/cloud-environments#vm-specifications)
+state that saved VM state is normally recoverable for up to seven days after the
+last turn or resume. This does not guarantee retention of every filesystem path
+or an always-running T3 server. Keep source work in Git and verify private state
+and backups separately.
+
 1. Open the recorded Cloud task and check whether the same VM and checkout are
    available. Verify the recorded T3 data home and server ID. Publishing an updated
-   template does not upgrade or replace that task's state.
+   template does not upgrade or replace that task's state. Compare the executor
+   boot marker and inspect the retained home, process home, and tunnel files.
+   If the original home is missing, diagnose recovery before running setup.
 2. Check its loopback descriptor and the recorded launcher processes. Inspect
    maintenance state through the normal helper with the recorded home:
 
    ```sh
-   python3 /opt/t3-cloud-tools/cloud-environment.py status --home /tmp/t3-cloud-task-home
+   python3 /opt/t3-cloud-tools/cloud-environment.py status --home /workspace/t3-cloud-private/Squidhub/home
    ```
 
    If the launcher is stopped, use `start` with that same configured home and the
@@ -544,6 +608,10 @@ or create a replacement task while diagnosing it.
    project, and per-device pairing. Retain the old connection until its work has
    been reviewed and the new connection passes validation. Remove obsolete saved
    connections and task-specific routes only when their retirement is authorized.
+   If the original home and its verified backup are both unavailable, report the
+   lost history and authentication honestly. Never recreate the old UUID from the
+   inventory or claim that a new empty home restored the original environment.
+   A replacement needs fresh independent provider sign-ins and device pairing.
 
 Record credential expiry and the responsible renewal path at setup. An expiring
 key is not the same as proof that an existing connection has already stopped;
@@ -565,6 +633,8 @@ Owning ChatGPT account: <account>
 Running Cloud task URL / runtime ID: <verified values>
 T3 server ID / installed version / channel: <verified values>
 T3 home / process home / coordinator namespace: <recorded paths>
+Executor boot ID / private-state retention verification: <recorded proof or pending>
+Encrypted private backup / verified recovery: <destination and metadata, or pending>
 Gateway host / private HTTPS origin / reverse mapping: <recorded route>
 Owned launcher/tunnel PIDs / private log paths: <recorded values>
 Configured Codex accounts / default chat account: <verified values>

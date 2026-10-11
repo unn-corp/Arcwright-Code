@@ -105,8 +105,10 @@ Connections**; a new installation with no saved computers shows connection setup
 Cached conversations remain readable while a host is disconnected, but new messages require a
 live connection. If messages stop updating, check that host in **Settings → Connections** and
 keep Tailscale connected. Returning to the app or tapping **Reconnect** checks the host even if
-Android reports the network as offline. If that check fails, the app waits for connectivity or
-another retry; it does not continuously retry an offline network.
+Android reports the network as offline. Android WebView can report offline while Tailscale
+still reaches private hosts, so that hint does not suspend connection attempts. Failed host
+connections retry with increasing delays; returning to the app or tapping **Reconnect** checks
+immediately. A live connection catches up on messages missed during the interruption.
 
 The phone is a client of the selected environment. Agents, terminals, repositories, provider
 credentials, and conversation history stay on that environment's computer. The APK does not

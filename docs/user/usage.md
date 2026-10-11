@@ -141,3 +141,20 @@ Use `Ctrl+Shift+1/2/3/4` (`Cmd+Shift+1/2/3/4` on macOS) for the past
 24 hours, 7 days, 30 days, or 90 days. Period shortcuts do nothing on Limits.
 Press `Escape` to return to the previous page. Customize these shortcuts in
 **Settings → Keybindings**.
+
+## Running several agents
+
+Agent capacity depends on the environment running the providers, their tools and child processes,
+and other applications sharing that machine. There is no new fixed cap of 10 or 20 agents.
+
+The source now includes a host memory safeguard; it requires a packaged server update and is
+not present in Arcwright build 82. When available RAM falls below the host's reserve, new starts
+and restarts wait in their current starting state. Running agents continue and Stop remains
+available. Starts resume automatically after memory recovers. The reserve is 10% of RAM, bounded
+between 512 MiB and 8 GiB, and resumption requires 25% more headroom than the hold threshold.
+
+This check cannot bound memory growth inside agents that are already running. For a 10–20-agent
+workload, monitor the whole app and provider process tree, available RAM, swap, and responsiveness.
+Use separate worktrees for agents editing the same repository, and move work to another paired
+environment when the local host cannot sustain the load. A low-memory hold is recorded in the
+server logs; the current UI does not show a separate memory-pressure badge.

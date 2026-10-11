@@ -21,6 +21,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Statement from "effect/sql/Statement";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -112,6 +113,28 @@ const createRun = Effect.fn(function* (
   });
   return runId;
 });
+
+it.effect("discovers pending provider work without scanning settled provider payloads", () =>
+  Effect.gen(function* () {
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const sql = yield* SqlClient.SqlClient;
+    const queries: Array<readonly [string, ReadonlyArray<unknown>]> = [];
+    const record: Statement.Transformer = (statement) =>
+      Effect.sync(() => {
+        queries.push(statement.compile());
+        return statement;
+      });
+    yield* projections
+      .getRecoveryThreadIds("runtime")
+      .pipe(Effect.provideService(Statement.CurrentTransformer, record));
+    assert.lengthOf(queries, 1);
+    const plan = yield* sql.unsafe<{ readonly detail: string }>(
+      `EXPLAIN QUERY PLAN ${queries[0]![0]}`,
+      queries[0]![1],
+    );
+    assert.isTrue(plan.some((row) => row.detail.includes("provider_threads_recovery_idx")));
+  }).pipe(Effect.provide(layerTest)),
+);
 
 it.effect("selects unfinished recovery work without reading settled thread histories", () =>
   Effect.gen(function* () {
@@ -439,14 +462,33 @@ it.effect("includes shared sessions and provider-owned background rosters in rec
       new Set(yield* projections.getRecoveryThreadIds("active-runtime")),
       new Set([roster, prepared]),
     );
-    const preparedState = yield* projections.getRuntimeRecoveryProjection(prepared);
+    const queries: Array<readonly [string, ReadonlyArray<unknown>]> = [];
+    const record: Statement.Transformer = (statement) =>
+      Effect.sync(() => {
+        queries.push(statement.compile());
+        return statement;
+      });
+    const preparedState = yield* projections
+      .getRuntimeRecoveryProjection(prepared)
+      .pipe(Effect.provideService(Statement.CurrentTransformer, record));
+    const providerQuery = queries.find(([query]) =>
+      query.includes("SELECT provider_thread.payload_json"),
+    );
+    assert.isDefined(providerQuery);
+    const sql = yield* SqlClient.SqlClient;
+    const plan = yield* sql.unsafe<{ readonly detail: string }>(
+      `EXPLAIN QUERY PLAN ${providerQuery![0]}`,
+      providerQuery![1],
+    );
+    // Recovery must look up this thread's owners, not visit every provider
+    // thread once for every recovering chat in the database.
+    assert.isFalse(plan.some((row) => row.detail.startsWith("SCAN provider_thread")));
     assert.deepEqual(
       preparedState.providerSessions.map((session) => session.id),
       [preparedSessionId],
     );
     assert.equal(restartContinuationRun(preparedState)?.id, preparedRunId);
     assert.deepEqual(yield* projections.getUnreadableThreadIds(), []);
-    const sql = yield* SqlClient.SqlClient;
     yield* sql`
       UPDATE orchestration_v2_projection_provider_sessions SET payload_json = '{}'
       WHERE provider_session_id = ${providerSessionId}

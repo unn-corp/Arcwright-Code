@@ -28,6 +28,7 @@ import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationServic
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
+import * as AgentStartAdmission from "../resourceTelemetry/AgentStartAdmission.ts";
 
 export class OrchestrationEffectExecutionError extends Schema.TaggedError<OrchestrationEffectExecutionError>()(
   "OrchestrationEffectExecutionError",
@@ -535,6 +536,7 @@ export const layerWithOptions = (
     Effect.gen(function* () {
       const outbox = yield* EffectOutbox.EffectOutboxV2;
       const executor = yield* OrchestrationEffectExecutorV2;
+      const startAdmission = yield* AgentStartAdmission.AgentStartAdmission;
       const workerId = options.workerId ?? `orchestration-v2:${process.pid}`;
       const leaseDurationMs = Math.max(1, options.leaseDurationMs ?? 30_000);
       const maxAttempts = Math.max(1, options.maxAttempts ?? 5);
@@ -630,8 +632,14 @@ export const layerWithOptions = (
 
       const runOnce = (excludeRestartContinuations = false) =>
         Effect.gen(function* () {
+          const excludeProviderStarts = !(yield* startAdmission.canStart);
           const claimExit = yield* Effect.exit(
-            outbox.claimNext({ workerId, leaseDurationMs, excludeRestartContinuations }),
+            outbox.claimNext({
+              workerId,
+              leaseDurationMs,
+              excludeRestartContinuations,
+              excludeProviderStarts,
+            }),
           );
           yield* increment(orchestrationEffectClaimsTotal, {
             result: Exit.isFailure(claimExit)
@@ -750,7 +758,26 @@ export const layerWithOptions = (
         awaitWork: outbox.awaitAvailable,
         runOnce: runOnce(),
         runRecoveryOnce: runOnce(true),
-        nextClaimableAt: outbox.nextClaimableAt.pipe(
+        nextClaimableAt: Effect.gen(function* () {
+          const next = yield* outbox.nextClaimableAt();
+          if (Option.isNone(next) || (yield* startAdmission.canStart)) return next;
+          const now = yield* DateTime.now;
+          const nowMs = DateTime.toEpochMillis(now);
+          const nextControl = yield* outbox.nextClaimableAt({ excludeProviderStarts: true });
+          const nextControlMs = Option.isSome(nextControl)
+            ? DateTime.toEpochMillis(nextControl.value)
+            : nowMs + 5_000;
+          // A held start can stay due indefinitely. Recheck headroom at the host
+          // sampling cadence instead of the daemon's 25ms overdue retry loop.
+          // Outbox notifications still wake workers immediately for Stop/cleanup.
+          // Retry/backoff deadlines for controls must still win over the memory
+          // poll, even when an unrelated held start has the oldest timestamp.
+          return Option.some(
+            DateTime.add(now, {
+              milliseconds: Math.min(5_000, Math.max(0, nextControlMs - nowMs)),
+            }),
+          );
+        }).pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationEffectWorkerError({

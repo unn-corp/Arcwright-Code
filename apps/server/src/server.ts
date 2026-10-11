@@ -218,6 +218,7 @@ import {
 import { operatorRouteLayer } from "./maintenance/MaintenanceOperatorHttp.ts";
 import { OPERATOR_ROUTE_PREFIX } from "./maintenance/operatorAuth.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
+import * as AgentStartAdmission from "./resourceTelemetry/AgentStartAdmission.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as DesktopTelemetryReceiver from "./resourceTelemetry/DesktopTelemetryReceiver.ts";
@@ -306,7 +307,7 @@ const layerWorkspaceGitPolicy = WorkspaceGitPolicy.layer.pipe(Layer.provide(laye
 const layerUsage = UsageService.layer.pipe(Layer.provide(layerServerSettings));
 
 const layerResourceDiagnostics = Layer.mergeAll(
-  HostResources.layer,
+  AgentStartAdmission.layer.pipe(Layer.provideMerge(HostResources.layer)),
   layerResourceTelemetry,
   ProcessDiagnostics.layer.pipe(Layer.provide(layerResourceTelemetry)),
   ProcessResourceMonitor.layer.pipe(Layer.provide(layerResourceTelemetry)),
