@@ -1,32 +1,45 @@
 import { useEffect } from "react";
 
 import { getExistingBrowserPushSubscription } from "./browserNotifications";
+import { canSyncPwaPushSubscription } from "./pwaPushRelay";
 
-/** Reconcile saved preferences with the browser's actual push registration. */
+/** Enabled preferences are intent, never authority to enroll an existing browser endpoint. */
 export function usePwaPushSubscriptionSync({
   enabled,
+  applicationServerKey,
   onSubscription,
   onMissingSubscription,
+  onBindingMismatch,
 }: {
   readonly enabled: boolean;
-  readonly onSubscription: (subscription: PushSubscription) => Promise<void>;
+  readonly applicationServerKey: string | null;
+  readonly onSubscription: (subscription: PushSubscription, signal: AbortSignal) => Promise<void>;
   readonly onMissingSubscription: () => void;
+  readonly onBindingMismatch: () => void;
 }) {
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !applicationServerKey) return;
     let cancelled = false;
+    const controller = new AbortController();
     void getExistingBrowserPushSubscription()
       .then((subscription) => {
         if (cancelled) return;
-        if (subscription) return onSubscription(subscription);
+        if (subscription) {
+          if (!canSyncPwaPushSubscription(subscription, applicationServerKey)) {
+            onBindingMismatch();
+            return;
+          }
+          return onSubscription(subscription, controller.signal);
+        }
         // Re-enabling must remain an explicit tap to satisfy iOS push activation.
         onMissingSubscription();
       })
       .catch(() => {
-        // An unavailable browser API or relay does not prove the subscription is gone.
+        // Offline does not prove that the subscription or its binding is gone.
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [enabled, onSubscription, onMissingSubscription]);
+  }, [enabled, applicationServerKey, onSubscription, onMissingSubscription, onBindingMismatch]);
 }

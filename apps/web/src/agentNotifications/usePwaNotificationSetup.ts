@@ -1,35 +1,64 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { registerPwaServiceWorker } from "../pwa";
-import { getPwaPushConfig } from "./pwaPushRelay";
+import { getExistingBrowserPushSubscription } from "./browserNotifications";
+import {
+  canSyncPwaPushSubscription,
+  getPwaPushConfig,
+  getPwaPushRelayProfile,
+  PwaPushUnavailableError,
+} from "./pwaPushRelay";
 
-/** Preload push setup so subscribing can remain inside the next direct iOS tap. */
+export type PwaNotificationSetupState =
+  | "loading"
+  | "ready"
+  | "reset-required"
+  | "offline"
+  | "unavailable";
+
+/** Preload push setup so subscribing can remain the first await in the next direct iOS tap. */
 export function usePwaNotificationSetup() {
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
-  const [isConfigLoading, setIsConfigLoading] = useState(true);
+  const [setupState, setSetupState] = useState<PwaNotificationSetupState>("loading");
   const [attempt, setAttempt] = useState(0);
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const retry = useCallback(() => {
+    setVapidPublicKey(null);
+    setSetupState("loading");
+    setAttempt((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     let configLoaded = false;
     let configLoading = false;
+    let unavailable = false;
     const prepare = () => {
       void registerPwaServiceWorker();
-      if (configLoaded || configLoading) return;
+      if (cancelled || configLoaded || configLoading || unavailable) return;
+      if (getPwaPushRelayProfile().type === "blocked") {
+        unavailable = true;
+        setSetupState("unavailable");
+        return;
+      }
       configLoading = true;
-      setIsConfigLoading(true);
-      void getPwaPushConfig()
-        .then((key) => {
+      setSetupState("loading");
+      void Promise.all([getPwaPushConfig(), getExistingBrowserPushSubscription()])
+        .then(([key, subscription]) => {
           configLoaded = true;
-          if (!cancelled) setVapidPublicKey(key);
+          if (cancelled) return;
+          setVapidPublicKey(key);
+          setSetupState(
+            subscription && !canSyncPwaPushSubscription(subscription, key)
+              ? "reset-required"
+              : "ready",
+          );
         })
-        .catch(() => {
-          // Retry on the next arrival, network recovery, or enable interaction.
+        .catch((error: unknown) => {
+          unavailable = error instanceof PwaPushUnavailableError;
+          if (!cancelled) setSetupState(unavailable ? "unavailable" : "offline");
         })
         .finally(() => {
           configLoading = false;
-          if (!cancelled) setIsConfigLoading(false);
         });
     };
     const prepareWhenVisible = () => {
@@ -45,8 +74,8 @@ export function usePwaNotificationSetup() {
       window.removeEventListener("focus", prepareWhenVisible);
       document.removeEventListener("visibilitychange", prepareWhenVisible);
     };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- An explicit retry restarts failed preparation.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Explicit retry restarts this cancelled preparation scope.
   }, [attempt]);
 
-  return { vapidPublicKey, isConfigLoading, retry };
+  return { vapidPublicKey, setupState, isConfigLoading: setupState === "loading", retry };
 }

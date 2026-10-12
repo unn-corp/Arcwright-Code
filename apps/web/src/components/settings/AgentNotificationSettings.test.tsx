@@ -1,0 +1,333 @@
+import { act } from "react";
+import { create, type ReactTestRenderer } from "react-test-renderer";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import type { AgentNotificationPreferences } from "@t3tools/contracts";
+import { PwaNotificationSettings } from "./AgentNotificationSettings";
+import {
+  registerPwaPushSubscription,
+  getPwaPushSubscriptionId,
+} from "../../agentNotifications/pwaPushRelay";
+
+const fixture = vi.hoisted(() => ({
+  settings: {
+    agentNotifications: {
+      enabled: false,
+      notifyOnCompletion: true,
+      notifyOnPlanReady: true,
+      notifyOnInput: true,
+      notifyOnFailure: true,
+      showProjectAndThreadNames: true,
+    },
+  },
+  listeners: new Set<() => void>(),
+  environment: { environmentId: "environment-1" },
+  update: vi.fn(),
+  toast: vi.fn(),
+  worker: vi.fn(),
+  activeWorker: vi.fn(),
+}));
+vi.mock("../../hooks/useSettings", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    useClientSettings: (select: (settings: typeof fixture.settings) => unknown) => {
+      const settings = useSyncExternalStore(
+        (listener) => {
+          fixture.listeners.add(listener);
+          return () => {
+            fixture.listeners.delete(listener);
+          };
+        },
+        () => fixture.settings,
+      );
+      return select(settings);
+    },
+    useUpdateClientSettings: () => fixture.update,
+  };
+});
+vi.mock("../../state/environments", () => ({ usePrimaryEnvironment: () => fixture.environment }));
+vi.mock("../../agentNotifications/sound", () => ({
+  agentNotificationSoundLabel: () => "None",
+  playAgentNotificationSoundId: vi.fn(),
+}));
+vi.mock("../../env", () => ({ isElectron: false }));
+vi.mock("../../pwa", () => ({
+  registerPwaServiceWorker: fixture.worker,
+  getActivePwaServiceWorkerRegistration: fixture.activeWorker,
+}));
+vi.mock("../ui/toast", () => ({
+  stackedThreadToast: (value: unknown) => value,
+  toastManager: { add: fixture.toast },
+}));
+vi.mock("../ui/button", () => ({ Button: (props: object) => <button {...props} /> }));
+vi.mock("../ui/switch", () => ({ Switch: (props: object) => <input {...props} /> }));
+vi.mock("./settingsLayout", () => ({
+  SettingsRow: ({ control }: { control: React.ReactNode }) => <>{control}</>,
+  SettingsSection: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("./settingsSearch", () => ({ searchableSetting: () => ({}) }));
+vi.mock("../ui/select", () => ({
+  Select: () => null,
+  SelectItem: () => null,
+  SelectPopup: () => null,
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+}));
+
+const values = new Map<string, string>();
+const operations: string[] = [];
+let existing: PushSubscription | null;
+let renderer: ReactTestRenderer;
+const fetchMock = vi.fn();
+const unsubscribe = vi.fn();
+const subscribe = vi.fn();
+const getSubscription = vi.fn();
+const preview = vi.fn();
+let browser: EventTarget;
+const pushKey = "AQID";
+function owned(origin = "https://relay.example.test") {
+  vi.stubEnv("VITE_CONNECT_MODE", "owned");
+  vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", `pk_test_${btoa("issuer.example.test$")}`);
+  vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "arcwright");
+  vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "client-test");
+  vi.stubEnv("VITE_T3CODE_RELAY_URL", origin);
+  vi.stubEnv("VITE_CONNECT_HOSTED_APP_URL", "https://app.example.test");
+}
+function makeSubscription(key = pushKey, endpoint = "https://push.example.test/old-device") {
+  return {
+    endpoint,
+    options: { applicationServerKey: Uint8Array.from(atob(key), (c) => c.charCodeAt(0)).buffer },
+    toJSON: () => ({ endpoint, keys: { p256dh: "test-public", auth: "test-auth" } }),
+    unsubscribe,
+  } as unknown as PushSubscription;
+}
+function enable() {
+  renderer.root
+    .findByProps({ "aria-label": "Enable notifications on this device" })
+    .props.onCheckedChange(true);
+}
+function button(label: string) {
+  return renderer.root.findAllByType("button").find((node) => node.props.children === label)!;
+}
+async function mount() {
+  await act(async () => {
+    renderer = create(<PwaNotificationSettings />);
+  });
+}
+beforeEach(() => {
+  values.clear();
+  operations.length = 0;
+  existing = null;
+  fixture.settings = {
+    agentNotifications: {
+      enabled: false,
+      notifyOnCompletion: true,
+      notifyOnPlanReady: true,
+      notifyOnInput: true,
+      notifyOnFailure: true,
+      showProjectAndThreadNames: true,
+    },
+  };
+  fixture.update
+    .mockReset()
+    .mockImplementation((patch: { agentNotifications: AgentNotificationPreferences }) => {
+      fixture.settings = { ...fixture.settings, ...patch };
+      for (const listener of fixture.listeners) listener();
+    });
+  fixture.toast.mockReset();
+  unsubscribe.mockReset().mockImplementation(async () => {
+    operations.push("unsubscribe");
+    existing = null;
+    return true;
+  });
+  subscribe.mockReset().mockImplementation(() => {
+    operations.push("subscribe");
+    existing ??= makeSubscription(pushKey, "https://push.example.test/new-device");
+    return Promise.resolve(existing);
+  });
+  getSubscription.mockReset().mockImplementation(async () => {
+    operations.push("getSubscription");
+    return existing;
+  });
+  preview.mockReset().mockResolvedValue(undefined);
+  const registration = { pushManager: { subscribe, getSubscription }, showNotification: preview };
+  fixture.worker.mockReset().mockResolvedValue({ type: "ready", registration });
+  fixture.activeWorker.mockReset().mockReturnValue(registration);
+  browser = Object.assign(new EventTarget(), {
+    isSecureContext: true,
+    Notification: {},
+    matchMedia: () => ({ matches: true }),
+    localStorage: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  vi.stubGlobal("window", browser);
+  vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
+  vi.stubGlobal("navigator", {
+    serviceWorker: {
+      getRegistration: async () => {
+        operations.push("getRegistration");
+        return registration;
+      },
+    },
+  });
+  vi.stubGlobal("Notification", { permission: "granted" });
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  fetchMock.mockReset().mockImplementation(async (_url: string, init?: RequestInit) => {
+    operations.push("fetch");
+    return {
+      ok: true,
+      status: 200,
+      json: async () =>
+        init?.method === "PUT" ? { subscriptionId: "remote-1" } : { applicationServerKey: pushKey },
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  owned();
+});
+afterEach(() => {
+  act(() => renderer?.unmount());
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+it("cloudless old enabled state has zero HTTP, preserves credentials, permits preview and local disable", async () => {
+  vi.stubEnv("VITE_CONNECT_MODE", "cloudless");
+  fixture.settings.agentNotifications.enabled = true;
+  existing = makeSubscription();
+  values.set("t3code.pwaPushInstallationId", "old-id");
+  values.set("t3code.pwaPushInstallationSecret", "old-secret");
+  values.set("t3code.webPushSubscriptionId", "old-subscription");
+  const before = [...values];
+  await mount();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(fixture.worker).toHaveBeenCalled();
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  await act(async () => button("Send preview").props.onClick());
+  expect(preview).toHaveBeenCalled();
+  await act(async () => button("Disable").props.onClick());
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  expect(fetchMock).not.toHaveBeenCalled();
+  for (const [key, value] of before) expect(values.get(key)).toBe(value);
+});
+it("keeps the first awaited browser operation subscribe on a direct enable tap and enrolls fresh anonymously", async () => {
+  values.set("t3code.pwaPushInstallationId", "unbound-id");
+  values.set("t3code.pwaPushInstallationSecret", "unbound-secret");
+  await mount();
+  expect(values.size).toBe(2);
+  operations.length = 0;
+  await act(async () => {
+    enable();
+    expect(operations[0]).toBe("subscribe");
+  });
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  expect(getPwaPushSubscriptionId()).toBe("remote-1");
+  const request = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
+  expect(JSON.parse(request[1]!.body as string).installation.installationId).not.toBe("unbound-id");
+  expect(values.get("t3code.pwaPushInstallationSecret")).toBe("unbound-secret");
+  expect(unsubscribe).not.toHaveBeenCalled();
+});
+it.each(["origin", "key", "unbound"])(
+  "requires separate reset and enable taps for a %s change without auto forwarding old endpoints",
+  async (change) => {
+    existing = makeSubscription();
+    if (change !== "unbound") {
+      await registerPwaPushSubscription({
+        environmentId: "environment-1",
+        subscription: existing,
+        applicationServerKey: pushKey,
+        preferences: fixture.settings.agentNotifications,
+        explicitEnable: true,
+      });
+    } else values.set("t3code.webPushSubscriptionId", "old-unbound-id");
+    fixture.settings.agentNotifications.enabled = true;
+    const before = [...values];
+    if (change === "origin") owned("https://other.example.test");
+    if (change === "key") existing = makeSubscription("BAUG");
+    fetchMock.mockClear();
+    await mount();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
+    expect(unsubscribe).not.toHaveBeenCalled();
+    expect([...values]).toEqual(before);
+    await act(async () => enable());
+    expect(subscribe).not.toHaveBeenCalled();
+    await act(async () => button("Reset browser push").props.onClick());
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(fixture.settings.agentNotifications.enabled).toBe(false);
+    operations.length = 0;
+    await act(async () => {
+      enable();
+      expect(operations[0]).toBe("subscribe");
+    });
+    expect(fixture.settings.agentNotifications.enabled).toBe(true);
+    const requests = fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
+    expect(requests.length).toBeGreaterThan(0);
+    for (const [url, init] of requests) {
+      expect(new URL(url).origin).toBe(
+        change === "origin" ? "https://other.example.test" : "https://relay.example.test",
+      );
+      expect(JSON.parse(init!.body as string).endpoint).toBe(
+        "https://push.example.test/new-device",
+      );
+    }
+    if (change === "origin" || change === "unbound")
+      for (const [key, value] of before) expect(values.get(key)).toBe(value);
+  },
+);
+it("automatic preference sync stays within a trusted realm and preserves saved state while offline", async () => {
+  existing = makeSubscription();
+  await registerPwaPushSubscription({
+    environmentId: "environment-1",
+    subscription: existing,
+    applicationServerKey: pushKey,
+    preferences: fixture.settings.agentNotifications,
+    explicitEnable: true,
+  });
+  fixture.settings.agentNotifications.enabled = true;
+  const before = [...values];
+  fetchMock.mockClear();
+  fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method) throw new Error("offline");
+    return { ok: true, status: 200, json: async () => ({ applicationServerKey: pushKey }) };
+  });
+  await mount();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  expect([...values]).toEqual(before);
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(unsubscribe).not.toHaveBeenCalled();
+});
+it("a disabled anonymous service shows unavailable, stops event retries, and never asks for sign-in", async () => {
+  fetchMock.mockResolvedValue({ ok: false, status: 503 });
+  await mount();
+  await act(async () => {
+    browser.dispatchEvent(new Event("online"));
+    browser.dispatchEvent(new Event("focus"));
+    enable();
+  });
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  expect(JSON.stringify(fixture.toast.mock.calls)).toContain("does not offer anonymous PWA push");
+  expect(JSON.stringify(fixture.toast.mock.calls)).not.toMatch(/sign.in/i);
+});
+it("cloudless local preview can request permission without enrolling or contacting a relay", async () => {
+  vi.stubEnv("VITE_CONNECT_MODE", "cloudless");
+  const requestPermission = vi.fn().mockImplementation(() => {
+    Object.defineProperty(Notification, "permission", { value: "granted" });
+    return Promise.resolve("granted");
+  });
+  vi.stubGlobal("Notification", { permission: "default", requestPermission });
+  await mount();
+  await act(async () => {
+    button("Send preview").props.onClick();
+    expect(requestPermission).toHaveBeenCalledOnce();
+  });
+  expect(preview).toHaveBeenCalledOnce();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(values.size).toBe(0);
+});

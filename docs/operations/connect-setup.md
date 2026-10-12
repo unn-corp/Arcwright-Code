@@ -126,6 +126,16 @@ Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment setti
 Deploy `prod` before personal stages because it owns the retained database that their branches
 depend on. The stack's `PublishClientConfig` action writes the resulting relay URL back to the root `.env`.
 
+Browser PWA push uses the same selected relay destination without account authentication.
+Owned credentials and subscription IDs are origin-bound; global legacy records remain saved
+and inactive in owned mode. A service or VAPID key change requires **Reset browser push**,
+then a separate **Enable notifications** tap. Disable unsubscribes locally even in cloudless
+mode; old remote cleanup can remain pending and does not send old credentials to a new relay.
+Local service-worker previews remain available. A private-environment owned deployment must
+disable all anonymous PWA endpoints and report push unavailable; authenticated account
+notifications are separate. This source change does not commission or deploy that policy.
+Native installation authority and historical recovery remain separate pending work.
+
 ## CLI OAuth application
 
 In Clerk's OAuth applications settings:

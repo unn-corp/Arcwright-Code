@@ -41,3 +41,21 @@ it("prepares a missing worker so another enable tap can succeed without reloadin
   expect(await retry).toEqual({ state: "subscribed", subscription });
   expect(registerWorker).toHaveBeenCalledOnce();
 });
+it("subscribes synchronously without preflight permission, unsubscription or lookup awaits", async () => {
+  const order: string[] = [];
+  const subscribe = vi.fn().mockImplementation(() => {
+    order.push("subscribe");
+    return Promise.resolve({ endpoint: "https://push.example/device" });
+  });
+  const getSubscription = vi.fn();
+  getRegistration.mockImplementation(() => {
+    order.push("active-worker");
+    return { pushManager: { subscribe, getSubscription } };
+  });
+  const pending = subscribeBrowserPush({ applicationServerKey: "AQID" });
+  order.push("handler-returned");
+  expect(order).toEqual(["active-worker", "subscribe", "handler-returned"]);
+  expect(getSubscription).not.toHaveBeenCalled();
+  expect(registerWorker).not.toHaveBeenCalled();
+  await pending;
+});

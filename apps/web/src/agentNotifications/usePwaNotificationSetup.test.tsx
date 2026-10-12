@@ -4,11 +4,20 @@ import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
 import { usePwaNotificationSetup } from "./usePwaNotificationSetup";
 
-const { getConfig, registerWorker } = vi.hoisted(() => ({
+const { getConfig, registerWorker, getSubscription, relayProfile, canSync } = vi.hoisted(() => ({
   getConfig: vi.fn(),
   registerWorker: vi.fn(),
+  getSubscription: vi.fn(),
+  relayProfile: vi.fn(),
+  canSync: vi.fn(),
 }));
-vi.mock("./pwaPushRelay", () => ({ getPwaPushConfig: getConfig }));
+vi.mock("./pwaPushRelay", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./pwaPushRelay")>()),
+  getPwaPushConfig: getConfig,
+  getPwaPushRelayProfile: relayProfile,
+  canSyncPwaPushSubscription: canSync,
+}));
+vi.mock("./browserNotifications", () => ({ getExistingBrowserPushSubscription: getSubscription }));
 vi.mock("../pwa", () => ({ registerPwaServiceWorker: registerWorker }));
 
 let renderer: ReactTestRenderer;
@@ -25,6 +34,13 @@ function Probe() {
 }
 
 beforeEach(() => {
+  getSubscription.mockReset().mockResolvedValue(null);
+  relayProfile.mockReset().mockReturnValue({
+    type: "available",
+    mode: "owned",
+    relayOrigin: "https://relay.example.test",
+  });
+  canSync.mockReset().mockReturnValue(true);
   getConfig.mockReset().mockResolvedValue("push-key");
   registerWorker.mockReset().mockResolvedValue({ type: "ready" });
   page = Object.assign(new EventTarget(), { visibilityState: "visible" });
@@ -92,4 +108,43 @@ it("stops retrying after unmount", async () => {
   browser.dispatchEvent(new Event("online"));
   page.dispatchEvent(new Event("visibilitychange"));
   expect(getConfig).toHaveBeenCalledOnce();
+});
+
+it("prepares the local worker but never preloads remote config for a blocked profile", async () => {
+  relayProfile.mockReturnValue({ type: "blocked", reason: "cloudless" });
+  await act(async () => {
+    renderer = create(<Probe />);
+  });
+  expect(setup.setupState).toBe("unavailable");
+  expect(setup.isConfigLoading).toBe(false);
+  await act(async () => {
+    browser.dispatchEvent(new Event("online"));
+    setup.retry();
+  });
+  expect(getConfig).not.toHaveBeenCalled();
+  expect(getSubscription).not.toHaveBeenCalled();
+  expect(registerWorker).toHaveBeenCalled();
+});
+it("requires a separate reset for an incompatible preexisting subscription", async () => {
+  getSubscription.mockResolvedValue({ endpoint: "https://push.example/old" });
+  canSync.mockReturnValue(false);
+  await act(async () => {
+    renderer = create(<Probe />);
+  });
+  expect(setup.vapidPublicKey).toBe("push-key");
+  expect(setup.setupState).toBe("reset-required");
+});
+it("ignores an old configuration response after retry", async () => {
+  let oldResolve: (key: string) => void = () => {};
+  getConfig.mockReturnValueOnce(
+    new Promise<string>((resolve) => {
+      oldResolve = resolve;
+    }),
+  );
+  await act(async () => {
+    renderer = create(<Probe />);
+  });
+  await act(async () => setup.retry());
+  await act(async () => oldResolve("old-key"));
+  expect(setup.vapidPublicKey).toBe("push-key");
 });

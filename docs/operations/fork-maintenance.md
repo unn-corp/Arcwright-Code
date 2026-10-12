@@ -775,6 +775,12 @@ credentials, data and automation choices.
 
 Run the focused cloud lifecycle/token/runtime, relay publisher, webhook proof and web link-controller
 regressions when changing this boundary. [Connect setup](./connect-setup.md#changing-the-account-service)
-explains the reverse flow. Native/PWA installation credentials and historical release/recovery
+explains the reverse flow. PWA source authority is implemented in
+[pwaPushRelay.ts](../../apps/web/src/agentNotifications/pwaPushRelay.ts): owned records are scoped
+to normalized relay origins, automatic sync requires the saved endpoint and compatible VAPID key,
+and owned/cloudless never use an implicit upstream fallback. Preserve separate Reset/Enable
+taps for iOS activation, local preview/disable, and pending remote cleanup. See
+[PWA Web Push](../internals/pwa-web-push.md) for anonymous versus authenticated notification
+boundaries and uncommissioned owned delivery. Native installation credentials and historical release/recovery
 rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its
 own live validation.

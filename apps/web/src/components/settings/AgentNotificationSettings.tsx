@@ -14,12 +14,16 @@ import {
 } from "../../agentNotifications/sound";
 import {
   getBrowserNotificationStatus,
+  requestBrowserNotificationPermission,
   showBrowserNotificationPreview,
   subscribeBrowserPush,
   unsubscribeBrowserPush,
   type BrowserNotificationStatus,
 } from "../../agentNotifications/browserNotifications";
 import {
+  getPwaPushSubscriptionId,
+  hasPendingPwaPushCleanup,
+  markPendingPwaPushCleanup,
   registerPwaPushSubscription,
   removePwaPushSubscription,
   testPwaPushSubscription,
@@ -53,14 +57,16 @@ export function PwaNotificationSettings() {
   const {
     vapidPublicKey,
     isConfigLoading,
+    setupState,
     retry: retryNotificationSetup,
   } = usePwaNotificationSetup();
   const [isSaving, setIsSaving] = useState(false);
-  const subscriptionIdRef = useRef<string | null>(
-    typeof window === "undefined"
-      ? null
-      : window.localStorage.getItem("t3code.webPushSubscriptionId"),
-  );
+  const actionRef = useRef(0);
+  const enableControllerRef = useRef<AbortController | null>(null);
+  const [bindingMismatch, setBindingMismatch] = useState(false);
+  const [cleanupPending, setCleanupPending] = useState(hasPendingPwaPushCleanup);
+  const subscriptionId = getPwaPushSubscriptionId();
+  const needsReset = bindingMismatch || setupState === "reset-required";
 
   const refreshStatus = useCallback(() => {
     setStatus(getBrowserNotificationStatus());
@@ -70,6 +76,8 @@ export function PwaNotificationSettings() {
     window.addEventListener("focus", refreshStatus);
     document.addEventListener("visibilitychange", refreshStatus);
     return () => {
+      ++actionRef.current;
+      enableControllerRef.current?.abort();
       window.removeEventListener("focus", refreshStatus);
       document.removeEventListener("visibilitychange", refreshStatus);
     };
@@ -85,22 +93,41 @@ export function PwaNotificationSettings() {
   );
 
   const persistRemoteSubscription = useCallback(
-    async (subscription: PushSubscription, preferences: typeof notificationPreferences) => {
+    async (
+      subscription: PushSubscription,
+      preferences: typeof notificationPreferences,
+      explicitEnable = false,
+      signal?: AbortSignal,
+    ) => {
       if (!primaryEnvironment)
-        throw new Error("Connect this PWA to a Arcwright Code server first.");
-      const subscriptionId = await registerPwaPushSubscription({
+        throw new Error("Connect this PWA to an Arcwright Code server first.");
+      if (!vapidPublicKey) throw new Error("Remote notifications are unavailable.");
+      await registerPwaPushSubscription({
         environmentId: primaryEnvironment.environmentId,
         subscription,
         preferences,
+        applicationServerKey: vapidPublicKey,
+        explicitEnable,
+        signal,
       });
-      subscriptionIdRef.current = subscriptionId;
-      window.localStorage.setItem("t3code.webPushSubscriptionId", subscriptionId);
     },
-    [primaryEnvironment],
+    [primaryEnvironment, vapidPublicKey],
   );
 
   const enableNotifications = useCallback(async () => {
-    if (!vapidPublicKey) {
+    if (needsReset || setupState === "unavailable") {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Remote notifications are unavailable",
+          description: needsReset
+            ? "Reset this browser subscription before enabling notifications again."
+            : "This Connect profile does not offer anonymous PWA push. Local previews remain available.",
+        }),
+      );
+      return;
+    }
+    if (!vapidPublicKey || setupState !== "ready") {
       if (!isConfigLoading) retryNotificationSetup();
       toastManager.add(
         stackedThreadToast({
@@ -113,6 +140,10 @@ export function PwaNotificationSettings() {
       );
       return;
     }
+    const action = ++actionRef.current;
+    enableControllerRef.current?.abort();
+    const controller = new AbortController();
+    enableControllerRef.current = controller;
     setIsSaving(true);
     try {
       // This is intentionally the first awaited browser operation in the click handler:
@@ -132,14 +163,18 @@ export function PwaNotificationSettings() {
                 : "Allow notifications for Arcwright Code, then try again.",
         );
       }
+      if (action !== actionRef.current) return;
       const preferences = { ...notificationPreferences, enabled: true };
-      await persistRemoteSubscription(result.subscription, preferences);
+      await persistRemoteSubscription(result.subscription, preferences, true, controller.signal);
+      if (action !== actionRef.current) return;
+      setBindingMismatch(false);
       updateClientSettings({ agentNotifications: preferences });
       setStatus("ready");
       toastManager.add(
         stackedThreadToast({ type: "success", title: "Remote notifications enabled" }),
       );
     } catch (error) {
+      if (action !== actionRef.current) return;
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -149,10 +184,12 @@ export function PwaNotificationSettings() {
         }),
       );
     } finally {
-      setIsSaving(false);
+      if (action === actionRef.current) setIsSaving(false);
     }
   }, [
     isConfigLoading,
+    needsReset,
+    setupState,
     retryNotificationSetup,
     notificationPreferences,
     persistRemoteSubscription,
@@ -161,42 +198,59 @@ export function PwaNotificationSettings() {
   ]);
 
   const synchronizeSubscription = useCallback(
-    (subscription: PushSubscription) =>
-      persistRemoteSubscription(subscription, notificationPreferences),
+    (subscription: PushSubscription, signal: AbortSignal) =>
+      persistRemoteSubscription(subscription, notificationPreferences, false, signal),
     [notificationPreferences, persistRemoteSubscription],
   );
   const repairMissingSubscription = useCallback(() => {
-    const subscriptionId = subscriptionIdRef.current;
-    subscriptionIdRef.current = null;
-    window.localStorage.removeItem("t3code.webPushSubscriptionId");
     updatePreferences({ enabled: false });
-    if (subscriptionId) {
-      void removePwaPushSubscription(subscriptionId).catch(() => {
-        // The browser no longer has a subscription to deliver to.
-      });
-    }
+    markPendingPwaPushCleanup();
+    setCleanupPending(true);
   }, [updatePreferences]);
+  const reportBindingMismatch = useCallback(() => setBindingMismatch(true), []);
   usePwaPushSubscriptionSync({
-    enabled: notificationPreferences.enabled,
+    enabled: notificationPreferences.enabled && setupState === "ready" && !bindingMismatch,
+    applicationServerKey: vapidPublicKey,
     onSubscription: synchronizeSubscription,
     onMissingSubscription: repairMissingSubscription,
+    onBindingMismatch: reportBindingMismatch,
   });
 
-  const disableNotifications = useCallback(() => {
-    void unsubscribeBrowserPush();
-    const subscriptionId = subscriptionIdRef.current;
-    subscriptionIdRef.current = null;
-    window.localStorage.removeItem("t3code.webPushSubscriptionId");
+  const disableNotifications = useCallback(async () => {
+    ++actionRef.current;
+    enableControllerRef.current?.abort();
     updatePreferences({ enabled: false });
-    if (subscriptionId) {
-      void removePwaPushSubscription(subscriptionId).catch(() => {
-        // Local unsubscription already prevents delivery for this installation.
-      });
+    setIsSaving(true);
+    try {
+      await unsubscribeBrowserPush();
+      setBindingMismatch(false);
+      // Never send an old realm's credential/ID to the currently selected relay.
+      if (subscriptionId) {
+        try {
+          await removePwaPushSubscription(subscriptionId);
+        } catch {
+          markPendingPwaPushCleanup();
+          setCleanupPending(true);
+        }
+      } else {
+        markPendingPwaPushCleanup();
+        setCleanupPending(true);
+      }
+      retryNotificationSetup();
+    } catch {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not reset browser push",
+          description: "Try disabling notifications again when the browser is ready.",
+        }),
+      );
+    } finally {
+      setIsSaving(false);
     }
-  }, [updatePreferences]);
+  }, [updatePreferences, subscriptionId, retryNotificationSetup]);
 
   const remoteTest = useCallback(() => {
-    const subscriptionId = subscriptionIdRef.current;
     if (!subscriptionId) return;
     void (async () => {
       try {
@@ -213,10 +267,16 @@ export function PwaNotificationSettings() {
         );
       }
     })();
-  }, []);
+  }, [subscriptionId]);
 
   const previewNotification = useCallback(() => {
-    void showBrowserNotificationPreview()
+    // A local preview may request permission even when this profile has no remote relay.
+    void requestBrowserNotificationPermission()
+      .then((permission) => {
+        if (permission !== "ready")
+          throw new Error("Allow browser notifications before sending a preview.");
+        return showBrowserNotificationPreview();
+      })
       .then((nextStatus) => {
         setStatus(nextStatus);
         if (nextStatus === "ready") {
@@ -257,7 +317,15 @@ export function PwaNotificationSettings() {
     <SettingsSection {...searchableSetting("notifications")}>
       <SettingsRow
         title="Notifications on this device"
-        description={statusDescription[status]}
+        description={
+          needsReset
+            ? "The notification service or key changed. Reset browser push, then enable it with a separate tap. Previous service cleanup may remain pending."
+            : setupState === "unavailable"
+              ? "Anonymous PWA push is unavailable for this Connect profile. Local previews remain available."
+              : setupState === "offline"
+                ? "The notification service is temporarily unavailable. Saved settings are preserved."
+                : statusDescription[status]
+        }
         control={
           <Switch
             checked={notificationPreferences.enabled}
@@ -266,7 +334,7 @@ export function PwaNotificationSettings() {
               if (checked) {
                 void enableNotifications();
               } else {
-                disableNotifications();
+                void disableNotifications();
               }
             }}
             aria-label="Enable notifications on this device"
@@ -274,6 +342,74 @@ export function PwaNotificationSettings() {
         }
       />
 
+      {setupState === "offline" || setupState === "unavailable" ? (
+        <SettingsRow
+          title="Retry notification setup"
+          description="Checks this profile's notification capability again."
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isSaving}
+              onClick={retryNotificationSetup}
+            >
+              Retry setup
+            </Button>
+          }
+        />
+      ) : null}
+      {needsReset ? (
+        <SettingsRow
+          title="Reset browser push"
+          description="Unsubscribes locally. Then tap Enable notifications separately."
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isSaving}
+              onClick={() => void disableNotifications()}
+            >
+              Reset browser push
+            </Button>
+          }
+        />
+      ) : null}
+      {status !== "unsupported" && !canManagePreferences ? (
+        <SettingsRow
+          title="Preview notification"
+          description="Sends a local browser notification on this installation."
+          control={
+            <Button size="xs" variant="outline" onClick={previewNotification}>
+              Send preview
+            </Button>
+          }
+        />
+      ) : null}
+      {!canManagePreferences &&
+      (notificationPreferences.enabled ||
+        setupState === "unavailable" ||
+        setupState === "offline") ? (
+        <SettingsRow
+          title="Disable notifications"
+          description="Turns off this device's notification preference and unsubscribes locally."
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isSaving}
+              onClick={() => void disableNotifications()}
+            >
+              Disable
+            </Button>
+          }
+        />
+      ) : null}
+      {cleanupPending ? (
+        <p className="px-4 pb-2 text-xs text-muted-foreground">
+          Previous remote registration cleanup may still be pending. Reset and Disable unsubscribe
+          locally; they cannot revoke a previous service while it is unavailable.
+        </p>
+      ) : null}
       {canManagePreferences ? (
         <>
           <SettingsRow
@@ -292,7 +428,9 @@ export function PwaNotificationSettings() {
               <Button
                 size="xs"
                 variant="outline"
-                disabled={subscriptionIdRef.current === null || isSaving}
+                disabled={
+                  subscriptionId === null || isSaving || needsReset || setupState !== "ready"
+                }
                 onClick={remoteTest}
               >
                 Send remote test
@@ -368,7 +506,7 @@ export function PwaNotificationSettings() {
             title="Disable notifications"
             description="Turns off notifications for this browser or PWA installation."
             control={
-              <Button size="xs" variant="outline" onClick={disableNotifications}>
+              <Button size="xs" variant="outline" onClick={() => void disableNotifications()}>
                 Disable
               </Button>
             }

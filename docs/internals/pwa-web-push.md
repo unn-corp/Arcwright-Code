@@ -1,7 +1,7 @@
 # PWA Web Push
 
 > For maintainers. This document describes the two relay delivery paths. The
-> installed-PWA path is intentionally **not** an Arcwright Connect feature.
+> installed-PWA authentication is independent of Arcwright Connect accounts; its remote destination follows the selected public Connect profile.
 
 Arcwright Code has two distinct ways to deliver Web Push. They share the relay's
 delivery queue and the `relay_web_push_subscriptions` table, but their identity,
@@ -27,14 +27,18 @@ create an Arcwright Connect link, and must not be affected by Arcwright Connect 
    activate within five seconds is reported as a worker failure, never as an
    indefinitely pending preview.
 2. `PwaNotificationSettings` in
-   `apps/web/src/components/settings/SettingsPanels.tsx` fetches the public
+   `apps/web/src/components/settings/AgentNotificationSettings.tsx` fetches the public
    VAPID key from `GET /v1/pwa/web-push/config`.
 3. The direct Enable interaction calls `PushManager.subscribe()` via
    `apps/web/src/agentNotifications/browserNotifications.ts`. This must remain
    in the user gesture; iOS may reject a subscription created after arbitrary
    asynchronous work. Permission approval can require a second Enable tap.
-4. `apps/web/src/agentNotifications/pwaPushRelay.ts` creates and persists one
-   random `installationId` and `installationSecret` in the PWA's local storage.
+4. In owned mode, `apps/web/src/agentNotifications/pwaPushRelay.ts` creates and persists one
+   random `installationId` and `installationSecret` only after explicit Enable. It
+   stores a versioned record bound to the normalized selected relay origin, together with
+   its remote subscription ID, endpoint and VAPID public key. It never adopts the old
+   global credentials or subscription ID, and preserves foreign/unbound records. Legacy
+   mode retains its global anonymous credentials and deliberate upstream relay fallback.
    It sends the Push API endpoint, key material, preferences, selected primary
    environment ID, and that installation credential to
    `PUT /v1/pwa/web-push/subscriptions`.
@@ -43,6 +47,26 @@ create an Arcwright Connect link, and must not be affected by Arcwright Connect 
    notifications first unsubscribes locally, then performs remote cleanup on a
    best-effort basis. Local unsubscription is the safety boundary if the relay
    is offline.
+
+Owned mode uses only the complete validated public profile's HTTPS relay origin; cloudless
+and invalid owned profiles make no remote requests. Service-worker preparation and local
+notification previews still work without a relay. Owned automatic re-registration requires a
+trusted current origin record, the same browser endpoint, and compatible browser VAPID key.
+Saved enabled preferences alone cannot enroll an old installation with a new service.
+A service/key change requires a separate **Reset browser push** tap, followed by an
+**Enable notifications** tap: reset unsubscribes locally, while subscribe remains the first
+awaited browser operation on Enable. Test/removal reject foreign or unbound IDs before HTTP;
+failed cleanup retains the remote record and a persistent, credential-free pending reminder.
+Offline preparation retries on arrival/online events or explicit retry, without timers;
+profile-blocked or unavailable anonymous capability does not repeatedly retry or ask for sign-in.
+Cancelled synchronization cannot persist a late remote response.
+
+These are source behavior and fixture checks. The owned public service is not commissioned
+by this change. Its private-environment deployment must disable every anonymous PWA API
+path; the client reports an unavailable capability when the service returns unavailable.
+Authenticated account notifications remain a separate supported path. Native credential
+migration, release/recovery authority, and real device delivery still require separate work
+and verification.
 
 `service-worker.js` contains no cache or session data. It accepts only a
 validated root/test link or validated relative thread link, shows generic copy
@@ -140,7 +164,7 @@ The production relay deploy requires these VAPID settings in the GitHub
 `nodejs_compat`, the Web Push delivery queue, and its dead-letter queue. Do not
 rotate only one VAPID key: rotating a key pair invalidates existing browser
 subscriptions, so deploy a matched public/private pair and have installations
-subscribe again.
+explicitly reset browser push and then enable it with a separate tap.
 
 ## Operational troubleshooting
 
