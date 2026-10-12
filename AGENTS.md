@@ -34,6 +34,15 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
+- **Hard rule for nightly installations:** use the release pipeline's allocated
+  `<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**
+  everywhere it is named, including local builds, the sidebar, application title,
+  and Start Menu. Do not install `preview` artifacts or introduce a **Local Nightly**
+  counter. Existing preview identities remain truthful historical/recovery records;
+  do not relabel their binaries as published nightlies or reuse a release counter.
+  After every admitted installation, replace obsolete menu entries with one canonical
+  entry and record its name, version, source, digest, launcher, retired entries, and
+  verification. Protect running chats while waiting for coordinator admission.
 - Keep `fork-upstream.json` tied to the upstream commit actually included whenever integrating
   upstream. Show the T3 base and separate **Arcwright build** counter; retain exact installer
   identities for ordering/recovery. See [version provenance](docs/operations/fork-releases.md#version-provenance-and-history).

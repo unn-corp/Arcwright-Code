@@ -22,9 +22,13 @@ Android displays its source version separately from its installation sequence.
 
 The main label is **Arcwright Code 0.0.45 · Arcwright build 35 · Nightly**, for example.
 The T3 version identifies the upstream code included; the Arcwright number identifies
-our build. The sidebar starts with **Nightly N** for a published nightly or **Local Nightly N**
-for a local build, followed by the included T3 version. Hover over it for the full identity and exact
-installer release. Local counters are separate from published nightly counters.
+our build. The sidebar starts with **Nightly N**, followed by the included T3 version. Hover over
+it for the full identity and exact installer release. **Hard rule:** all new nightly installations,
+including locally built copies, use the release pipeline's allocated
+`<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**. A separate
+**Local Nightly** name/counter or a `preview` artifact is not an accepted replacement.
+Existing preview builds keep their true identity until an admitted replacement; their labels
+must not be changed to impersonate a published nightly.
 About retains the exact upstream and Arcwright commits and the installer
 release for diagnosis. Android's installation sequence is separate: recovery installs
 older source using a higher Android code. Historical builds with unknown upstream
@@ -256,6 +260,11 @@ releases. Their controls target the selected environment and require its operate
 permission. Read the provider's own restart guidance.
 
 ## Manual backups
+
+For measured database contents and safe improvement options, see the
+[database storage audit](../operations/database-storage.md). A large database is not
+automatically disposable cache. Inspection can use an existing verified recovery copy while
+the app stays running; retention changes and compaction need their own admitted maintenance.
 
 Stop the server and use an explicit home and a new private output directory:
 

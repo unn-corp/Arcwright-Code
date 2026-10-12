@@ -41,9 +41,20 @@ additively. Nightly build counters come from their exact release version, and st
 build counters come from `ARCWRIGHT_BUILD_NUMBER` (the fork workflow run number).
 Recovery builds read their predecessor's source; unknown historical provenance stays unknown.
 The sidebar uses a compact channel-first label such as **Nightly 35 · T3 0.0.45**, so narrowing it
-does not hide the nightly counter. Local `preview.YYYYMMDD.N` artifacts show **Local Nightly N**;
-their local counter is independent of published fork build counters. The tooltip retains the full
+does not hide the nightly counter. **Hard rule:** every new nightly installed on the user's
+device, including a locally built copy, must use the pipeline's allocated
+`<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**. Do not install
+`preview` artifacts or create a separate **Local Nightly** name/counter. Prefer the verified
+published nightly when it already exists; never invent or reuse a counter, rename an existing
+binary to impersonate that release, or alter its source/digest identity. Existing preview builds
+retain their actual identity in historical and recovery records. The tooltip retains the full
 included-base and exact installer identities.
+
+After every coordinator-admitted installation, replace obsolete Start Menu entries with one
+canonical entry using that exact nightly name. Record the installed version/counter, source commit,
+artifact digest, launcher path, retired entries, and launch verification for each replacement.
+An existing running build and its chats remain active until replacement is explicitly authorized
+and admitted by the maintenance coordinator.
 
 [`buildVersion.ts`](../../packages/shared/src/buildVersion.ts) owns shared presentation;
 Android's [`VersionLabels.java`](../../apps/android-pwa/app/src/main/java/com/devotek/t3code/pwa/VersionLabels.java)
@@ -505,17 +516,23 @@ it.
 
 ## Local desktop builds and menu replacement
 
-For an explicitly requested local Linux nightly, build a fresh AppImage from the committed source:
+Use the verified published nightly when one already exists for the required source. A local
+desktop build intended for installation must first have a fresh nightly identity allocated by
+the release pipeline and must build that allocation's pinned commit. Set
+`ARCWRIGHT_NIGHTLY_VERSION` to the allocated `<version>-nightly.<YYYYMMDD>.<N>` value;
+the example below does not allocate a version or establish release eligibility:
 
 ```bash
 node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64 \
-  --build-version 1.0.1-preview.YYYYMMDD.N --output-dir /absolute/local-output
+  --build-version "$ARCWRIGHT_NIGHTLY_VERSION" --output-dir /absolute/local-output
 ```
 
-Use a fresh local preview counter for that date. Local previews show **Arcwright Code — Local
-Nightly N** and do not advertise themselves as published releases. Published nightlies show
-**Arcwright Code — Nightly N**. The app derives this name at every launch, including its Linux menu
-entry; package IDs, WM class, URL scheme, pairing, and data-home identity stay stable.
+The installed application's name must be **Arcwright Code — Nightly N**, using that allocated
+counter. Do not install a `preview` artifact, introduce a separate local counter, or reuse a
+published version for different bytes. An already installed preview keeps its real identity
+until the next admitted nightly replacement; renaming it does not make it that nightly.
+The app derives its name at every launch, including its Linux menu entry; package IDs, WM class,
+URL scheme, pairing, and data-home identity stay stable.
 
 Every installation must go through the device maintenance coordinator with normal activity,
 idle-window, snapshot, trial, and health checks. A local build is not permission to bypass those
@@ -531,7 +548,9 @@ node scripts/fork-release.ts build-helper --workdir /absolute/checkout --platfor
 ```
 
 Stage that helper and its retained runtime through `installLocalRecoveryHelper` with their actual
-digests and a distinct local preview version. This uses the native private-cache and isolated
+digests and the distinct private preview cache key required by that API. This identifies only
+the recovery-helper cache, never the installed application's version, name, or nightly counter.
+It does not authorize installing a preview application. This uses the native private-cache and isolated
 self-test gates, retains the preceding recovery pair on failure, and creates no release eligibility
 or installed-build receipt. Never modify an existing published helper or its recorded digest in place.
 
