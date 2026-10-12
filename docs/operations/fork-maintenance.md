@@ -702,6 +702,10 @@ unchanged/legacy pairing credentials.
 The service closes its `PhoneAlertQueue` owner on every connection removal/replacement, including
 direct routes, so presence-delayed alerts cannot transfer to a replacement selection. Socket retry
 retains the same owner and pending alerts.
+Actual registration replacement, including same-account managed re-registration, clears durable
+watermarks under the registration lock. Fresh snapshots re-prime outstanding approvals while keeping
+historical completions quiet; unchanged direct registration/retry retains state. Configuration removal
+also clears watermarks for dormant direct credentials before re-enable.
 [NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
 and [NativeDpopKey.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeDpopKey.kt)
 own the worker-only renewal chain and separate native proof key. The notification service retains

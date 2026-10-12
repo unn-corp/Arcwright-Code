@@ -18,6 +18,13 @@ object NotificationRegistrationPolicy {
         val revision = if (sameDirect) previous.getString("registrationRevision") else java.util.UUID.randomUUID().toString()
         return JSONObject().put("httpBaseUrl", httpBaseUrl).put("token", token).put("registrationRevision", revision)
     }
+    /** Run under the registration monitor with the credential write. Replacement drops queued
+     * alerts, so its fresh snapshot must re-prime outstanding requests rather than inherit receipts. */
+    @JvmStatic fun reprime(previous: JSONObject?, current: JSONObject?, clear: Runnable) {
+        val same = previous != null && current != null && current.optString("registrationRevision").isNotEmpty() &&
+            listOf("mode", "registrationRevision", "httpBaseUrl", "token", "userId", "sessionId").all { previous.optString(it) == current.optString(it) }
+        if (!same) clear.run()
+    }
     @JvmStatic fun accepts(configurationId: String, versions: JSONObject, id: String, payload: JSONObject): Boolean {
         if (payload.optString("configurationId") != configurationId || configurationId.isEmpty()) return false
         val sequence = payload.optLong("sequence", -1)

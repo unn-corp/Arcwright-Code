@@ -232,5 +232,9 @@ remain readable. Returning from a managed route gives the direct selection a fre
 Presence-delayed alerts belong to the service connection that observed them. Closing any connection
 for removal or replacement discards its pending alerts before the new selection can publish; ordinary
 socket retry retains the same connection and its pending alerts, including independent direct pairing.
+Registration replacement also clears its durable watermarks under the registration lock. The fresh
+authoritative snapshot can then alert on an outstanding approval without replaying completed history
+or transferring old queued content. Unchanged direct registration and socket retry retain watermarks;
+removing a dormant direct registration clears them before a later re-enable.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.

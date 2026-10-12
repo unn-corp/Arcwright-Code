@@ -105,16 +105,13 @@ class NativeManagedNotifications(private val app: ArcwrightApplication) {
             val id = payload.getString("environmentId")
             val refs = NotificationCredentials.read(context, STORAGE)
             val oldRef = refs.optJSONObject(id)
+            NotificationRegistrationPolicy.reprime(oldRef, ref) { NativeNotifications.store(context).edit().remove("state:$id").apply() }
             refs.put(id, ref)
-            val previous = app.managedNotifications.registered[id]
             NotificationCredentials.write(context, STORAGE, refs)
             val revision = ref.getString("registrationRevision")
             app.managedNotifications.registered[id] = revision
             val preferred = NativeNotifications.read(context, "managedPreferred").put(id, true)
-            val editor = NativeNotifications.store(context).edit().putString("managedPreferred", preferred.toString())
-            val sameAccount = oldRef != null && oldRef.optString("userId") == ref.getString("userId") && oldRef.optString("sessionId") == ref.getString("sessionId")
-            if (previous == null || !sameAccount) editor.remove("state:$id")
-            editor.apply()
+            NativeNotifications.store(context).edit().putString("managedPreferred", preferred.toString()).apply()
         }
         @JvmStatic fun remove(context: Context, id: String) = synchronized(NotificationCredentials::class.java) {
             val owner = from(context)

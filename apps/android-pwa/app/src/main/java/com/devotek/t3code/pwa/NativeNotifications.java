@@ -152,7 +152,11 @@ final class NativeNotifications {
                         JSONObject direct = NotificationCredentials.read(activity);
                         java.util.List<String> directRemoved = new java.util.ArrayList<>();
                         direct.keys().forEachRemaining(key -> { if (!keep.contains(key)) directRemoved.add(key); });
-                        for (String key : directRemoved) direct.remove(key);
+                        for (String key : directRemoved) {
+                            // Dormant encrypted rows may be absent from the selected connections.
+                            NotificationRegistrationPolicy.reprime(direct.optJSONObject(key), null, () -> store(activity).edit().remove("state:" + key).apply());
+                            direct.remove(key);
+                        }
                         NotificationCredentials.write(activity, direct);
                         JSONObject managed = NotificationCredentials.read(activity, NativeManagedNotifications.STORAGE);
                         java.util.List<String> managedRemoved = new java.util.ArrayList<>();
@@ -198,6 +202,7 @@ final class NativeNotifications {
                         JSONObject preferred = read(activity, "managedPreferred");
                         JSONObject previous = connections.optJSONObject(environmentId);
                         JSONObject direct = NotificationRegistrationPolicy.directReference(previous, preferred.has(environmentId), base.toString(), token);
+                        NotificationRegistrationPolicy.reprime(previous, direct, () -> store(activity).edit().remove("state:" + environmentId).apply());
                         preferred.remove(environmentId);
                         store(activity).edit().putString("managedPreferred", preferred.toString()).apply();
                         connections.put(environmentId, direct);
