@@ -70,16 +70,21 @@ Quarantined values never authorize requests and are never sent to a relay.
 
 Local cleanup releases its busy state when the browser operation finishes, independently
 of remote removal. Repeated local retries share one removal request per active authority;
-new remote enrollment waits for its actual completion. Removal captures the exact local
-record and generation, so a late response cannot clear a changed same-ID registration.
-A removal's client lifetime is ten seconds (the relay API deadline is nine), with an abort
-and a persistent opaque uncertainty marker if no reliable completion arrives. Time alone
+new remote enrollment waits for acknowledged remote work. Registration persists a scoped
+admission fence before issuing its PUT. Aborted, rejected, unvalidated, or interrupted
+registration retains that fence: ending fetch does not prove the server upsert stopped.
+A successful DELETE cannot clear PUT uncertainty or erase its saved authority. Only a
+validated response for the same request, profile, installation, and generation clears the
+registration fence. Removal captures the exact local record and generation, so a late
+response cannot clear a changed same-ID registration. Registration and removal client
+lifetimes are ten seconds (the relay API deadline is nine), with an abort and a persistent
+opaque uncertainty marker if no reliable completion arrives. Time alone
 never permits reenrollment. Ordinary Disable preserves authority and uncertainty; it never
 authorizes quarantine or credential rotation. In owned mode, a separate explicit Reset preserves
 the old current authority in the same private quarantine and prepares fresh installation credentials
 for the next Enable tap. The old removal's installation ID and secret cannot authorize a
 delete of the replacement. Normal same-service identity remains stable. Legacy global keys
-stay preserved; uncertain legacy cleanup needs confirmation at the original service before
+stay preserved; uncertain legacy setup or cleanup needs confirmation at the original service before
 renewal and has no automatic credential rotation. Local controls remain available.
 
 These are source behavior and fixture checks. The owned public service is not commissioned

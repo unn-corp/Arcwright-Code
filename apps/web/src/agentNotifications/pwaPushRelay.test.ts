@@ -272,7 +272,11 @@ it("does not persist a late registration response after cancellation", async () 
     json: async () => ({ subscriptionId: "late-subscription" }),
   });
   await expect(pending).rejects.toThrow(/cancelled/);
-  expect([...values]).toEqual(before);
+  for (const [key, value] of before) expect(values.get(key)).toBe(value);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  fetchMock.mockClear();
+  await expect(register()).rejects.toThrow(/uncertain outcome/);
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 it("accepts equivalent padded/base64url VAPID keys for a bound subscription", async () => {
   await register(true, subscription("AQI="), "AQI=");
@@ -524,4 +528,181 @@ it("uncertainty recovery cannot discard active authority when preserving the old
   await expect(register()).rejects.toThrow(/uncertain outcome/);
   expect(fetchMock).toHaveBeenCalledTimes(count);
   storageFailure.mockRestore();
+});
+
+const registrationSlot =
+  "t3code.pwaPushRegistrationPending.v1:owned%3Ahttps%3A%2F%2Frelay.example.test";
+it.each(["throw", "not-durable"])(
+  "registration admission must be saved before HTTP (%s)",
+  async (failure) => {
+    await register();
+    const raw = values.get(currentSlot);
+    const setItem = window.localStorage.setItem.bind(window.localStorage);
+    const storageFailure = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation((key, value) => {
+        if (key === registrationSlot) {
+          if (failure === "throw") throw new Error("private-storage-value");
+          return;
+        }
+        setItem(key, value);
+      });
+    fetchMock.mockClear();
+    await expect(register()).rejects.toThrow("Could not save notification registration authority");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(values.get(currentSlot)).toBe(raw);
+    storageFailure.mockRestore();
+  },
+);
+it("a validated matching registration clears only its admission and preserves stable identity", async () => {
+  await register();
+  const installation = pwaPushInstallation();
+  let resolvePut: (value: object) => void = () => {};
+  fetchMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolvePut = resolve;
+    }),
+  );
+  const pending = register();
+  const marker = values.get(registrationSlot)!;
+  expect(JSON.parse(marker).installationId).toBe(installation.installationId);
+  expect(marker).not.toContain(installation.installationSecret);
+  expect(getPwaPushRemovalState()).toBe("pending");
+  resolvePut({ ok: true, status: 200, json: async () => ({ subscriptionId: "subscription-1" }) });
+  await pending;
+  expect(values.has(registrationSlot)).toBe(false);
+  expect(getPwaPushRemovalState()).toBe("none");
+  await register();
+  expect(pwaPushInstallation()).toEqual(installation);
+});
+it("failed completion persistence retains the registration fence after a validated response", async () => {
+  await register();
+  const removeItem = window.localStorage.removeItem.bind(window.localStorage);
+  const storageFailure = vi.spyOn(window.localStorage, "removeItem").mockImplementation((key) => {
+    if (key === registrationSlot) throw new Error("private-storage-value");
+    removeItem(key);
+  });
+  await expect(register()).rejects.toThrow(
+    "Notification registration completion could not be saved",
+  );
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  const raw = values.get(currentSlot)!;
+  fetchMock.mockClear();
+  await expect(register()).rejects.toThrow(/uncertain outcome/);
+  expect(fetchMock).not.toHaveBeenCalled();
+  storageFailure.mockRestore();
+  resetPwaPushAuthority(getPwaPushRelayProfile());
+  expect(values.get(`${currentSlot}:quarantine:0`)).toBe(raw);
+  expect(getPwaPushRemovalState()).toBe("none");
+});
+it("a failed legacy registration preserves global identity and cannot be rotated by owned Reset", async () => {
+  vi.stubEnv("VITE_CONNECT_MODE", "legacy");
+  await register();
+  const installation = pwaPushInstallation();
+  const globals = [...values];
+  fetchMock.mockRejectedValueOnce(new Error("offline"));
+  await expect(register()).rejects.toThrow(/temporarily unavailable/);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  await removePwaPushSubscription("subscription-1");
+  for (const [key, value] of globals) expect(values.get(key)).toBe(value);
+  resetPwaPushAuthority(getPwaPushRelayProfile());
+  fetchMock.mockClear();
+  await expect(register()).rejects.toThrow(/Legacy credentials are preserved/);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(pwaPushInstallation()).toEqual(installation);
+});
+it.each(["malformed", "unavailable"])(
+  "an unvalidated %s registration response retains admission",
+  async (failure) => {
+    await register();
+    const raw = values.get(currentSlot);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: failure === "unavailable" ? 503 : 200,
+      json: async () => ({ subscriptionId: null }),
+    });
+    await expect(register()).rejects.toThrow(/unavailable/);
+    expect(values.get(currentSlot)).toBe(raw);
+    expect(getPwaPushRemovalState()).toBe("uncertain");
+    fetchMock.mockClear();
+    await expect(register()).rejects.toThrow(/uncertain outcome/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);
+it("a response after profile change preserves the old realm fence and cannot affect new authority", async () => {
+  await register();
+  const raw = values.get(currentSlot)!;
+  let resolveOld: (value: object) => void = () => {};
+  fetchMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveOld = resolve;
+    }),
+  );
+  const oldRequest = register();
+  owned("https://other.example.test");
+  await register();
+  const otherSlot = "t3code.pwaPushAuthority.v1:https%3A%2F%2Fother.example.test";
+  const other = values.get(otherSlot);
+  resolveOld({ ok: true, status: 200, json: async () => ({ subscriptionId: "late-old" }) });
+  await expect(oldRequest).rejects.toThrow(/Reset/);
+  expect(values.get(currentSlot)).toBe(raw);
+  expect(values.get(otherSlot)).toBe(other);
+  expect(getPwaPushRemovalState()).toBe("none");
+  owned();
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  resetPwaPushAuthority(getPwaPushRelayProfile());
+  expect(values.get(`${currentSlot}:quarantine:0`)).toBe(raw);
+  expect(values.get(otherSlot)).toBe(other);
+});
+it("a reload fences persisted registration admission and old acknowledged work cannot clear replacement authority", async () => {
+  await register();
+  const raw = values.get(currentSlot)!;
+  const installation = pwaPushInstallation();
+  let resolveOld: (value: object) => void = () => {};
+  fetchMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveOld = resolve;
+    }),
+  );
+  const oldRequest = register();
+  vi.resetModules();
+  const fresh = await import("./pwaPushRelay");
+  expect(fresh.getPwaPushRemovalState()).toBe("uncertain");
+  const count = fetchMock.mock.calls.length;
+  await expect(
+    fresh.registerPwaPushSubscription({
+      environmentId: "environment-1",
+      subscription: subscription(),
+      preferences,
+      applicationServerKey: "AQID",
+      explicitEnable: true,
+    }),
+  ).rejects.toThrow(/uncertain outcome/);
+  expect(fetchMock).toHaveBeenCalledTimes(count);
+  fresh.resetPwaPushAuthority(fresh.getPwaPushRelayProfile());
+  expect(values.get(`${currentSlot}:quarantine:0`)).toBe(raw);
+  const input = {
+    environmentId: "environment-1",
+    subscription: subscription("AQID", "https://push.example.test/replacement"),
+    preferences,
+    applicationServerKey: "AQID",
+    explicitEnable: true,
+  };
+  await fresh.registerPwaPushSubscription(input);
+  expect(fresh.pwaPushInstallation()).not.toEqual(installation);
+  let resolveNew: (value: object) => void = () => {};
+  fetchMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveNew = resolve;
+    }),
+  );
+  const newRequest = fresh.registerPwaPushSubscription(input);
+  const replacement = [...values];
+  resolveOld({ ok: true, status: 200, json: async () => ({ subscriptionId: "subscription-1" }) });
+  await expect(oldRequest).rejects.toThrow(/Reset/);
+  expect([...values]).toEqual(replacement);
+  expect(fresh.getPwaPushRemovalState()).toBe("pending");
+  resolveNew({ ok: true, status: 200, json: async () => ({ subscriptionId: "subscription-1" }) });
+  await newRequest;
+  expect(fresh.getPwaPushRemovalState()).toBe("none");
 });

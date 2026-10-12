@@ -122,14 +122,18 @@ export function PwaNotificationSettings() {
       if (!primaryEnvironment)
         throw new Error("Connect this PWA to an Arcwright Code server first.");
       if (!vapidPublicKey) throw new Error("Remote notifications are unavailable.");
-      await registerPwaPushSubscription({
-        environmentId: primaryEnvironment.environmentId,
-        subscription,
-        preferences,
-        applicationServerKey: vapidPublicKey,
-        explicitEnable,
-        signal,
-      });
+      try {
+        await registerPwaPushSubscription({
+          environmentId: primaryEnvironment.environmentId,
+          subscription,
+          preferences,
+          applicationServerKey: vapidPublicKey,
+          explicitEnable,
+          signal,
+        });
+      } finally {
+        if (mountedRef.current) setRemoteCleanupState(getPwaPushRemovalState());
+      }
     },
     [primaryEnvironment, vapidPublicKey],
   );
@@ -470,8 +474,8 @@ export function PwaNotificationSettings() {
       {remoteCleanupState !== "none" ? (
         <p className="px-4 pb-2 text-xs text-muted-foreground">
           {remoteCleanupState === "uncertain"
-            ? "Remote cleanup has an uncertain outcome. Local Disable and Reset remain available. In owned mode, Reset preserves the old authority and prepares fresh enrollment; legacy credentials cannot be safely renewed until old service cleanup is confirmed."
-            : "Remote cleanup is pending. Local Disable and Reset remain available. Enable notifications again after remote cleanup finishes."}
+            ? "Remote notification setup or cleanup has an uncertain outcome. Local Disable and Reset remain available. In owned mode, Reset preserves the old authority and prepares fresh enrollment; legacy credentials cannot be safely renewed until old service setup and cleanup are confirmed."
+            : "Remote notification setup or cleanup is pending. Local Disable and Reset remain available. Enable notifications again after the remote request finishes."}
         </p>
       ) : null}
       {cleanupPending ? (

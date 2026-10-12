@@ -76,9 +76,10 @@ while cleanup at the previous service may remain pending. If browser cleanup fai
 preference stays off but **Disable** or **Reset browser push** remains available to retry,
 including after reopening Settings. Remote cleanup does not hold those local controls busy.
 **Disable** keeps saved credentials and any unresolved cleanup; it does not reset them.
-If cleanup has an uncertain outcome in owned mode, **Reset browser push** preserves the old
-registration and prepares a fresh installation for a separate Enable tap. Legacy service
-credentials remain saved and need confirmation of cleanup at that service before renewal.
+If remote setup or cleanup has an uncertain outcome in owned mode, **Reset browser push**
+preserves the old registration and prepares a fresh installation for a separate Enable tap. Legacy service
+credentials remain saved and need confirmation of setup and cleanup at that service before renewal.
+Cancelling setup or successfully removing a registration does not resolve earlier uncertain setup.
 Cloudless mode and services that
 do not offer anonymous PWA push still support local notification previews.
 

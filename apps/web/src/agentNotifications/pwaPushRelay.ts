@@ -7,6 +7,7 @@ const LEGACY_SUBSCRIPTION_KEY = "t3code.webPushSubscriptionId";
 const CLEANUP_PENDING_KEY = "t3code.pwaPushCleanupPending.v1";
 const SCOPED_RECORD_PREFIX = "t3code.pwaPushAuthority.v1:";
 const REMOVAL_MARKER_PREFIX = "t3code.pwaPushRemovalPending.v1:";
+const REGISTRATION_MARKER_PREFIX = "t3code.pwaPushRegistrationPending.v1:";
 type RemovalOperation = {
   state: "pending" | "uncertain";
   promise: Promise<void>;
@@ -15,6 +16,7 @@ type RemovalOperation = {
 const pendingRemovals = new Map<string, RemovalOperation>();
 const registrationGenerations = new Map<string, number>();
 const pendingRegistrations = new Map<string, Set<Promise<string>>>();
+const activeRegistrationMarkers = new Map<string, string>();
 
 type Installation = {
   readonly installationId: string;
@@ -45,8 +47,8 @@ export class PwaPushRemovalPendingError extends Error {
   constructor(recoveryRequired = false) {
     super(
       recoveryRequired
-        ? "Remote cleanup has an uncertain outcome. In owned mode, use Reset browser push, then Enable to enroll a fresh installation. Legacy credentials are preserved and cannot be safely renewed until the old service cleanup is confirmed."
-        : "Remote notification cleanup is still pending. Local Disable or Reset remains available. Enable notifications again after cleanup finishes.",
+        ? "Remote notification setup or cleanup has an uncertain outcome. In owned mode, use Reset browser push, then Enable to enroll a fresh installation. Legacy credentials are preserved and cannot be safely renewed until the old service setup and cleanup are confirmed."
+        : "Remote notification setup or cleanup is still pending. Local Disable or Reset remains available. Enable notifications again after the remote request finishes.",
     );
     this.name = "PwaPushRemovalPendingError";
   }
@@ -158,14 +160,21 @@ export function resetPwaPushAuthority(expectedProfile: PwaPushRelayProfile): voi
   try {
     const key = recordKey(current.relayOrigin);
     const raw = window.localStorage.getItem(key);
-    const recovering = getPwaPushRemovalState() === "uncertain";
-    if (raw === null) {
-      if (recovering) {
-        window.localStorage.removeItem(removalMarkerKey(current));
-        if (window.localStorage.getItem(removalMarkerKey(current)) !== null)
+    // A best-effort DELETE started by this Reset cannot resolve an earlier uncertain
+    // PUT. Fresh credentials isolate both old requests after durable preservation.
+    const recovering =
+      getPwaPushRemovalState() === "uncertain" || registrationState(current) === "uncertain";
+    const clearUncertainty = () => {
+      for (const markerKey of [removalMarkerKey(current), registrationMarkerKey(current)]) {
+        window.localStorage.removeItem(markerKey);
+        if (window.localStorage.getItem(markerKey) !== null)
           throw new Error("uncertainty reset failed");
-        pendingRemovals.delete(authorityScope(current));
       }
+      pendingRemovals.delete(authorityScope(current));
+      activeRegistrationMarkers.delete(authorityScope(current));
+    };
+    if (raw === null) {
+      if (recovering) clearUncertainty();
       return;
     }
     if (!recovering && readRecord(current.relayOrigin)) return;
@@ -186,12 +195,7 @@ export function resetPwaPushAuthority(expectedProfile: PwaPushRelayProfile): voi
       throw new Error("reset scope changed");
     window.localStorage.removeItem(key);
     if (window.localStorage.getItem(key) !== null) throw new Error("reset failed");
-    if (recovering) {
-      window.localStorage.removeItem(removalMarkerKey(current));
-      if (window.localStorage.getItem(removalMarkerKey(current)) !== null)
-        throw new Error("uncertainty reset failed");
-      pendingRemovals.delete(authorityScope(current));
-    }
+    if (recovering) clearUncertainty();
   } catch {
     throw new Error(
       "Could not preserve or reset this device's previous notification record. Retry Reset browser push when local storage is available.",
@@ -315,9 +319,17 @@ function authorityScope(profile: Extract<PwaPushRelayProfile, { type: "available
 function removalMarkerKey(profile: Extract<PwaPushRelayProfile, { type: "available" }>) {
   return `${REMOVAL_MARKER_PREFIX}${encodeURIComponent(authorityScope(profile))}`;
 }
-export function getPwaPushRemovalState(): "none" | "pending" | "uncertain" {
-  const profile = getPwaPushRelayProfile();
-  if (profile.type === "blocked") return "none";
+function registrationMarkerKey(profile: Extract<PwaPushRelayProfile, { type: "available" }>) {
+  return `${REGISTRATION_MARKER_PREFIX}${encodeURIComponent(authorityScope(profile))}`;
+}
+function registrationState(profile: Extract<PwaPushRelayProfile, { type: "available" }>) {
+  const marker = window.localStorage.getItem(registrationMarkerKey(profile));
+  if (marker === null) return "none";
+  return activeRegistrationMarkers.get(authorityScope(profile)) === marker
+    ? "pending"
+    : "uncertain";
+}
+function removalState(profile: Extract<PwaPushRelayProfile, { type: "available" }>) {
   const scope = authorityScope(profile);
   const operation = pendingRemovals.get(scope);
   if (operation?.state === "pending") return "pending";
@@ -338,6 +350,18 @@ export function getPwaPushRemovalState(): "none" | "pending" | "uncertain" {
       return "uncertain";
     if (operation) pendingRemovals.delete(scope);
     return "none";
+  } catch {
+    return "uncertain";
+  }
+}
+/** Includes issued PUT uncertainty: a successful DELETE does not order an aborted server upsert. */
+export function getPwaPushRemovalState(): "none" | "pending" | "uncertain" {
+  const profile = getPwaPushRelayProfile();
+  if (profile.type === "blocked") return "none";
+  try {
+    const removal = removalState(profile);
+    if (removal !== "none") return removal;
+    return registrationState(profile);
   } catch {
     return "uncertain";
   }
@@ -445,53 +469,105 @@ async function registerCurrentSubscription(input: {
   const auth = serialized.keys?.auth;
   if (!p256dh || !auth) throw new Error("This browser returned an invalid Web Push subscription.");
   const installation = pwaPushInstallation({ explicitEnable: input.explicitEnable === true });
-  const result = await json<{ subscriptionId: string }>(profile, "/v1/pwa/web-push/subscriptions", {
-    method: "PUT",
-    ...(input.signal ? { signal: input.signal } : {}),
-    body: JSON.stringify({
-      environmentId: input.environmentId,
-      installation,
-      endpoint: input.subscription.endpoint,
-      keys: { p256dh, auth },
-      preferences: input.preferences,
-    }),
+  const scope = authorityScope(profile);
+  const snapshot = authoritySnapshot(profile);
+  const generation = registrationGenerations.get(scope) ?? 0;
+  const markerKey = registrationMarkerKey(profile);
+  const marker = JSON.stringify({
+    installationId: installation.installationId,
+    operationId: randomInstallationId(),
   });
-  if (input.signal?.aborted) throw new Error("Notification setup was cancelled.");
-  const current = requireProfile();
-  if (current.mode !== profile.mode || current.relayOrigin !== profile.relayOrigin)
-    throw new PwaPushBindingError();
-  const activeInstallation =
-    profile.mode === "owned"
-      ? readRecord(profile.relayOrigin)?.installation
-      : {
-          installationId: window.localStorage.getItem(INSTALLATION_ID_KEY),
-          installationSecret: window.localStorage.getItem(INSTALLATION_SECRET_KEY),
-        };
-  if (
-    activeInstallation?.installationId !== installation.installationId ||
-    activeInstallation.installationSecret !== installation.installationSecret
-  )
-    throw new PwaPushBindingError();
-  if (!result || typeof result.subscriptionId !== "string" || !result.subscriptionId)
-    throw new PwaPushUnavailableError();
-  if (profile.mode === "legacy")
-    window.localStorage.setItem(LEGACY_SUBSCRIPTION_KEY, result.subscriptionId);
-  else
-    writeRecord({
-      version: 1,
-      relayOrigin: profile.relayOrigin,
-      installation,
-      subscription: {
-        subscriptionId: result.subscriptionId,
-        endpoint: input.subscription.endpoint,
-        applicationServerKey: input.applicationServerKey,
-      },
+  try {
+    window.localStorage.setItem(markerKey, marker);
+    if (window.localStorage.getItem(markerKey) !== marker) throw new Error("marker was not saved");
+  } catch {
+    throw new Error(
+      "Could not save notification registration authority. No remote setup was sent.",
+    );
+  }
+  activeRegistrationMarkers.set(scope, marker);
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  input.signal?.addEventListener("abort", cancel, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let rejectCancellation: (() => void) | undefined;
+  // An issued PUT can outlive its fetch's abort/rejection. Keep its durable admission
+  // fence unless this exact request has a validated response and unchanged authority.
+  try {
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      rejectCancellation = () =>
+        reject(
+          new Error(
+            "Notification setup was cancelled or timed out. In owned mode, use Reset browser push before renewal. Legacy credentials remain preserved until old service setup is confirmed.",
+          ),
+        );
+      controller.signal.addEventListener("abort", rejectCancellation, { once: true });
+      timer = setTimeout(cancel, 10_000);
     });
-  registrationGenerations.set(
-    authorityScope(profile),
-    (registrationGenerations.get(authorityScope(profile)) ?? 0) + 1,
-  );
-  return result.subscriptionId;
+    const request = json<{ subscriptionId: string }>(profile, "/v1/pwa/web-push/subscriptions", {
+      method: "PUT",
+      signal: controller.signal,
+      body: JSON.stringify({
+        environmentId: input.environmentId,
+        installation,
+        endpoint: input.subscription.endpoint,
+        keys: { p256dh, auth },
+        preferences: input.preferences,
+      }),
+    });
+    const result = await Promise.race([request, cancelled]);
+    if (input.signal?.aborted) throw new Error("Notification setup was cancelled.");
+    const current = requireProfile();
+    if (current.mode !== profile.mode || current.relayOrigin !== profile.relayOrigin)
+      throw new PwaPushBindingError();
+    const activeInstallation =
+      profile.mode === "owned"
+        ? readRecord(profile.relayOrigin)?.installation
+        : {
+            installationId: window.localStorage.getItem(INSTALLATION_ID_KEY),
+            installationSecret: window.localStorage.getItem(INSTALLATION_SECRET_KEY),
+          };
+    if (
+      activeInstallation?.installationId !== installation.installationId ||
+      activeInstallation.installationSecret !== installation.installationSecret ||
+      authoritySnapshot(profile) !== snapshot ||
+      (registrationGenerations.get(scope) ?? 0) !== generation ||
+      window.localStorage.getItem(markerKey) !== marker
+    )
+      throw new PwaPushBindingError();
+    if (!result || typeof result.subscriptionId !== "string" || !result.subscriptionId)
+      throw new PwaPushUnavailableError();
+    try {
+      if (profile.mode === "legacy")
+        window.localStorage.setItem(LEGACY_SUBSCRIPTION_KEY, result.subscriptionId);
+      else
+        writeRecord({
+          version: 1,
+          relayOrigin: profile.relayOrigin,
+          installation,
+          subscription: {
+            subscriptionId: result.subscriptionId,
+            endpoint: input.subscription.endpoint,
+            applicationServerKey: input.applicationServerKey,
+          },
+        });
+      registrationGenerations.set(scope, generation + 1);
+      if (window.localStorage.getItem(markerKey) === marker)
+        window.localStorage.removeItem(markerKey);
+      if (window.localStorage.getItem(markerKey) !== null)
+        throw new Error("completion was not saved");
+    } catch {
+      throw new Error(
+        "Notification registration completion could not be saved. Renewal is blocked until setup is confirmed or owned authority is explicitly reset.",
+      );
+    }
+    return result.subscriptionId;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    input.signal?.removeEventListener("abort", cancel);
+    if (rejectCancellation) controller.signal.removeEventListener("abort", rejectCancellation);
+    if (activeRegistrationMarkers.get(scope) === marker) activeRegistrationMarkers.delete(scope);
+  }
 }
 export function registerPwaPushSubscription(
   input: Parameters<typeof registerCurrentSubscription>[0],
@@ -523,7 +599,7 @@ export function removePwaPushSubscription(subscriptionId: string): Promise<void>
     const scope = authorityScope(profile);
     const existing = pendingRemovals.get(scope);
     if (existing?.state === "pending") return existing.promise;
-    if (getPwaPushRemovalState() === "uncertain")
+    if (removalState(profile) === "uncertain")
       return Promise.reject(new PwaPushRemovalPendingError(true));
     const installation = pwaPushInstallation();
     const snapshot = authoritySnapshot(profile);
@@ -583,7 +659,10 @@ export function removePwaPushSubscription(subscriptionId: string): Promise<void>
           );
         };
         await Promise.race([cleanup(), deadline]);
-        forgetSubscription(profile, subscriptionId, snapshot, generation);
+        // DELETE acknowledges only deletion. A prior rejected PUT may still upsert
+        // afterward; retain exact authority and its separate registration fence.
+        if (registrationState(profile) === "none")
+          forgetSubscription(profile, subscriptionId, snapshot, generation);
         if (window.localStorage.getItem(markerKey) === marker)
           window.localStorage.removeItem(markerKey);
         if (pendingRemovals.get(scope) === operation) pendingRemovals.delete(scope);

@@ -298,7 +298,8 @@ it("automatic preference sync stays within a trusted realm and preserves saved s
   await mount();
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
   expect(fixture.settings.agentNotifications.enabled).toBe(true);
-  expect([...values]).toEqual(before);
+  for (const [key, value] of before) expect(values.get(key)).toBe(value);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
   expect(subscribe).not.toHaveBeenCalled();
   expect(unsubscribe).not.toHaveBeenCalled();
 });
@@ -639,6 +640,123 @@ it("late removal completion cannot mutate unmounted settings or hide a remounted
   expect(button("Reset browser push").props.disabled).toBe(false);
   await act(async () => button("Reset browser push").props.onClick());
   expect(existing).toBeNull();
+});
+it("cancelled auto-sync preserves admission across Disable and remount, and Reset isolates a late server PUT", async () => {
+  existing = makeSubscription();
+  await registerPwaPushSubscription({
+    environmentId: "environment-1",
+    subscription: existing,
+    applicationServerKey: pushKey,
+    preferences: fixture.settings.agentNotifications,
+    explicitEnable: true,
+  });
+  fixture.settings.agentNotifications.enabled = true;
+  const slot = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
+  const raw = values.get(slot)!;
+  const original = JSON.parse(raw).installation;
+  // Production upserts conflict on installationId. Model SQL's write lifetime
+  // independently of fetch cancellation, which only ends the client request.
+  const rows = new Map([[original.installationId, existing.endpoint]]);
+  let oldServerPut: (() => void) | undefined;
+  let aborted = false;
+  fetchMock.mockClear().mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "PUT") {
+      const payload = JSON.parse(String(init.body));
+      if (!oldServerPut) {
+        oldServerPut = () => rows.set(payload.installation.installationId, payload.endpoint);
+        return new Promise((_resolve, reject) => {
+          init.signal!.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              reject(new Error("AbortError"));
+            },
+            { once: true },
+          );
+        });
+      }
+      rows.set(payload.installation.installationId, payload.endpoint);
+      return { ok: true, status: 200, json: async () => ({ subscriptionId: "remote-1" }) };
+    }
+    if (init?.method === "POST") {
+      rows.delete(JSON.parse(String(init.body)).installation.installationId);
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ applicationServerKey: pushKey }) };
+  });
+  await mount();
+  expect(oldServerPut).toBeTypeOf("function");
+  await act(async () => button("Disable").props.onClick());
+  expect(aborted).toBe(true);
+  expect(rows.size).toBe(0);
+  expect(existing).toBeNull();
+  expect(values.get(slot)).toBe(raw);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  await act(async () => enable());
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+  act(() => renderer.unmount());
+  await mount();
+  expect(button("Reset browser push").props.disabled).toBe(false);
+  const setItem = window.localStorage.setItem.bind(window.localStorage);
+  const failedArchive = vi
+    .spyOn(window.localStorage, "setItem")
+    .mockImplementation((key, value) => {
+      if (key.startsWith(`${slot}:quarantine:`)) throw new Error("storage full");
+      setItem(key, value);
+    });
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(values.get(slot)).toBe(raw);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  failedArchive.mockRestore();
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(values.get(`${slot}:quarantine:0`)).toBe(raw);
+  expect(getPwaPushRemovalState()).toBe("none");
+  operations.length = 0;
+  await act(async () => {
+    enable();
+    expect(operations[0]).toBe("subscribe");
+  });
+  const replacement = values.get(slot)!;
+  const installation = JSON.parse(replacement).installation;
+  expect(installation.installationId).not.toBe(original.installationId);
+  expect(installation.installationSecret).not.toBe(original.installationSecret);
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  expect(rows.get(installation.installationId)).toBe(existing!.endpoint);
+  oldServerPut!();
+  expect(rows.get(installation.installationId)).toBe(existing!.endpoint);
+  expect(values.get(slot)).toBe(replacement);
+});
+it("a hung Enable PUT becomes uncertain without holding local Reset controls busy", async () => {
+  await mount();
+  let resolvePut: (value: object) => void = () => {};
+  fetchMock.mockClear().mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "PUT")
+      return new Promise((resolve) => {
+        resolvePut = resolve;
+      });
+    return { ok: true, status: 200, json: async () => ({ applicationServerKey: pushKey }) };
+  });
+  vi.useFakeTimers();
+  await act(async () => enable());
+  const slot = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
+  const raw = values.get(slot)!;
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  expect(button("Reset browser push").props.disabled).toBe(false);
+  await act(async () => button("Disable").props.onClick());
+  expect(existing).toBeNull();
+  expect(values.get(slot)).toBe(raw);
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(values.get(`${slot}:quarantine:0`)).toBe(raw);
+  const afterReset = [...values];
+  await act(async () =>
+    resolvePut({ ok: true, status: 200, json: async () => ({ subscriptionId: "late" }) }),
+  );
+  expect([...values]).toEqual(afterReset);
+  expect(getPwaPushSubscriptionId()).toBeNull();
 });
 it("timed out remote cleanup releases local controls and explicit owned Reset safely prepares fresh enrollment", async () => {
   await seedBoundSubscription();
