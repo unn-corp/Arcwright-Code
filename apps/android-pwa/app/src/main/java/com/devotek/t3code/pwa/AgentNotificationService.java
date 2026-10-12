@@ -106,11 +106,6 @@ public final class AgentNotificationService extends Service {
         updateStatus();
         if (connections.isEmpty()) stopSelf();
     }
-    private void queueAlert(String environmentId, JSONObject thread, String kind) throws org.json.JSONException {
-        long now = android.os.SystemClock.elapsedRealtime();
-        pendingAlerts.offer(environmentId, thread, kind, now);
-        flushAlerts();
-    }
     private void flushAlerts() {
         if (destroyed) return;
         long now = android.os.SystemClock.elapsedRealtime();
@@ -143,6 +138,7 @@ public final class AgentNotificationService extends Service {
         final String id;
         final JSONObject config;
         final ThreadAlertState state;
+        final PhoneAlertQueue.ConnectionAlerts alerts;
         WebSocket socket;
         volatile boolean closed;
         final boolean managed;
@@ -152,6 +148,7 @@ public final class AgentNotificationService extends Service {
         int retries;
         Connection(String id, JSONObject config) {
             this.id = id; this.config = config; managed = "managed".equals(config.optString("mode"));
+            alerts = pendingAlerts.connection(id);
             state = new ThreadAlertState(NativeNotifications.store(AgentNotificationService.this).getString("state:" + id, "{}"));
         }
         boolean authorized() {
@@ -265,7 +262,7 @@ public final class AgentNotificationService extends Service {
             }
         }
         void consume(JSONObject item) throws org.json.JSONException {
-            pendingAlerts.reconcile(id, item);
+            alerts.reconcile(item);
             JSONArray alerts = state.consume(item);
             if ("snapshot".equals(item.optString("kind")) && !item.has("resolvedRepositoryIdentityRoots")) {
                 android.util.Log.d("T3Alerts", "Background snapshot: " + item.getJSONObject("snapshot").getJSONArray("threads").length() + " threads");
@@ -273,7 +270,8 @@ public final class AgentNotificationService extends Service {
             }
             for (int i = 0; i < alerts.length(); i++) {
                 JSONObject alert = alerts.getJSONObject(i);
-                queueAlert(id, alert.getJSONObject("thread"), alert.getString("kind"));
+                this.alerts.offer(alert.getJSONObject("thread"), alert.getString("kind"), android.os.SystemClock.elapsedRealtime());
+                flushAlerts();
             }
         }
         void retry() {
@@ -290,7 +288,7 @@ public final class AgentNotificationService extends Service {
         void close() {
             closed = true;
             if (renewal != null) renewal.cancel(false);
-            if (managed) pendingAlerts.removeEnvironment(id);
+            alerts.close();
             if (reconnect != null) reconnect.cancel(false);
             if (socket != null) socket.cancel();
         }

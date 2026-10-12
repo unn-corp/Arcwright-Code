@@ -229,5 +229,8 @@ watermark persistence and actual alert publication. Frames parsed before logout/
 cannot recreate cleared watermarks. Direct connections use their selected credentials/revision,
 independently of Clerk; unchanged direct selection retains its revision and legacy credential rows
 remain readable. Returning from a managed route gives the direct selection a fresh native revision.
+Presence-delayed alerts belong to the service connection that observed them. Closing any connection
+for removal or replacement discards its pending alerts before the new selection can publish; ordinary
+socket retry retains the same connection and its pending alerts, including independent direct pairing.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.

@@ -10,6 +10,25 @@ import org.json.JSONObject;
 final class PhoneAlertQueue {
     private record Alert(String environmentId, JSONObject thread, String kind, long expiresAt) { }
     private final LinkedHashMap<String, Alert> pending = new LinkedHashMap<>();
+    /** Owned by one service Connection, retained through socket retry and closed before replacement.
+     * All queue and connection lifecycle operations run on the service's single worker. */
+    final class ConnectionAlerts {
+        private final String environmentId;
+        private boolean closed;
+        private ConnectionAlerts(String environmentId) { this.environmentId = environmentId; }
+        void offer(JSONObject thread, String kind, long now) throws JSONException {
+            if (!closed) PhoneAlertQueue.this.offer(environmentId, thread, kind, now);
+        }
+        void reconcile(JSONObject item) throws JSONException {
+            if (!closed) PhoneAlertQueue.this.reconcile(environmentId, item);
+        }
+        void close() {
+            if (closed) return;
+            closed = true;
+            removeEnvironment(environmentId);
+        }
+    }
+    ConnectionAlerts connection(String environmentId) { return new ConnectionAlerts(environmentId); }
     void removeEnvironment(String id) { pending.values().removeIf(alert -> id.equals(alert.environmentId())); }
     void configure(Set<String> ids) { pending.values().removeIf(alert -> !ids.contains(alert.environmentId())); }
     void offer(String environmentId, JSONObject thread, String kind, long now) throws JSONException {

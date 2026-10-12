@@ -699,6 +699,9 @@ registration lock; delayed cache eviction matches the same revision/fence.
 protects final watermark writes and actual alert publication with that lock. Configure and direct
 registration mutations share it; direct selection checks remain independent of Clerk and preserve
 unchanged/legacy pairing credentials.
+The service closes its `PhoneAlertQueue` owner on every connection removal/replacement, including
+direct routes, so presence-delayed alerts cannot transfer to a replacement selection. Socket retry
+retains the same owner and pending alerts.
 [NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
 and [NativeDpopKey.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeDpopKey.kt)
 own the worker-only renewal chain and separate native proof key. The notification service retains
