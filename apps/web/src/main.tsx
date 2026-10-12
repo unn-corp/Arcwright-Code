@@ -5,7 +5,7 @@ import { createHashHistory, createBrowserHistory } from "@tanstack/react-router"
 import "./index.css";
 
 import { prepareProviderAuthDelivery } from "./providerAuthDelivery";
-import { isElectron } from "./env";
+import { isElectron, isAndroidPwa } from "./env";
 import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
 import {
@@ -15,7 +15,6 @@ import {
 import { AppRoot } from "./AppRoot";
 import { registerPwaServiceWorker } from "./pwa";
 import { restorePersistedWorkspaceRoute } from "./workspaceRoutePersistence";
-import { clerkAppearance } from "./components/clerk/clerkAppearance";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
 
 prepareProviderAuthDelivery();
@@ -57,9 +56,11 @@ const app = <AppRoot router={router} />;
 // the bundled clerk-js out of the browser build entirely.
 const managedAuthShellModule =
   clerkPublishableKey && hasCloudPublicConfig()
-    ? isElectron
-      ? import("./components/clerk/ElectronManagedAuthShell")
-      : import("./components/clerk/BrowserManagedAuthShell")
+    ? isAndroidPwa
+      ? import("./components/clerk/AndroidManagedAuthShell")
+      : isElectron
+        ? import("./components/clerk/ElectronManagedAuthShell")
+        : import("./components/clerk/BrowserManagedAuthShell")
     : null;
 
 // The index.html boot splash lives inside #root, and React's first commit

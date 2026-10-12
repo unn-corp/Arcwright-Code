@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/react";
+import { useManagedAuth } from "../../auth/managedAuthContext";
 import { useAtomValue } from "@effect/atom-react";
 import type {
   AgentSessionProjectCandidate,
@@ -455,7 +455,7 @@ function ConnectAccountOption({
   readonly onToggleEnvironment: (environmentId: EnvironmentId, checked: boolean) => void;
 }) {
   const { environments } = useEnvironments();
-  const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
+  const { isLoaded, isSignedIn } = useManagedAuth();
   const { openAuthPrompt } = useT3ConnectAuthPrompt();
   const [expanded, setExpanded] = useState(true);
   const [discoveryReady, setDiscoveryReady] = useState(false);

@@ -123,3 +123,11 @@ Host videos can change in place. Their [HTTP
 responses](../../apps/server/src/http.ts) omit cache validators because file
 metadata cannot prove byte-for-byte identity for `If-Range`. Adding weak
 validators would turn native-player seeks into full downloads.
+
+## Standalone Android account identity
+
+The APK's native Clerk adapter supplies foreground relay identity through an origin-restricted
+bridge and the shared managed-auth lifecycle; see [the native account boundary](./t3-connect.md#standalone-android-account-boundary).
+It does not replace environment pairing or authorization. Account logout removes account relay
+routes and token access while preserving direct/Tailscale credentials and drafts. SDK session
+restoration/renewal is native; background DPoP/Connect alert renewal remains a subsequent task.

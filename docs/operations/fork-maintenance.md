@@ -82,7 +82,8 @@ Android web UI, upstream Expo mobile, and CLI output. Preserve internal `T3Conne
 connection formats. The [Connect architecture](../internals/t3-connect.md) and
 [setup runbook](./connect-setup.md) own its trust boundaries and deployment requirements.
 The example configuration selects upstream T3 services; private Arcwright Clerk/Cloudflare
-delivery and standalone APK native sign-in are not commissioned. Keep direct/Tailscale routes,
+delivery is not commissioned. Standalone APK native foreground sign-in is implemented; live
+owned-service and phone verification remain pending. Keep direct/Tailscale routes,
 saved pairings, and credentials through branding changes. Account sign-in discovers environments;
 enabling host sharing exposes one, joining saves a client route, and deregistration revokes the
 account link. Forgetting a route on one device does not deregister its host.
@@ -672,3 +673,28 @@ server's advertised support, never the client device's filesystem.
 cross-commit deletions, independent edits, tracked-only caching, cache replacement, and unsupported
 hosts. Custom checkout filters and external attributes bypass reuse; submodule initialization
 continues through Git. Shared web changes require rebuilding the fork APK to ship there.
+
+## Standalone Android Connect authentication
+
+**Behavior and entry.** Configured APKs select the native managed-auth shell, open Account Portal
+in the system browser, and expose app-owned sign-in/account/sign-out UI. Browser/Electron retain
+Clerk providers, account menus and modals. CLI authorization remains hosted-browser-only. Cloudless
+builds keep direct pairing. Native background DPoP account renewal/Connect alerts are a later task.
+
+**Ownership.** [ConnectAuth.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuth.kt)
+owns account generations, callback lifecycle, cancellation and local logout recovery.
+[ClerkConnectAuthSdk.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ClerkConnectAuthSdk.kt)
+is the supported API-only SDK adapter; the SDK owns Android Keystore persistence and PKCE.
+[ConnectAuthBridge.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuthBridge.kt)
+owns the bounded origin/main-frame bridge. The app-owned auth context and Android observable store
+feed the shared [managedAuth.tsx](../../apps/web/src/cloud/managedAuth.tsx) relay cleanup/token path.
+The build helper resolves the same root public config for native BuildConfig and bundled Vite.
+
+**Verification and coupling.** Native unit tests cover cancellation, stale and duplicate callback
+handling, initialization, process-death logout cleanup, renewal fencing and origin/request bounds.
+Focused web tests cover readiness, account transitions, stale tokens and browser/Electron account
+capabilities; full native assembly and lint prove the upgraded OkHttp/Kotlin dependency graph against
+the retained Java shell. Keep direct pairing, installation-scoped push credentials, drafts and
+native browser state separate from account logout. A process killed mid-login cannot recover SDK
+private in-memory PKCE; an old exact callback is consumed with a retry message. Live sign-in,
+restoration/renewal/logout and private service commissioning still require the runbook's phone proof.

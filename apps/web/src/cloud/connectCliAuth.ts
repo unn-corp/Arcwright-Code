@@ -6,6 +6,7 @@ import {
 } from "@t3tools/shared/connectAuth";
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 
+import { isAndroidPwa, isElectron } from "../env";
 import { isHostedStaticApp } from "../hostedPairing";
 import { hasCloudPublicConfig, resolveCloudPublicConfig, trimNonEmpty } from "./publicConfig";
 
@@ -25,7 +26,13 @@ export function hasConnectCliAuthConfig(): boolean {
  * Clerk CLI OAuth client configured at build time.
  */
 export function connectCliAuthRoutesEnabled(): boolean {
-  return isHostedStaticApp() && hasCloudPublicConfig() && hasConnectCliAuthConfig();
+  return (
+    !isAndroidPwa &&
+    !isElectron &&
+    isHostedStaticApp() &&
+    hasCloudPublicConfig() &&
+    hasConnectCliAuthConfig()
+  );
 }
 
 /**

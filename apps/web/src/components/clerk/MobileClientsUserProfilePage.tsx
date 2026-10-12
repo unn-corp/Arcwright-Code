@@ -1,3 +1,4 @@
+import { useManagedAuth } from "../../auth/managedAuthContext";
 import type { RelayClientDeviceRecord } from "@t3tools/contracts/relay";
 import { SmartphoneIcon } from "lucide-react";
 
@@ -85,7 +86,7 @@ function MobileClientsSkeleton() {
   );
 }
 
-function EmptyMobileClients() {
+function EmptyMobileClients({ nativeAndroid }: { readonly nativeAndroid: boolean }) {
   return (
     <Empty size="compact">
       <EmptyMedia variant="icon">
@@ -94,8 +95,9 @@ function EmptyMobileClients() {
       <EmptyHeader>
         <EmptyTitle>No mobile clients</EmptyTitle>
         <EmptyDescription>
-          Install Arcwright Code on your phone and sign in to Arcwright Connect to get push
-          notifications and Live Activities.
+          {nativeAndroid
+            ? "This account has no registered mobile clients. This standalone Android app currently supports background alerts for directly paired environments."
+            : "Install Arcwright Code on your phone and sign in to Arcwright Connect to get push notifications and Live Activities."}
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -103,6 +105,7 @@ function EmptyMobileClients() {
 }
 
 export function MobileClientsUserProfilePage() {
+  const { surface } = useManagedAuth();
   const devicesState = useManagedRelayDevices();
   const devices = devicesState.data ?? [];
   const isInitialLoad =
@@ -148,7 +151,7 @@ export function MobileClientsUserProfilePage() {
           </ul>
         ) : (
           <div className="border-t">
-            <EmptyMobileClients />
+            <EmptyMobileClients nativeAndroid={surface === "android"} />
           </div>
         )}
       </div>

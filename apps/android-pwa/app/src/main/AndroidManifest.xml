@@ -11,6 +11,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
+        android:name=".ArcwrightApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
@@ -39,6 +40,14 @@
             android:label="@string/recovery_shortcut_long" />
         <service android:name=".AgentNotificationService" android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+        <activity android:name=".ConnectAuthCallbackActivity" android:exported="true" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.devotek.t3code.pwa" android:host="auth" android:path="/callback" />
+            </intent-filter>
+        </activity>
         <activity android:name=".MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|screenLayout|uiMode"
             android:windowSoftInputMode="adjustResize"

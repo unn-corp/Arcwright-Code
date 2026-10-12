@@ -1,9 +1,12 @@
-import { UserButton, useAuth } from "@clerk/react";
-import { LogInIcon, SettingsIcon } from "lucide-react";
+import { UserButton } from "@clerk/react";
+import { useManagedAuth } from "../../auth/managedAuthContext";
+import { LogInIcon, SettingsIcon, UserRoundIcon, LogOutIcon } from "lucide-react";
 
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
-import { T3_CONNECT_ACCOUNT_PAGES } from "./T3ConnectAccountPages";
+import { Button } from "../ui/button";
+import { Menu, MenuTrigger, MenuPopup, MenuItem, MenuGroup, MenuGroupLabel } from "../ui/menu";
+import { T3_CONNECT_ACCOUNT_PAGES, useT3ConnectAccountPage } from "./T3ConnectAccountPages";
 import { useT3ConnectAuthPrompt } from "./useT3ConnectAuthPrompt";
 
 export function T3ConnectSidebarSignIn() {
@@ -19,9 +22,11 @@ export function T3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarAvatar() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, surface } = useManagedAuth();
 
   if (!isLoaded || !isSignedIn) return null;
+
+  if (surface === "android") return <AndroidAccountMenu />;
 
   return (
     <UserButton
@@ -50,22 +55,72 @@ function ConfiguredT3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarSignIn() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, isSigningIn, error, surface } = useManagedAuth();
   const { authPrompt, openAuthPrompt } = useT3ConnectAuthPrompt();
 
-  if (!isLoaded || isSignedIn) return null;
+  if (isSignedIn || (!isLoaded && surface !== "android")) return null;
 
   return (
     <>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton onClick={openAuthPrompt}>
+          <SidebarMenuButton onClick={openAuthPrompt} disabled={isSigningIn}>
             <LogInIcon />
-            <span>Sign in to Arcwright Connect</span>
+            <span>
+              {isSigningIn
+                ? "Finish sign-in in your browser…"
+                : !isLoaded && !error
+                  ? "Connecting account…"
+                  : "Sign in to Arcwright Connect"}
+            </span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
+      {error ? (
+        <p role="alert" className="px-3 py-2 text-xs text-muted-foreground">
+          {error}
+        </p>
+      ) : null}
       {authPrompt}
+    </>
+  );
+}
+
+function AndroidAccountMenu() {
+  const { signOut, error } = useManagedAuth();
+  const account = useT3ConnectAccountPage();
+  return (
+    <>
+      <Menu>
+        <MenuTrigger
+          render={<Button variant="ghost" size="icon" aria-label="Arcwright Connect account" />}
+        >
+          <UserRoundIcon className="size-5" />
+        </MenuTrigger>
+        <MenuPopup>
+          <MenuGroup>
+            <MenuGroupLabel>Signed in to Arcwright Connect</MenuGroupLabel>
+            <MenuItem onClick={() => account.open?.()}>
+              <UserRoundIcon />
+              Arcwright Connect account
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                void signOut().catch(() => {});
+              }}
+            >
+              <LogOutIcon />
+              Sign out
+            </MenuItem>
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>
+      {error ? (
+        <p role="status" className="px-3 text-xs text-muted-foreground">
+          {error}
+        </p>
+      ) : null}
+      {account.portals}
     </>
   );
 }

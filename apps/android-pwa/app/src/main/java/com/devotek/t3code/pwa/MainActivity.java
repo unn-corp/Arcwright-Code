@@ -48,6 +48,7 @@ public final class MainActivity extends ComponentActivity {
     private static final int MEDIA_PERMISSION = 3;
     private static final int MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024;
     private WebView webView;
+    private ConnectAuthBridge connectAuth;
     private NativeNotifications notifications;
     private NativeBrowser browser;
     private NativeUpdateController updates;
@@ -105,6 +106,7 @@ public final class MainActivity extends ComponentActivity {
             .addPathHandler("/", this::loadAsset).build();
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                if (connectAuth != null) connectAuth.shellNavigating();
                 if (browser != null) browser.shellNavigating();
                 if (updates != null) updates.shellNavigating();
             }
@@ -130,6 +132,8 @@ public final class MainActivity extends ComponentActivity {
                 if (mediaRequest == request) finishMedia();
             }
         });
+        connectAuth = new ConnectAuthBridge(this, webView);
+        connectAuth.install();
         installDownloadBridge();
         notifications = new NativeNotifications(this);
         notifications.install(webView);
@@ -371,6 +375,7 @@ public final class MainActivity extends ComponentActivity {
         else finish();
     }
     @Override protected void onDestroy() {
+        if (connectAuth != null) connectAuth.destroy();
         if (fileCallback != null) fileCallback.onReceiveValue(null); // The external picker can still be open; only its result clears the durable hold.
         if (mediaRequest != null) { mediaRequest.deny(); finishMedia(); }
         if (updates != null) updates.destroy();

@@ -1,0 +1,40 @@
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { androidAuthStore } from "../../android/connectAuth";
+import { ManagedAuthContext } from "../../auth/managedAuthContext";
+import { ManagedRelayAuthProvider } from "../../cloud/managedAuth";
+
+/** APK sessions live in the Android SDK, independent of this WebView and its lifetime. */
+export default function AndroidManagedAuthShell({
+  children,
+}: {
+  readonly publishableKey: string;
+  readonly children: ReactNode;
+}) {
+  const status = useSyncExternalStore(androidAuthStore.subscribe, androidAuthStore.getSnapshot);
+  useEffect(() => {
+    androidAuthStore.start();
+  }, []);
+  const value = useMemo(
+    () => ({
+      surface: "android" as const,
+      isLoaded:
+        status.phase === "signedIn" || status.phase === "signedOut" || status.phase === "signingIn",
+      isSignedIn: status.phase === "signedIn",
+      userId: status.userId,
+      sessionId: status.sessionId,
+      generation: status.generation,
+      error: status.error,
+      isSigningIn: status.phase === "signingIn",
+      getRelayToken: (forceRefresh = false) => androidAuthStore.getRelayToken(forceRefresh, status),
+      openSignIn: androidAuthStore.signIn,
+      signOut: androidAuthStore.signOut,
+      openAccountPages: null,
+    }),
+    [status],
+  );
+  return (
+    <ManagedAuthContext value={value}>
+      <ManagedRelayAuthProvider>{children}</ManagedRelayAuthProvider>
+    </ManagedAuthContext>
+  );
+}

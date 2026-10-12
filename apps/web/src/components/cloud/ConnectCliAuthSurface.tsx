@@ -6,7 +6,7 @@ import {
   buildConnectCliClerkAuthorizeUrl,
   connectCliSignInRedirectUrl,
 } from "../../cloud/connectCliAuth";
-import { isElectron } from "../../env";
+import { isElectron, isAndroidPwa } from "../../env";
 import { AuthSurfaceShell } from "../auth/AuthSurfaceShell";
 import { resolveClerkSignInProps } from "../clerk/authRedirect";
 import { Button } from "../ui/button";
@@ -45,6 +45,19 @@ const invalidLinkMessage = {
  * CLI. Headless hosts use Clerk's device authorization page instead.
  */
 export function ConnectCliAuthorizeSurface() {
+  if (isAndroidPwa || isElectron)
+    return (
+      <AuthSurfaceShell>
+        <ConnectCliAuthMessage
+          title="Open this link in your browser"
+          description="Terminal authorization uses the hosted Arcwright Connect page."
+        />
+      </AuthSurfaceShell>
+    );
+  return <HostedConnectCliAuthorizeSurface />;
+}
+
+function HostedConnectCliAuthorizeSurface() {
   const [request] = useState(() => readConnectAuthorizeRequest(new URL(window.location.href)));
   const clerk = useClerk();
   const { isLoaded, isSignedIn } = useAuth();

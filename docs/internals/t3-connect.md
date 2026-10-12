@@ -4,7 +4,8 @@ The Connect display name is Arcwright Connect across the fork's clients and CLI.
 change the protocol, persisted identities, `t3 connect` command, `T3CODE_*` configuration keys,
 JWT audience, or callback schemes. The public example still selects upstream T3 services;
 private Arcwright Clerk and Cloudflare infrastructure is not commissioned. Native Connect
-authentication for the standalone fork APK remains forthcoming.
+authentication is implemented for the standalone fork APK; live commissioning of the owned Clerk
+instance and relay remains pending.
 
 Arcwright Connect uses Clerk for cloud identity. The relay manages environment links,
 credentials for reaching environments, and managed tunnel allocations. After
@@ -165,3 +166,42 @@ polls Clerk's token endpoint directly while the user approves a short code on
 Clerk's hosted device page; the hosted app plays no part and there is no
 redirect URI or PKCE. The grant must be enabled on the CLI OAuth application
 or the device endpoint returns an error before any prompt is shown.
+
+## Standalone Android account boundary
+
+The standalone APK uses the API-only Clerk Android SDK 1.1.11 through
+[ClerkConnectAuthSdk.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ClerkConnectAuthSdk.kt).
+[ArcwrightApplication.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ArcwrightApplication.kt)
+initializes one process-scoped adapter before activities or background work. Clerk owns encrypted
+Android Keystore session/device storage, established-session restoration, PKCE and token renewal.
+The app never reads SDK private storage or copies web DPoP proof keys into Android.
+
+Account Portal sign-in (including Google when enabled in the owned instance) opens the system
+browser through `Clerk.auth.startHostedAuth`. The dedicated callback activity accepts only
+`com.devotek.t3code.pwa://auth/callback`; Clerk validates the live attempt's state and PKCE.
+Canceling, interrupting, or superseding a login releases it. A process killed during sign-in loses
+SDK in-memory PKCE: the app consumes that exact callback as stale and asks the user to retry.
+Persisted navigation markers contain no callback, authorization code, credential, or verifier.
+An established session can restore after process death. A sign-out marker ensures a process
+interrupted during logout clears the SDK account before exposing account state on its next launch.
+
+[ConnectAuthBridge.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuthBridge.kt)
+provides `t3ConnectAuth` only to main-frame messages from `https://appassets.androidplatform.net`.
+It accepts bounded JSON/request IDs for status, subscribe, sign-in, relay token and sign-out.
+Token requests use only the compiled JWT template; no arbitrary template, URL, fetch, device
+credential, refresh credential, or proof key is exposed. Account generation, user and session
+fences reject renewal results after logout or account replacement. Navigation clears listeners
+and pending page requests. External phone-browser pages never receive this bridge.
+
+[AndroidManagedAuthShell.tsx](../../apps/web/src/components/clerk/AndroidManagedAuthShell.tsx) is
+selected before the browser Clerk shell. The app-owned auth context supplies native observable
+state and the fenced token reader to the same relay account cleanup/activation used by web and
+Electron. Only authoritative signed-out/account-change events remove relay environments and reset
+the relay token cache; readiness and network failures retain the catalog. Logout clears all local
+Clerk sessions even when remote logout fails, while directly paired connections, drafts, web-push
+installation credentials and native-browser state remain independent.
+
+Foreground Connect discovery and joining reuse the existing relay/DPoP protocol. Native background
+DPoP renewal and Connect alert delivery are a subsequent task; the Android notification coordinator
+still skips DPoP connections. No production deployment or phone commissioning is implied by the
+implementation or local APK build.

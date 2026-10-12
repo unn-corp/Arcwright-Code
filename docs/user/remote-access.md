@@ -18,7 +18,9 @@ Arcwright Connect is the account-based relay option. The private Arcwright servi
 commissioned. The setup below applies to a build configured for an available relay and Clerk
 application; the repository public example points to upstream T3 services. Direct and Tailscale
 pairing remain available without a Connect account. Native Connect sign-in in this fork's
-standalone Android APK is forthcoming.
+standalone Android APK is implemented, with live owned-service commissioning pending. Native
+background Connect/DPoP alerts remain a later task; the existing background path uses directly paired
+environments.
 
 Arcwright Connect makes an environment available to your other devices without setting
 up router forwarding. In the desktop app on the host, open **Settings →

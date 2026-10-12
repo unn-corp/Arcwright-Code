@@ -4,12 +4,39 @@ import {
   buildConnectCliClerkAuthorizeUrl,
   connectCliSignInRedirectUrl,
   hasConnectCliAuthConfig,
+  connectCliAuthRoutesEnabled,
 } from "./connectCliAuth";
 
 // Any pk_test_* key decodes to <base64 hostname>.clerk.accounts.dev.
 const TEST_PUBLISHABLE_KEY = `pk_test_${btoa("witty-mole-42.clerk.accounts.dev$")}`;
 
+const surface = vi.hoisted(() => ({ android: false, electron: false }));
+vi.mock("../env", () => ({
+  get isAndroidPwa() {
+    return surface.android;
+  },
+  get isElectron() {
+    return surface.electron;
+  },
+}));
+vi.mock("../hostedPairing", () => ({ isHostedStaticApp: () => true }));
+
 describe("connectCliAuth", () => {
+  it("allows terminal authorization only in the hosted browser even with full native public config", () => {
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", TEST_PUBLISHABLE_KEY);
+    vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "t3-relay");
+    vi.stubEnv("VITE_T3CODE_RELAY_URL", "https://relay.example.com");
+    vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "oauthapp_fixture");
+    surface.android = false;
+    surface.electron = false;
+    expect(connectCliAuthRoutesEnabled()).toBe(true);
+    surface.android = true;
+    expect(connectCliAuthRoutesEnabled()).toBe(false);
+    surface.android = false;
+    surface.electron = true;
+    expect(connectCliAuthRoutesEnabled()).toBe(false);
+    surface.electron = false;
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
   });

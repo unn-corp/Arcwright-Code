@@ -47,7 +47,9 @@ vi.mock("../../rpc/atomRegistry", () => ({
     return state.registry;
   },
 }));
-vi.mock("@clerk/react", () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: false }) }));
+vi.mock("../../auth/managedAuthContext", () => ({
+  useManagedAuth: () => ({ isLoaded: true, isSignedIn: false }),
+}));
 vi.mock("../../hooks/useTheme", () => ({ mountOnboardingTheme: () => () => {} }));
 vi.mock("../../hooks/useLocalStorage", () => ({ useLocalStorage: () => [false, () => {}] }));
 vi.mock("../../hooks/useCopyToClipboard", () => ({

@@ -73,7 +73,8 @@ node scripts/build-android-pwa.ts \
 ```
 
 The helper builds `apps/web` with `VITE_ANDROID_PWA=1` into the Android app's generated assets,
-runs Gradle `assembleRelease` and `lintRelease`, verifies the APK with `apksigner` (exactly one
+resolves repository-root public account configuration with `loadRepoEnv` for both Vite and native
+BuildConfig, then runs Gradle `assembleRelease` and `lintRelease`, verifies the APK with `apksigner` (exactly one
 signer) and `aapt2` (package, version code, version name, not debuggable), and copies the result
 to `release/android-pwa/t3-code-pwa.apk`. It leaves the ordinary web output separate. Additional
 options are `--key-alias`, `--output-dir`, `--asset-name`, `--version-code`, and
@@ -686,3 +687,25 @@ page navigation hold, and installation blocking when the App updates notificatio
 state. The fork workflow builds its signed instrumentation APK from the pinned candidate source
 as a separate CI artifact; this APK is never a release asset. PackageInstaller confirmation, process
 death, reboot, and the real-device update/recovery flow remain commissioning checks.
+
+### Native Arcwright Connect account verification
+
+Native foreground account authentication uses Clerk Android API 1.1.11, Kotlin 2.4.20, Java 17,
+coroutines 1.11.0 and OkHttp 5.4.0; the existing Java shell, updater, browser and notification code
+compile against that resolved graph. The APK uses the system browser Account Portal rather than
+web Clerk inside its WebView. Missing public key, JWT template or HTTPS relay URL leaves Connect
+disabled. The signed build helper passes one `loadRepoEnv` result to both native and bundled web
+builds; direct Gradle development checks must explicitly provide the corresponding public
+`T3_PWA_CLERK_PUBLISHABLE_KEY`, `T3_PWA_CLERK_JWT_TEMPLATE`, `T3_PWA_RELAY_URL` inputs.
+
+[ConnectAuthTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthTest.kt)
+and [ConnectAuthProtocolTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthProtocolTest.kt)
+cover native lifecycle/fencing and the bridge boundary. Run `:app:testReleaseUnitTest`,
+`:app:assembleRelease` and `:app:lintRelease` after producing bundled assets. Focused web tests cover
+account transitions, native observable state and the browser/Electron adapter. These checks use
+isolated fixture state and do not require installing or restarting a phone app.
+
+The [Connect setup runbook](./connect-setup.md#android-native-sign-in-redirects) owns registration,
+public configuration and pending phone proof. Live owned-service commissioning is pending; no
+background Connect alert delivery is claimed. Existing directly paired Bearer alert paths remain
+available and the coordinator still skips DPoP routes.

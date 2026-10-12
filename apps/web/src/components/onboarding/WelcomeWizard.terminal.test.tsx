@@ -110,7 +110,7 @@ vi.mock("../../hooks/useCopyToClipboard", () => ({
 }));
 vi.mock("../../cloud/publicConfig", () => ({ hasCloudPublicConfig: () => false }));
 vi.mock("../clerk/useT3ConnectAuthPrompt", () => ({ useT3ConnectAuthPrompt: vi.fn() }));
-vi.mock("@clerk/react", () => ({ useAuth: vi.fn() }));
+vi.mock("../../auth/managedAuthContext", () => ({ useManagedAuth: vi.fn() }));
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../providerInstances", () => ({ resolveDefaultProviderModelSelection: vi.fn() }));
 vi.mock("../settings/ChatGptWelcomeCoordinator", () => ({ ChatGptWelcomeCoordinator: () => null }));

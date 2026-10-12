@@ -172,3 +172,21 @@ Browser control requires the app to be open; background notifications can contin
 
 For building, modifying, and troubleshooting the app, see the
 [Android runbook](../operations/android-pwa.md).
+
+## Arcwright Connect account
+
+When your maintainer builds the APK with Arcwright Connect configured, **Sign in to Arcwright
+Connect** opens the system browser Account Portal. Google is available when enabled for that
+application. Return to the APK after signing in. The account button opens the existing Connect
+and mobile-client account pages and offers **Sign out**.
+
+An interrupted or canceled sign-in can be retried. If Android kills the app during sign-in, the
+old browser callback expires; retry from the APK. An established account session restores from
+Android's encrypted SDK storage. Signing out clears the account locally even if the network is
+unavailable, and removes account relay routes. Direct/Tailscale pairings, drafts and the phone
+browser stay in place.
+
+Native foreground account sign-in is implemented; live commissioning of the owned Clerk and
+relay service remains pending. Cloudless builds retain direct pairing without an account. Native
+background alerts for Connect/DPoP routes are a later task; use the directly paired notification
+flow described above for the existing background path.

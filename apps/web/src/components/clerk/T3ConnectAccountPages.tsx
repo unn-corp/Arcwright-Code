@@ -1,4 +1,6 @@
-import { useAuth, useClerk } from "@clerk/react";
+import { useManagedAuth } from "../../auth/managedAuthContext";
+import { Button } from "../ui/button";
+import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogPanel } from "../ui/dialog";
 import { ServerIcon, SmartphoneIcon } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
@@ -33,16 +35,21 @@ export function useT3ConnectAccountPage(): {
   readonly open: (() => void) | null;
   readonly portals: ReactNode;
 } {
-  const clerk = useClerk();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, surface, openAccountPages } = useManagedAuth();
+  const [nativeOpen, setNativeOpen] = useState(false);
+  const [nativePage, setNativePage] = useState<string>("t3-connect");
   const [targets, setTargets] = useState<PortalTargets>({});
 
   const open = useCallback(() => {
+    if (surface === "android") {
+      setNativePage("t3-connect");
+      setNativeOpen(true);
+      return;
+    }
     const setTarget = (key: string, element: HTMLDivElement | undefined) =>
       setTargets((current) => ({ ...current, [key]: element }));
-    clerk.openUserProfile({
-      __experimental_startPath: "/t3-connect",
-      customPages: T3_CONNECT_ACCOUNT_PAGES.map((page) => ({
+    openAccountPages?.(
+      T3_CONNECT_ACCOUNT_PAGES.map((page) => ({
         label: page.label,
         url: page.url,
         mount: (element: HTMLDivElement) => setTarget(`content:${page.url}`, element),
@@ -50,8 +57,9 @@ export function useT3ConnectAccountPage(): {
         mountIcon: (element: HTMLDivElement) => setTarget(`icon:${page.url}`, element),
         unmountIcon: () => setTarget(`icon:${page.url}`, undefined),
       })),
-    });
-  }, [clerk]);
+      "/t3-connect",
+    );
+  }, [openAccountPages, surface]);
 
   const portals = T3_CONNECT_ACCOUNT_PAGES.flatMap((page) => {
     const content = targets[`content:${page.url}`];
@@ -62,5 +70,31 @@ export function useT3ConnectAccountPage(): {
     ];
   });
 
-  return { open: isSignedIn ? open : null, portals };
+  const nativeDialog = (
+    <Dialog open={nativeOpen && isSignedIn} onOpenChange={setNativeOpen}>
+      <DialogPopup className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Arcwright Connect account</DialogTitle>
+        </DialogHeader>
+        <DialogPanel>
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Account pages">
+            {T3_CONNECT_ACCOUNT_PAGES.map((page) => (
+              <Button
+                key={page.url}
+                variant={nativePage === page.url ? "secondary" : "ghost"}
+                onClick={() => setNativePage(page.url)}
+              >
+                {page.label}
+              </Button>
+            ))}
+          </div>
+          {T3_CONNECT_ACCOUNT_PAGES.find((page) => page.url === nativePage)?.content}
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
+  );
+  return {
+    open: isSignedIn ? open : null,
+    portals: surface === "android" ? nativeDialog : portals,
+  };
 }

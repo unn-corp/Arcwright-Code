@@ -81,11 +81,11 @@ persistence and system-browser callback delivery.
 
 ## Android native sign-in redirects
 
-This section applies to the upstream Expo client in `apps/mobile`. Native Arcwright Connect
-sign-in for the standalone fork APK in `apps/android-pwa` is forthcoming. Its existing direct
-and Tailscale pairing remain available; these upstream callbacks do not enable native APK sign-in.
+The upstream Expo client in `apps/mobile` and standalone fork APK use separate registrations.
+Native foreground Arcwright Connect sign-in for the APK in `apps/android-pwa` is implemented, with
+live commissioning pending. Its existing direct and Tailscale pairing remain available.
 
-Clerk's native Android SDK uses `clerk://<applicationId>.callback`. In the Clerk instance selected by the app's publishable key, add each supported package to **Native applications > Allowlist for mobile SSO redirect**:
+The upstream Expo Clerk SDK uses `clerk://<applicationId>.callback`. In the Clerk instance selected by the app's publishable key, add each supported package to **Native applications > Allowlist for mobile SSO redirect**:
 
 | Variant     | Callback                                      |
 | ----------- | --------------------------------------------- |
@@ -94,6 +94,26 @@ Clerk's native Android SDK uses `clerk://<applicationId>.callback`. In the Clerk
 | Production  | `clerk://com.t3tools.t3code.callback`         |
 
 Preserve existing entries. These callbacks are separate from the `t3code-dev` / `t3code-preview` / `t3code` navigation schemes. A private development build using the production Clerk key still needs its development callback allowed by that instance's administrator; rebuilding the same package does not change the allowlist.
+
+For the standalone package, enable Clerk Native API in the owned application, register Android
+package `com.devotek.t3code.pwa` with the signing certificate SHA-256, enable Google if wanted, and
+allow `com.devotek.t3code.pwa://auth/callback` for Account Portal hosted auth. Preserve the upstream
+Expo entries above. This callback is distinct from Expo's Clerk SDK callback and desktop navigation.
+See [Clerk hosted auth](https://clerk.com/docs/android/guides/account-portal/hosted-auth).
+
+Build with the owned application's public `T3CODE_CLERK_PUBLISHABLE_KEY`, `T3CODE_CLERK_JWT_TEMPLATE`
+and HTTPS `T3CODE_RELAY_URL`. The Android build helper resolves root `.env`/`.env.local` once using
+`loadRepoEnv`, sends those same values to Vite and native BuildConfig, and keeps unset configuration
+cloudless. Do not copy upstream example public configuration into an owned deployment by accident.
+The configured relay JWT template must carry the existing `aud: t3-code-relay` contract and a short
+lifetime; the native bridge does not accept caller-selected templates.
+
+Local compile/unit/lint checks do not commission delivery. Before declaring a configured APK ready,
+verify live Google sign-in/callback, canceled and interrupted login, process-death stale callback,
+established-session restoration, token renewal/revocation, logout offline and account replacement,
+while retaining direct pairings, drafts and browser state. Native background DPoP/Connect alerts
+remain unimplemented in this bounded change. Production Clerk/domain/relay setup and deployment
+require separate commissioning.
 
 ## Desktop passkeys
 

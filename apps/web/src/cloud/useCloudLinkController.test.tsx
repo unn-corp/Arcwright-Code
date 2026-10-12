@@ -22,8 +22,8 @@ const testState = vi.hoisted(() => ({
   toast: vi.fn(),
 }));
 
-vi.mock("@clerk/react", () => ({
-  useAuth: () => ({ getToken: testState.getToken, isSignedIn: true }),
+vi.mock("../auth/managedAuthContext", () => ({
+  useManagedAuth: () => ({ getRelayToken: testState.getToken, isSignedIn: true }),
 }));
 vi.mock("../components/ui/toast", () => ({ toastManager: { add: testState.toast } }));
 vi.mock("../state/relay", () => ({
