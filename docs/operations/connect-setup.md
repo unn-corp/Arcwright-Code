@@ -90,11 +90,19 @@ are unaffected.
 
 A local unlink writes a public pending-cleanup reminder beside `server-runtime.json` in
 `connect-pending-remote-cleanup.json`: at most 16 old relay origins, environment IDs, timestamps
-and pending statuses (8 KiB maximum). It contains no credentials, and causes no background retry.
-The warning survives restart. To remove an old relay record later, deliberately select its original
+and pending/unresolved statuses (8 KiB maximum). It contains no credentials, and causes no background retry.
+Known origins come only from the saved URL, issuer, or public link binding. A malformed or missing
+URL does not prevent local stop, clearing, or explicit logout: when no safe origin is known, the
+reminder stores a null origin with unresolved status and requires manual review. It never stores
+a credential-bearing URL or substitutes the currently selected profile. The warning survives
+restart. To remove an old relay record later, deliberately select its original
 profile, sign in with `t3 connect login`, and run `t3 connect unlink`; a compatible successful CLI
-remote deletion clears only that matching reminder. A failed deletion or web local unlink can
-leave a conservative reminder until that explicit cleanup. If the bounded reminder file is full or
+remote deletion clears only that matching reminder. A successful compatible web deletion then
+acknowledges the matching origin/environment through the paired server write grant; a failed
+delete or acknowledgement retains the reminder. Unknown-origin references are never cleared
+by a matching-current-profile guess. The Connections cleanup action remains visible in cloudless and partial-link states without
+account sign-in; it still requires View relay and Manage relay permissions on the direct pairing.
+Managed login/link creation remains unavailable in cloudless mode. If the bounded reminder file is full or
 unreadable, unlink refuses to discard the saved link rather than lose the cleanup reference.
 
 These server guards do not authorize automatic cross-realm rollback to older source that lacks

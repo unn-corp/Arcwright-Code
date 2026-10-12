@@ -1,3 +1,4 @@
+import { hasCloudPublicConfig } from "./publicConfig";
 import { useManagedAuth } from "../auth/managedAuthContext";
 import { findErrorTraceId } from "@t3tools/client-runtime/errors";
 import { EnvironmentId, AuthRelayReadScope, AuthRelayWriteScope } from "@t3tools/contracts";
@@ -115,8 +116,24 @@ export function useCloudLinkController() {
     };
     if (!canManageLink()) return false;
     const wantsLink = desired.managedTunnel || desired.publish;
-    if (wantsLink && readLinkState() === null) return false;
-    const tokenResult = await settlePromise(() => getRelayToken());
+    const currentState = wantsLink ? readLinkState() : readCachedPrimaryCloudLinkState(target);
+    if (wantsLink && currentState === null) return false;
+    const managedAvailable =
+      hasCloudPublicConfig() &&
+      (!currentState?.authorityStatus || currentState.authorityStatus === "active") &&
+      !(currentState?.persistedLinkPresent === true && !currentState.linked);
+    if (wantsLink && !managedAvailable) {
+      reportUpdateFailure(
+        new Error(
+          currentState?.authorityMessage ??
+            "Managed Connect is unavailable. Unlink the saved local state before reconnecting.",
+        ),
+      );
+      return false;
+    }
+    const tokenResult = await settlePromise(() =>
+      managedAvailable ? getRelayToken() : Promise.resolve(null),
+    );
     if (!canManageLink()) return false;
 
     // A failure after this point may follow a partially applied mutation (e.g.
@@ -149,7 +166,10 @@ export function useCloudLinkController() {
         reportUpdateFailure(new Error("Sign in to Arcwright Connect before enabling this."));
         return false;
       }
-      if (currentLinkState.authorityStatus && currentLinkState.authorityStatus !== "active") {
+      if (
+        (currentLinkState.persistedLinkPresent === true && !currentLinkState.linked) ||
+        (currentLinkState.authorityStatus && currentLinkState.authorityStatus !== "active")
+      ) {
         reportUpdateFailure(
           new Error(
             currentLinkState.authorityMessage ??
@@ -194,6 +214,7 @@ export function useCloudLinkController() {
     }
 
     primaryCloudLinkState.refresh();
+    if (!hasCloudPublicConfig() || !isSignedIn || !managedAvailable) return true;
     const refreshResult = await refreshRelayEnvironments();
     if (refreshResult._tag === "Failure" && !isAtomCommandInterrupted(refreshResult)) {
       reportUpdateFailure(squashAtomCommandFailure(refreshResult));

@@ -136,6 +136,11 @@ export const layer = HttpApiBuilder.group(
           Effect.andThen(toHttpError(cloudLink.unlink())),
         ),
       )
+      .handle("confirmRemoteCleanup", ({ payload }) =>
+        requireEnvironmentScope(AuthRelayWriteScope).pipe(
+          Effect.andThen(toHttpError(cloudLink.confirmRemoteCleanup(payload))),
+        ),
+      )
       .handle("preferences", ({ payload }) =>
         requireEnvironmentScope(AuthRelayWriteScope).pipe(
           Effect.andThen(toHttpError(cloudLink.updatePreferences(payload))),

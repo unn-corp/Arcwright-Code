@@ -39,12 +39,14 @@ import {
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
+  CLOUD_MINT_PUBLIC_KEY,
   decodeConfirmedOrigin,
   decodeRuntimeConfig,
   readPersistedRelayAuthorityStatus,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
+import { readPendingRemoteCleanup, rememberPendingRemoteCleanup } from "./pendingRemoteCleanup.ts";
 import * as CloudLink from "./CloudLink.ts";
 import { consumeCloudReplayGuards } from "./CloudLink.ts";
 import { pendingServiceUpdateExists } from "./updateHandoff.ts";
@@ -1305,4 +1307,238 @@ describe("releaseManagedTunnelOnShutdown", () => {
       );
     },
   );
+  const cleanupCases = (["owned", "cloudless"] as const).flatMap((mode) =>
+    [
+      "malformed",
+      "missing-with-issuer",
+      "malformed-with-issuer",
+      "missing-with-stamp",
+      "malformed-with-stamp",
+      "malformed-with-invalid-stamp",
+      "unknown-partial",
+    ].map((shape) => ({ mode, shape })),
+  );
+  it.effect.each(cleanupCases)(
+    "locally unlinks $mode $shape state without persisting unsafe URL material",
+    ({ mode, shape }) => {
+      const initial: Array<readonly [string, string]> = [
+        [
+          CLOUD_ENDPOINT_RUNTIME_CONFIG,
+          JSON.stringify({ providerKind: "cloudflare_tunnel", connectorToken: "old-connector" }),
+        ],
+        [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "old-credential"],
+        ["cloud-hold-webhooks-while-offline", "true"],
+        ["provider-fixture", "untouched-provider"],
+      ];
+      if (shape.startsWith("malformed"))
+        initial.push([
+          RELAY_URL_SECRET,
+          "https://user:sentinel-password@old.example.test/private?credential=sentinel",
+        ]);
+      if (shape.endsWith("issuer"))
+        initial.push(["cloud-relay-issuer", "https://old.example.test/"]);
+      if (shape === "missing-with-stamp" || shape === "malformed-with-stamp")
+        initial.push([
+          CLOUD_PUBLIC_AUTHORITY_SECRET,
+          JSON.stringify({
+            version: 1,
+            relayOrigin: "https://old.example.test",
+            cli: {
+              version: 1,
+              issuer: "https://old-clerk.example.test",
+              tokenEndpointOrigin: "https://old-clerk.example.test",
+              clientId: "old-client",
+            },
+          }),
+        ]);
+      if (shape === "malformed-with-invalid-stamp")
+        initial.push([CLOUD_PUBLIC_AUTHORITY_SECRET, "invalid-sentinel-binding"]);
+      const { store, values } = makeMemorySecretStore(initial);
+      const applyConfigCalls: Array<unknown> = [];
+      const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      return Effect.gen(function* () {
+        const link = yield* CloudLink.CloudLink;
+        const before = yield* link.linkState();
+        expect(before.linked).toBe(false);
+        expect(before.persistedLinkPresent).toBe(true);
+        expect(before.managedTunnelActive).toBe(false);
+        const result = yield* link.unlink();
+        expect(result.remoteCleanupPending).toBe(true);
+        expect(result.remoteCleanupAllowed).toBe(false);
+        expect(applyConfigCalls).toEqual([null]);
+        expect(requests).toEqual([]);
+        expect([...values.keys()]).toEqual(["provider-fixture"]);
+        const references = yield* readPendingRemoteCleanup;
+        expect(references).toHaveLength(1);
+        expect(references[0]?.relayOrigin).toBe(
+          shape.endsWith("issuer") ||
+            shape === "missing-with-stamp" ||
+            shape === "malformed-with-stamp"
+            ? "https://old.example.test"
+            : null,
+        );
+        expect(JSON.stringify(references)).not.toContain("sentinel");
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const config = yield* ServerConfigModule.ServerConfig;
+        expect(
+          yield* fs.readFileString(
+            path.join(
+              path.dirname(config.serverRuntimeStatePath),
+              "connect-pending-remote-cleanup.json",
+            ),
+          ),
+        ).not.toContain("sentinel");
+        expect((yield* link.linkState()).remoteCleanupPending).toBe(true);
+      }).pipe(
+        provideReleaseHarness({ store, applyConfigCalls, requests }),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: mode,
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      );
+    },
+  );
+
+  it.effect(
+    "confirms only a selected matching environment/service reference; unknown and other references remain",
+    () => {
+      const { store } = makeMemorySecretStore();
+      const applyConfigCalls: Array<unknown> = [];
+      const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      return Effect.gen(function* () {
+        const link = yield* CloudLink.CloudLink;
+        yield* rememberPendingRemoteCleanup({
+          relayUrl: "https://selected.example.test",
+          environmentId: "env_123",
+        });
+        yield* rememberPendingRemoteCleanup({
+          relayUrl: "https://other.example.test",
+          environmentId: "env_123",
+        });
+        yield* rememberPendingRemoteCleanup({ relayUrl: null, environmentId: "env_123" });
+        yield* rememberPendingRemoteCleanup({
+          relayUrl: "https://selected.example.test",
+          environmentId: "other-env",
+        });
+        expect(
+          (yield* Effect.flip(
+            link.confirmRemoteCleanup({
+              relayOrigin: "https://other.example.test",
+              environmentId: EnvironmentId.make("env_123"),
+            }),
+          ))._tag,
+        ).toBe("CloudLinkAuthorityUnavailableError");
+        expect(
+          (yield* Effect.flip(
+            link.confirmRemoteCleanup({
+              relayOrigin: "https://selected.example.test",
+              environmentId: EnvironmentId.make("other-env"),
+            }),
+          ))._tag,
+        ).toBe("CloudLinkAuthorityUnavailableError");
+        expect(
+          yield* link.confirmRemoteCleanup({
+            relayOrigin: "https://selected.example.test",
+            environmentId: EnvironmentId.make("env_123"),
+          }),
+        ).toEqual({ ok: true });
+        expect(
+          yield* link.confirmRemoteCleanup({
+            relayOrigin: "https://selected.example.test",
+            environmentId: EnvironmentId.make("env_123"),
+          }),
+        ).toEqual({ ok: false });
+        const references = yield* readPendingRemoteCleanup;
+        expect(references).toHaveLength(3);
+        expect(references.some((reference) => reference.relayOrigin === null)).toBe(true);
+        expect(requests).toEqual([]);
+      }).pipe(
+        provideReleaseHarness({ store, applyConfigCalls, requests }),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: "owned",
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      );
+    },
+  );
+  it.effect("does not downgrade a foreign binding if local key removal fails", () => {
+    const { store, values } = makeMemorySecretStore([
+      [RELAY_URL_SECRET, "https://selected.example.test"],
+      [CLOUD_MINT_PUBLIC_KEY, "old-mint-key"],
+      [
+        CLOUD_PUBLIC_AUTHORITY_SECRET,
+        JSON.stringify({
+          version: 1,
+          relayOrigin: "https://selected.example.test",
+          cli: {
+            version: 1,
+            issuer: "https://clerk.example.test",
+            tokenEndpointOrigin: "https://clerk.example.test",
+            clientId: "foreign-client",
+          },
+        }),
+      ],
+    ]);
+    const guarded = ServerSecretStore.ServerSecretStore.of({
+      ...store,
+      remove: (name) =>
+        name === CLOUD_MINT_PUBLIC_KEY
+          ? Effect.fail(
+              new ServerSecretStore.SecretStoreRemoveError({
+                resource: name,
+                cause: "fixture-denied",
+              }),
+            )
+          : store.remove(name),
+    });
+    const applyConfigCalls: Array<unknown> = [];
+    const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+    return Effect.gen(function* () {
+      const link = yield* CloudLink.CloudLink;
+      expect((yield* Effect.flip(link.unlink()))._tag).toBe("CloudLinkInternalError");
+      expect(applyConfigCalls).toEqual([null]);
+      expect(values.has(CLOUD_PUBLIC_AUTHORITY_SECRET)).toBe(true);
+      expect((yield* Effect.flip(link.answerHealthRequest({ proof: "old-proof" })))._tag).toBe(
+        "CloudLinkAuthorityUnavailableError",
+      );
+      expect(requests).toEqual([]);
+    }).pipe(
+      provideReleaseHarness({ store: guarded, applyConfigCalls, requests }),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              T3CODE_CONNECT_MODE: "legacy",
+              T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+              T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+              T3CODE_CLERK_JWT_TEMPLATE: "connect",
+              T3CODE_RELAY_URL: "https://selected.example.test",
+              T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+            },
+          }),
+        ),
+      ),
+    );
+  });
 });

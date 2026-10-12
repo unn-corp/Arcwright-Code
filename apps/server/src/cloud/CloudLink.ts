@@ -9,6 +9,7 @@ import * as NodeCrypto from "node:crypto";
 import {
   AuthStandardClientScopes,
   type EnvironmentCloudLinkStateResult,
+  type EnvironmentCloudCleanupConfirmationRequest,
   type EnvironmentCloudPreferencesRequest,
   type EnvironmentCloudRelayConfigResult,
 } from "@t3tools/contracts";
@@ -46,7 +47,7 @@ import {
   signRelayJwt,
   verifyRelayJwt,
 } from "@t3tools/shared/relayJwt";
-import { isSecureRelayUrl } from "@t3tools/shared/relayUrl";
+import { isSecureRelayUrl, normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -96,13 +97,19 @@ import {
   PUBLISH_AGENT_ACTIVITY_SECRET,
   readRelayConnection,
   readPersistedRelayAuthorityStatus,
+  readPersistedCloudLinkPresent,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
 import { getOrCreateEnvironmentKeyPairFromSecretStore } from "./environmentKeys.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
-import { readPendingRemoteCleanup, rememberPendingRemoteCleanup } from "./pendingRemoteCleanup.ts";
+import {
+  readPendingRemoteCleanup,
+  rememberPendingRemoteCleanup,
+  readStoredCleanupRelayOrigin,
+  clearMatchingPendingRemoteCleanup,
+} from "./pendingRemoteCleanup.ts";
 import {
   LinkPublicAuthority,
   authorityMessage,
@@ -499,6 +506,12 @@ export class CloudLink extends Context.Service<
     >;
     /** Stops the tunnel and forgets the link, including the CLI's wish to keep it. */
     readonly unlink: () => Effect.Effect<EnvironmentCloudRelayConfigResult, CloudLinkInternalError>;
+    readonly confirmRemoteCleanup: (
+      input: EnvironmentCloudCleanupConfirmationRequest,
+    ) => Effect.Effect<
+      { readonly ok: boolean },
+      CloudLinkAuthorityUnavailableError | CloudLinkInternalError
+    >;
     /**
      * Saves this environment's Arcwright Connect preferences, all or nothing, and
      * returns the link state. The activity setting is saved first. Holding
@@ -610,15 +623,7 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const hasPersistedLink = Effect.all([
-    secrets.get(RELAY_URL_SECRET),
-    secrets.get(CLOUD_LINKED_USER_ID),
-    secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
-    secrets.get(CLOUD_MINT_PUBLIC_KEY),
-    secrets.get(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
-    secrets.get(RELAY_ISSUER_SECRET),
-    secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET),
-  ]).pipe(Effect.map((records) => records.some(Option.isSome)));
+  const hasPersistedLink = readPersistedCloudLinkPresent(secrets);
   const persistedAuthorityStatus = readPersistedRelayAuthorityStatus(secrets, authority);
   const requirePersistedAuthority = Effect.gen(function* () {
     const status = yield* persistedAuthorityStatus;
@@ -1408,6 +1413,7 @@ const make = Effect.gen(function* () {
         ? "active"
         : yield* persistedAuthorityStatus;
     return {
+      persistedLinkPresent: yield* hasPersistedLink,
       remoteCleanupPending:
         (yield* readPendingRemoteCleanup.pipe(
           withRuntimeFiles,
@@ -1419,8 +1425,12 @@ const make = Effect.gen(function* () {
       authorityMessage: authorityMessage(status),
       linked: Option.isSome(cloudUserId),
       cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
-      relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
-      relayIssuer: Option.isSome(relayIssuer) ? bytesToString(relayIssuer.value) : null,
+      relayUrl: Option.isSome(relayUrl)
+        ? normalizeSecureRelayUrl(bytesToString(relayUrl.value))
+        : null,
+      relayIssuer: Option.isSome(relayIssuer)
+        ? normalizeSecureRelayUrl(bytesToString(relayIssuer.value))
+        : null,
       // The managed tunnel runtime config is only stored for managed links; a
       // publish-only link leaves it absent.
       managedTunnelActive: status === "active" && Option.isSome(endpointRuntimeConfig),
@@ -1446,11 +1456,12 @@ const make = Effect.gen(function* () {
     function* () {
       return yield* endpointRuntime.withLinkStateLock(
         Effect.gen(function* () {
-          const savedLink = yield* secrets.get(RELAY_URL_SECRET);
+          const savedLinkPresent = yield* hasPersistedLink;
+          const savedRelayOrigin = yield* readStoredCleanupRelayOrigin(secrets);
           const status = yield* persistedAuthorityStatus;
-          if (Option.isSome(savedLink))
+          if (savedLinkPresent)
             yield* rememberPendingRemoteCleanup({
-              relayUrl: bytesToString(savedLink.value),
+              relayUrl: savedRelayOrigin,
               environmentId: yield* environment.getEnvironmentId,
             }).pipe(
               withRuntimeFiles,
@@ -1461,7 +1472,6 @@ const make = Effect.gen(function* () {
           const endpointRuntimeStatus = yield* endpointRuntime.applyConfig(null);
           yield* Effect.all(
             [
-              secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET),
               secrets.remove(CLOUD_LINKED_USER_ID),
               secrets.remove(RELAY_URL_SECRET),
               secrets.remove(RELAY_ISSUER_SECRET),
@@ -1474,18 +1484,47 @@ const make = Effect.gen(function* () {
             ],
             { concurrency: 9 },
           );
+          // Retain the binding until all authorization material is gone, including on partial removal failure.
+          yield* secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET);
           yield* setCliDesiredCloudLink(false).pipe(withSecrets);
           return {
             ok: true,
             endpointRuntimeStatus,
-            remoteCleanupPending: Option.isSome(savedLink),
-            remoteCleanupAllowed: status === "active",
+            remoteCleanupPending: savedLinkPresent,
+            remoteCleanupRelayOrigin: savedRelayOrigin,
+            remoteCleanupAllowed: status === "active" && savedRelayOrigin !== null,
           } satisfies EnvironmentCloudRelayConfigResult;
         }),
       );
     },
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("remove-relay-config")),
   );
+
+  const confirmRemoteCleanup = Effect.fn("environment.cloud.confirmRemoteCleanup")(function* (
+    input: EnvironmentCloudCleanupConfirmationRequest,
+  ) {
+    const environmentId = yield* environment.getEnvironmentId;
+    if (
+      input.environmentId !== environmentId ||
+      (authority.mode !== "owned" && authority.mode !== "legacy") ||
+      authority.relayOrigin !== input.relayOrigin
+    ) {
+      return yield* new CloudLinkAuthorityUnavailableError({
+        status: authority.mode === "cloudless" ? "cloudless" : "incompatible",
+      });
+    }
+    yield* requireRelayAuthority(input.relayOrigin);
+    const ok = yield* clearMatchingPendingRemoteCleanup({
+      relayUrl: input.relayOrigin,
+      environmentId,
+    }).pipe(
+      withRuntimeFiles,
+      Effect.mapError(
+        (cause) => new CloudLinkInternalError({ operation: "remove-relay-config", cause }),
+      ),
+    );
+    return { ok };
+  });
 
   const pushHoldWebhooksWhileOffline = Effect.fn("CloudPreferences.pushHoldWebhooksWhileOffline")(
     function* (holdWebhooksWhileOffline: boolean) {
@@ -1778,6 +1817,7 @@ const make = Effect.gen(function* () {
   );
 
   return CloudLink.of({
+    confirmRemoteCleanup,
     linkProof,
     applyRelayConfig,
     linkState,

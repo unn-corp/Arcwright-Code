@@ -230,7 +230,13 @@ export function unlinkPrimaryEnvironmentFromCloud(input: {
       .pipe(Effect.mapError(environmentApiError("Could not unlink the environment from cloud.")));
 
     const configuredRelayUrl = relayUrl();
-    if (localResult.remoteCleanupAllowed !== false && configuredRelayUrl && input.clerkToken) {
+    if (
+      localResult.remoteCleanupAllowed !== false &&
+      configuredRelayUrl &&
+      input.clerkToken &&
+      (localResult.remoteCleanupRelayOrigin === undefined ||
+        localResult.remoteCleanupRelayOrigin === configuredRelayUrl)
+    ) {
       const relayClient = yield* ManagedRelay.ManagedRelayClient;
       yield* relayClient
         .unlinkEnvironment({
@@ -238,6 +244,27 @@ export function unlinkPrimaryEnvironmentFromCloud(input: {
           environmentId: EnvironmentId.make(input.target.environmentId),
         })
         .pipe(
+          Effect.tap((result) =>
+            result.ok &&
+            localResult.remoteCleanupPending === true &&
+            localResult.remoteCleanupRelayOrigin === configuredRelayUrl
+              ? client.connect
+                  .confirmRemoteCleanup({
+                    headers: {},
+                    payload: {
+                      relayOrigin: configuredRelayUrl,
+                      environmentId: EnvironmentId.make(input.target.environmentId),
+                    },
+                  })
+                  .pipe(
+                    Effect.catch(() =>
+                      Effect.logWarning(
+                        "Connect remote cleanup confirmation failed; its local reminder remains pending.",
+                      ),
+                    ),
+                  )
+              : Effect.void,
+          ),
           Effect.catch((cause) =>
             Effect.logWarning("Could not revoke cloud environment link after local unlink.", {
               cause,

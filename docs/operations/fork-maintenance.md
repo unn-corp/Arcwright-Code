@@ -754,8 +754,12 @@ is read in legacy mode; historical unbound legacy restore remains explicit compa
 Connector restore/offline fallback, recovery/deletion, signed proof acceptance, publishers, held
 hooks and webhook advertisements all use this policy. Local unlink clears only Connect link
 secrets, intent and preferences and retains a bounded public cleanup reminder, without scheduling
-old-service work or retaining credentials for it. Only deliberate matching-profile CLI remote
-success clears its matching reminder. Keep provider/direct credentials, data and automation choices.
+old-service work or retaining credentials for it. Deliberate matching-profile CLI remote
+success or protected web acknowledgement after successful deletion clears only its matching
+origin/environment reminder. Unknown-origin reminders stay unresolved for manual review;
+malformed/missing saved URLs never force retention of local Connect secrets. Local paired status
+and cleanup remain visible in cloudless and partial-record states without managed sign-in.
+The acknowledgement uses authenticated HTTP plus `AuthRelayWriteScope`, with no new RPC. Keep provider/direct credentials, data and automation choices.
 
 Run the focused cloud lifecycle/token/runtime, relay publisher, webhook proof and web link-controller
 regressions when changing this boundary. [Connect setup](./connect-setup.md#changing-the-account-service)

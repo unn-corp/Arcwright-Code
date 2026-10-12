@@ -5,15 +5,18 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { CLOUD_PUBLIC_AUTHORITY_SECRET, RELAY_URL_SECRET, RELAY_ISSUER_SECRET } from "./config.ts";
+import { LinkPublicAuthority } from "./connectAuthority.ts";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import * as ServerConfig from "../config.ts";
 
 const PendingCleanupReference = Schema.Struct({
-  relayOrigin: Schema.String,
+  relayOrigin: Schema.NullOr(Schema.String),
   environmentId: Schema.String,
   unlinkedAt: Schema.String,
-  status: Schema.Literal("pending"),
+  status: Schema.Literals(["pending", "unresolved"]),
 });
 const PendingCleanupJson = Schema.fromJsonString(Schema.Array(PendingCleanupReference));
 const decode = Schema.decodeUnknownEffect(PendingCleanupJson);
@@ -52,7 +55,8 @@ export const readPendingRemoteCleanup = Effect.gen(function* () {
     references.length > 16 ||
     references.some(
       (reference) =>
-        normalizeSecureRelayUrl(reference.relayOrigin) !== reference.relayOrigin ||
+        (reference.relayOrigin !== null &&
+          normalizeSecureRelayUrl(reference.relayOrigin) !== reference.relayOrigin) ||
         reference.environmentId.length > 200 ||
         reference.unlinkedAt.length > 40,
     )
@@ -61,10 +65,33 @@ export const readPendingRemoteCleanup = Effect.gen(function* () {
   return references;
 }).pipe(Effect.mapError((cause) => new PendingRemoteCleanupError({ cause })));
 
+const decodeLinkAuthority = Schema.decodeUnknownOption(Schema.fromJsonString(LinkPublicAuthority));
+export const readStoredCleanupRelayOrigin = (
+  secrets: ServerSecretStore.ServerSecretStore["Service"],
+) =>
+  Effect.gen(function* () {
+    const [url, issuer, stamp] = yield* Effect.all([
+      secrets.get(RELAY_URL_SECRET),
+      secrets.get(RELAY_ISSUER_SECRET),
+      secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET),
+    ]);
+    for (const value of [url, issuer]) {
+      if (Option.isSome(value)) {
+        const origin = normalizeSecureRelayUrl(new TextDecoder().decode(value.value));
+        if (origin !== null) return origin;
+      }
+    }
+    if (Option.isSome(stamp)) {
+      const decoded = decodeLinkAuthority(new TextDecoder().decode(stamp.value));
+      if (Option.isSome(decoded)) return normalizeSecureRelayUrl(decoded.value.relayOrigin);
+    }
+    return null;
+  });
+
 export const rememberPendingRemoteCleanup = Effect.fn("cloud.rememberPendingRemoteCleanup")(
-  function* (input: { readonly relayUrl: string; readonly environmentId: string }) {
-    const relayOrigin = normalizeSecureRelayUrl(input.relayUrl);
-    if (relayOrigin === null || input.environmentId.length > 200)
+  function* (input: { readonly relayUrl: string | null; readonly environmentId: string }) {
+    const relayOrigin = input.relayUrl === null ? null : normalizeSecureRelayUrl(input.relayUrl);
+    if (input.environmentId.length > 200)
       return yield* new PendingRemoteCleanupError({ cause: "invalid-reference" });
     const references = yield* readPendingRemoteCleanup;
     if (
@@ -83,7 +110,7 @@ export const rememberPendingRemoteCleanup = Effect.fn("cloud.rememberPendingRemo
         relayOrigin,
         environmentId: input.environmentId,
         unlinkedAt: DateTime.formatIso(now),
-        status: "pending",
+        status: relayOrigin === null ? "unresolved" : "pending",
       },
     ]);
     if (new TextEncoder().encode(contents).byteLength > 8192)
@@ -97,17 +124,19 @@ export const clearMatchingPendingRemoteCleanup = Effect.fn(
   "cloud.clearMatchingPendingRemoteCleanup",
 )(
   function* (input: { readonly relayUrl: string; readonly environmentId: string }) {
+    const relayOrigin = normalizeSecureRelayUrl(input.relayUrl);
+    if (relayOrigin === null) return false;
     const references = yield* readPendingRemoteCleanup;
     const remaining = references.filter(
       (reference) =>
-        reference.relayOrigin !== normalizeSecureRelayUrl(input.relayUrl) ||
-        reference.environmentId !== input.environmentId,
+        reference.relayOrigin !== relayOrigin || reference.environmentId !== input.environmentId,
     );
-    if (remaining.length === references.length) return;
+    if (remaining.length === references.length) return false;
     yield* writeFileStringAtomically({
       filePath: yield* statePath,
       contents: yield* encode(remaining),
     });
+    return true;
   },
   Effect.mapError((cause) => new PendingRemoteCleanupError({ cause })),
 );

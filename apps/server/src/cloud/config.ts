@@ -26,6 +26,22 @@ export const RELAY_ENVIRONMENT_CREDENTIAL_SECRET = "cloud-relay-environment-cred
 export const PUBLISH_AGENT_ACTIVITY_SECRET = "cloud-publish-agent-activity";
 export const HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET = "cloud-hold-webhooks-while-offline";
 
+/** Raw saved presence includes partial records; it is never an enrollment invitation. */
+export const readPersistedCloudLinkPresent = (
+  secrets: ServerSecretStore.ServerSecretStore["Service"],
+) =>
+  Effect.all(
+    [
+      RELAY_URL_SECRET,
+      RELAY_ISSUER_SECRET,
+      CLOUD_PUBLIC_AUTHORITY_SECRET,
+      CLOUD_LINKED_USER_ID,
+      CLOUD_ENDPOINT_RUNTIME_CONFIG,
+      CLOUD_MINT_PUBLIC_KEY,
+      RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
+    ].map((name) => secrets.get(name)),
+  ).pipe(Effect.map((records) => records.some(Option.isSome)));
+
 const decodeLinkPublicAuthority = Schema.decodeUnknownOption(
   Schema.fromJsonString(LinkPublicAuthority),
 );

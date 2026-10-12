@@ -202,7 +202,14 @@ it.effect("keeps disconnect causes in structured logs and out of console warning
   );
 });
 
-it.effect.each(["compatible", "incompatible", "cloudless"] as const)(
+it.effect.each([
+  "compatible",
+  "incompatible",
+  "cloudless",
+  "malformed-logout",
+  "missing-issuer-logout",
+  "missing-stamp-logout",
+] as const)(
   "deliberate %s CLI unlink preserves login and reports pending remote cleanup honestly",
   (admission) => {
     const values = new Map<string, Uint8Array>([
@@ -223,14 +230,48 @@ it.effect.each(["compatible", "incompatible", "cloudless"] as const)(
       ["cloud-hold-webhooks-while-offline", new TextEncoder().encode("true")],
       ["cloud-cli-oauth-token", new TextEncoder().encode("preserved-cli-authorization")],
     ]);
+    const logout = admission.endsWith("logout");
+    if (admission === "malformed-logout") {
+      values.set(
+        "cloud-relay-url",
+        new TextEncoder().encode("https://user:sentinel@old.example.test/private"),
+      );
+      values.delete("cloud-relay-issuer");
+    }
+    if (admission === "missing-issuer-logout") values.delete("cloud-relay-url");
+    if (admission === "missing-stamp-logout") {
+      values.delete("cloud-relay-url");
+      values.delete("cloud-relay-issuer");
+      values.set(
+        "cloud-public-authority",
+        new TextEncoder().encode(
+          JSON.stringify({
+            version: 1,
+            relayOrigin: "https://old.example.test",
+            cli: {
+              version: 1,
+              issuer: "https://old-clerk.example.test",
+              tokenEndpointOrigin: "https://old-clerk.example.test",
+              clientId: "old-client",
+            },
+          }),
+        ),
+      );
+    }
     let requests = 0;
     return Effect.gen(function* () {
-      yield* disconnectCloud({ clearAuthorization: false });
+      yield* disconnectCloud({ clearAuthorization: logout });
       assert.equal(requests, admission === "compatible" ? 1 : 0);
       assert.isFalse(values.has("cloud-relay-url"));
       assert.isFalse(values.has("cloud-hold-webhooks-while-offline"));
-      assert.isTrue(values.has("cloud-cli-oauth-token"));
-      assert.equal((yield* readPendingRemoteCleanup).length, admission === "compatible" ? 0 : 1);
+      assert.isFalse(values.has("cloud-public-authority"));
+      assert.equal(values.has("cloud-cli-oauth-token"), !logout);
+      const pending = yield* readPendingRemoteCleanup;
+      assert.equal(pending.length, admission === "compatible" ? 0 : 1);
+      if (admission === "malformed-logout") assert.isNull(pending[0]?.relayOrigin);
+      if (admission === "missing-issuer-logout" || admission === "missing-stamp-logout")
+        assert.equal(pending[0]?.relayOrigin, "https://old.example.test");
+      assert.notInclude(JSON.stringify(pending), "sentinel");
     }).pipe(
       Effect.provide(
         ServerConfig.layerTest("/", { prefix: "t3-connect-disconnect-test-" }).pipe(
@@ -271,7 +312,9 @@ it.effect.each(["compatible", "incompatible", "cloudless"] as const)(
           }),
           hasCredential: Effect.succeed(true),
           store: () => Effect.die("unused"),
-          clear: Effect.die("unexpected logout"),
+          clear: Effect.sync(() => {
+            values.delete("cloud-cli-oauth-token");
+          }),
         }),
       ),
       Effect.provideService(
@@ -292,7 +335,7 @@ it.effect.each(["compatible", "incompatible", "cloudless"] as const)(
         ConfigProvider.layer(
           ConfigProvider.fromEnv({
             env: {
-              T3CODE_CONNECT_MODE: admission === "cloudless" ? "cloudless" : "owned",
+              T3CODE_CONNECT_MODE: admission === "cloudless" || logout ? "cloudless" : "owned",
               T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
               T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
               T3CODE_CLERK_JWT_TEMPLATE: "connect",

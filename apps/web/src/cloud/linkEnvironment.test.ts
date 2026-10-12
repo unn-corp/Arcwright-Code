@@ -408,4 +408,51 @@ describe("web cloud link environment client", () => {
       expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3000/api/connect/unlink");
     }),
   );
+  it.effect.each(["success", "delete-failed", "confirmation-failed", "different-origin"] as const)(
+    "confirms matching local cleanup only after %s remote outcome",
+    (outcome) =>
+      Effect.gen(function* () {
+        const fetchMock = vi
+          .fn()
+          .mockResolvedValueOnce(
+            Response.json({
+              ok: true,
+              endpointRuntimeStatus: { status: "disabled" },
+              remoteCleanupPending: true,
+              remoteCleanupAllowed: true,
+              remoteCleanupRelayOrigin:
+                outcome === "different-origin"
+                  ? "https://other.example.test"
+                  : "https://relay.example.test",
+            }),
+          )
+          .mockResolvedValueOnce(
+            outcome === "delete-failed"
+              ? Response.json({ message: "unavailable" }, { status: 503 })
+              : Response.json({ ok: true }),
+          )
+          .mockResolvedValueOnce(
+            outcome === "confirmation-failed"
+              ? Response.json({ message: "not confirmed" }, { status: 409 })
+              : Response.json({ ok: true }),
+          );
+        vi.stubGlobal("fetch", fetchMock);
+        yield* withServices(
+          unlinkPrimaryEnvironmentFromCloud({ target: TARGET, clerkToken: "clerk-token" }),
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(
+          outcome === "different-origin" ? 1 : outcome === "delete-failed" ? 2 : 3,
+        );
+        if (outcome === "success" || outcome === "confirmation-failed") {
+          expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+            "http://127.0.0.1:3000/api/connect/remote-cleanup-confirmation",
+          );
+          const init = fetchMock.mock.calls[2]?.[1] as RequestInit;
+          expect(JSON.parse(String(init.body))).toEqual({
+            relayOrigin: "https://relay.example.test",
+            environmentId: TARGET.environmentId,
+          });
+        }
+      }),
+  );
 });

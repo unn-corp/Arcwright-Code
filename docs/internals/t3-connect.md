@@ -260,13 +260,19 @@ are checked even in legacy mode; unbound legacy records retain their historical 
 [`config.ts`](../../apps/server/src/cloud/config.ts) shares saved-link admission across CloudLink,
 connector restore/recovery, activity publishing, held webhooks, descriptors and scheduled delivery
 proofs. CloudLink status retains raw `linked` presence while reporting `authorityStatus` and
-`authorityMessage`, with exposure/preferences inactive on rejected authority. Routes remain thin
+`authorityMessage` plus raw `persistedLinkPresent`, with exposure/preferences inactive on rejected authority. Routes remain thin
 service adapters. Fresh owned relay configurations must match both the selected relay origin and
 issuer before persistence, and carry a public OAuth binding; existing cryptographic proof checks
 are unchanged.
 
 Local unlink keeps a bounded public pending-cleanup reference using the server's atomic public
 state writer, before removing Connect secrets and intent. It never retains the old key or bearer
-credential for autonomous cleanup. Explicit CLI cleanup under the deliberately selected original
-profile can delete its matching reminder after remote success. Older source without these checks
+credential for autonomous cleanup. A safe origin is derived only from saved URL/issuer/binding evidence; missing or malformed URL
+state can be cleared locally and becomes a null-origin unresolved reminder when no origin is
+known. Explicit CLI cleanup under the deliberately selected original profile can delete its matching
+reminder after remote success. Web deletion confirms only its matching selected origin/environment
+through `/api/connect/remote-cleanup-confirmation`, an authenticated `AuthRelayWriteScope` route
+calling CloudLink. Unknown and mismatched references remain. This adds no RPC and does not proxy
+remote authentication. Cloudless paired sessions can still read status and unlink locally; frontend
+managed sign-in and link creation are gated separately. Older source without these checks
 is outside this admission guarantee; cross-realm historical rollback remains NEXT Task4D.

@@ -1,3 +1,4 @@
+import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import {
   AuthRelayWriteScope,
   EnvironmentHttpApi,
@@ -37,11 +38,13 @@ import {
   PUBLISH_AGENT_ACTIVITY_SECRET,
   RELAY_URL_SECRET,
   RELAY_ISSUER_SECRET,
+  readPersistedCloudLinkPresent,
 } from "../cloud/config.ts";
 import {
   readPendingRemoteCleanup,
   rememberPendingRemoteCleanup,
   clearMatchingPendingRemoteCleanup,
+  readStoredCleanupRelayOrigin,
 } from "../cloud/pendingRemoteCleanup.ts";
 import {
   authorityMessage,
@@ -426,28 +429,37 @@ export const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (opti
   const savedStatus = yield* readPersistedRelayAuthorityStatus(secrets);
   const savedIssuer = yield* secrets.get(RELAY_ISSUER_SECRET);
   const savedRelay = yield* secrets.get(RELAY_URL_SECRET);
-  if (Option.isSome(savedRelay)) {
+  if (yield* readPersistedCloudLinkPresent(secrets)) {
     const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
     yield* rememberPendingRemoteCleanup({
-      relayUrl: bytesToString(savedRelay.value),
+      relayUrl: yield* readStoredCleanupRelayOrigin(secrets),
       environmentId: yield* environment.getEnvironmentId,
     });
   }
   const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const environmentId = yield* environment.getEnvironmentId;
   const pending = yield* readPendingRemoteCleanup;
+  if (pending.some((reference) => reference.relayOrigin === null))
+    yield* Console.warn(
+      "An old Connect service could not be identified safely. Remote cleanup needs manual review; the reminder contains no credentials or unsafe URL.",
+    );
   const candidate = pending.find(
     (reference) =>
       reference.environmentId === environmentId &&
       (selected.mode === "owned" || selected.mode === "legacy") &&
       selected.relayOrigin === reference.relayOrigin,
   );
+  const normalizedSavedRelay = Option.isSome(savedRelay)
+    ? normalizeSecureRelayUrl(bytesToString(savedRelay.value))
+    : null;
   const target = Option.isSome(savedRelay)
-    ? {
-        relayUrl: bytesToString(savedRelay.value),
-        ...(Option.isSome(savedIssuer) ? { relayIssuer: bytesToString(savedIssuer.value) } : {}),
-      }
-    : candidate
+    ? normalizedSavedRelay === null
+      ? null
+      : {
+          relayUrl: normalizedSavedRelay,
+          ...(Option.isSome(savedIssuer) ? { relayIssuer: bytesToString(savedIssuer.value) } : {}),
+        }
+    : candidate && candidate.relayOrigin !== null
       ? { relayUrl: candidate.relayOrigin }
       : null;
   const liveResult = yield* runLiveCloudUnlink();
@@ -630,7 +642,9 @@ const connectStatusCommand = Command.make("status", {
           authenticated,
           linked: Option.isSome(cloudUserId),
           cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
-          relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
+          relayUrl: Option.isSome(relayUrl)
+            ? normalizeSecureRelayUrl(bytesToString(relayUrl.value))
+            : null,
           publishAgentActivity:
             authorityStatus === "active" &&
             isAgentActivityPublishingEnabledValue(

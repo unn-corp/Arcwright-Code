@@ -1,3 +1,4 @@
+import { LocalConnectCleanup } from "./LocalConnectCleanup";
 import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
 import { SidebarHostMaintenanceStatus } from "../sidebar/SidebarHostMaintenanceStatus";
 import { HostUpdateSettings } from "./HostUpdateSettings";
@@ -1938,6 +1939,14 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       ? "Your session does not have permission to manage Arcwright Connect access."
       : null;
   const isBusy = isUpdating || isUpdatingPreference;
+  const managedAvailable =
+    hasCloudPublicConfig() &&
+    (!primaryCloudLinkState.data?.authorityStatus ||
+      primaryCloudLinkState.data.authorityStatus === "active") &&
+    !(
+      primaryCloudLinkState.data?.persistedLinkPresent === true &&
+      !primaryCloudLinkState.data.linked
+    );
 
   const updateManagedTunnel = async (enabled: boolean) => {
     if (
@@ -2008,93 +2017,80 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
 
   return (
     <>
-      {primaryCloudLinkState.data?.authorityStatus &&
-      primaryCloudLinkState.data.authorityStatus !== "active" ? (
-        <SettingsRow
-          title="Saved Connect link"
-          description={primaryCloudLinkState.data.authorityMessage ?? "The saved link is inactive."}
-          control={
-            primaryCloudLinkState.data.linked ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canManageRelay || isBusy}
-                onClick={() => void reconcileCloudState({ managedTunnel: false, publish: false })}
-              >
-                Unlink locally
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : null}
-      {primaryCloudLinkState.data?.remoteCleanupPending ? (
-        <SettingsRow
-          title="Remote cleanup pending"
-          description="The old relay record may still exist. Select its original Connect profile and sign in deliberately to remove it."
-        />
-      ) : null}
-      {window.desktopBridge ? (
-        <SettingsRow
-          title={searchableSetting("t3-connect").title}
-          description={
-            managedTunnelActive
-              ? "This environment is available to your other devices through Arcwright Connect."
-              : "Make this environment available to your other devices through Arcwright Connect."
-          }
-          status={
-            operationError ??
-            primaryCloudLinkState.error ??
-            primaryCloudLinkState.data?.authorityMessage
-          }
-          control={
-            <CloudLinkSwitch
-              checked={managedTunnelActive}
-              disabled={
-                !canManageRelay ||
-                !isSignedIn ||
-                primaryCloudLinkState.data === null ||
-                primaryCloudLinkState.isPending ||
-                isBusy
-              }
-              disabledReason={disabledReason}
-              onCheckedChange={(enabled) => void updateManagedTunnel(enabled)}
-            />
-          }
-        />
-      ) : null}
-      <SettingsRow
-        title={searchableSetting("publish-agent-activity").title}
-        description="Send activity to mobile notifications and Live Activities without Arcwright Connect."
-        control={
-          <CloudLinkSwitch
-            ariaLabel="Publish agent activity to mobile clients"
-            checked={publishAgentActivity}
-            disabled={
-              !canManageRelay ||
-              !isSignedIn ||
-              primaryCloudLinkState.data === null ||
-              primaryCloudLinkState.isPending ||
-              isBusy
-            }
-            disabledReason={disabledReason}
-            onCheckedChange={(enabled) => void updatePublishAgentActivity(enabled)}
-          />
-        }
+      <LocalConnectCleanup
+        state={primaryCloudLinkState.data}
+        canManage={canManageRelay}
+        pending={primaryCloudLinkState.isPending || isBusy}
+        unlink={() => reconcileCloudState({ managedTunnel: false, publish: false })}
       />
-      {managedTunnelActive ? (
-        <SettingsRow
-          title={searchableSetting("hold-webhooks-while-offline").title}
-          description="Keep webhook requests for up to 24 hours while this environment is offline, then deliver them. Off: Arcwright Connect only forwards requests and stores nothing."
-          control={
-            <CloudLinkSwitch
-              ariaLabel="Hold webhook requests while this environment is offline"
-              checked={holdWebhooksWhileOffline}
-              disabled={!canManageRelay || !isSignedIn || primaryCloudLinkState.isPending || isBusy}
-              disabledReason={disabledReason}
-              onCheckedChange={(enabled) => void updateHoldWebhooks(enabled)}
+      {managedAvailable ? (
+        <>
+          {window.desktopBridge ? (
+            <SettingsRow
+              title={searchableSetting("t3-connect").title}
+              description={
+                managedTunnelActive
+                  ? "This environment is available to your other devices through Arcwright Connect."
+                  : "Make this environment available to your other devices through Arcwright Connect."
+              }
+              status={
+                operationError ??
+                primaryCloudLinkState.error ??
+                primaryCloudLinkState.data?.authorityMessage
+              }
+              control={
+                <CloudLinkSwitch
+                  checked={managedTunnelActive}
+                  disabled={
+                    !canManageRelay ||
+                    !isSignedIn ||
+                    primaryCloudLinkState.data === null ||
+                    primaryCloudLinkState.isPending ||
+                    isBusy
+                  }
+                  disabledReason={disabledReason}
+                  onCheckedChange={(enabled) => void updateManagedTunnel(enabled)}
+                />
+              }
             />
-          }
-        />
+          ) : null}
+          <SettingsRow
+            title={searchableSetting("publish-agent-activity").title}
+            description="Send activity to mobile notifications and Live Activities without Arcwright Connect."
+            control={
+              <CloudLinkSwitch
+                ariaLabel="Publish agent activity to mobile clients"
+                checked={publishAgentActivity}
+                disabled={
+                  !canManageRelay ||
+                  !isSignedIn ||
+                  primaryCloudLinkState.data === null ||
+                  primaryCloudLinkState.isPending ||
+                  isBusy
+                }
+                disabledReason={disabledReason}
+                onCheckedChange={(enabled) => void updatePublishAgentActivity(enabled)}
+              />
+            }
+          />
+          {managedTunnelActive ? (
+            <SettingsRow
+              title={searchableSetting("hold-webhooks-while-offline").title}
+              description="Keep webhook requests for up to 24 hours while this environment is offline, then deliver them. Off: Arcwright Connect only forwards requests and stores nothing."
+              control={
+                <CloudLinkSwitch
+                  ariaLabel="Hold webhook requests while this environment is offline"
+                  checked={holdWebhooksWhileOffline}
+                  disabled={
+                    !canManageRelay || !isSignedIn || primaryCloudLinkState.isPending || isBusy
+                  }
+                  disabledReason={disabledReason}
+                  onCheckedChange={(enabled) => void updateHoldWebhooks(enabled)}
+                />
+              }
+            />
+          ) : null}
+        </>
       ) : null}
     </>
   );
@@ -2107,7 +2103,6 @@ function CloudLinkRow({
   readonly canReadRelay: boolean;
   readonly canManageRelay: boolean;
 }) {
-  if (!hasCloudPublicConfig()) return null;
   if (!canReadRelay) {
     return (
       <SettingsRow

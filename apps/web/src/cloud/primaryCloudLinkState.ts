@@ -18,7 +18,6 @@ import { runtime } from "../lib/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { readPrimaryCloudLinkState, type CloudLinkTarget } from "./linkEnvironment";
-import { hasCloudPublicConfig } from "./publicConfig";
 
 const primaryCloudLinkAtomRuntime = Atom.runtime(
   Layer.effect(
@@ -79,9 +78,9 @@ export function usePrimaryCloudLinkState() {
         : null,
     [primary],
   );
-  // Builds without Arcwright Connect have no link to read; skip the request.
+  // Saved local cleanup remains readable in cloudless builds through the direct session grant.
   const atom =
-    target && hasCloudPublicConfig() && canReadRelay
+    target && canReadRelay
       ? primaryCloudLinkStateAtom(targetKey(target))
       : EMPTY_PRIMARY_CLOUD_LINK_STATE_ATOM;
   const result = useAtomValue(atom);

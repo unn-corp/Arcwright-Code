@@ -1,5 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { EnvironmentHttpApi } from "@t3tools/contracts";
+import {
+  EnvironmentHttpApi,
+  AuthSessionId,
+  AuthRelayReadScope,
+  AuthRelayWriteScope,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -95,4 +100,69 @@ describe("connect routes", () => {
     const response = await answerHealthWith(failure);
     expect(response).toEqual({ status, body });
   });
+  it.each([
+    { authenticated: false, write: false, status: 401 },
+    { authenticated: true, write: false, status: 403 },
+    { authenticated: true, write: true, status: 200 },
+  ])(
+    "requires paired write permission for remote cleanup confirmation: $status",
+    async ({ authenticated, write, status }) => {
+      let confirmations = 0;
+      const routes = HttpApiBuilder.layer(ConnectTestApi).pipe(
+        Layer.provide(ConnectHttp.layer),
+        Layer.provide(
+          Layer.mock(CloudLink.CloudLink)({
+            confirmRemoteCleanup: () =>
+              Effect.sync(() => {
+                confirmations++;
+                return { ok: true };
+              }),
+          }),
+        ),
+        Layer.provide(AuthHttp.layerAuthenticatedAuth),
+        Layer.provide(
+          Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+            authenticateHttpRequest: () =>
+              authenticated
+                ? Effect.succeed({
+                    sessionId: AuthSessionId.make("paired-session"),
+                    subject: "cli-issued-session",
+                    method: "bearer-access-token",
+                    scopes: write
+                      ? [AuthRelayReadScope, AuthRelayWriteScope]
+                      : [AuthRelayReadScope],
+                  })
+                : Effect.fail(
+                    new EnvironmentAuth.ServerAuthInvalidCredentialError({
+                      diagnostic: "fixture-denied",
+                    }),
+                  ),
+          }),
+        ),
+        Layer.provideMerge(
+          HttpPlatform.layer.pipe(
+            Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(Etag.layerWeak),
+          ),
+        ),
+      );
+      const { handler, dispose } = HttpRouter.toWebHandler(routes, { disableLogger: true });
+      try {
+        const response = await handler(
+          new Request("http://127.0.0.1/api/connect/remote-cleanup-confirmation", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              relayOrigin: "https://selected.example.test",
+              environmentId: "env_123",
+            }),
+          }),
+        );
+        expect(response.status).toBe(status);
+        expect(confirmations).toBe(status === 200 ? 1 : 0);
+      } finally {
+        await dispose();
+      }
+    },
+  );
 });

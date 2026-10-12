@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 const testState = vi.hoisted(() => ({
   scopes: new Set<string>(),
+  configured: true,
+  signedIn: true,
   snapshot: null as EnvironmentCloudLinkStateResult | null,
   renderedSnapshot: null as EnvironmentCloudLinkStateResult | null,
   getToken: vi.fn<() => Promise<string | null>>(),
@@ -23,7 +25,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("../auth/managedAuthContext", () => ({
-  useManagedAuth: () => ({ getRelayToken: testState.getToken, isSignedIn: true }),
+  useManagedAuth: () => ({ getRelayToken: testState.getToken, isSignedIn: testState.signedIn }),
 }));
 vi.mock("../components/ui/toast", () => ({ toastManager: { add: testState.toast } }));
 vi.mock("../state/relay", () => ({
@@ -48,8 +50,12 @@ vi.mock("./primaryCloudLinkState", () => ({
     refresh: testState.refreshLink,
   }),
 }));
-vi.mock("./publicConfig", () => ({ resolveRelayClerkTokenOptions: () => ({}) }));
+vi.mock("./publicConfig", () => ({
+  resolveRelayClerkTokenOptions: () => ({}),
+  hasCloudPublicConfig: () => testState.configured,
+}));
 
+import { LocalConnectCleanup } from "../components/settings/LocalConnectCleanup";
 import { useCloudLinkController, type CloudLinkDesiredState } from "./useCloudLinkController";
 
 const target = {
@@ -75,7 +81,16 @@ function ControllerProbe() {
   useLayoutEffect(() => {
     controller = value;
   });
-  return null;
+  return (
+    <LocalConnectCleanup
+      state={value.linkState.data}
+      canManage={
+        testState.scopes.has(AuthRelayReadScope) && testState.scopes.has(AuthRelayWriteScope)
+      }
+      pending={value.linkState.isPending}
+      unlink={() => value.reconcileCloudState({ managedTunnel: false, publish: false })}
+    />
+  );
 }
 
 async function mountController() {
@@ -102,6 +117,8 @@ function expectNoMutations() {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
+  testState.configured = true;
+  testState.signedIn = true;
   testState.scopes = new Set([AuthRelayReadScope, AuthRelayWriteScope]);
   testState.snapshot = linkedState;
   testState.renderedSnapshot = linkedState;
@@ -241,5 +258,49 @@ describe("useCloudLinkController", () => {
     expect(ok).toBe(false);
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.unlink).not.toHaveBeenCalled();
+  });
+  it.each(["cloudless", "partial"])(
+    "allows paired local cleanup of %s state without managed sign-in or replacement",
+    async (shape) => {
+      testState.configured = shape !== "cloudless";
+      testState.signedIn = false;
+      testState.snapshot = {
+        ...linkedState,
+        linked: false,
+        persistedLinkPresent: true,
+        authorityStatus: shape === "cloudless" ? "cloudless" : "incompatible",
+        managedTunnelActive: false,
+      };
+      testState.renderedSnapshot = testState.snapshot;
+      await mountController();
+      expect(await reconcile({ managedTunnel: true, publish: true })).toBe(false);
+      expect(testState.getToken).not.toHaveBeenCalled();
+      expectNoMutations();
+      expect(await reconcile({ managedTunnel: false, publish: false })).toBe(true);
+      expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, clerkToken: null });
+      expect(testState.refreshDiscovery).not.toHaveBeenCalled();
+    },
+  );
+  it("runs the visible partial cloudless cleanup button through the real controller without managed auth", async () => {
+    testState.configured = false;
+    testState.signedIn = false;
+    testState.snapshot = {
+      ...linkedState,
+      linked: false,
+      persistedLinkPresent: true,
+      authorityStatus: "cloudless",
+      managedTunnelActive: false,
+      remoteCleanupPending: true,
+    };
+    testState.renderedSnapshot = testState.snapshot;
+    await mountController();
+    const button = renderer!.root.findByType("button");
+    await act(async () => {
+      await button.props.onClick();
+    });
+    expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, clerkToken: null });
+    expect(testState.getToken).not.toHaveBeenCalled();
+    expect(testState.refreshDiscovery).not.toHaveBeenCalled();
+    expect(testState.link).not.toHaveBeenCalled();
   });
 });

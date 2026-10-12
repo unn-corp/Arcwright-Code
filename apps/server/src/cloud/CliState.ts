@@ -64,7 +64,6 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
   yield* Effect.all(
     [
       secrets.remove(CLOUD_CLI_DESIRED_LINK_SECRET),
-      secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET),
       secrets.remove(CLOUD_LINKED_USER_ID),
       secrets.remove(RELAY_URL_SECRET),
       secrets.remove(RELAY_ISSUER_SECRET),
@@ -77,4 +76,6 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
     ],
     { concurrency: "unbounded" },
   );
+  // A failed removal must not turn a known foreign binding into an unbound legacy record.
+  yield* secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET);
 });

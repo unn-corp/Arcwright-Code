@@ -85,4 +85,36 @@ it.layer(NodeServices.layer)("CliState", (it) => {
       assert.equal(yield* CliState.readCliDesiredLinkMode, "managed");
     }).pipe(Effect.provide(layerTest())),
   );
+  it.effect("keeps the authority binding when authorization material cannot be removed", () =>
+    Effect.gen(function* () {
+      const values = new Map<string, Uint8Array>([
+        [CLOUD_PUBLIC_AUTHORITY_SECRET, new TextEncoder().encode("known-authority")],
+        [CLOUD_MINT_PUBLIC_KEY, new TextEncoder().encode("old-mint-key")],
+      ]);
+      const store = ServerSecretStore.ServerSecretStore.of({
+        get: (name) => Effect.succeed(Option.fromNullishOr(values.get(name))),
+        set: () => Effect.die("unused"),
+        create: () => Effect.die("unused"),
+        getOrCreateRandom: () => Effect.die("unused"),
+        remove: (name) =>
+          name === CLOUD_MINT_PUBLIC_KEY
+            ? Effect.fail(
+                new ServerSecretStore.SecretStoreRemoveError({
+                  resource: name,
+                  cause: "fixture-denied",
+                }),
+              )
+            : Effect.sync(() => {
+                values.delete(name);
+              }),
+      });
+      yield* Effect.flip(
+        CliState.clearPersistedCloudLink.pipe(
+          Effect.provideService(ServerSecretStore.ServerSecretStore, store),
+        ),
+      );
+      assert.isTrue(values.has(CLOUD_PUBLIC_AUTHORITY_SECRET));
+      assert.isTrue(values.has(CLOUD_MINT_PUBLIC_KEY));
+    }),
+  );
 });

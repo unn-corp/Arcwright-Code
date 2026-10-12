@@ -46,6 +46,7 @@ import {
 import {
   DpopFailureReason,
   AuthSessionId,
+  EnvironmentId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
@@ -406,11 +407,13 @@ export const EnvironmentCloudRelayConfigResult = Schema.Struct({
   endpointRuntimeStatus: Schema.Unknown,
   remoteCleanupPending: Schema.optional(Schema.Boolean),
   remoteCleanupAllowed: Schema.optional(Schema.Boolean),
+  remoteCleanupRelayOrigin: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type EnvironmentCloudRelayConfigResult = typeof EnvironmentCloudRelayConfigResult.Type;
 
 export const EnvironmentCloudLinkStateResult = Schema.Struct({
   remoteCleanupPending: Schema.optional(Schema.Boolean),
+  persistedLinkPresent: Schema.optional(Schema.Boolean),
   authorityStatus: Schema.optional(
     Schema.Literals(["active", "cloudless", "incompatible", "unavailable"]),
   ),
@@ -430,6 +433,13 @@ export const EnvironmentCloudLinkStateResult = Schema.Struct({
   holdWebhooksWhileOffline: Schema.optional(Schema.Boolean),
 });
 export type EnvironmentCloudLinkStateResult = typeof EnvironmentCloudLinkStateResult.Type;
+
+export const EnvironmentCloudCleanupConfirmationRequest = Schema.Struct({
+  relayOrigin: TrimmedNonEmptyString,
+  environmentId: EnvironmentId,
+});
+export type EnvironmentCloudCleanupConfirmationRequest =
+  typeof EnvironmentCloudCleanupConfirmationRequest.Type;
 
 export const EnvironmentCloudPreferencesRequest = Schema.Struct({
   publishAgentActivity: Schema.Boolean,
@@ -733,6 +743,14 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     HttpApiEndpoint.post("unlink", "/api/connect/unlink", {
       headers: OptionalBearerHeaders,
       success: EnvironmentCloudRelayConfigResult,
+      error: EnvironmentHttpCloudErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("confirmRemoteCleanup", "/api/connect/remote-cleanup-confirmation", {
+      headers: OptionalBearerHeaders,
+      payload: EnvironmentCloudCleanupConfirmationRequest,
+      success: Schema.Struct({ ok: Schema.Boolean }),
       error: EnvironmentHttpCloudErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
   )
