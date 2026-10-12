@@ -15,7 +15,7 @@ import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 import * as NodeUtil from "node:util";
 import * as Schema from "effect/Schema";
-import type { ForkReleaseManifest } from "@t3tools/contracts";
+import type { ForkReleaseAsset, ForkReleaseManifest } from "@t3tools/contracts";
 import { forkRecoveryAssetsFor, type ForkPlatformKey } from "./forkMaintenance.ts";
 import { restrictWindowsAcl } from "./forkMaintenanceSnapshot.ts";
 import { recoveryProofEnvironment } from "./forkRecoveryProofEnvironment.ts";
@@ -170,17 +170,74 @@ export async function installRecoveryHelper(input: {
     throw new Error(
       "The release has no unambiguous recovery helper and runtime for this platform.",
     );
+  return installVerifiedRecoveryAssets({ ...input, version: input.manifest.version, assets });
+}
+
+/** An explicitly authorized local preview uses the same digest, isolation and self-test gates.
+ * This stages a recovery command only; it creates no release eligibility or installed-build receipt.
+ */
+export async function installLocalRecoveryHelper(input: {
+  readonly cacheDir: string;
+  readonly version: string;
+  readonly platform: ForkPlatformKey;
+  readonly helperPath: string;
+  readonly helperSha256: string;
+  readonly nodePath: string;
+  readonly nodeSha256: string;
+}): Promise<RecoveryCommand> {
+  if (!/^\d+\.\d+\.\d+-preview\.\d{8}\.\d+$/.test(input.version))
+    throw new Error("Local recovery assets require a distinct local preview version.");
+  if (input.platform !== "linux-x64" && input.platform !== "windows-x64")
+    throw new Error("Unsupported local recovery platform.");
+  if (!NodePath.isAbsolute(input.helperPath) || !NodePath.isAbsolute(input.nodePath))
+    throw new Error("Local recovery asset paths must be absolute.");
+  const [helperBytes, nodeBytes] = await Promise.all([
+    NodeFSP.readFile(input.helperPath),
+    NodeFSP.readFile(input.nodePath),
+  ]);
+  const helperName = `t3-recovery-helper-${input.platform}.mjs`;
+  const nodeName = `t3-recovery-node-${input.platform}${input.platform === "windows-x64" ? ".exe" : ""}`;
+  return installVerifiedRecoveryAssets({
+    ...input,
+    assets: {
+      helper: {
+        name: helperName,
+        sha256: input.helperSha256,
+        bytes: helperBytes.length,
+        kind: "recovery-helper",
+        platform: input.platform,
+      },
+      node: {
+        name: nodeName,
+        sha256: input.nodeSha256,
+        bytes: nodeBytes.length,
+        kind: "recovery-helper",
+        platform: input.platform,
+      },
+    },
+    fetchAsset: async (name) => (name === helperName ? helperBytes : nodeBytes),
+  });
+}
+
+async function installVerifiedRecoveryAssets(input: {
+  readonly cacheDir: string;
+  readonly version: string;
+  readonly platform: ForkPlatformKey;
+  readonly assets: { readonly helper: ForkReleaseAsset; readonly node: ForkReleaseAsset };
+  readonly fetchAsset: (assetName: string) => Promise<Uint8Array>;
+}): Promise<RecoveryCommand> {
+  const { assets } = input;
   await privateDirectory(input.cacheDir);
   const existing = await readRecoveryCommand(input.cacheDir).catch(() => null);
   if (
     existing !== null &&
-    existing.version === input.manifest.version &&
+    existing.version === input.version &&
     existing.helperSha256 === assets.helper.sha256 &&
     existing.nodeSha256 === assets.node.sha256
   )
     return existing;
 
-  const versionDir = NodePath.join(input.cacheDir, input.manifest.version);
+  const versionDir = NodePath.join(input.cacheDir, input.version);
   const stagingDir = NodePath.join(
     input.cacheDir,
     `.staging-${NodeCrypto.randomUUID().slice(0, 8)}`,
@@ -207,7 +264,7 @@ export async function installRecoveryHelper(input: {
   }
   const command: RecoveryCommand = {
     protocol: 1,
-    version: input.manifest.version,
+    version: input.version,
     platform: input.platform,
     nodePath: NodePath.join(versionDir, assets.node.name),
     helperPath: NodePath.join(versionDir, assets.helper.name),

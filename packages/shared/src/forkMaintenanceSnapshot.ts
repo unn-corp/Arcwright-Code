@@ -99,8 +99,10 @@ async function filesBelow(root: string, relative = ""): Promise<string[]> {
     withFileTypes: true,
   })) {
     const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
-    if (entry.isDirectory()) result.push(...(await filesBelow(root, child)));
-    else if (entry.isFile()) result.push(child);
+    if (entry.isDirectory()) {
+      // Saved workspaces can contain more files than V8 permits as call arguments.
+      for (const file of await filesBelow(root, child)) result.push(file);
+    } else if (entry.isFile()) result.push(child);
     else throw new Error(`Restore points refuse symbolic links and special files: ${child}`);
   }
   return [...result].sort();

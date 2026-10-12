@@ -523,6 +523,18 @@ checks or create release eligibility or installed-build receipts manually. Keep 
 and recovery assets until the new build is healthy. Close the old desktop only after the coordinator
 permits replacement, then launch the installed build against its original home.
 
+Build local recovery assets from the same committed source when changing backup or recovery code:
+
+```bash
+node scripts/fork-release.ts build-helper --workdir /absolute/checkout --platform linux-x64 \
+  --out /absolute/local-recovery-assets
+```
+
+Stage that helper and its retained runtime through `installLocalRecoveryHelper` with their actual
+digests and a distinct local preview version. This uses the native private-cache and isolated
+self-test gates, retains the preceding recovery pair on failure, and creates no release eligibility
+or installed-build receipt. Never modify an existing published helper or its recorded digest in place.
+
 After **each** successful installation, verify the canonical menu entry
 `~/.local/share/applications/com.t3tools.T3Code.desktop` names the new build and launches its installed
 binary or stable managed launcher. Preserve its icon, `StartupWMClass`, and `t3code` URL association.
