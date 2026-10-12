@@ -143,9 +143,13 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
       });
     },
     // This process is stopped by the launcher moments after it accepts; the successor verifies.
-    verifyTrial: (target, transactionId) =>
+    verifyTrial: async (target, transactionId) =>
       awaitReceipt(() => store.readReceipt(transactionId, target, "trial"), {
-        timeoutMs: input.trialTimeoutMs ?? 5 * 60_000,
+        timeoutMs:
+          input.trialTimeoutMs ??
+          ((await store.readJournal(transactionId))?.storageOptimization === true
+            ? 2 * 60 * 60_000
+            : 5 * 60_000),
         pollMs: 1000,
         sleep: input.sleep,
         now: input.now,

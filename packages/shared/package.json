@@ -3,6 +3,18 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./forkStorageCodec": {
+      "types": "./src/forkStorageCodec.ts",
+      "import": "./src/forkStorageCodec.ts"
+    },
+    "./forkStorageArchive": {
+      "types": "./src/forkStorageArchive.ts",
+      "import": "./src/forkStorageArchive.ts"
+    },
+    "./forkStorageMaintenance": {
+      "types": "./src/forkStorageMaintenance.ts",
+      "import": "./src/forkStorageMaintenance.ts"
+    },
     "./buildVersion": {
       "types": "./src/buildVersion.ts",
       "import": "./src/buildVersion.ts"

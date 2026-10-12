@@ -23,6 +23,7 @@ import {
 import * as Schema from "effect/Schema";
 import {
   evaluateAutomaticInstall,
+  classifyForkRelease,
   forkCheckBackoffMs,
   forkInstallAssetFor,
   type ForkPackaging,
@@ -359,6 +360,10 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       () => [],
     );
     const result: ForkUpdateStatus = {
+      storageOptimization:
+        installer.packaging !== null &&
+        installer.packaging !== "service" &&
+        affectedHomes.every((home) => !home.id.startsWith("wsl:")),
       coordinatorId: coordinator.id,
       ...(affectedHomes.length === 0
         ? {}
@@ -480,8 +485,9 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     target: ForkTargetSelection | null,
     kind: MaintenanceJournal["kind"],
     snapshots?: Readonly<Record<string, string>>,
+    optimizeStorage = false,
   ) => {
-    const journal = newJournal({
+    const initial = newJournal({
       id: transactionId,
       kind,
       homes,
@@ -501,6 +507,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       now: ports.now(),
       ...(snapshots === undefined ? {} : { snapshots }),
     });
+    const journal = optimizeStorage ? { ...initial, storageOptimization: true } : initial;
     try {
       await store.freeze(transactionId, ports.now(), { intent: journal });
     } catch (cause) {
@@ -624,11 +631,16 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     }
   };
 
-  const runInstall = async (expectedSha256: string, automatic: boolean) => {
+  const runInstall = async (
+    expectedSha256: string,
+    automatic: boolean,
+    optimizeStorage = false,
+    currentBuildMaintenance = false,
+  ) => {
     await loadPolicy();
     const unavailable = await installer.unavailableReason?.();
     if (unavailable !== null && unavailable !== undefined) throw fail(unavailable);
-    if (policy.pinnedBuild !== null)
+    if (policy.pinnedBuild !== null && !currentBuildMaintenance)
       throw fail("Updates are held on a pinned build. Resume updates first.");
     if (target === null || stagedSha256 === null || targetDigest() !== stagedSha256)
       throw fail("No staged update is ready.");
@@ -638,25 +650,48 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     if (automatic && policy.automationReviewRequired)
       throw fail("Review restored automation before automatic updates resume.");
     // Eligibility and digests are re-read from the release origin at the moment of installation, never trusted from an earlier check.
-    const fresh = selectForkTarget({
-      channel: policy.channel,
-      installedVersion: installer.currentBuild.version,
-      releases: await readFeed().catch((cause: unknown) => {
-        throw fail(`Could not confirm the release is still eligible: ${messageOf(cause)}`);
-      }),
-      pinnedBuild: policy.pinnedBuild,
-      memory: { failedArtifactSha256: policy.failedArtifactSha256 },
-      artifactSha256: artifactDigest,
+    const releases = await readFeed().catch((cause: unknown) => {
+      throw fail(`Could not confirm the release is still eligible: ${messageOf(cause)}`);
     });
+    const currentRecord = currentBuildMaintenance
+      ? releases.find(
+          (record) =>
+            record.manifest?.version === installer.currentBuild.version &&
+            record.manifest.commit === installer.currentBuild.commit &&
+            artifactDigest(record.manifest) === expectedSha256 &&
+            classifyForkRelease(record, releases).eligible,
+        )
+      : undefined;
+    const fresh = currentBuildMaintenance
+      ? currentRecord?.manifest === undefined || currentRecord.manifest === null
+        ? null
+        : { record: currentRecord, manifest: currentRecord.manifest }
+      : selectForkTarget({
+          channel: policy.channel,
+          installedVersion: installer.currentBuild.version,
+          releases,
+          pinnedBuild: policy.pinnedBuild,
+          memory: { failedArtifactSha256: policy.failedArtifactSha256 },
+          artifactSha256: artifactDigest,
+        });
     if (fresh === null || artifactDigest(fresh.manifest) !== expectedSha256) {
       target = fresh;
       stagedSha256 = null;
       phase = fresh === null ? "idle" : "available";
       throw fail("The release was withdrawn or replaced. Check for updates again.");
     }
+    if (optimizeStorage && fresh.manifest.storageOptimizationProtocol !== 1)
+      throw fail("This target build does not support verified storage optimization.");
     if (!(await installer.recoveryReady(fresh))) throw fail("Recovery assets are not cached.");
     const homes = await installer.affectedHomes();
     if (homes.length === 0) throw fail("No data home is registered for this update.");
+    if (
+      optimizeStorage &&
+      (installer.packaging === "service" || homes.some((home) => home.startsWith("wsl:")))
+    )
+      throw fail(
+        "Bulk storage optimization currently supports local desktop homes. Managed-service and WSL launchers require a separate supported maintenance window.",
+      );
     await installer.assertCapacity(homes, { rescue: false }).catch((cause: unknown) => {
       throw fail(messageOf(cause));
     });
@@ -668,7 +703,15 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     await publish();
     let journal: MaintenanceJournal;
     try {
-      journal = await fenceDevice(transactionId, homes, installer.currentBuild, fresh, "update");
+      journal = await fenceDevice(
+        transactionId,
+        homes,
+        installer.currentBuild,
+        fresh,
+        "update",
+        undefined,
+        optimizeStorage,
+      );
     } catch (cause) {
       activeTransactionId = null;
       phase = "staged";
@@ -691,7 +734,42 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     return publish();
   };
 
-  const install = (expectedSha256: string) => serialized(() => runInstall(expectedSha256, false));
+  const install = (expectedSha256: string, optimizeStorage = false) =>
+    serialized(() => runInstall(expectedSha256, false, optimizeStorage));
+
+  const optimizeStorage = (expectedSha256: string) =>
+    serialized(async () => {
+      await loadPolicy();
+      if ((await status()).storageOptimization !== true)
+        throw fail("Bulk storage optimization currently supports local desktop homes.");
+      if (activeTransactionId !== null) throw fail("An update is already in progress.");
+      if (expectedSha256 !== installer.currentBuild.artifactSha256)
+        throw fail("Storage maintenance must name the exact installed artifact.");
+      const releases = await readFeed();
+      const record = releases.find(
+        (candidate) =>
+          candidate.manifest?.version === installer.currentBuild.version &&
+          candidate.manifest.commit === installer.currentBuild.commit &&
+          artifactDigest(candidate.manifest) === expectedSha256 &&
+          classifyForkRelease(candidate, releases).eligible,
+      );
+      if (record?.manifest?.storageOptimizationProtocol !== 1)
+        throw fail("The installed build is not a verified storage-capable fork release.");
+      const selection = { record, manifest: record.manifest };
+      const savedTarget = target,
+        savedStaged = stagedSha256;
+      const staged = await installer.stage(selection);
+      if (staged.artifactSha256 !== expectedSha256)
+        throw fail("The retained installed binary digest differs from the reviewed artifact.");
+      target = selection;
+      stagedSha256 = expectedSha256;
+      try {
+        return await runInstall(expectedSha256, false, true, true);
+      } finally {
+        target = savedTarget;
+        stagedSha256 = savedStaged;
+      }
+    });
 
   const tick = () =>
     serialized(async () => {
@@ -872,6 +950,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     check,
     stage,
     install,
+    optimizeStorage,
     tick,
     cancelCountdown,
     updatePolicy,

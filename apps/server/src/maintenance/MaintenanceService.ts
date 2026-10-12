@@ -273,7 +273,11 @@ const make = Effect.gen(function* () {
             return controller.stage();
           });
         case "install":
-          return attempt(() => controller.install(input.targetArtifactSha256));
+          return attempt(() =>
+            controller.install(input.targetArtifactSha256, input.optimizeStorage),
+          );
+        case "optimize-storage":
+          return attempt(() => controller.optimizeStorage(input.targetArtifactSha256));
         case "cancel-countdown":
           return attempt(() => controller.cancelCountdown());
         case "acknowledge-automation-review":

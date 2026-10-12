@@ -115,6 +115,7 @@ import Migration0097 from "./Migrations/057_ScheduledTaskWebhooks.ts";
 import Migration0098 from "./Migrations/058_WebhookRelayDeliveries.ts";
 import Migration0099 from "./Migrations/099_MessageReplyIndex.ts";
 import Migration0100 from "./Migrations/100_ProviderThreadRecoveryIndex.ts";
+import Migration0101 from "./Migrations/101_LosslessStorage.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -227,6 +228,7 @@ export const migrationEntries = [
   [98, "WebhookRelayDeliveries", Migration0098],
   [99, "MessageReplyIndex", Migration0099],
   [100, "ProviderThreadRecoveryIndex", Migration0100],
+  [101, "LosslessStorage", Migration0101],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

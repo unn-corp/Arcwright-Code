@@ -27,6 +27,7 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SqlClient from "effect/sql/SqlClient";
+import { storePayload } from "./PayloadStorage.ts";
 import * as SqlSchema from "effect/sql/SqlSchema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -400,7 +401,7 @@ const makeEventStore = Effect.gen(function* () {
         stream_id,
         event_type,
         occurred_at,
-        payload_json,
+        arcwright_payload_json(payload_json) AS payload_json,
         metadata_json,
         application_event_version,
         causation_event_id,
@@ -436,6 +437,7 @@ const makeEventStore = Effect.gen(function* () {
       (event) =>
         Effect.gen(function* () {
           const encoded = yield* encodeV2EventJson(event);
+          const payloadJson = yield* encodeJson(encoded.payload);
           const rows = yield* sql<{ readonly sequence: number }>`
             INSERT INTO orchestration_events (
               event_id,
@@ -450,7 +452,8 @@ const makeEventStore = Effect.gen(function* () {
               actor_kind,
               payload_json,
               metadata_json,
-              application_event_version
+              application_event_version,
+              payload_bytes
             )
             VALUES (
               ${event.id},
@@ -458,9 +461,13 @@ const makeEventStore = Effect.gen(function* () {
               ${event.threadId},
               COALESCE(
                 (
-                  SELECT MAX(stream_version) + 1
-                  FROM orchestration_events
-                  WHERE aggregate_kind = 'thread' AND stream_id = ${event.threadId}
+                  SELECT MAX(version) + 1 FROM (
+                    SELECT MAX(stream_version) AS version FROM orchestration_events
+                    WHERE aggregate_kind = 'thread' AND stream_id = ${event.threadId}
+                    UNION ALL
+                    SELECT stream_version AS version FROM arcwright_legacy_baselines
+                    WHERE thread_id = ${event.threadId}
+                  )
                 ),
                 0
               ),
@@ -470,9 +477,10 @@ const makeEventStore = Effect.gen(function* () {
               NULL,
               ${input.commandId ?? null},
               ${event.rawEventId === undefined ? "server" : "provider"},
-              ${yield* encodeJson(encoded.payload)},
+              ${yield* storePayload(sql, payloadJson)},
               ${yield* encodeJson(metadataForV2Event(event))},
-              2
+              2,
+              ${Buffer.byteLength(payloadJson)}
             )
             RETURNING sequence
           `;
@@ -484,6 +492,7 @@ const makeEventStore = Effect.gen(function* () {
         }),
       { concurrency: 1 },
     ).pipe(
+      sql.withTransaction,
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "OrchestrationEventStore.appendAgentEvents:insert",
@@ -548,10 +557,10 @@ const makeEventStore = Effect.gen(function* () {
     }>`
       SELECT
         COUNT(*) AS "eventCount",
-        COALESCE(SUM(octet_length(payload_json)), 0) AS "rawPayloadBytes",
+        COALESCE(SUM(COALESCE(payload_bytes, octet_length(payload_json))), 0) AS "rawPayloadBytes",
         COALESCE(MAX(event_type = 'thread.created'), 0) AS "hasCreateEvent"
       FROM (
-        SELECT payload_json, event_type
+        SELECT payload_json, payload_bytes, event_type
         FROM orchestration_events
         WHERE aggregate_kind = 'thread'
           AND stream_id = ${input.threadId}
@@ -574,7 +583,7 @@ const makeEventStore = Effect.gen(function* () {
     sql<{ readonly eventCount: number; readonly rawPayloadBytes: number }>`
       SELECT
         COUNT(*) AS "eventCount",
-        COALESCE(SUM(octet_length(payload_json)), 0) AS "rawPayloadBytes"
+        COALESCE(SUM(COALESCE(payload_bytes, octet_length(payload_json))), 0) AS "rawPayloadBytes"
       FROM orchestration_events INDEXED BY idx_orchestration_events_application_high_water
       WHERE sequence > ${input.afterSequence}
         AND sequence <= ${input.throughSequence}

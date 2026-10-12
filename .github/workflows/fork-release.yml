@@ -200,7 +200,7 @@ jobs:
           name: fork-release-plan
           path: fork-release-plan.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # Android installation codes are a serial counter across both channels. The durable range tag
   # burns every code before the canonical start claim arbitrates differing range lengths. A
@@ -327,7 +327,7 @@ jobs:
             source/apps/server/dist
             source/apps/desktop/dist-electron
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
 
   # GitHub-hosted runners only. Each target builds from the pinned commit; Windows embeds the
   # Linux server archive as its WSL runtime and records that archive's digest.
@@ -919,7 +919,7 @@ jobs:
             candidate
             candidate.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
       - name: Upload predecessor
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -927,7 +927,7 @@ jobs:
           name: fork-release-predecessor
           path: predecessor
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
   # Install, update, and recovery run on every target against the exact candidate bytes and the
   # exact predecessor. Each writes a receipt; the manifest's checks are computed from them.
@@ -1192,7 +1192,7 @@ jobs:
             candidate
             candidate.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
   # The only job that writes releases. It drafts the complete payload, downloads every asset back
   # to verify it against the manifest, rechecks that nothing changed, and only then publishes.

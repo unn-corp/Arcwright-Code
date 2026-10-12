@@ -1,7 +1,8 @@
 # Database storage and performance
 
-This is a measured storage audit and a proposed improvement order. It does not introduce
-automatic data deletion or a supported database-compaction command.
+This guide records the measured audit and the lossless storage implementation introduced by
+migration 101. The measurements below describe the pre-optimization database, not claimed
+production savings. Historical rewrites require an explicitly requested, admitted update.
 
 ## Measured local database, 2026-10-12
 
@@ -73,37 +74,105 @@ never delete a point or asset still needed by an installation/recovery journal f
 V2 already exists before copying V1. It seeds the database once rather than copying it on every
 launch. Menu updates must never trigger another database copy.
 
-## Recommended implementation order
+## Implemented storage policy
 
-1. **Archive and retire legacy activity storage.** Preserve its complete content in a validated,
-   compressed archive or a supported historical store, verify old history and recovery on an
-   isolated fixture, then migrate the active database. The current table/index footprint is
-   7.79 GiB; net savings depend on archive compression and retained recovery copies.
-2. **Compact historical event storage using durable baselines.** First separate retained V1
-   events from current V2 replay requirements. Add tested snapshots/baselines, earliest retained
-   sequence markers, and resynchronization behavior before pruning. Preserve monotonic stream
-   versions, command deduplication, ordering, old history, pending work, and recovery.
-3. **Reduce repeated large tool payloads.** Store large outputs/images once in compressed,
-   content-addressed storage, with stable references from events and projections. Coalesce
-   intermediate progress snapshots while retaining starts, completions, failures, approval
-   boundaries, messages, checkpoints, and resumable state. Compression alone is not a drop-in
-   change: existing JSON queries, clients, backups, and recovery need compatible readers.
-4. **Review indexes and completed receipts.** The correlation-id index occupied approximately
-   0.40 GiB and no current production correlation-id predicate was found in the audited source.
-   Validate all relevant query plans and compatibility before removing it. Give any completed
-   receipt retirement a defined retry/replay horizon; active, queued, or immutable audit receipts
-   must not be swept by a generic age-based cleanup.
-5. **Deduplicate evidence and provide explicit cold-history retention.** Preserve referenced
-   evidence and on-demand old conversation access. Avoid repeated copied source trees and
-   rebuildable dependency/build directories. Use reference-aware cleanup and existing per-thread
-   activity checks; retaining a conversation must continue to retain its required evidence.
-6. **Repack only after the retention migration is verified.** Run compaction through admitted
-   maintenance with recovery assets and real health receipts. Keep the current application and
-   chats running until an authorized installation/maintenance window is admitted. Measure
-   actual resulting bytes, startup time, read latency, and write volume before claiming savings.
+Migration 101 adds the archive, content-addressed payload, legacy baseline and maintenance-run
+schemas. It removes the unused correlation-id and receipt aggregate/sequence indexes; the
+command-ID uniqueness and event stream/sequence indexes remain. Startup does not scan or
+rewrite historical bodies. New compressible payloads of 4 KiB through 64 MiB use SHA-256
+addressed gzip storage. Larger or incompressible bodies stay inline. Events and current tool
+projections share identical bodies, and every application reader expands and verifies them
+before decoding or sending ordinary JSON to clients. Replay budgets count original UTF-8
+bytes without inflating bodies. Existing web, desktop, mobile and Android wire payloads remain
+compatible.
 
-These recommendations are not implemented cleanup policies. Do not edit the live database,
-delete old events, drop indexes, or stop agents to carry them out during an audit.
+An explicitly requested optimization:
+
+1. Records legacy boundaries only for completed imports whose user/assistant message counts
+   match and whose original message IDs exist in V2. Incomplete imports remain untouched.
+2. Archives eligible V1 thread events, legacy activities and legacy reasoning as individually
+   checksummed gzip rows before removing originals in the same transaction. User/assistant
+   import-source messages remain available. The baseline retains each retired stream's maximum
+   version and sequence; future writes keep monotonic stream versions. Every V2 event, sequence,
+   approval, intermediate progress, completion, message and checkpoint remains replayable.
+   Physical compression and content sharing reduce repeated snapshots without discarding
+   historical versions or requiring older clients to implement a new resynchronization protocol.
+3. Applies a **90-day hot-history boundary** only to completed-import legacy command receipts
+   with no pending/running effect. It archives a receipt only when compressed storage plus a
+   conservative metadata allowance is smaller. Small receipts remain inexpensive permanent
+   idempotency records. Archived command IDs and exact results remain readable indefinitely;
+   insert/upsert cannot re-admit a retired command. Current non-legacy receipts remain intact.
+4. Compresses old event and tool-projection bodies in bounded batches. Each body is round-trip
+   verified before replacement; archives exceeding the 64 MiB bound remain in their source.
+5. Deduplicates equal evidence files with **forced copy-on-write clones**, preserving every path,
+   its bytes, ownership, permissions and modification/access timestamps. Copies retain independent inodes and future edits.
+   Symlinks/special files stay untouched; unsupported filesystems skip sharing. This does not
+   delete screenshots, recordings, cited files, copied source trees or active work.
+6. Rechecks admission, repacks with SQLite `VACUUM`, checks database and foreign-key integrity,
+   and records actual before/after file bytes. A completed transaction is not rerun on startup.
+
+The full archive and payload store live inside `statev2.sqlite`, so online backups, native
+restore points and existing rescue/restore paths capture them together. Non-database state
+snapshots use copy-on-write copies when supported, with a normal verified-copy fallback.
+Recovery-point retention and every journal/asset pin remain unchanged.
+
+## Requesting optimization
+
+Use the running environment's native controller. Review `maintenance status --json` and its
+exact staged digest, then request:
+
+```bash
+t3 maintenance install --digest <reviewed-artifact-sha256> --optimize-storage
+```
+
+Bulk optimization currently supports **local desktop homes**. Managed-service launchers and
+mixed WSL cohorts reject this option because their existing trial-start deadlines cannot
+accommodate the bulk rewrite. Payload compression, compatible readers and the light schema
+migration still apply to those servers. The controller and target must advertise storage
+optimization support; release manifests use
+`storageOptimizationProtocol: 1`. Older controllers reject this option instead of silently
+ignoring it. Update them through the normal admitted path before requesting this option.
+After upgrading an older controller normally, run this same-build maintenance command with
+the reviewed **installed** digest:
+
+```bash
+t3 maintenance optimize-storage --digest <installed-artifact-sha256>
+```
+
+It verifies the published manifest and retained artifact for that exact installed version,
+commit and digest, then uses the same native snapshot/trial/recovery path. It restarts the
+verified installed binary; no new build or counter is allocated, and a version pin stays set.
+
+The request is persisted in the exact update journal before fencing. Every affected home is
+snapshotted and normal update/recovery health receipts still govern admission. The trial
+backend closes its migration connection and invokes the packaged CLI in a separate worker
+before opening its application database. The worker records its own process creation identity under the live trial parent and keeps
+that ownership visible if the parent exits. It checks the
+exact fence, trial journal, home ownership, restore-point integrity and repack capacity.
+On Linux CPU/I/O priority is set before Node creates its filesystem threads; it runs with
+low CPU priority and idle I/O priority; foreground app priorities are
+unaffected. The explicit maintenance trial permits up to two hours for large homes.
+
+Running chats block admission and continue. Do not stop agents, forge an idle window, issue
+manual SQL against live userdata, or bypass the native controller to obtain this cleanup.
+A failure leaves the transaction fenced for the existing verification/recovery paths. Local
+production savings and startup latency require measurement after a successfully admitted run.
+
+## Reading cold history
+
+Owner-local machine verbs provide bounded, row-key ordered access to old records:
+
+```bash
+t3 maintenance home history --home /absolute/t3-home \
+  --source projection_thread_activities --thread <thread-id> --after ""
+```
+
+Supported sources are `projection_thread_activities`, `orchestration_events`,
+`projection_thread_messages`, and `orchestration_command_receipts`. The result contains the
+original rows and a `next` row-key cursor; pass it as `--after` until an empty page. Pages cap
+at 100 rows and approximately 4 MiB, allowing one larger bounded row when needed. Archived
+reasoning and historical tool output are preserved even though V2's old importer did not
+show them. These private exports may contain conversation data; retain normal home privacy.
 
 ## Sources and code boundaries
 

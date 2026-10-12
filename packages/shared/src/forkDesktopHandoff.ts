@@ -11,6 +11,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import * as Schema from "effect/Schema";
 import { capacityShortfalls } from "./forkMaintenanceAdmission.ts";
 import { CoordinatorStore, processCreationIdentity } from "./forkMaintenanceStore.ts";
@@ -152,7 +153,28 @@ export const defaultHandoffIo = (
     new Promise((resolve, reject) => {
       // Not Electron's node mode and not this helper's environment: the application starts as a user launched it.
       const env = applicationRelaunchEnvironment(process.env, recorded);
-      const child = NodeChildProcess.spawn(command, [...args], {
+      // The cached Node helper can inherit an idle scheduler from a background install.
+      // Restore normal foreground app scheduling before Electron starts any threads.
+      // oxlint-disable-next-line t3code/no-global-process-runtime -- native detached launch scheduling is OS-specific
+      const linux = process.platform === "linux";
+      const executable = linux ? "/usr/bin/chrt" : command;
+      const launchArgs = linux
+        ? [
+            "--other",
+            "0",
+            "/usr/bin/ionice",
+            "-c",
+            "2",
+            "-n",
+            "4",
+            "/usr/bin/nice",
+            "-n",
+            String(5 - NodeOS.getPriority(0)),
+            command,
+            ...args,
+          ]
+        : [...args];
+      const child = NodeChildProcess.spawn(executable, launchArgs, {
         detached: true,
         stdio: "ignore",
         env,

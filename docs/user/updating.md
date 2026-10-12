@@ -290,3 +290,18 @@ you while the app is in the background. Native recovery links to this permission
 
 In **Settings → General → App updates**, use **Open App updates notification settings**
 to enable that channel. Native recovery offers the same route when the bundled interface cannot load.
+
+## Storage maintenance
+
+Large output bodies are stored once in compressed form while chats and their original
+replay history stay available. Historical cleanup is an explicit native maintenance
+operation for local desktop installations. It waits for device admission, verifies a
+restore point, preserves old reasoning/tool history and command retries, deduplicates
+evidence without changing paths, and repacks the database in a background worker.
+
+After upgrading to a supported numbered nightly, `t3 maintenance optimize-storage
+--digest <installed-artifact-sha256>` restarts that exact verified build for cleanup.
+An update can also request `--optimize-storage` when both controller and target support
+it. Keep running chats active while admission waits. Read the
+[storage runbook](../operations/database-storage.md) for exact commands, limits and
+old-history access. Root-space savings are measured only after the admitted run.

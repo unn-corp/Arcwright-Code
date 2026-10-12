@@ -111,6 +111,25 @@ export const homeOperationArgs = (
     case "list":
     case "canonical":
       return base;
+    case "history":
+      return [
+        ...base,
+        "--source",
+        operation.source,
+        "--thread",
+        operation.threadId,
+        "--after",
+        operation.after,
+      ];
+    case "optimize-storage":
+      return [
+        ...base,
+        "--transaction",
+        operation.transactionId,
+        ...(operation.parentParticipantId === undefined
+          ? []
+          : ["--parent-participant", operation.parentParticipantId]),
+      ];
     case "capacity":
       return [
         ...base,

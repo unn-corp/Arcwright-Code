@@ -821,6 +821,7 @@ export const composeManifest = (input: {
 }): ForkReleaseManifest =>
   decodeForkReleaseManifest({
     format: 1,
+    storageOptimizationProtocol: 1,
     repository: "unn-corp/t3code",
     version: input.version,
     ...(input.android.normal.upstreamVersion

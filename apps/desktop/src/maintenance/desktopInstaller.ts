@@ -415,7 +415,9 @@ export function createDesktopInstaller(input: DesktopInstallerInput) {
       )
         throw new Error("The new version did not start.");
       return awaitReceipt(() => input.readReceipt(transactionId, home, "trial"), {
-        timeoutMs: input.trialTimeoutMs ?? 5 * 60_000,
+        timeoutMs:
+          input.trialTimeoutMs ??
+          (journal.storageOptimization === true ? 2 * 60 * 60_000 : 5 * 60_000),
         pollMs: 1000,
         sleep: input.sleep,
         now: input.now,

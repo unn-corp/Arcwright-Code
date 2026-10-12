@@ -115,6 +115,43 @@ signer. Devices never downgrade: stable devices take only stable releases, night
 nightlies but take a stable that outranks them. The rules live in
 `scripts/fork-release-policy.ts` and are tested there.
 
+## GitHub build storage retention
+
+**Hard rule:** keep only the newest **five published nightlies** and newest **five
+stable/main releases** in `unn-corp/t3code`. If a channel has fewer than five, keep
+all of them. Release assets are the retained build copies. Completed Actions
+artifacts, including candidate/predecessor/final archives and platform packages,
+are intermediates and are removed after their workflow completes. Active workflow
+artifacts remain available until completion. Source history, immutable Git tags,
+Android installation-code reservation tags, workflow logs and device-local
+recovery assets are preserved.
+
+[`fork-retention.yml`](../../.github/workflows/fork-retention.yml) runs after release,
+baseline and CI completion, daily, or by explicit dispatch. It uses the release
+pipeline's `fork-release` concurrency group and the shared publication/withdrawal
+state lock, so cleanup cannot remove a predecessor during an active publication.
+[`fork-release-retention.ts`](../../scripts/fork-release-retention.ts) defaults to a
+dry run, scopes mutations to this fork, orders versions numerically within each
+channel, rechecks releases before deletion, and protects in-progress, queued and
+waiting workflows. `--apply` performs the reviewed deletions. The commissioning
+baseline retires after five numbered nightlies have replaced it. Other repositories
+and unrelated release tags are outside this policy.
+
+Older release URLs stop serving binaries after retirement. Device recovery continues
+using its verified local cache and retained restore points; do not delete these
+because a GitHub release expires. Additional Android recovery commissioning must
+use a still-retained source or a verified device-local artifact. Never recreate an
+expired identity with different bytes. Shared dependency caches are rebuildable
+caches, not retained released builds; the bulk storage duplication was in completed
+Actions build archives.
+
+Linux binary handoffs restore normal foreground scheduling before Electron creates its
+threads, so an idle/background recovery helper cannot leave the new app in idle scheduling.
+
+Local storage optimization is a separate, explicitly admitted operation; see
+[database storage](database-storage.md). It does not extend the remote build window
+or authorize stopping working chats.
+
 ## Pipeline
 
 `.github/workflows/fork-release.yml`, one run at a time (`concurrency: fork-release`, queued runs

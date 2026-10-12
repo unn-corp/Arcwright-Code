@@ -148,7 +148,7 @@ async function copyState(
       }
       if (process.platform !== "win32") await NodeFSP.chmod(to, 0o600);
     } else if (entry.isFile()) {
-      await NodeFSP.copyFile(from, to);
+      await NodeFSP.copyFile(from, to, NodeFS.constants.COPYFILE_FICLONE);
       if (process.platform !== "win32") await NodeFSP.chmod(to, 0o600);
     } else if (entry.isSocket() || entry.isFIFO()) continue;
     else throw new Error(`Restore points refuse symbolic links and special files: ${entry.name}`);

@@ -87,7 +87,7 @@ describe("restore points", () => {
     vi.spyOn(NodeFSP, "readdir").mockImplementation((async (...args) =>
       args[0] === NodePath.join(directory, "attachments")
         ? extraFiles
-        : original(...args)) as typeof NodeFSP.readdir);
+        : Reflect.apply(original, actualFs, args)) as typeof NodeFSP.readdir);
     // A large directory with unrecorded files must still reach the manifest's
     // membership check, rather than failing while collecting its file paths.
     await expect(verifySnapshot(h.root, id)).rejects.toThrow(

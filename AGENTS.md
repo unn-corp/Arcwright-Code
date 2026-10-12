@@ -34,6 +34,12 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
+- **Hard GitHub storage rule:** retain only the newest five published Arcwright nightlies
+  and newest five stable/main releases. Completed Actions artifact copies are temporary
+  intermediates and must be removed. Protect active release transactions while cleanup waits;
+  preserve immutable Git tags, Android counter reservations and local recovery assets.
+  Follow [build retention](docs/operations/fork-releases.md#github-build-storage-retention).
+
 - **Hard rule for nightly installations:** use the release pipeline's allocated
   `<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**
   everywhere it is named, including local builds, the sidebar, application title,

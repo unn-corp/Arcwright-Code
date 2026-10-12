@@ -851,10 +851,50 @@ export class CoordinatorStore {
       return registry.id;
     });
   }
+  /** Retain the identity of an admitted maintenance worker, including if its trial parent dies. */
+  async recordStorageChild(id: string, pid: number): Promise<void> {
+    await this.locked(async (registry) => {
+      const participant = registry.participants.find((entry) => entry.id === id);
+      const transactionId = registry.fence?.transactionId;
+      const journal = transactionId === undefined ? null : await this.readJournal(transactionId);
+      if (
+        participant === undefined ||
+        !this.owns(participant.owner) ||
+        participant.trialFor !== transactionId ||
+        journal?.phase !== "trial" ||
+        journal.storageOptimization !== true
+      )
+        throw new Error("Storage child registration requires the owning authorized trial backend.");
+      const started = await this.identity(pid);
+      if (started === null)
+        throw new Error("The storage worker exited before ownership was recorded.");
+      await this.save({
+        ...registry,
+        participants: registry.participants.map((entry) =>
+          entry.id !== id
+            ? entry
+            : {
+                ...entry,
+                descendants: [
+                  ...entry.descendants.filter((child) => child.pid !== pid),
+                  { pid, started, label: "Arcwright storage maintenance" },
+                ],
+              },
+        ),
+      });
+    });
+  }
+
   async unregister(id: string): Promise<void> {
     await this.locked(async (registry) => {
       const participant = registry.participants.find((entry) => entry.id === id);
       if (participant === undefined || !this.owns(participant.owner)) return;
+      for (const child of participant.descendants) {
+        if (child.label === "Arcwright storage maintenance" && (await this.alive(child)))
+          throw new Error(
+            "A recorded storage worker is still running; keep its home ownership until it exits.",
+          );
+      }
       await this.save({
         ...registry,
         participants: registry.participants.filter(

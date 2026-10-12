@@ -6,6 +6,10 @@
  * an address), and each operation returns JSON. The same dispatcher backs the Windows side.
  */
 import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
+import * as NodeSqlite from "node:sqlite";
+import { HISTORY_SOURCES, readArchivedRow, type HistorySource } from "./forkStorageArchive.ts";
+import { optimizeStorageHome } from "./forkStorageMaintenance.ts";
 import {
   assertCapacity,
   createSnapshot,
@@ -29,6 +33,17 @@ export type HomeOperation =
   | { readonly op: "restore"; readonly snapshotId: string; readonly transactionId: string }
   | { readonly op: "discard"; readonly snapshotId: string }
   | { readonly op: "list" }
+  | {
+      readonly op: "optimize-storage";
+      readonly transactionId: string;
+      readonly parentParticipantId?: string;
+    }
+  | {
+      readonly op: "history";
+      readonly source: HistorySource;
+      readonly threadId: string;
+      readonly after: string;
+    }
   | { readonly op: "prune"; readonly keep: number; readonly pinned: ReadonlyArray<string> };
 
 export type HomeOperationResult =
@@ -47,6 +62,60 @@ export async function runHomeOperation(
 ): Promise<HomeOperationResult> {
   try {
     switch (operation.op) {
+      case "optimize-storage":
+        if (options.store === undefined)
+          throw new Error("Storage optimization requires the native coordinator.");
+        if (operation.parentParticipantId !== undefined) {
+          let handshake = "";
+          for await (const chunk of process.stdin) {
+            handshake += String(chunk);
+            if (handshake.length > 64) throw new Error("Invalid maintenance worker handshake.");
+          }
+          if (handshake !== "storage-child-recorded\n")
+            throw new Error("The maintenance worker was not registered by its parent.");
+        }
+        return {
+          ok: true,
+          value: await optimizeStorageHome({
+            home,
+            transactionId: operation.transactionId,
+            store: options.store,
+            ...(operation.parentParticipantId === undefined
+              ? {}
+              : { parentParticipantId: operation.parentParticipantId }),
+          }),
+        };
+      case "history": {
+        const db = new NodeSqlite.DatabaseSync(NodePath.join(home, "userdata", "statev2.sqlite"), {
+          readOnly: true,
+        });
+        try {
+          const keys = db
+            .prepare(
+              "SELECT row_key FROM arcwright_history_rows WHERE source=? AND thread_id=? AND row_key>? ORDER BY row_key LIMIT 100",
+            )
+            .all(operation.source, operation.threadId, operation.after) as { row_key: string }[];
+          const selected: typeof keys = [];
+          let bytes = 0;
+          for (const key of keys) {
+            const size = db
+              .prepare("SELECT raw_bytes FROM arcwright_history_rows WHERE source=? AND row_key=?")
+              .get(operation.source, key.row_key) as { raw_bytes: number };
+            if (selected.length > 0 && bytes + size.raw_bytes > 4 * 1024 * 1024) break;
+            selected.push(key);
+            bytes += size.raw_bytes;
+          }
+          return {
+            ok: true,
+            value: {
+              rows: selected.map(({ row_key }) => readArchivedRow(db, operation.source, row_key)),
+              next: selected.at(-1)?.row_key ?? null,
+            },
+          };
+        } finally {
+          db.close();
+        }
+      }
       case "requirement":
         return { ok: true, value: await snapshotRequirement(home) };
       case "canonical":
@@ -77,7 +146,12 @@ export async function runHomeOperation(
         if (options.store !== undefined) {
           const status = await options.store.status(Date.now());
           const owners = status.participants.filter(
-            (participant) => participant.homes.includes(home) && participant.trialFor === null,
+            (participant) =>
+              participant.homes.includes(home) &&
+              (participant.trialFor === null ||
+                participant.descendants.some(
+                  (child) => child.label === "Arcwright storage maintenance",
+                )),
           );
           if (owners.length > 0)
             return {
@@ -126,6 +200,33 @@ export function parseHomeOperation(
   if (home === undefined) return { error: "--home is required." };
   const need = (name: string) => flags.get(name);
   switch (op) {
+    case "optimize-storage": {
+      const transactionId = need("transaction");
+      return transactionId === undefined
+        ? { error: "--transaction is required." }
+        : {
+            home,
+            operation: {
+              op,
+              transactionId,
+              ...(need("parent-participant") === undefined
+                ? {}
+                : { parentParticipantId: need("parent-participant")! }),
+            },
+          };
+    }
+    case "history": {
+      const source = need("source");
+      const threadId = need("thread");
+      if (!HISTORY_SOURCES.includes(source as HistorySource) || threadId === undefined)
+        return {
+          error: "--source must name a supported history archive and --thread is required.",
+        };
+      return {
+        home,
+        operation: { op, source: source as HistorySource, threadId, after: need("after") ?? "" },
+      };
+    }
     case "requirement":
     case "list":
     case "canonical":

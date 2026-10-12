@@ -90,16 +90,58 @@ const installCommand = Command.make("install", {
   baseDir: baseDirFlag,
   json: jsonFlag,
   digest: Flag.String("digest"),
+  optimizeStorage: Flag.Boolean("optimize-storage").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Losslessly archive legacy history, compress payloads, deduplicate evidence and repack during this admitted update.",
+    ),
+  ),
 }).pipe(
   Command.withDescription(
     "Install the staged build. The digest must be the exact target artifact digest you reviewed in `status`.",
   ),
-  Command.withHandler(({ baseDir: flag, json, digest }) =>
-    operate(flag, json, (target) =>
-      callOperator(target, "action", { action: "install", targetArtifactSha256: digest }),
-    ),
+  Command.withHandler(({ baseDir: flag, json, digest, optimizeStorage }) =>
+    operate(flag, json, async (target) => {
+      if (optimizeStorage) {
+        const current = await callOperator(target, "status", {});
+        if (!current.ok) return current;
+        if (current.status.storageOptimization !== true)
+          throw new Error(
+            "The running controller predates storage optimization. Update through its normal admitted installation path first.",
+          );
+      }
+      return callOperator(target, "action", {
+        action: "install",
+        targetArtifactSha256: digest,
+        ...(optimizeStorage ? { optimizeStorage: true } : {}),
+      });
+    }),
   ),
 );
+const optimizeStorageCommand = Command.make("optimize-storage", {
+  baseDir: baseDirFlag,
+  json: jsonFlag,
+  digest: Flag.String("digest"),
+}).pipe(
+  Command.withDescription(
+    "Restart the exact installed build through admitted, snapshotted maintenance to optimize data without allocating a new build.",
+  ),
+  Command.withHandler(({ baseDir: flag, json, digest }) =>
+    operate(flag, json, async (target) => {
+      const current = await callOperator(target, "status", {});
+      if (!current.ok) return current;
+      if (current.status.storageOptimization !== true)
+        throw new Error(
+          "The running controller does not support storage optimization for this cohort.",
+        );
+      return callOperator(target, "action", {
+        action: "optimize-storage",
+        targetArtifactSha256: digest,
+      });
+    }),
+  ),
+);
+
 const policyCommand = Command.make("policy", {
   baseDir: baseDirFlag,
   json: jsonFlag,
@@ -308,6 +350,7 @@ export const maintenanceCommand = Command.make("maintenance").pipe(
       action: "check",
     }),
     installCommand,
+    optimizeStorageCommand,
     simple(
       "cancel-countdown",
       "Cancel the automatic installation countdown for the staged build.",

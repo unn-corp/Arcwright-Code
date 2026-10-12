@@ -1080,8 +1080,13 @@ export function createDesktopMaintenance(input: DesktopMaintenanceInput): Deskto
         case "check":
           return check();
         case "install":
-          return shared(`install:${action.targetArtifactSha256}`, () =>
-            requireController().install(action.targetArtifactSha256),
+          return shared(
+            `install:${action.targetArtifactSha256}:${action.optimizeStorage === true}`,
+            () => requireController().install(action.targetArtifactSha256, action.optimizeStorage),
+          );
+        case "optimize-storage":
+          return shared(`storage:${action.targetArtifactSha256}`, () =>
+            requireController().optimizeStorage(action.targetArtifactSha256),
           );
         case "cancel-countdown":
           return guarded(() => requireController().cancelCountdown());

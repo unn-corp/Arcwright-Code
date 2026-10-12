@@ -223,7 +223,10 @@ async function installVerifiedRecoveryAssets(input: {
   readonly cacheDir: string;
   readonly version: string;
   readonly platform: ForkPlatformKey;
-  readonly assets: { readonly helper: ForkReleaseAsset; readonly node: ForkReleaseAsset };
+  readonly assets: {
+    readonly helper: typeof ForkReleaseAsset.Type;
+    readonly node: typeof ForkReleaseAsset.Type;
+  };
   readonly fetchAsset: (assetName: string) => Promise<Uint8Array>;
 }): Promise<RecoveryCommand> {
   const { assets } = input;

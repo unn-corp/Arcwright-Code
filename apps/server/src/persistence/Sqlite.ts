@@ -9,6 +9,7 @@ import { runMigrations } from "./Migrations.ts";
 import { initializeV2Database } from "./initializeV2Database.ts";
 import * as ServerConfig from "../config.ts";
 import { acquireMaintenanceHost } from "../maintenance/MaintenanceHost.ts";
+import { runStorageWorker } from "../maintenance/storageWorker.ts";
 
 // Size the -wal file is cut back to on the first commit after a WAL reset.
 export const WAL_SIZE_LIMIT_BYTES = 32 * 1024 * 1024;
@@ -55,8 +56,18 @@ export const layerConfig = Layer.unwrap(
     const { dbPath } = config;
     // The start gate runs before the database is created, opened or migrated: a runtime
     // started during a device transaction must not touch a home that is being snapshotted.
-    yield* acquireMaintenanceHost(config).pipe(Effect.orDie);
+    const host = yield* acquireMaintenanceHost(config).pipe(Effect.orDie);
     yield* initializeV2Database(dbPath);
+    if (host.mode === "active" && host.trial !== null) {
+      const journal = yield* Effect.promise(() =>
+        host.store.readJournal(host.trial!.transactionId),
+      );
+      if (journal?.storageOptimization === true) {
+        // Close the migration connection before the one-shot optimizer opens the database.
+        yield* Effect.scoped(Layer.build(layerFromPath(dbPath)));
+        yield* Effect.promise(() => runStorageWorker(host, journal.id));
+      }
+    }
     return layerFromPath(dbPath);
   }),
 );

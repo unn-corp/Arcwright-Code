@@ -37,6 +37,27 @@ contains Git submodule entries, preserve their root-relative registration in `.g
 initialization disabled. GitHub checkout's credential cleanup traverses these entries even during
 a sparse checkout; missing root metadata can stop every build before dependency installation.
 
+## Lossless data storage
+
+Migration 101 adds content-addressed compressed event/tool bodies, checksummed cold
+legacy history and durable legacy stream baselines. The server expands references
+before its existing contracts and JSON projection queries, preserving paired-client
+compatibility and original replay byte budgets. Normal startup performs light schema
+work; historical rewriting is an explicit native update option for local desktop homes.
+The exact journal, native snapshots, worker parent/child identities, fencing, capacity
+checks and final health receipts govern the entire operation. Worker ownership survives
+an unexpected parent exit; recovery must not race a recorded storage worker.
+
+The implementation is owned by [payload storage](../../apps/server/src/persistence/PayloadStorage.ts),
+[the codec](../../packages/shared/src/forkStorageCodec.ts),
+[legacy archives](../../packages/shared/src/forkStorageArchive.ts),
+[maintenance admission](../../packages/shared/src/forkStorageMaintenance.ts), and
+[the CLI worker](../../apps/server/src/maintenance/storageWorker.ts). Preserve the
+storage compatibility and maintenance regression suites when merging upstream. Read
+[the storage runbook](database-storage.md) for retention boundaries, old-history access,
+supported installation paths and production verification. GitHub build retention is
+owned separately by [the release retention policy](fork-releases.md#github-build-storage-retention).
+
 ## Agent memory admission
 
 New agent starts, restarts, and restart continuations are held under host memory pressure without
