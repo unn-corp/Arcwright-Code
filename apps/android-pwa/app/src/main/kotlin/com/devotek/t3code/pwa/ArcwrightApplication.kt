@@ -25,7 +25,7 @@ class ArcwrightApplication : Application() {
                 set(value) { preferences.edit().putBoolean("pendingSignOut", value).commit() }
         }
         val configured = BuildConfig.CLERK_PUBLISHABLE_KEY.isNotBlank() && BuildConfig.CLERK_JWT_TEMPLATE.isNotBlank() && secureRelay(BuildConfig.RELAY_URL)
-        connectAuth = ConnectAuth(ClerkConnectAuthSdk(this, BuildConfig.CLERK_PUBLISHABLE_KEY, authScope), authScope, markers, BuildConfig.CLERK_JWT_TEMPLATE, configured)
+        connectAuth = ConnectAuth(ClerkConnectAuthSdk(this, BuildConfig.CLERK_PUBLISHABLE_KEY, authScope), authScope, markers, BuildConfig.CLERK_JWT_TEMPLATE, configured, NotificationCredentials::class.java)
         managedNotifications = NativeManagedNotifications(this)
     }
 

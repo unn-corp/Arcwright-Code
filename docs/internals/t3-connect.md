@@ -241,5 +241,12 @@ retains the owned alert's original expiry, and frame/ticket/socket admission gap
 connection with bounded backoff. Recovery uses a fresh single-use ticket, without relying on a
 WebView or an identity-change notification. Removal, replacement and real account transitions still
 discard the old owner's queue; successful or viewed alerts remain consumed.
+Native auth transitions themselves share the credential/publication monitor, including the logout
+flag and account generation. An admitted post or watermark write therefore finishes before logout
+or account observation can publish its new native identity; later work fails that fence. The monitor
+is reentrant for status observers and protects only synchronous local admission/state/publication.
+Login/logout coroutines are prepared lazily and started outside it, as are SDK initialization,
+reset, cancellation and suspending calls. Session-cache eviction stays asynchronous, so auth never
+waits for the session/network lock while holding this monitor. Direct admission remains account-independent.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.

@@ -711,6 +711,11 @@ pending work with its original expiry, and rejected frame/ticket/socket admissio
 connection through bounded backoff; displacement discards it. Ownership retains the established
 native identity but never authorizes network requests or publication. Same-session recovery requires
 no WebView or registration update and always obtains a new single-use socket ticket.
+`ConnectAuth` logout flags and observed account/generation transitions use the same credential
+monitor as final publication and persistence; the Application binds it explicitly. An admitted local
+post/write completes before the native transition becomes visible. SDK jobs start, suspend and reset
+outside the monitor, and session eviction never joins under it. Main-thread auth can wait for an
+in-progress local preference/notification operation, never a suspended SDK or HTTP exchange.
 [NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
 and [NativeDpopKey.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeDpopKey.kt)
 own the worker-only renewal chain and separate native proof key. The notification service retains
