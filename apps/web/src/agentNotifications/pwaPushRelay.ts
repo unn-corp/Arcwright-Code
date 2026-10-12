@@ -113,6 +113,57 @@ function readRecord(origin: string): AuthorityRecord | null {
 function writeRecord(record: AuthorityRecord) {
   window.localStorage.setItem(recordKey(record.relayOrigin), JSON.stringify(record));
 }
+export function isPwaPushAuthorityResetRequired(): boolean {
+  const profile = getPwaPushRelayProfile();
+  if (profile.type === "blocked" || profile.mode !== "owned") return false;
+  try {
+    return (
+      window.localStorage.getItem(recordKey(profile.relayOrigin)) !== null &&
+      !readRecord(profile.relayOrigin)
+    );
+  } catch {
+    return true;
+  }
+}
+
+/** Explicit Reset only: preserve exact private bytes before freeing an invalid current slot. */
+export function resetMalformedPwaPushAuthority(expectedProfile: PwaPushRelayProfile): void {
+  if (expectedProfile.type === "blocked" || expectedProfile.mode !== "owned") return;
+  const current = getPwaPushRelayProfile();
+  if (
+    current.type === "blocked" ||
+    current.mode !== expectedProfile.mode ||
+    current.relayOrigin !== expectedProfile.relayOrigin
+  )
+    throw new PwaPushBindingError();
+  try {
+    const key = recordKey(current.relayOrigin);
+    const raw = window.localStorage.getItem(key);
+    if (raw === null || readRecord(current.relayOrigin)) return;
+    // Quarantine is credential-private local storage, never request authority. Bound the search
+    // and refuse a full archive rather than overwriting any previous recovery record.
+    const prefix = `${key}:quarantine:`;
+    let preserved = false;
+    for (let index = 0; index < 16; index += 1) {
+      const archiveKey = `${prefix}${index}`;
+      const archived = window.localStorage.getItem(archiveKey);
+      if (archived !== null && archived !== raw) continue;
+      if (archived === null) window.localStorage.setItem(archiveKey, raw);
+      if (window.localStorage.getItem(archiveKey) !== raw) throw new Error("preservation failed");
+      preserved = true;
+      break;
+    }
+    if (!preserved || window.localStorage.getItem(key) !== raw)
+      throw new Error("reset scope changed");
+    window.localStorage.removeItem(key);
+    if (window.localStorage.getItem(key) !== null) throw new Error("reset failed");
+  } catch {
+    throw new Error(
+      "Could not preserve or reset this device's previous notification record. Retry Reset browser push when local storage is available.",
+    );
+  }
+}
+
 function randomSecret(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes))
@@ -208,10 +259,20 @@ export function getPwaPushSubscriptionId(): string | null {
     : (readRecord(profile.relayOrigin)?.subscription?.subscriptionId ?? null);
 }
 export function hasPendingPwaPushCleanup(): boolean {
-  return typeof window !== "undefined" && window.localStorage.getItem(CLEANUP_PENDING_KEY) === "1";
+  try {
+    return (
+      typeof window !== "undefined" && window.localStorage.getItem(CLEANUP_PENDING_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
 }
 export function markPendingPwaPushCleanup(): void {
-  window.localStorage.setItem(CLEANUP_PENDING_KEY, "1");
+  try {
+    window.localStorage.setItem(CLEANUP_PENDING_KEY, "1");
+  } catch {
+    /* Advisory persistence must not prevent local cleanup or its visible retry. */
+  }
 }
 function requireSubscription(subscriptionId: string) {
   const profile = requireProfile();

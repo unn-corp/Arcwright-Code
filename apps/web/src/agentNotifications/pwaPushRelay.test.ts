@@ -3,6 +3,8 @@ import {
   canSyncPwaPushSubscription,
   getPwaPushConfig,
   getPwaPushRelayProfile,
+  isPwaPushAuthorityResetRequired,
+  resetMalformedPwaPushAuthority,
   getPwaPushSubscriptionId,
   pwaPushInstallation,
   registerPwaPushSubscription,
@@ -272,4 +274,89 @@ it("accepts equivalent padded/base64url VAPID keys for a bound subscription", as
   await register(true, subscription("AQI="), "AQI=");
   expect(canSyncPwaPushSubscription(subscription("AQI="), "AQI")).toBe(true);
   await expect(register(false, subscription("AQI="), "AQI")).resolves.toBe("subscription-1");
+});
+const currentSlot = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
+it("never changes an occupied invalid authority slot during inspection, then explicit reset preserves exact bytes", async () => {
+  const raw = '{invalid-json\n"secret": "private-recovery-value"';
+  values.set(currentSlot, raw);
+  const before = [...values];
+  expect(isPwaPushAuthorityResetRequired()).toBe(true);
+  await expect(register()).rejects.toThrow(/Reset/);
+  expect([...values]).toEqual(before);
+  expect(fetchMock).not.toHaveBeenCalled();
+  resetMalformedPwaPushAuthority(getPwaPushRelayProfile());
+  expect(values.has(currentSlot)).toBe(false);
+  expect(values.get(`${currentSlot}:quarantine:0`)).toBe(raw);
+  expect(isPwaPushAuthorityResetRequired()).toBe(false);
+  expect(fetchMock).not.toHaveBeenCalled();
+  await register();
+  expect(values.get(`${currentSlot}:quarantine:0`)).toBe(raw);
+});
+it.each(["throw", "silently-refused"])(
+  "does not clear the original when quarantine storage is %s",
+  (failure) => {
+    const raw = "private-invalid-record";
+    values.set(currentSlot, raw);
+    const setItem = window.localStorage.setItem.bind(window.localStorage);
+    const storageFailure = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation((key, value) => {
+        if (key.startsWith(`${currentSlot}:quarantine:`)) {
+          if (failure === "throw") throw new Error(raw);
+          return;
+        }
+        setItem(key, value);
+      });
+    expect(() => resetMalformedPwaPushAuthority(getPwaPushRelayProfile())).toThrow(
+      "Could not preserve or reset this device's previous notification record. Retry Reset browser push when local storage is available.",
+    );
+    expect(values.get(currentSlot)).toBe(raw);
+    expect(isPwaPushAuthorityResetRequired()).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    storageFailure.mockRestore();
+  },
+);
+it("refuses a full bounded quarantine without overwriting any old private record", () => {
+  values.set(currentSlot, "current-invalid");
+  for (let index = 0; index < 16; index += 1)
+    values.set(`${currentSlot}:quarantine:${index}`, `private-archive-${index}`);
+  const before = [...values];
+  expect(() => resetMalformedPwaPushAuthority(getPwaPushRelayProfile())).toThrow(
+    /Could not preserve/,
+  );
+  expect([...values]).toEqual(before);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("reuses an identical durable quarantine copy and preserves other occupied slots", () => {
+  const raw = "same-invalid-record";
+  values.set(currentSlot, raw);
+  values.set(`${currentSlot}:quarantine:0`, "previous-private-record");
+  values.set(`${currentSlot}:quarantine:1`, raw);
+  const foreignKey = "t3code.pwaPushAuthority.v1:https%3A%2F%2Fother.example.test";
+  values.set(foreignKey, "foreign-private-record");
+  resetMalformedPwaPushAuthority(getPwaPushRelayProfile());
+  expect(values.has(currentSlot)).toBe(false);
+  expect(values.get(`${currentSlot}:quarantine:0`)).toBe("previous-private-record");
+  expect(values.get(`${currentSlot}:quarantine:1`)).toBe(raw);
+  expect(values.get(foreignKey)).toBe("foreign-private-record");
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("leaves valid current authority intact during explicit malformed-slot reset", async () => {
+  await register();
+  const before = [...values];
+  fetchMock.mockClear();
+  expect(isPwaPushAuthorityResetRequired()).toBe(false);
+  resetMalformedPwaPushAuthority(getPwaPushRelayProfile());
+  expect([...values]).toEqual(before);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("a delayed reset cannot quarantine a newly selected profile's slot", () => {
+  values.set(currentSlot, "old-invalid");
+  const oldProfile = getPwaPushRelayProfile();
+  owned("https://other.example.test");
+  values.set("t3code.pwaPushAuthority.v1:https%3A%2F%2Fother.example.test", "new-invalid");
+  const before = [...values];
+  expect(() => resetMalformedPwaPushAuthority(oldProfile)).toThrow(/Reset/);
+  expect([...values]).toEqual(before);
+  expect(fetchMock).not.toHaveBeenCalled();
 });

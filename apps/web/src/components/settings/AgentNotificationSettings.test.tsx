@@ -331,3 +331,175 @@ it("cloudless local preview can request permission without enrolling or contacti
   expect(subscribe).not.toHaveBeenCalled();
   expect(values.size).toBe(0);
 });
+
+async function seedBoundSubscription() {
+  existing = makeSubscription();
+  await registerPwaPushSubscription({
+    environmentId: "environment-1",
+    subscription: existing,
+    applicationServerKey: pushKey,
+    preferences: fixture.settings.agentNotifications,
+    explicitEnable: true,
+  });
+  fixture.settings.agentNotifications.enabled = true;
+  await mount();
+  fetchMock.mockClear();
+}
+it.each(["rejection", "false"])(
+  "keeps local cleanup reachable after unsubscribe %s and safely removes the current remote registration",
+  async (failure) => {
+    await seedBoundSubscription();
+    if (failure === "rejection")
+      unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+    else unsubscribe.mockResolvedValueOnce(false);
+    await act(async () => button("Disable").props.onClick());
+    expect(existing).not.toBeNull();
+    expect(fixture.settings.agentNotifications.enabled).toBe(false);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect(getPwaPushSubscriptionId()).toBeNull();
+    expect(button("Disable") ?? button("Reset browser push")).toBeDefined();
+    expect(JSON.stringify(fixture.toast.mock.calls)).toContain("cleanup is incomplete");
+    await act(async () => (button("Disable") ?? button("Reset browser push")).props.onClick());
+    expect(existing).toBeNull();
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
+    expect(subscribe).not.toHaveBeenCalled();
+  },
+);
+it("keeps a cleanup retry after reload when disabled preferences still have a bound browser endpoint", async () => {
+  await seedBoundSubscription();
+  unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+  fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method) throw new Error("remote offline");
+    return { ok: true, status: 200, json: async () => ({ applicationServerKey: pushKey }) };
+  });
+  await act(async () => button("Disable").props.onClick());
+  expect(existing).not.toBeNull();
+  expect(getPwaPushSubscriptionId()).toBe("remote-1");
+  act(() => renderer.unmount());
+  await mount();
+  expect(button("Disable") ?? button("Reset browser push")).toBeDefined();
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  const callsBeforeEnable = fetchMock.mock.calls.length;
+  await act(async () => enable());
+  expect(fetchMock.mock.calls).toHaveLength(callsBeforeEnable);
+  expect(subscribe).not.toHaveBeenCalled();
+  await act(async () => button("Disable").props.onClick());
+  expect(existing).toBeNull();
+});
+it.each(["owned-foreign", "cloudless"])(
+  "local unsubscribe failure and retry in %s never send old credentials remotely",
+  async (mode) => {
+    await seedBoundSubscription();
+    const before = [...values];
+    act(() => renderer.unmount());
+    if (mode === "cloudless") vi.stubEnv("VITE_CONNECT_MODE", "cloudless");
+    else owned("https://other.example.test");
+    fetchMock.mockClear();
+    await mount();
+    unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+    await act(async () => (button("Disable") ?? button("Reset browser push")).props.onClick());
+    expect(existing).not.toBeNull();
+    expect(fixture.settings.agentNotifications.enabled).toBe(false);
+    act(() => renderer.unmount());
+    await mount();
+    expect(button("Disable") ?? button("Reset browser push")).toBeDefined();
+    await act(async () => (button("Disable") ?? button("Reset browser push")).props.onClick());
+    expect(existing).toBeNull();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
+    if (mode === "cloudless") expect(fetchMock).not.toHaveBeenCalled();
+    for (const [key, value] of before) expect(values.get(key)).toBe(value);
+  },
+);
+it.each(["malformed", "foreign"])(
+  "explicit reset quarantines the exact %s current record and a later Enable enrolls fresh",
+  async (recordType) => {
+    const key = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
+    const raw =
+      recordType === "malformed"
+        ? '{invalid-json\n"private": "private-old-secret"'
+        : JSON.stringify({
+            version: 1,
+            relayOrigin: "https://other.example.test",
+            installation: { installationId: "foreign-id", installationSecret: "foreign-secret" },
+            subscription: null,
+          });
+    values.set(key, raw);
+    values.set("t3code.pwaPushInstallationSecret", "unbound-secret");
+    existing = makeSubscription();
+    await mount();
+    expect(values.get(key)).toBe(raw);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
+    await act(async () => button("Reset browser push").props.onClick());
+    expect(existing).toBeNull();
+    expect(values.has(key)).toBe(false);
+    expect(
+      [...values.entries()].some(
+        ([archiveKey, value]) => archiveKey.startsWith(`${key}:quarantine:`) && value === raw,
+      ),
+    ).toBe(true);
+    expect(subscribe).not.toHaveBeenCalled();
+    operations.length = 0;
+    await act(async () => {
+      enable();
+      expect(operations[0]).toBe("subscribe");
+    });
+    expect(fixture.settings.agentNotifications.enabled).toBe(true);
+    expect(getPwaPushSubscriptionId()).toBe("remote-1");
+    expect([...values.values()]).toContain(raw);
+    expect(values.get("t3code.pwaPushInstallationSecret")).toBe("unbound-secret");
+    for (const [, init] of fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")) {
+      expect(JSON.parse(init!.body as string).installation.installationId).not.toBe("foreign-id");
+      expect(JSON.parse(init!.body as string).installation.installationSecret).not.toBe(
+        "foreign-secret",
+      );
+    }
+  },
+);
+it("storage preservation failure keeps the occupied record and an explicit reset retry after reload", async () => {
+  const key = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
+  const raw = "private-invalid-record";
+  values.set(key, raw);
+  existing = makeSubscription();
+  const setItem = window.localStorage.setItem.bind(window.localStorage);
+  const storageFailure = vi
+    .spyOn(window.localStorage, "setItem")
+    .mockImplementation((target, value) => {
+      if (target.startsWith(`${key}:quarantine:`)) throw new Error(raw);
+      setItem(target, value);
+    });
+  await mount();
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(existing).toBeNull();
+  expect(values.get(key)).toBe(raw);
+  expect(
+    [...values.entries()].filter(([target]) => target.startsWith(`${key}:quarantine:`)),
+  ).toHaveLength(0);
+  expect(JSON.stringify(fixture.toast.mock.calls)).not.toContain(raw);
+  act(() => renderer.unmount());
+  await mount();
+  expect(button("Reset browser push")).toBeDefined();
+  await act(async () => enable());
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
+  storageFailure.mockRestore();
+  await act(async () => button("Reset browser push").props.onClick());
+  await act(async () => enable());
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  expect([...values.values()]).toContain(raw);
+});
+it("full local storage cannot hide a failed browser cleanup retry or erase old authority", async () => {
+  await seedBoundSubscription();
+  const before = [...values];
+  const storageFailure = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+    throw new Error("storage full");
+  });
+  unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+  await act(async () => button("Disable").props.onClick());
+  expect(existing).not.toBeNull();
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  expect(button("Disable") ?? button("Reset browser push")).toBeDefined();
+  expect([...values]).toEqual(before);
+  storageFailure.mockRestore();
+  await act(async () => button("Disable").props.onClick());
+  expect(existing).toBeNull();
+});

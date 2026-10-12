@@ -22,6 +22,9 @@ import {
 } from "../../agentNotifications/browserNotifications";
 import {
   getPwaPushSubscriptionId,
+  getPwaPushRelayProfile,
+  isPwaPushAuthorityResetRequired,
+  resetMalformedPwaPushAuthority,
   hasPendingPwaPushCleanup,
   markPendingPwaPushCleanup,
   registerPwaPushSubscription,
@@ -58,15 +61,23 @@ export function PwaNotificationSettings() {
     vapidPublicKey,
     isConfigLoading,
     setupState,
+    hasBrowserSubscription,
     retry: retryNotificationSetup,
   } = usePwaNotificationSetup();
   const [isSaving, setIsSaving] = useState(false);
   const actionRef = useRef(0);
   const enableControllerRef = useRef<AbortController | null>(null);
+  const [localCleanupRequired, setLocalCleanupRequired] = useState(false);
   const [bindingMismatch, setBindingMismatch] = useState(false);
   const [cleanupPending, setCleanupPending] = useState(hasPendingPwaPushCleanup);
   const subscriptionId = getPwaPushSubscriptionId();
-  const needsReset = bindingMismatch || setupState === "reset-required";
+  const localCleanupNeeded =
+    localCleanupRequired || (!notificationPreferences.enabled && hasBrowserSubscription === true);
+  const needsReset =
+    localCleanupNeeded ||
+    bindingMismatch ||
+    setupState === "reset-required" ||
+    isPwaPushAuthorityResetRequired();
 
   const refreshStatus = useCallback(() => {
     setStatus(getBrowserNotificationStatus());
@@ -216,39 +227,47 @@ export function PwaNotificationSettings() {
     onBindingMismatch: reportBindingMismatch,
   });
 
-  const disableNotifications = useCallback(async () => {
-    ++actionRef.current;
+  const disableNotifications = async () => {
+    const action = ++actionRef.current;
+    const profile = getPwaPushRelayProfile();
     enableControllerRef.current?.abort();
     updatePreferences({ enabled: false });
     setIsSaving(true);
+    // Browser and current-realm cleanup are independent: a local API failure must not
+    // prevent safe remote removal, nor make the surviving browser endpoint look removed.
+    const [localResult, remoteResult] = await Promise.allSettled([
+      unsubscribeBrowserPush(),
+      subscriptionId ? removePwaPushSubscription(subscriptionId) : Promise.resolve(),
+    ]);
+    if (action !== actionRef.current) return;
+    setLocalCleanupRequired(localResult.status === "rejected");
+    if (remoteResult.status === "rejected" || !subscriptionId) {
+      markPendingPwaPushCleanup();
+      setCleanupPending(true);
+    }
     try {
-      await unsubscribeBrowserPush();
+      if (localResult.status === "rejected")
+        throw new Error(
+          "Your notification preference is off, but browser push cleanup is incomplete. Retry Disable or Reset browser push.",
+        );
+      resetMalformedPwaPushAuthority(profile);
       setBindingMismatch(false);
-      // Never send an old realm's credential/ID to the currently selected relay.
-      if (subscriptionId) {
-        try {
-          await removePwaPushSubscription(subscriptionId);
-        } catch {
-          markPendingPwaPushCleanup();
-          setCleanupPending(true);
-        }
-      } else {
-        markPendingPwaPushCleanup();
-        setCleanupPending(true);
-      }
-      retryNotificationSetup();
-    } catch {
+    } catch (error) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
           title: "Could not reset browser push",
-          description: "Try disabling notifications again when the browser is ready.",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Retry Reset browser push when the browser and local storage are ready.",
         }),
       );
     } finally {
+      retryNotificationSetup();
       setIsSaving(false);
     }
-  }, [updatePreferences, subscriptionId, retryNotificationSetup]);
+  };
 
   const remoteTest = useCallback(() => {
     if (!subscriptionId) return;
@@ -318,13 +337,15 @@ export function PwaNotificationSettings() {
       <SettingsRow
         title="Notifications on this device"
         description={
-          needsReset
-            ? "The notification service or key changed. Reset browser push, then enable it with a separate tap. Previous service cleanup may remain pending."
-            : setupState === "unavailable"
-              ? "Anonymous PWA push is unavailable for this Connect profile. Local previews remain available."
-              : setupState === "offline"
-                ? "The notification service is temporarily unavailable. Saved settings are preserved."
-                : statusDescription[status]
+          localCleanupNeeded
+            ? "Your notification preference is off, but browser push cleanup is still required. Retry Disable or Reset browser push."
+            : needsReset
+              ? "This device's saved notification registration needs reset. Reset browser push, then enable it with a separate tap. Previous service cleanup may remain pending."
+              : setupState === "unavailable"
+                ? "Anonymous PWA push is unavailable for this Connect profile. Local previews remain available."
+                : setupState === "offline"
+                  ? "The notification service is temporarily unavailable. Saved settings are preserved."
+                  : statusDescription[status]
         }
         control={
           <Switch
@@ -387,6 +408,7 @@ export function PwaNotificationSettings() {
       ) : null}
       {!canManagePreferences &&
       (notificationPreferences.enabled ||
+        needsReset ||
         setupState === "unavailable" ||
         setupState === "offline") ? (
         <SettingsRow
@@ -406,8 +428,9 @@ export function PwaNotificationSettings() {
       ) : null}
       {cleanupPending ? (
         <p className="px-4 pb-2 text-xs text-muted-foreground">
-          Previous remote registration cleanup may still be pending. Reset and Disable unsubscribe
-          locally; they cannot revoke a previous service while it is unavailable.
+          Previous remote registration cleanup may still be pending. Reset and Disable attempt local
+          unsubscription; retry if browser cleanup fails. They cannot revoke a previous service
+          while it is unavailable.
         </p>
       ) : null}
       {canManagePreferences ? (

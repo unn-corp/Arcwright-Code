@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
-import { subscribeBrowserPush } from "./browserNotifications";
+import { subscribeBrowserPush, unsubscribeBrowserPush } from "./browserNotifications";
 
 const { getRegistration, registerWorker } = vi.hoisted(() => ({
   getRegistration: vi.fn(),
@@ -59,3 +59,22 @@ it("subscribes synchronously without preflight permission, unsubscription or loo
   expect(registerWorker).not.toHaveBeenCalled();
   await pending;
 });
+it.each(["still-present", "already-gone"])(
+  "verifies a false unsubscribe result when the browser subscription is %s",
+  async (state) => {
+    const unsubscribe = vi.fn().mockResolvedValue(false);
+    const subscription = { unsubscribe };
+    const getSubscription = vi
+      .fn()
+      .mockResolvedValueOnce(subscription)
+      .mockResolvedValueOnce(state === "still-present" ? subscription : null);
+    vi.stubGlobal("navigator", {
+      serviceWorker: { getRegistration: async () => ({ pushManager: { getSubscription } }) },
+    });
+    if (state === "still-present")
+      await expect(unsubscribeBrowserPush()).rejects.toThrow(/cleanup is incomplete/);
+    else await expect(unsubscribeBrowserPush()).resolves.toBeUndefined();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(getSubscription).toHaveBeenCalledTimes(2);
+  },
+);

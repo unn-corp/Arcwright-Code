@@ -122,7 +122,8 @@ it("prepares the local worker but never preloads remote config for a blocked pro
     setup.retry();
   });
   expect(getConfig).not.toHaveBeenCalled();
-  expect(getSubscription).not.toHaveBeenCalled();
+  // Local inspection keeps orphaned browser cleanup reachable without any relay request.
+  expect(getSubscription).toHaveBeenCalledTimes(2);
   expect(registerWorker).toHaveBeenCalled();
 });
 it("requires a separate reset for an incompatible preexisting subscription", async () => {
@@ -147,4 +148,20 @@ it("ignores an old configuration response after retry", async () => {
   await act(async () => setup.retry());
   await act(async () => oldResolve("old-key"));
   expect(setup.vapidPublicKey).toBe("push-key");
+});
+it("ignores a late browser cleanup snapshot after preparation retry", async () => {
+  let resolveOldBrowser: (value: object) => void = () => {};
+  getSubscription.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveOldBrowser = resolve;
+    }),
+  );
+  await act(async () => {
+    renderer = create(<Probe />);
+  });
+  await act(async () => setup.retry());
+  expect(setup.hasBrowserSubscription).toBe(false);
+  await act(async () => resolveOldBrowser({ endpoint: "https://push.example/old" }));
+  expect(setup.hasBrowserSubscription).toBe(false);
+  expect(setup.setupState).toBe("ready");
 });

@@ -20,6 +20,7 @@ export type PwaNotificationSetupState =
 export function usePwaNotificationSetup() {
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
   const [setupState, setSetupState] = useState<PwaNotificationSetupState>("loading");
+  const [hasBrowserSubscription, setHasBrowserSubscription] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => {
     setVapidPublicKey(null);
@@ -35,14 +36,21 @@ export function usePwaNotificationSetup() {
     const prepare = () => {
       void registerPwaServiceWorker();
       if (cancelled || configLoaded || configLoading || unavailable) return;
+      const browserSubscription = getExistingBrowserPushSubscription().then((subscription) => {
+        if (!cancelled) setHasBrowserSubscription(subscription !== null);
+        return subscription;
+      });
       if (getPwaPushRelayProfile().type === "blocked") {
         unavailable = true;
         setSetupState("unavailable");
+        void browserSubscription.catch(() => {
+          /* Local cleanup remains available when inspection fails. */
+        });
         return;
       }
       configLoading = true;
       setSetupState("loading");
-      void Promise.all([getPwaPushConfig(), getExistingBrowserPushSubscription()])
+      void Promise.all([getPwaPushConfig(), browserSubscription])
         .then(([key, subscription]) => {
           configLoaded = true;
           if (cancelled) return;
@@ -77,5 +85,11 @@ export function usePwaNotificationSetup() {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Explicit retry restarts this cancelled preparation scope.
   }, [attempt]);
 
-  return { vapidPublicKey, setupState, isConfigLoading: setupState === "loading", retry };
+  return {
+    vapidPublicKey,
+    setupState,
+    hasBrowserSubscription,
+    isConfigLoading: setupState === "loading",
+    retry,
+  };
 }

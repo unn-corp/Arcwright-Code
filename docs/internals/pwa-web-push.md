@@ -44,9 +44,11 @@ create an Arcwright Connect link, and must not be affected by Arcwright Connect 
    `PUT /v1/pwa/web-push/subscriptions`.
 5. The relay stores a SHA-256 hash of the installation secret, never the raw
    secret. It uses the credential to authorize test and removal calls. Disabling
-   notifications first unsubscribes locally, then performs remote cleanup on a
-   best-effort basis. Local unsubscription is the safety boundary if the relay
-   is offline.
+   notifications turns off the preference and attempts browser unsubscription and trusted
+   current-relay cleanup independently on a best-effort basis,
+   so a browser failure does not prevent safe remote removal. An off preference does not
+   prove that the browser unsubscribed: failure or a surviving endpoint keeps a local retry
+   reachable after reload. Local unsubscription is the safety boundary if the relay is offline.
 
 Owned mode uses only the complete validated public profile's HTTPS relay origin; cloudless
 and invalid owned profiles make no remote requests. Service-worker preparation and local
@@ -59,7 +61,12 @@ awaited browser operation on Enable. Test/removal reject foreign or unbound IDs 
 failed cleanup retains the remote record and a persistent, credential-free pending reminder.
 Offline preparation retries on arrival/online events or explicit retry, without timers;
 profile-blocked or unavailable anonymous capability does not repeatedly retry or ask for sign-in.
-Cancelled synchronization cannot persist a late remote response.
+Cancelled synchronization cannot persist a late remote response. If the selected owned
+storage slot contains a malformed or foreign record, startup leaves it untouched and Enable
+stays blocked. An explicit Reset preserves its exact private raw value in a bounded local
+quarantine before clearing only that slot. Preservation failure leaves the original intact
+and keeps Reset reachable; a later separate Enable can create fresh owned credentials.
+Quarantined values never authorize requests and are never sent to a relay.
 
 These are source behavior and fixture checks. The owned public service is not commissioned
 by this change. Its private-environment deployment must disable every anonymous PWA API

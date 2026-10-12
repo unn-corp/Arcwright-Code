@@ -104,7 +104,11 @@ export async function unsubscribeBrowserPush(): Promise<void> {
   if (!("serviceWorker" in navigator)) return;
   const registration = await navigator.serviceWorker.getRegistration("/");
   const subscription = await registration?.pushManager.getSubscription();
-  await subscription?.unsubscribe();
+  if (!subscription) return;
+  const removed = await subscription.unsubscribe();
+  if (!removed && (await registration?.pushManager.getSubscription())) {
+    throw new Error("Browser push cleanup is incomplete. Retry Disable or Reset browser push.");
+  }
 }
 
 export async function getExistingBrowserPushSubscription(): Promise<PushSubscription | null> {

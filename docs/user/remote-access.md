@@ -72,7 +72,9 @@ unknown locks are never removed automatically. The warning keeps the retained li
 Browser PWA notification registrations stay with their selected service. After changing
 services or notification keys, use **Reset browser push**, then enable notifications with a
 separate tap. Old registrations remain saved; disabling unsubscribes this browser locally,
-while cleanup at the previous service may remain pending. Cloudless mode and services that
+while cleanup at the previous service may remain pending. If browser cleanup fails, the
+preference stays off but **Disable** or **Reset browser push** remains available to retry,
+including after reopening Settings. Cloudless mode and services that
 do not offer anonymous PWA push still support local notification previews.
 
 Native credential authority migration, historical rollback, and private live commissioning
