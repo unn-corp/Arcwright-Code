@@ -423,24 +423,52 @@ export interface RestorePoint {
   readonly createdAt: string;
   readonly bytes: number;
 }
+// Status polling needs a small listing, not a new parse of hundreds of thousands of file records.
+// This cache never supplies restore/health proofs: verifySnapshot always reads and checks everything.
+const pointSummaries = new Map<string, { signature: string; value: Promise<RestorePoint> }>();
+const manifestSignature = (stat: NodeFS.BigIntStats) =>
+  `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+
+async function pointSummary(file: string): Promise<RestorePoint> {
+  const stat = await NodeFSP.lstat(file, { bigint: true });
+  if (!stat.isFile()) throw new Error("Restore-point metadata is not a regular file.");
+  const signature = manifestSignature(stat);
+  let cached = pointSummaries.get(file);
+  if (cached?.signature !== signature) {
+    const value = (async () => {
+      const manifest = decodeManifest(JSON.parse(await NodeFSP.readFile(file, "utf8")));
+      if (manifestSignature(await NodeFSP.lstat(file, { bigint: true })) !== signature)
+        throw new Error("Restore-point metadata changed while listing it.");
+      return {
+        id: manifest.id,
+        transactionId: manifest.transactionId,
+        kind: manifest.kind,
+        createdAt: manifest.createdAt,
+        bytes: manifest.files.reduce((sum, item) => sum + item.bytes, 0),
+      };
+    })();
+    cached = { signature, value };
+    if (pointSummaries.size >= 256) pointSummaries.delete(pointSummaries.keys().next().value!);
+    pointSummaries.set(file, cached);
+  }
+  try {
+    return { ...(await cached.value) };
+  } catch (cause) {
+    if (pointSummaries.get(file) === cached) pointSummaries.delete(file);
+    throw cause;
+  }
+}
 export async function listRestorePoints(home: string): Promise<ReadonlyArray<RestorePoint>> {
   const root = restorePointsDirectory(home);
   if (!(await exists(root))) return [];
   const points: RestorePoint[] = [];
   for (const name of await NodeFSP.readdir(root)) {
     if (!name.startsWith(PREFIX)) continue;
+    const file = NodePath.join(root, name, "manifest.json");
     try {
-      const manifest = decodeManifest(
-        JSON.parse(await NodeFSP.readFile(NodePath.join(root, name, "manifest.json"), "utf8")),
-      );
-      points.push({
-        id: manifest.id,
-        transactionId: manifest.transactionId,
-        kind: manifest.kind,
-        createdAt: manifest.createdAt,
-        bytes: manifest.files.reduce((sum, file) => sum + file.bytes, 0),
-      });
+      points.push(await pointSummary(file));
     } catch {
+      pointSummaries.delete(file);
       // An unreadable directory is not listed as usable; pruning never touches it either.
     }
   }

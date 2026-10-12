@@ -118,6 +118,13 @@ Recovery-point retention and every journal/asset pin remain unchanged.
 
 ## Requesting optimization
 
+Restore-point status listings cache only their small summary after reading a manifest once.
+File identity, size, modification time and change time invalidate that cache. This avoids
+repeatedly parsing this PC's 85 MiB file manifest during polling: an isolated read-only listing
+measured 321 ms and a 642 MiB peak RSS. With the cache, subsequent listings of the same
+unchanged point in that process measured 0.30 ms and 0.18 ms. Recovery and storage maintenance still verify the
+complete manifest and every file afresh; listing metadata is never a health or recovery proof.
+
 Use the running environment's native controller. Review `maintenance status --json` and its
 exact staged digest, then request:
 

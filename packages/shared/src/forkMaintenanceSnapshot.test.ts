@@ -69,6 +69,30 @@ const messages = (file: string) => {
 };
 
 describe("restore points", () => {
+  it("reuses unchanged listing metadata, invalidates edits and still fully verifies recovery bytes", async () => {
+    const h = await home();
+    const id = await createSnapshot(h.root, "listing-cache", { restrict: noAcl });
+    h.close();
+    const point = NodePath.join(h.root, "maintenance", "restore-points", id);
+    const file = NodePath.join(point, "manifest.json");
+    const original = await actualFs.readFile(file, "utf8");
+    const reads = () =>
+      vi.mocked(NodeFSP.readFile).mock.calls.filter(([path]) => path === file).length;
+    const before = reads();
+    const [first, concurrent] = await Promise.all([
+      listRestorePoints(h.root),
+      listRestorePoints(h.root),
+    ]);
+    expect(concurrent).toEqual(first);
+    expect(await listRestorePoints(h.root)).toEqual(first);
+    expect(reads() - before).toBe(1);
+    await NodeFSP.writeFile(file, "invalid manifest");
+    expect(await listRestorePoints(h.root)).toEqual([]);
+    await NodeFSP.writeFile(file, original);
+    expect(await listRestorePoints(h.root)).toEqual(first);
+    await NodeFSP.writeFile(NodePath.join(point, "userdata", "settings.json"), "changed bytes");
+    await expect(verifySnapshot(h.root, id)).rejects.toThrow("checksum mismatch");
+  });
   it("verifies file membership in large saved-workspace trees without overflowing the call stack", async () => {
     const h = await home();
     const id = await createSnapshot(h.root, "large-tree", { restrict: noAcl });
