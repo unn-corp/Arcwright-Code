@@ -11,6 +11,7 @@ import {
 import {
   assertLegacyRecoveryConnectSelection,
   loadRepoEnv,
+  loadAndroidBuildPublicEnv,
   connectProfileDigest,
   connectProfileReceipt,
 } from "./public-config.ts";
@@ -316,4 +317,88 @@ it("retains valid Expo runtime policies and rejects invalid input without disclo
   expect(() => resolveMobileVersionPolicy("private-fixture", false)).toThrow(
     "Invalid MOBILE_VERSION_POLICY; require an Expo runtime version policy.",
   );
+});
+
+describe("historical Android build profile admission", () => {
+  it.each(["owned", "cloudless"])(
+    "rejects historical %s selection masked by ambient legacy mode",
+    (mode) => {
+      const repoRoot = fixture({ ".env": envText({ ...owned, T3CODE_CONNECT_MODE: mode }) });
+      const baseEnv = { T3CODE_CONNECT_MODE: "legacy", T3_PWA_KEYSTORE: "private-fixture" };
+      expect(loadRepoEnv({ repoRoot, baseEnv }).T3CODE_CONNECT_MODE).toBe("legacy");
+      expect(() => loadAndroidBuildPublicEnv({ repoRoot, baseEnv, recovery: true })).toThrow(
+        /original artifact/,
+      );
+      expect(baseEnv).toEqual({
+        T3CODE_CONNECT_MODE: "legacy",
+        T3_PWA_KEYSTORE: "private-fixture",
+      });
+    },
+  );
+  it("honors historical local env precedence independently of ambient inputs", () => {
+    const repoRoot = fixture({
+      ".env": envText({ ...owned, T3CODE_CONNECT_MODE: "legacy" }),
+      ".env.local": envText({ ...owned, T3CODE_CONNECT_MODE: "cloudless" }),
+    });
+    expect(() =>
+      loadAndroidBuildPublicEnv({
+        repoRoot,
+        baseEnv: { T3CODE_CONNECT_MODE: "legacy" },
+        recovery: true,
+      }),
+    ).toThrow(/original artifact/);
+    NodeFS.writeFileSync(NodePath.join(repoRoot, ".env.local"), "T3CODE_CONNECT_MODE=legacy");
+    NodeFS.writeFileSync(
+      NodePath.join(repoRoot, ".env"),
+      envText({ ...owned, T3CODE_CONNECT_MODE: "owned" }),
+    );
+    const baseEnv = { T3CODE_CONNECT_MODE: "legacy", T3CODE_DEV_AUTH_TOKEN: "private-fixture" };
+    expect(loadAndroidBuildPublicEnv({ repoRoot, baseEnv, recovery: true })).toEqual(
+      loadRepoEnv({ repoRoot, baseEnv }),
+    );
+  });
+  it("retains the historical source's trusted public-file selection instead of masking it", () => {
+    const profileRoot = fixture({ "public.json": JSON.stringify(owned) });
+    const repoRoot = fixture({
+      ".env.local": envText({
+        T3CODE_CONNECT_MODE: "owned",
+        T3CODE_CONNECT_PROFILE_FILE: NodePath.join(profileRoot, "public.json"),
+      }),
+    });
+    expect(() =>
+      loadAndroidBuildPublicEnv({
+        repoRoot,
+        baseEnv: { T3CODE_CONNECT_MODE: "legacy", T3CODE_CONNECT_PROFILE_FILE: "" },
+        recovery: true,
+      }),
+    ).toThrow(/original artifact/);
+  });
+  it("keeps normal build selection and valid legacy recovery unchanged", () => {
+    const repoRoot = fixture({ ".env": envText({ ...owned, T3CODE_CONNECT_MODE: "legacy" }) });
+    const baseEnv = {
+      T3CODE_CONNECT_MODE: "legacy",
+      T3CODE_RELAY_URL: "https://operator.example.test",
+    };
+    expect(loadAndroidBuildPublicEnv({ repoRoot, baseEnv, recovery: true })).toEqual(
+      loadRepoEnv({ repoRoot, baseEnv }),
+    );
+    const ownedEnv = { ...owned, T3CODE_CONNECT_MODE: "owned" };
+    expect(loadAndroidBuildPublicEnv({ repoRoot, baseEnv: ownedEnv, recovery: false })).toEqual(
+      loadRepoEnv({ repoRoot, baseEnv: ownedEnv }),
+    );
+  });
+});
+
+it("cannot mask historical root cloudless mode with an empty local or ambient legacy mode", () => {
+  const repoRoot = fixture({
+    ".env": envText({ ...owned, T3CODE_CONNECT_MODE: "cloudless" }),
+    ".env.local": "T3CODE_CONNECT_MODE=",
+  });
+  expect(() =>
+    loadAndroidBuildPublicEnv({
+      repoRoot,
+      baseEnv: { T3CODE_CONNECT_MODE: "legacy" },
+      recovery: true,
+    }),
+  ).toThrow(/original artifact/);
 });

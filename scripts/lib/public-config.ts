@@ -298,3 +298,22 @@ export function assertLegacyRecoveryConnectSelection(env: Environment): void {
     );
   }
 }
+
+/** Admit historical source selection independently before merging today's build environment. */
+export function loadAndroidBuildPublicEnv({
+  recovery,
+  baseEnv = process.env,
+  repoRoot = REPO_ROOT,
+}: {
+  readonly recovery: boolean;
+  readonly baseEnv?: Environment;
+  readonly repoRoot?: string;
+}): Record<string, string | undefined> {
+  if (recovery) {
+    assertLegacyRecoveryConnectSelection(baseEnv);
+    assertLegacyRecoveryConnectSelection(loadRepoEnv({ repoRoot, baseEnv: {} }));
+  }
+  const env = loadRepoEnv({ repoRoot, baseEnv });
+  if (recovery) assertLegacyRecoveryConnectSelection(env);
+  return env;
+}

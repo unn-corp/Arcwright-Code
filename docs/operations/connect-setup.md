@@ -55,7 +55,10 @@ deployment. Expo credential links follow the owned Clerk issuer.
 Build metadata exposes a public-only normalized profile receipt and stable SHA-256 digest.
 These hooks are not complete artifact provenance: owned/cloudless historical APK recovery is
 blocked until the original artifact's profile is supplied and bound to its source and APK digest
-through release/feed provenance. Do not publish owned builds before that release/recovery work
+through release/feed provenance. Recovery admission checks the historical checkout's own env/file
+selection independently of ambient build overrides, so selecting legacy in today's environment
+cannot mask an owned or cloudless predecessor. This refusal does not establish original-artifact
+provenance. Do not publish owned builds before that release/recovery work
 and live commissioning are verified.
 
 Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment settings.

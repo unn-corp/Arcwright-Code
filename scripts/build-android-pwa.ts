@@ -7,9 +7,8 @@ import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
 import {
-  loadRepoEnv,
+  loadAndroidBuildPublicEnv,
   resolvePublicConfig,
-  assertLegacyRecoveryConnectSelection,
   connectProfileReceipt,
   connectProfileDigest,
 } from "./lib/public-config.ts";
@@ -128,9 +127,10 @@ const forkBuildNumber = Number(
 );
 if (!Number.isSafeInteger(forkBuildNumber) || forkBuildNumber < 0 || forkBuildNumber > 2147483647)
   throw new Error("Invalid Arcwright build number.");
-if (plan.recovery) assertLegacyRecoveryConnectSelection(process.env);
-const publicEnv = loadRepoEnv({ repoRoot: plan.sourceDir });
-if (plan.recovery) assertLegacyRecoveryConnectSelection(publicEnv);
+const publicEnv = loadAndroidBuildPublicEnv({
+  repoRoot: plan.sourceDir,
+  recovery: plan.recovery,
+});
 const profileDigest = connectProfileDigest(connectProfileReceipt(publicEnv));
 const nativeAuthEnv = androidManagedAuthBuildEnv(resolvePublicConfig(publicEnv));
 const webAssets = NodePath.join(android, "app/build/generated/web-assets");
