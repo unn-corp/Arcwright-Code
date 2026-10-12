@@ -10,7 +10,7 @@ import org.junit.Test
 class ManagedRegistrationCleanupTest {
     private val fence = ConnectAuthStatus(true, "signedIn", 7, "user", "session")
     private fun ref(revision: String, user: String = "user", session: String = "session") = JSONObject()
-        .put("mode", "managed").put("userId", user).put("sessionId", session).put("registrationRevision", revision)
+        .put("mode", "managed").put("authority", "fixture-authority").put("userId", user).put("sessionId", session).put("registrationRevision", revision)
     private class Store {
         val lock = Any()
         var refs = JSONObject()
@@ -23,8 +23,7 @@ class ManagedRegistrationCleanupTest {
             { assertTrue(Thread.holdsLock(lock)); JSONObject(refs.toString()) },
             { assertTrue(Thread.holdsLock(lock)); refs = JSONObject(it.toString()); writes++ },
             { captured -> account.generation == captured.generation && account.userId == captured.userId && account.sessionId == captured.sessionId && account.phase == "signedIn" },
-            { _, _, _ -> assertTrue(Thread.holdsLock(lock)); state = null; evictions++ },
-        )
+            { _, _, _ -> assertTrue(Thread.holdsLock(lock)); state = null; evictions++ }, authority = { "fixture-authority" })
     }
     private fun lateCleanup(store: Store, expected: JSONObject, newer: () -> Unit): Boolean {
         val ready = CountDownLatch(1); val rejected = CountDownLatch(1)
@@ -87,7 +86,7 @@ class ManagedRegistrationCleanupTest {
         var refs = JSONObject().put("env", ref("old")); var state: String? = "old-state"
         val cleanup = ManagedRegistrationCleanup(lock, {
             assertTrue(Thread.holdsLock(lock)); compared.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)); JSONObject(refs.toString())
-        }, { assertTrue(Thread.holdsLock(lock)); refs = it }, { true }, { _, _, _ -> assertTrue(Thread.holdsLock(lock)); state = null })
+        }, { assertTrue(Thread.holdsLock(lock)); refs = it }, { true }, { _, _, _ -> assertTrue(Thread.holdsLock(lock)); state = null }, authority = { "fixture-authority" })
         val executor = Executors.newFixedThreadPool(2)
         try {
             val rejected = executor.submit<Boolean> { cleanup.reject("env", ref("old"), fence) }

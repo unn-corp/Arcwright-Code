@@ -55,7 +55,7 @@ function ConfiguredT3ConnectSidebarAvatar() {
 }
 
 function ConfiguredT3ConnectSidebarSignIn() {
-  const { isLoaded, isSignedIn, isSigningIn, error, surface } = useManagedAuth();
+  const { isLoaded, isSignedIn, isSigningIn, isUnavailable, error, surface } = useManagedAuth();
   const { authPrompt, openAuthPrompt } = useT3ConnectAuthPrompt();
 
   if (isSignedIn || (!isLoaded && surface !== "android")) return null;
@@ -64,14 +64,16 @@ function ConfiguredT3ConnectSidebarSignIn() {
     <>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton onClick={openAuthPrompt} disabled={isSigningIn}>
+          <SidebarMenuButton onClick={openAuthPrompt} disabled={isSigningIn || isUnavailable}>
             <LogInIcon />
             <span>
-              {isSigningIn
-                ? "Finish sign-in in your browser…"
-                : !isLoaded && !error
-                  ? "Connecting account…"
-                  : "Sign in to Arcwright Connect"}
+              {isUnavailable
+                ? "Arcwright Connect account unavailable"
+                : isSigningIn
+                  ? "Finish sign-in in your browser…"
+                  : !isLoaded && !error
+                    ? "Connecting account…"
+                    : "Sign in to Arcwright Connect"}
             </span>
           </SidebarMenuButton>
         </SidebarMenuItem>

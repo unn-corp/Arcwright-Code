@@ -19,6 +19,7 @@ export interface ManagedAuth {
   readonly generation: string | number;
   readonly error: string | null;
   readonly isSigningIn: boolean;
+  readonly isUnavailable?: boolean;
   readonly getRelayToken: (forceRefresh?: boolean) => Promise<string | null>;
   readonly openSignIn: () => void;
   readonly signOut: () => Promise<void>;

@@ -172,9 +172,18 @@ or the device endpoint returns an error before any prompt is shown.
 The standalone APK uses the API-only Clerk Android SDK 1.1.11 through
 [ClerkConnectAuthSdk.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ClerkConnectAuthSdk.kt).
 [ArcwrightApplication.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ArcwrightApplication.kt)
-initializes one process-scoped adapter before activities or background work. Clerk owns encrypted
+admits one process-scoped adapter before activities or background work. A checked app-owned receipt
+binds the SDK store to the compiled publishable key and canonical HTTPS Frontend API. Before SDK
+construction, only emptiness of the public SDK preferences file is inspected. Unknown nonempty SDK
+stores and known mismatched receipts block all SDK observation, initialization and account operations,
+including pending logout recovery. This also applies to unstamped legacy stores: their issuer cannot
+be proven. Fresh empty stores receive the receipt synchronously before SDK initialization. Cloudless
+builds preserve SDK data and receipts without constructing the adapter. Clerk owns encrypted
 Android Keystore session/device storage, established-session restoration, PKCE and token renewal.
-The app never reads SDK private storage or copies web DPoP proof keys into Android.
+The app never reads/decrypts SDK entries, writes SDK preferences, exports refresh material or copies
+web DPoP proof keys into Android. The receipt survives same-profile logout/reset and is independent
+of build version, relay origin, JWT template and profile digest. Public SDK reset retains device
+identity; it is not a cross-issuer migration or a guarantee that delayed SDK work has quiesced.
 
 Account Portal sign-in (including Google when enabled in the owned instance) opens the system
 browser through `Clerk.auth.startHostedAuth`. The dedicated callback activity accepts only
@@ -183,7 +192,8 @@ Canceling, interrupting, or superseding a login releases it. A process killed du
 SDK in-memory PKCE: the app consumes that exact callback as stale and asks the user to retry.
 Persisted navigation markers contain no callback, authorization code, credential, or verifier.
 An established session can restore after process death. A sign-out marker ensures a process
-interrupted during logout clears the SDK account before exposing account state on its next launch.
+interrupted during logout resets a same-profile SDK account before mounting the adapter observer on
+its next launch. A mismatched profile cannot initialize the SDK to perform that reset.
 
 [ConnectAuthBridge.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuthBridge.kt)
 provides `t3ConnectAuth` only to main-frame messages from `https://appassets.androidplatform.net`.
@@ -213,13 +223,19 @@ cache, bounded nonce retries, one rejected-token refresh and existing network ba
 invalid scope/type/expiry, mismatched origins/descriptors and authorization denial are rejected.
 
 [NativeManagedNotifications.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedNotifications.kt)
-observes native auth without a WebView. Persisted references bind user/session identity; process-local
+observes native auth without a WebView. Explicit new registrations bind the compiled PK/Frontend API,
+normalized HTTPS relay origin and JWT template in a separate native authority stamp. Unknown and
+foreign references remain dormant without launch-time adoption, revision creation or rewrites. A new
+relay/template on the same Clerk profile preserves the SDK session while leaving old notification
+references dormant. Persisted references also bind user/session identity; process-local
 generations are captured again after SDK restoration. Loading/network failures retain registrations.
-An authoritative logout/account change evicts managed references and fences HTTP, sockets and queued
-alerts while retaining independent direct pairing, browser state and drafts. Ordered configuration
+An authoritative logout/account change evicts only current-authority managed references and fences
+HTTP, sockets and queued alerts while retaining independent direct pairing, browser state and drafts. Ordered configuration
 and registration writes allow managed/direct route changes while rejecting stale registrations.
-Every accepted managed registration gets an opaque native revision. Rejection cleanup compares
-that revision and the captured account/session/generation against native auth under the same lock
+Every accepted managed registration gets an opaque native revision. Admission, selected connection,
+cache/tickets, rejection cleanup, queued frames, watermarks and posts all retain authority fencing.
+Unknown/foreign refs cannot open DPoP keys, HTTP or sockets or authorize cached frames. Rejection
+cleanup compares that revision and the captured account/session/generation against native auth under the same lock
 as registration writes. An old HTTP rejection therefore cannot erase a newer registration or its
 state; deferred token eviction also matches the captured revision/fence. Cold restoration retains
 the revision while capturing the restored SDK session's fresh process generation.

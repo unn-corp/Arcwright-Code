@@ -201,7 +201,25 @@ See [Clerk hosted auth](https://clerk.com/docs/android/guides/account-portal/hos
 
 Build with the complete owned public profile described above. The Android build helper resolves
 `loadRepoEnv` once, sends that profile to Vite and native BuildConfig, and supplies its public digest.
-Explicit cloudless mode clears managed inputs; absent-mode legacy builds retain existing behavior. Do not copy upstream example public configuration into an owned deployment by accident.
+Explicit cloudless mode clears managed inputs; absent-mode legacy builds retain legacy public input
+resolution, subject to native storage admission below. Do not copy upstream example public
+configuration into an owned deployment by accident.
+
+Keep the commissioned production Frontend API `https://clerk.arcwright.space` and publishable key
+`pk_live_Y2xlcmsuYXJjd3JpZ2h0LnNwYWNlJA` stable before the first phone installation. The package and
+signer registration remains `com.devotek.t3code.pwa` / SHA-256
+`eb38a25cf25676b7418fee5105f66d9ff166bfd5546ba816288e5bd83b73d362`; preserve the callback above.
+Changing the issuer after installation is not supported as an in-place SDK migration. Native startup
+blocks an unknown nonempty SDK store or a mismatched app-owned issuer receipt before any SDK call.
+Rebuilding, retrying, restarting or invoking public SDK reset does not establish a safe cross-issuer
+recovery: reset retains SDK device identity, and delayed SDK responses can repopulate state. Keep the
+matching issuer build for existing data and use direct pairing while the maintainer assesses recovery.
+Do not clear app data, uninstall, copy SDK/refresh credentials or edit SDK storage to bypass this gate.
+Legacy stores without a receipt receive the same conservative treatment when nonempty.
+Managed notification references separately bind issuer, relay origin and JWT template. Unknown or
+foreign references stay dormant and unchanged; only a new explicit registration from the current
+native account can stamp the selected authority. Direct credentials and saved route choices survive.
+
 The configured relay JWT template must carry the existing `aud: t3-code-relay` contract and a short
 lifetime; the native bridge does not accept caller-selected templates.
 

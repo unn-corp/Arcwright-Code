@@ -11,8 +11,9 @@ import kotlinx.coroutines.flow.*
 
 /** Clerk 1.1.11 API artifact owns encrypted Android Keystore storage, PKCE and session renewal. */
 class ClerkConnectAuthSdk(private val application: Application, private val key: String, scope: CoroutineScope) : ConnectAuthSdk {
-    override val states = combine(Clerk.isInitialized, Clerk.initializationError, Clerk.sessionFlow, Clerk.userFlow) { _, _, _, _ -> current() }
+    override val states by lazy { combine(Clerk.isInitialized, Clerk.initializationError, Clerk.sessionFlow, Clerk.userFlow) { _, _, _, _ -> current() }
         .stateIn(scope, SharingStarted.Eagerly, current())
+    }
 
     override fun current(): ConnectSdkState {
         if (!Clerk.isInitialized.value) return ConnectSdkState(false, error = Clerk.initializationError.value != null)

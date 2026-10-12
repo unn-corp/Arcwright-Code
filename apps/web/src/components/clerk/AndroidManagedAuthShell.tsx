@@ -25,6 +25,7 @@ export default function AndroidManagedAuthShell({
       generation: status.generation,
       error: status.error,
       isSigningIn: status.phase === "signingIn",
+      isUnavailable: !status.available,
       getRelayToken: (forceRefresh = false) => androidAuthStore.getRelayToken(forceRefresh, status),
       openSignIn: androidAuthStore.signIn,
       signOut: androidAuthStore.signOut,

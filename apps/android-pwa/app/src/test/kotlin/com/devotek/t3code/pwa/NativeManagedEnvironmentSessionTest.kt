@@ -18,6 +18,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeManagedEnvironmentSessionTest {
+    @Test fun foreignCachedTicketIsRejectedBeforeAccountUseOrFurtherHttp() {
+        val backend = Backend(); val ticket = backend.ticket(); val paths = backend.paths.toList()
+        assertEquals("fixture-authority", ticket.authorityStamp)
+        assertTrue(backend.session.isCurrent(ticket))
+        assertFalse(backend.session.isCurrent(ticket.copy(authorityStamp = "foreign-authority")))
+        assertEquals(paths, backend.paths)
+    }
     private class Account : NativeManagedAccount {
         @Volatile var fence = ConnectAuthStatus(true, "signedIn", 77, "user", "session")
         var ready = true
@@ -42,7 +49,7 @@ class NativeManagedEnvironmentSessionTest {
         var code: (Request) -> Int = { 200 }
         var after: (Request) -> Unit = {}
         val client = OkHttpClient.Builder().addInterceptor(this).build()
-        val session = NativeManagedEnvironmentSession("https://relay.test/", account, key, client, { now }, "test-version")
+        val session = NativeManagedEnvironmentSession("https://relay.test/", account, key, client, { now }, "test-version", "fixture-authority")
         fun ticket() = session.ticket("env-1", "user", "session")
         override fun intercept(chain: Interceptor.Chain): Response {
             val request = chain.request(); val path = request.url.encodedPath
@@ -176,9 +183,9 @@ class NativeManagedEnvironmentSessionTest {
         for (url in listOf("http://relay.test", "https://user@relay.test", "https://relay.test/?token=x", "https://relay.test/#fragment", "https://relay.test/path")) assertThrows(ManagedProtocolRejected::class.java) { NativeManagedEnvironmentSession.secureBase(url) }
     }
     @Test fun lateFakeHttpRejectionUsesRegistrationScopedCleanupAndPreservesReplacement() {
-        val backend = Backend(); val old = JSONObject().put("mode", "managed").put("userId", "user").put("sessionId", "session").put("registrationRevision", "old")
+        val backend = Backend(); val old = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("userId", "user").put("sessionId", "session").put("registrationRevision", "old")
         val lock = Any(); var refs = JSONObject().put("env-1", old); var state: String? = "old-state"; var evictions = 0
-        val cleanup = ManagedRegistrationCleanup(lock, { JSONObject(refs.toString()) }, { refs = it }, backend.account::current, { _, _, _ -> state = null; evictions++ })
+        val cleanup = ManagedRegistrationCleanup(lock, { JSONObject(refs.toString()) }, { refs = it }, backend.account::current, { _, _, _ -> state = null; evictions++ }, authority = { "fixture-authority" })
         val entered = CountDownLatch(1); val release = CountDownLatch(1)
         backend.after = { if (it.url.encodedPath == "/api/auth/websocket-ticket") { entered.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)) } }
         backend.code = { if (it.url.encodedPath == "/api/auth/websocket-ticket") 403 else 200 }
@@ -221,10 +228,10 @@ class NativeManagedEnvironmentSessionTest {
     private fun ticketAdmissionRecovery(displaced: Boolean) {
         val backend = Backend()
         val captured = backend.account.fence
-        val expected = JSONObject().put("mode", "managed").put("registrationRevision", "current")
+        val expected = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("registrationRevision", "current")
             .put("userId", "user").put("sessionId", "session")
         var selected: JSONObject? = expected
-        val guard = NotificationFrameState(Any(), { selected }, backend.account::current, { _, _ -> }, { backend.account.fence == it })
+        val guard = NotificationFrameState(Any(), { selected }, backend.account::current, { _, _ -> }, { backend.account.fence == it }, authority = { "fixture-authority" })
         var retry: Runnable? = null
         var discarded = 0
         val opened = mutableListOf<HttpUrl>()

@@ -28,7 +28,7 @@ class ConnectAuthPublicationRaceTest {
         override var pendingSignOut = false
             set(value) { assertTrue("Logout markers and native transition must share admission monitor", Thread.holdsLock(monitor)); field = value }
     }
-    private fun managed() = JSONObject().put("mode", "managed").put("registrationRevision", "current")
+    private fun managed() = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("registrationRevision", "current")
         .put("userId", "user").put("sessionId", "session")
     private fun direct() = JSONObject().put("httpBaseUrl", "http://tailnet.test/").put("token", "paired").put("registrationRevision", "direct")
     private fun transitionCannotOvertakeAdmittedWork(logout: Boolean, persistence: Boolean) {
@@ -47,7 +47,7 @@ class ConnectAuthPublicationRaceTest {
             assertEquals(fence.generation, auth.status.value.generation)
             events.add(if (persistence) "persist" else "post")
         }
-        val guard = NotificationFrameState(monitor, { expected }, auth::isCurrent, { _, value -> admittedWork(); receipt = value }, auth::owns)
+        val guard = NotificationFrameState(monitor, { expected }, auth::isCurrent, { _, value -> admittedWork(); receipt = value }, auth::owns, authority = { "fixture-authority" })
         val executor = Executors.newFixedThreadPool(2)
         try {
             val work = executor.submit<Boolean> {
@@ -85,7 +85,7 @@ class ConnectAuthPublicationRaceTest {
         val auth = ConnectAuth(sdk, scope, Markers(monitor), "fixture", true, monitor)
         val fence = auth.accountFence(); val selected = direct()
         var receipt: String? = null; var posts = 0
-        val guard = NotificationFrameState(monitor, { selected }, { throw AssertionError("Direct pairing cannot consult Clerk") }, { _, value -> receipt = value })
+        val guard = NotificationFrameState(monitor, { selected }, { throw AssertionError("Direct pairing cannot consult Clerk") }, { _, value -> receipt = value }, authority = { "fixture-authority" })
         try {
             assertEquals("fixture", runBlocking { auth.getRelayToken() })
             val logout = auth.signOut()

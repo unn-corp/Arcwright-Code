@@ -41,7 +41,10 @@ class ConnectAuthBridge(private val activity: MainActivity, private val webView:
                     post(reply, JSONObject().put("id", request.id).put("result", result), page)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) {
-                    post(reply, JSONObject().put("id", request.id).put("error", "Account request did not finish. Please try again."), page)
+                    val status = auth.status.value
+                    val error = if (!status.available) status.error ?: "Arcwright Connect is unavailable in this build."
+                        else "Account request did not finish. Please try again."
+                    post(reply, JSONObject().put("id", request.id).put("error", error), page)
                 } finally {
                     // A new document can reuse request IDs; an old canceled job must not unregister its replacement.
                     if (jobs[request.id] === currentCoroutineContext()[Job]) jobs.remove(request.id)

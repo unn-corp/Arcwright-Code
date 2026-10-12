@@ -10,7 +10,7 @@ import org.junit.Test
 
 class NotificationFrameStateTest {
     private val fence = ConnectAuthStatus(true, "signedIn", 7, "user", "session")
-    private fun managed(revision: String) = JSONObject().put("mode", "managed").put("userId", "user").put("sessionId", "session").put("registrationRevision", revision)
+    private fun managed(revision: String) = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("userId", "user").put("sessionId", "session").put("registrationRevision", revision)
     private fun direct(revision: String? = "direct") = JSONObject().put("httpBaseUrl", "http://tailnet.test/").put("token", "direct-pairing").apply {
         if (revision != null) put("registrationRevision", revision)
     }
@@ -27,8 +27,7 @@ class NotificationFrameStateTest {
         val guard = NotificationFrameState(lock,
             { assertTrue(Thread.holdsLock(lock)); selected },
             { captured -> accountChecks++; account.phase == "signedIn" && account.generation == captured.generation && account.userId == captured.userId && account.sessionId == captured.sessionId },
-            { _, receipt -> assertTrue(Thread.holdsLock(lock)); state = receipt },
-        )
+            { _, receipt -> assertTrue(Thread.holdsLock(lock)); state = receipt }, authority = { "fixture-authority" })
         fun publish(expected: JSONObject, fence: ConnectAuthStatus?) = guard.publish("env", expected, fence) {
             assertTrue(Thread.holdsLock(lock)); posts++
         }
@@ -105,7 +104,7 @@ class NotificationFrameStateTest {
         val expected = managed("current"); var selected: JSONObject? = expected; var saved: String? = null
         val guard = NotificationFrameState(lock, { assertTrue(Thread.holdsLock(lock)); selected }, { true }, { _, state ->
             assertTrue(Thread.holdsLock(lock)); writing.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)); saved = state
-        })
+        }, authority = { "fixture-authority" })
         val executor = Executors.newFixedThreadPool(2)
         try {
             val receipt = parsedReceipt()
@@ -120,7 +119,7 @@ class NotificationFrameStateTest {
     @Test fun actualPublicationIsSerializedWithSelectionReplacement() {
         val lock = Any(); val posting = CountDownLatch(1); val release = CountDownLatch(1); val replacementStarted = CountDownLatch(1)
         val old = direct(); var selected: JSONObject? = old; var posts = 0
-        val guard = NotificationFrameState(lock, { assertTrue(Thread.holdsLock(lock)); selected }, { throw AssertionError("Direct publication must not consult Clerk") }, { _, _ -> })
+        val guard = NotificationFrameState(lock, { assertTrue(Thread.holdsLock(lock)); selected }, { throw AssertionError("Direct publication must not consult Clerk") }, { _, _ -> }, authority = { "fixture-authority" })
         val executor = Executors.newFixedThreadPool(2)
         try {
             val publication = executor.submit<Boolean> { guard.publish("env", old, null) {

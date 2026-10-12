@@ -9,12 +9,15 @@ class ManagedRegistrationCleanup(
     private val write: (JSONObject) -> Unit,
     private val current: (ConnectAuthStatus) -> Boolean,
     private val removeDependents: (String, JSONObject, ConnectAuthStatus) -> Unit,
+    private val authority: () -> String? = { null },
 ) {
     fun reject(id: String, expected: JSONObject, fence: ConnectAuthStatus): Boolean = synchronized(lock) {
         val revision = expected.optString("registrationRevision")
+        if (!NotificationRegistrationPolicy.belongs(expected, authority())) return@synchronized false
         if (revision.isEmpty() || expected.optString("userId") != fence.userId || expected.optString("sessionId") != fence.sessionId || !current(fence)) return@synchronized false
         val refs = read()
         val actual = refs.optJSONObject(id) ?: return@synchronized false
+        if (!NotificationRegistrationPolicy.belongs(actual, authority())) return@synchronized false
         if (actual.optString("registrationRevision") != revision || actual.optString("userId") != fence.userId || actual.optString("sessionId") != fence.sessionId) return@synchronized false
         refs.remove(id)
         write(refs)

@@ -20,7 +20,7 @@ class NotificationReadinessRecoveryTest {
         override fun reset() { states.value = ConnectSdkState(true) }
     }
     private class Markers : ConnectAuthMarkers { override var pendingSignIn = false; override var pendingSignOut = false }
-    private fun config(revision: String = "current") = JSONObject().put("mode", "managed").put("registrationRevision", revision)
+    private fun config(revision: String = "current") = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("registrationRevision", revision)
         .put("userId", "user").put("sessionId", "session")
     private fun approval() = JSONObject().put("id", "approval").put("latestRunId", "run").put("status", "waiting")
         .put("activityRunStatus", JSONObject.NULL).put("archivedAt", JSONObject.NULL).put("deletedAt", JSONObject.NULL)
@@ -38,7 +38,7 @@ class NotificationReadinessRecoveryTest {
         var posts = 0
         var retries = 0
         var discarded = 0
-        val guard = NotificationFrameState(lock, { selected }, auth::isCurrent, { _, value -> saved = value }, auth::owns)
+        val guard = NotificationFrameState(lock, { selected }, auth::isCurrent, { _, value -> saved = value }, auth::owns, authority = { "fixture-authority" })
         fun consume(item: JSONObject, now: Long): Int {
             owner.reconcile(item)
             val alerts = state.consume(item)

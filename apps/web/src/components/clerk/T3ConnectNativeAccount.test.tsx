@@ -75,6 +75,25 @@ function account(): ManagedAuth {
   };
 }
 describe("APK account UI without a web Clerk provider", () => {
+  it("shows an unavailable native authority without offering sign-in retry", async () => {
+    const auth = {
+      ...account(),
+      isLoaded: false,
+      isSignedIn: false,
+      userId: null,
+      sessionId: null,
+      isUnavailable: true,
+      error: "Use your paired environments and contact your maintainer.",
+    };
+    await render(auth);
+    expect(container!.textContent).toContain(auth.error);
+    const button = Array.from(container!.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Arcwright Connect account unavailable"),
+    )!;
+    expect(button.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(auth.openSignIn).not.toHaveBeenCalled();
+  });
   it("opens the reused account pages in an app dialog and shows native sign-in after logout", async () => {
     const auth = account();
     await render(auth);

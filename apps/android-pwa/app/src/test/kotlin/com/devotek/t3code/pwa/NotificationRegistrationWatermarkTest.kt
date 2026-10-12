@@ -8,7 +8,7 @@ import org.junit.Test
 class NotificationRegistrationWatermarkTest {
     private fun direct(url: String = "http://tailnet.test/", token: String = "paired") =
         NotificationRegistrationPolicy.directReference(null, false, url, token)
-    private fun managed(revision: String) = JSONObject().put("mode", "managed").put("registrationRevision", revision)
+    private fun managed(revision: String) = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("registrationRevision", revision)
         .put("userId", "user").put("sessionId", "session")
     private fun snapshot(title: String): JSONObject {
         fun thread(id: String, status: String) = JSONObject().put("id", id).put("title", title)
@@ -31,7 +31,7 @@ class NotificationRegistrationWatermarkTest {
         val posted = mutableListOf<String>()
         val guard = NotificationFrameState(lock, { selected }, { it == fence }, { _, value ->
             assertTrue(Thread.holdsLock(lock)); saved = value
-        })
+        }, authority = { "fixture-authority" })
         fun consume(snapshot: JSONObject, now: Long): Int {
             val config = selected!!
             owner.reconcile(snapshot)

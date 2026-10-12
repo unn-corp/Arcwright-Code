@@ -9,12 +9,14 @@ class NotificationFrameState(
     private val accountCurrent: (ConnectAuthStatus) -> Boolean,
     private val write: (String, String) -> Unit,
     private val accountOwned: (ConnectAuthStatus) -> Boolean = accountCurrent,
+    private val authority: () -> String? = { null },
 ) {
     private fun matches(id: String, expected: JSONObject, fence: ConnectAuthStatus?, ownershipOnly: Boolean = false): Boolean {
         val actual = selected(id) ?: return false
         val managed = expected.optString("mode") == "managed"
         if (managed != (actual.optString("mode") == "managed") || expected.optString("registrationRevision") != actual.optString("registrationRevision")) return false
         if (!managed) return actual.optString("httpBaseUrl") == expected.optString("httpBaseUrl") && actual.optString("token") == expected.optString("token")
+        if (!NotificationRegistrationPolicy.belongs(expected, authority()) || !NotificationRegistrationPolicy.belongs(actual, authority())) return false
         return fence != null && expected.optString("registrationRevision").isNotEmpty() &&
             actual.optString("userId") == expected.optString("userId") && actual.optString("sessionId") == expected.optString("sessionId") &&
             expected.optString("userId") == fence.userId && expected.optString("sessionId") == fence.sessionId &&

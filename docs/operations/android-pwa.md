@@ -707,12 +707,28 @@ Direct Gradle development checks use the corresponding `T3_PWA_CONNECT_MODE`,
 separate from the remote hosted authorization origin. Owned/cloudless historical recovery remains
 blocked pending original-artifact profile/source/APK provenance.
 
+Native startup also checks a durable PK/Frontend API receipt before constructing or observing Clerk.
+Unknown nonempty SDK data and mismatched receipts block managed authentication; cloudless builds
+preserve that data without SDK access. Only fresh empty SDK stores can receive a new receipt.
+Same-profile restoration and logout recovery remain supported. Public reset retains SDK device ID
+and cannot guarantee cross-issuer cleanup; do not switch the commissioned production issuer after
+the first installation, clear app data or uninstall to bypass the gate. See the
+[native setup and recovery boundary](./connect-setup.md#android-native-sign-in-redirects).
+Managed notifications use a separate issuer/relay/template stamp. Old unknown/foreign references,
+their unknown fields and route preferences stay dormant and are not rewritten on launch. Explicit
+current-account registration activates the new authority; direct pairing remains usable.
+
 [ConnectAuthTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthTest.kt)
 and [ConnectAuthProtocolTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthProtocolTest.kt)
 cover native lifecycle/fencing and the bridge boundary. Run `:app:testReleaseUnitTest`,
 `:app:assembleRelease` and `:app:lintRelease` after producing bundled assets. Focused web tests cover
 account transitions, native observable state and the browser/Electron adapter. These checks use
 isolated fixture state and do not require installing or restarting a phone app.
+
+[ConnectAuthorityTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthorityTest.kt)
+proves SDK construction/observation is gated, and
+[NativeNotificationAuthorityTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/NativeNotificationAuthorityTest.kt)
+checks dormant data preservation and publication fencing across authorities.
 
 The [Connect setup runbook](./connect-setup.md#android-native-sign-in-redirects) owns registration,
 public configuration and pending phone proof. Native background Connect renewal is implemented;

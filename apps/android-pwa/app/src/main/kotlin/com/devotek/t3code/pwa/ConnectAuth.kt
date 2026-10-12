@@ -34,12 +34,13 @@ interface ConnectAuthMarkers {
 
 /** Main-scope state transitions share the native publication monitor. SDK work runs outside it. */
 class ConnectAuth(
-    private val sdk: ConnectAuthSdk,
+    private val sdk: ConnectAuthSdk?,
     private val scope: CoroutineScope,
     private val markers: ConnectAuthMarkers,
     private val template: String,
     configured: Boolean,
     val authorizationMonitor: Any = NotificationCredentials::class.java,
+    unavailableReason: String? = null,
 ) {
     companion object {
         const val REDIRECT_URL = "com.devotek.t3code.pwa://auth/callback"
@@ -51,7 +52,7 @@ class ConnectAuth(
         } catch (_: Exception) { false }
     }
 
-    private val mutableStatus = MutableStateFlow(ConnectAuthStatus(configured, if (configured) "initializing" else "unavailable"))
+    private val mutableStatus = MutableStateFlow(ConnectAuthStatus(configured, if (configured) "initializing" else "unavailable", error = unavailableReason))
     val status: StateFlow<ConnectAuthStatus> = mutableStatus.asStateFlow()
     private var login: Job? = null
     private var logout: Deferred<Unit>? = null
@@ -61,6 +62,7 @@ class ConnectAuth(
 
     init {
         if (configured) {
+            requireNotNull(sdk)
             if (markers.pendingSignOut) {
                 // First initialize SDK storage synchronously; reset before first initialize cannot clear persisted state.
                 // No adapter observer is mounted until the recovered local account has been reset.
@@ -87,7 +89,7 @@ class ConnectAuth(
 
     fun initialize() {
         if (!synchronized(authorizationMonitor) { status.value.available && !loggingOut }) return
-        try { sdk.initialize() }
+        try { sdk!!.initialize() }
         catch (_: Exception) { synchronized(authorizationMonitor) { mutableStatus.value = status.value.copy(phase = "error", error = "Could not start account sign-in. Please try again.") } }
     }
 
@@ -119,7 +121,7 @@ class ConnectAuth(
             check(status.value.available) { "Arcwright Connect is not configured in this build." }
             check(!loggingOut) { "Sign-out is finishing. Please try again." }
             if (login?.isCompleted == false || status.value.userId != null) return
-            sdk.current().ready
+            sdk!!.current().ready
         }
         if (!ready) { initialize(); throw IllegalStateException("Account sign-in is not ready. Please try again.") }
         val pendingLogin = synchronized(authorizationMonitor) {
@@ -131,9 +133,9 @@ class ConnectAuth(
             mutableStatus.value = status.value.copy(phase = "signingIn", error = null)
             scope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    withTimeout(5 * 60 * 1000L) { sdk.signIn() }
+                    withTimeout(5 * 60 * 1000L) { sdk!!.signIn() }
                     synchronized(authorizationMonitor) {
-                        if (attemptId == attempt && !loggingOut) observe(sdk.current())
+                        if (attemptId == attempt && !loggingOut) observe(sdk!!.current())
                     }
                 } catch (cancelled: CancellationException) {
                     synchronized(authorizationMonitor) {
@@ -173,7 +175,7 @@ class ConnectAuth(
             }
             if (callbacks.size >= 8 || !callbacks.add(raw)) return true
         }
-        try { sdk.handleCallback(raw) }
+        try { sdk!!.handleCallback(raw) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             synchronized(authorizationMonitor) { mutableStatus.value = status.value.copy(error = "Sign-in callback could not finish. Please try again.") }
@@ -191,7 +193,8 @@ class ConnectAuth(
     }
     fun isCurrent(fence: ConnectAuthStatus): Boolean = synchronized(authorizationMonitor) {
         val current = status.value
-        val account = sdk.current().account
+        if (!current.available || loggingOut || current.phase != "signedIn") return@synchronized false
+        val account = sdk!!.current().account
         !loggingOut && current.phase == "signedIn" && current.generation == fence.generation &&
             current.userId == fence.userId && current.sessionId == fence.sessionId &&
             account?.userId == fence.userId && account?.sessionId == fence.sessionId
@@ -200,12 +203,12 @@ class ConnectAuth(
         val fence = accountFence()
         check(isCurrent(fence)) { "Account session is not ready." }
         return try {
-            val token = sdk.relayToken(template, forceRefresh)
+            val token = sdk!!.relayToken(template, forceRefresh)
             check(isCurrent(fence)) { "Account changed while renewing its token." }
             token
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
-            observe(sdk.current()) // SDK authoritative revocation may clear its session; network failure does not.
+            if (status.value.available) observe(sdk!!.current()) // SDK authoritative revocation may clear its session; network failure does not.
             throw error
         }
     }
@@ -224,10 +227,10 @@ class ConnectAuth(
             callbacks.clear()
             mutableStatus.value = status.value.copy(phase = "signedOut", generation = status.value.generation + 1, userId = null, sessionId = null, error = null)
             val pendingLogout = scope.async(start = CoroutineStart.LAZY) {
-                try { withTimeout(8_000) { previousLogin?.join(); sdk.signOut() } }
+                try { withTimeout(8_000) { previousLogin?.join(); sdk!!.signOut() } }
                 catch (_: Exception) { /* Local logout still completes. */ }
                 finally {
-                    sdk.reset()
+                    sdk!!.reset()
                     synchronized(authorizationMonitor) {
                         markers.pendingSignOut = false
                         loggingOut = false

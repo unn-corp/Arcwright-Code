@@ -150,21 +150,25 @@ final class NativeNotifications {
                         connections.keys().forEachRemaining(key -> { if (!keep.contains(key)) removed.add(key); });
                         for (String key : removed) { connections.remove(key); store(activity).edit().remove("state:" + key).apply(); }
                         JSONObject direct = NotificationCredentials.read(activity);
+                        JSONObject managed = NotificationCredentials.read(activity, NativeManagedNotifications.STORAGE);
                         java.util.List<String> directRemoved = new java.util.ArrayList<>();
-                        direct.keys().forEachRemaining(key -> { if (!keep.contains(key)) directRemoved.add(key); });
+                        direct.keys().forEachRemaining(key -> {
+                            if (!keep.contains(key) && !NativeManagedNotifications.preserveDormantPreference(activity, managed, key)) directRemoved.add(key);
+                        });
                         for (String key : directRemoved) {
                             // Dormant encrypted rows may be absent from the selected connections.
                             NotificationRegistrationPolicy.reprime(direct.optJSONObject(key), null, () -> store(activity).edit().remove("state:" + key).apply());
                             direct.remove(key);
                         }
                         NotificationCredentials.write(activity, direct);
-                        JSONObject managed = NotificationCredentials.read(activity, NativeManagedNotifications.STORAGE);
                         java.util.List<String> managedRemoved = new java.util.ArrayList<>();
                         managed.keys().forEachRemaining(key -> { if (!keep.contains(key)) managedRemoved.add(key); });
                         for (String key : managedRemoved) NativeManagedNotifications.remove(activity, key);
                         JSONObject preferred = read(activity, "managedPreferred");
                         java.util.List<String> preferenceRemoved = new java.util.ArrayList<>();
-                        preferred.keys().forEachRemaining(key -> { if (!keep.contains(key)) preferenceRemoved.add(key); });
+                        preferred.keys().forEachRemaining(key -> {
+                            if (!keep.contains(key) && !NativeManagedNotifications.preserveDormantPreference(activity, managed, key)) preferenceRemoved.add(key);
+                        });
                         for (String key : preferenceRemoved) preferred.remove(key);
                         store(activity).edit().putString("managedPreferred", preferred.toString()).putString("preferences", prefs.toString()).putString("environmentIds", new JSONArray(keep).toString()).apply();
                         refresh(); break;
@@ -189,7 +193,7 @@ final class NativeNotifications {
                             refresh(); break;
                         }
                         // Legacy registrations cannot override managed selection. Current ordered writes can switch routes.
-                        if (!ordered && read(activity, "managedPreferred").has(environmentId)) break;
+                        if (!ordered && NativeManagedNotifications.prefersManaged(activity, environmentId)) break;
                         String token = payload.getString("token");
                         okhttp3.HttpUrl base = okhttp3.HttpUrl.parse(payload.getString("httpBaseUrl"));
                         if (base == null || !base.username().isEmpty() || !base.password().isEmpty() || token.isEmpty() || token.length() > 8192) throw new JSONException("Invalid environment connection.");

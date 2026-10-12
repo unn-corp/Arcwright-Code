@@ -11,7 +11,7 @@ class PhoneAlertQueueConnectionTest {
         .put("archivedAt", JSONObject.NULL).put("deletedAt", JSONObject.NULL)
     private fun direct(revision: String) = JSONObject().put("registrationRevision", revision)
         .put("httpBaseUrl", "http://tailnet.test/").put("token", "paired")
-    private fun managed() = JSONObject().put("mode", "managed").put("registrationRevision", "managed")
+    private fun managed() = JSONObject().put("mode", "managed").put("authority", "fixture-authority").put("registrationRevision", "managed")
         .put("userId", "user").put("sessionId", "session")
 
     private fun replacementDoesNotInheritOldDirectAlerts(replacement: JSONObject) {
@@ -31,7 +31,7 @@ class PhoneAlertQueueConnectionTest {
         old.close() // A repeated old close must not erase the new owner's pending work.
         val fence = ConnectAuthStatus(true, "signedIn", 7, "user", "session")
         var accountChecks = 0
-        val guard = NotificationFrameState(Any(), { replacement }, { accountChecks++; it == fence }, { _, _ -> })
+        val guard = NotificationFrameState(Any(), { replacement }, { accountChecks++; it == fence }, { _, _ -> }, authority = { "fixture-authority" })
         val published = mutableListOf<String>()
         val readyAt = NetworkNotificationPresence.MAX_LEASE_MS
         val ready = queue.take(readyAt, presence.suppressed(readyAt), presence.ready(readyAt))
@@ -71,7 +71,7 @@ class PhoneAlertQueueConnectionTest {
         // can be unavailable or signed out independently of the direct paired connection.
         owner.reconcile(JSONObject().put("kind", "thread.updated").put("thread", thread("before-retry")))
         val config = direct("unchanged")
-        val guard = NotificationFrameState(Any(), { config }, { throw AssertionError("Direct alerts must not consult Clerk") }, { _, _ -> })
+        val guard = NotificationFrameState(Any(), { config }, { throw AssertionError("Direct alerts must not consult Clerk") }, { _, _ -> }, authority = { "fixture-authority" })
         var posts = 0
         val readyAt = NetworkNotificationPresence.MAX_LEASE_MS
         val ready = queue.take(readyAt, presence.suppressed(readyAt), presence.ready(readyAt))

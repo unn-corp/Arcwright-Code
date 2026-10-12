@@ -187,6 +187,12 @@ Android's encrypted SDK storage. Signing out clears the account locally even if 
 unavailable, and removes account relay routes. Direct/Tailscale pairings, drafts and the phone
 browser stay in place.
 
+If the account is unavailable because saved account data belongs to another or unknown application,
+use your directly paired environments and contact your maintainer. A retry or app restart cannot
+move that account safely to another application. Keep your app data and pairings. After a managed
+service changes, old background registrations remain dormant until you explicitly register alerts
+with the current account; saved direct credentials and route choices remain available.
+
 Native foreground account sign-in is implemented; live commissioning of the owned Clerk and
 relay service remains pending. Maintainers explicitly select owned service configuration when
 building; cloudless builds retain direct pairing without an account even if upstream build
