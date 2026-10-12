@@ -6,33 +6,57 @@ provisioning instructions.
 
 ## Public application configuration
 
-Arcwright Connect is disabled in a fresh clone. The repository-root example contains public
-configuration for upstream T3 services at `relay.t3.codes` and `clerk.t3.codes`.
-Copy it only when deliberately building against that upstream service:
+Choose `T3CODE_CONNECT_MODE=legacy|owned|cloudless` before building. An absent mode keeps
+legacy behavior, including upstream example configuration and per-field process > `.env.local` >
+`.env` precedence. Private Arcwright production Clerk, hosted app and relay delivery remain
+uncommissioned; branding and a development identity do not provision production services.
 
-```sh
-cp .env.example .env
-```
-
-Private Arcwright Connect has not been commissioned. Its planned Clerk identity and Cloudflare
-relay deployment require their own configuration and verification before use; the branding does
-not provision those services. For your own deployment, set these values in the repository-root
-`.env` or `.env.local`:
+Owned mode requires one complete public profile:
 
 ```dotenv
+T3CODE_CONNECT_MODE=owned
 T3CODE_CLERK_PUBLISHABLE_KEY=<publishable key>
 T3CODE_CLERK_JWT_TEMPLATE=<JWT template name>
 T3CODE_CLERK_CLI_OAUTH_CLIENT_ID=<public OAuth application client ID>
 T3CODE_RELAY_URL=https://relay.example.com
+T3CODE_HOSTED_APP_URL=https://app.example.com
 ```
 
-Process variables take precedence over `.env.local`, then `.env`. Use these canonical names;
-the build loader supplies framework-specific aliases. These values are public identifiers.
-`CLERK_SECRET_KEY` belongs only in the relay's secrets, never in client configuration.
+Without a profile file, the first source containing any Connect public field wins as a whole:
+process variables, then `.env.local`, then `.env`. A partial higher source fails instead of mixing
+with lower sources. Framework/native aliases are accepted when they agree exactly after trimming;
+conflicting aliases fail. Use canonical names for operator input.
 
-Client and bundled-server builds embed the public values, so set them before building.
-EAS preview and production environments need the publishable key, JWT template name, and relay URL.
-Bundled servers also accept runtime overrides for operator-managed deployments.
+Alternatively, set `T3CODE_CONNECT_PROFILE_FILE` to a JSON file containing exactly the five
+canonical public keys above, excluding the mode. Relative paths resolve from the repository root;
+absolute paths support frozen profiles outside the checkout. The file must be a regular file no
+larger than 16 KiB. Unknown keys, secrets and malformed files fail with value/path-free errors.
+This explicit file wins incidental root env files. Process Connect fields alongside it must form a
+complete, normalized-identical profile; partial or conflicting process overrides fail.
+
+Owned profiles validate the Clerk publishable key, bounded identifiers, and HTTPS relay/hosted
+origins without credentials, paths, query or fragments. Relay, hosted app and decoded Clerk issuer
+cannot use `t3.codes` or its subdomains. Generic Clerk development `*.accounts.dev` issuers are
+supported. `CLERK_SECRET_KEY` belongs only in relay secrets, never in a public profile.
+
+Cloudless mode explicitly clears managed canonical, web, Expo and native build inputs even when
+ambient/root env configuration exists. Unrelated signing, toolchain, tracing and development
+inputs retain their existing precedence. Expo omits Clerk setup and credential associations.
+This build selection does not complete the historical CloudLink lifecycle/authority migration.
+
+Web, bundled CLI, standalone APK and Expo use the selected profile. Owned CLI headless OAuth
+uses its hosted origin; runtime overrides must supply all five fields atomically. An owned or
+cloudless build rejects a contradictory runtime mode. Legacy builds can explicitly select owned
+runtime mode with a complete validated profile. `VITE_CONNECT_HOSTED_APP_URL` carries the remote
+authorization origin; `VITE_HOSTED_APP_URL` remains surface classification, including Android's
+`https://appassets.androidplatform.net`. Set that surface origin explicitly only for a hosted web
+deployment. Expo credential links follow the owned Clerk issuer.
+
+Build metadata exposes a public-only normalized profile receipt and stable SHA-256 digest.
+These hooks are not complete artifact provenance: owned/cloudless historical APK recovery is
+blocked until the original artifact's profile is supplied and bound to its source and APK digest
+through release/feed provenance. Do not publish owned builds before that release/recovery work
+and live commissioning are verified.
 
 Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment settings.
 Deploy `prod` before personal stages because it owns the retained database that their branches
@@ -101,10 +125,9 @@ allow `com.devotek.t3code.pwa://auth/callback` for Account Portal hosted auth. P
 Expo entries above. This callback is distinct from Expo's Clerk SDK callback and desktop navigation.
 See [Clerk hosted auth](https://clerk.com/docs/android/guides/account-portal/hosted-auth).
 
-Build with the owned application's public `T3CODE_CLERK_PUBLISHABLE_KEY`, `T3CODE_CLERK_JWT_TEMPLATE`
-and HTTPS `T3CODE_RELAY_URL`. The Android build helper resolves root `.env`/`.env.local` once using
-`loadRepoEnv`, sends those same values to Vite and native BuildConfig, and keeps unset configuration
-cloudless. Do not copy upstream example public configuration into an owned deployment by accident.
+Build with the complete owned public profile described above. The Android build helper resolves
+`loadRepoEnv` once, sends that profile to Vite and native BuildConfig, and supplies its public digest.
+Explicit cloudless mode clears managed inputs; absent-mode legacy builds retain existing behavior. Do not copy upstream example public configuration into an owned deployment by accident.
 The configured relay JWT template must carry the existing `aud: t3-code-relay` contract and a short
 lifetime; the native bridge does not accept caller-selected templates.
 

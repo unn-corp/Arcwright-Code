@@ -5,12 +5,26 @@ import {
 } from "@t3tools/shared/connectAuth";
 import { clerkFrontendApiUrlFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
+import {
+  CONNECT_PUBLIC_KEYS,
+  CONNECT_PUBLIC_ALIASES,
+  effectiveConnectProfile,
+  resolveConnectMode,
+  selectConnectProfile,
+  type ConnectProfileReceipt,
+  type ConnectPublicKey,
+} from "@t3tools/shared/connectProfile";
+import * as Option from "effect/Option";
 import * as Config from "effect/Config";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 
+declare const __T3CODE_BUILD_CONNECT_MODE__: string | undefined;
+declare const __T3CODE_BUILD_HOSTED_APP_URL__: string | undefined;
+declare const __T3CODE_BUILD_CLERK_JWT_TEMPLATE__: string | undefined;
+declare const __T3CODE_BUILD_CONNECT_PROFILE_DIGEST__: string | undefined;
 declare const __T3CODE_BUILD_RELAY_URL__: string | undefined;
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
 declare const __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__: string | undefined;
@@ -63,6 +77,83 @@ const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
     ? undefined
     : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
 );
+export const buildConnectMode = resolveConnectMode(
+  typeof __T3CODE_BUILD_CONNECT_MODE__ === "undefined" ? undefined : __T3CODE_BUILD_CONNECT_MODE__,
+);
+export const buildConnectProfileDigest =
+  typeof __T3CODE_BUILD_CONNECT_PROFILE_DIGEST__ === "undefined"
+    ? ""
+    : __T3CODE_BUILD_CONNECT_PROFILE_DIGEST__;
+export const buildConnectProfile = selectConnectProfile(buildConnectMode, [
+  {
+    T3CODE_CLERK_PUBLISHABLE_KEY: buildTimeClerkPublishableKey,
+    T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: buildTimeClerkCliOAuthClientId,
+    T3CODE_CLERK_JWT_TEMPLATE:
+      typeof __T3CODE_BUILD_CLERK_JWT_TEMPLATE__ === "undefined"
+        ? ""
+        : __T3CODE_BUILD_CLERK_JWT_TEMPLATE__,
+    T3CODE_RELAY_URL: buildTimeRelayUrl,
+    T3CODE_HOSTED_APP_URL:
+      typeof __T3CODE_BUILD_HOSTED_APP_URL__ === "undefined" ? "" : __T3CODE_BUILD_HOSTED_APP_URL__,
+  },
+]);
+
+/** Every owned consumer resolves the same complete runtime source or complete compiled profile. */
+export function makeEffectiveConnectProfileConfig(build = buildConnectProfile) {
+  const names = [
+    "T3CODE_CONNECT_MODE",
+    ...CONNECT_PUBLIC_KEYS.flatMap((key) => [key, ...CONNECT_PUBLIC_ALIASES[key]]),
+  ];
+  return Config.all(
+    Object.fromEntries(names.map((name) => [name, Config.String(name).pipe(Config.option)])),
+  ).pipe(
+    Config.mapEffect((values) =>
+      Effect.try({
+        try: () =>
+          effectiveConnectProfile(
+            build,
+            Object.fromEntries(
+              Object.entries(values).map(([name, value]) => [name, Option.getOrUndefined(value)]),
+            ),
+          ),
+        catch: () =>
+          new Config.ConfigError(
+            new ConfigProvider.SourceError({
+              message:
+                "Invalid effective Connect public profile; require a complete coherent owned source and the selected build mode.",
+            }),
+          ),
+      }),
+    ),
+  );
+}
+
+function modeAwarePublicValue(
+  key: ConnectPublicKey,
+  legacy: Config.Config<string>,
+  build = buildConnectProfile,
+) {
+  return makeEffectiveConnectProfileConfig(build).pipe(
+    Config.flatMap((profile) =>
+      profile.mode === "legacy"
+        ? legacy
+        : Config.succeed(profile[key]).pipe(
+            Config.mapEffect((value) =>
+              value
+                ? Effect.succeed(value)
+                : Effect.fail(
+                    new Config.ConfigError(
+                      new ConfigProvider.SourceError({
+                        message: "Connect is disabled in cloudless mode.",
+                      }),
+                    ),
+                  ),
+            ),
+          ),
+    ),
+  );
+}
+
 const buildTimeRelayClientTracing = {
   tracesUrl: readBuildTimeValue(
     typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__ === "undefined"
@@ -95,11 +186,13 @@ export function resolveRelayClientTracingConfig(
     : null;
 }
 
-export function makeRelayUrlConfig(fallback = buildTimeRelayUrl) {
+export function makeRelayUrlConfig(fallback = buildTimeRelayUrl, build = buildConnectProfile) {
   const runtimeConfig = Config.NonEmptyString("T3CODE_RELAY_URL");
-  return (fallback ? runtimeConfig.pipe(Config.withDefault(fallback)) : runtimeConfig).pipe(
-    Config.mapEffect(validateRelayUrl),
-  );
+  return modeAwarePublicValue(
+    "T3CODE_RELAY_URL",
+    fallback ? runtimeConfig.pipe(Config.withDefault(fallback)) : runtimeConfig,
+    build,
+  ).pipe(Config.mapEffect(validateRelayUrl));
 }
 
 export const relayUrlConfig = makeRelayUrlConfig();
@@ -109,10 +202,17 @@ export const relayUrlConfig = makeRelayUrlConfig();
  * machines. Overridable so staging/nightly builds can point their CLIs at a
  * matching hosted deployment.
  */
-export const hostedAppUrlConfig = makePublicValueConfig(
-  "T3CODE_HOSTED_APP_URL",
-  DEFAULT_HOSTED_APP_URL,
-).pipe(Config.mapEffect(validateHostedAppUrl));
+export function makeHostedAppUrlConfig(
+  fallback = buildConnectProfile.T3CODE_HOSTED_APP_URL || DEFAULT_HOSTED_APP_URL,
+  build = buildConnectProfile,
+) {
+  return modeAwarePublicValue(
+    "T3CODE_HOSTED_APP_URL",
+    makePublicValueConfig("T3CODE_HOSTED_APP_URL", fallback),
+    build,
+  ).pipe(Config.mapEffect(validateHostedAppUrl));
+}
+export const hostedAppUrlConfig = makeHostedAppUrlConfig();
 
 function validateHostedAppUrl(value: string) {
   try {
@@ -168,18 +268,22 @@ export interface CloudCliOAuthConfig {
 export function makeCloudCliOAuthConfig({
   clerkPublishableKeyFallback = buildTimeClerkPublishableKey,
   clerkCliOAuthClientIdFallback = buildTimeClerkCliOAuthClientId,
+  connectProfileFallback = buildConnectProfile,
 }: {
   readonly clerkPublishableKeyFallback?: string;
   readonly clerkCliOAuthClientIdFallback?: string;
+  readonly connectProfileFallback?: ConnectProfileReceipt;
 } = {}) {
   return Config.all({
-    clerkPublishableKey: makePublicValueConfig(
+    clerkPublishableKey: modeAwarePublicValue(
       "T3CODE_CLERK_PUBLISHABLE_KEY",
-      clerkPublishableKeyFallback,
+      makePublicValueConfig("T3CODE_CLERK_PUBLISHABLE_KEY", clerkPublishableKeyFallback),
+      connectProfileFallback,
     ),
-    clientId: makePublicValueConfig(
+    clientId: modeAwarePublicValue(
       "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID",
-      clerkCliOAuthClientIdFallback,
+      makePublicValueConfig("T3CODE_CLERK_CLI_OAUTH_CLIENT_ID", clerkCliOAuthClientIdFallback),
+      connectProfileFallback,
     ),
   }).pipe(
     Config.mapEffect(({ clerkPublishableKey, clientId }) =>
@@ -211,8 +315,16 @@ export function makeCloudCliOAuthConfig({
 
 export const cloudCliOAuthConfig = makeCloudCliOAuthConfig();
 
-export const hasCloudPublicConfig = Boolean(
-  (normalizeSecureRelayUrl(process.env.T3CODE_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
-  (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
-  (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
-);
+export const hasCloudPublicConfig = (() => {
+  try {
+    const profile = effectiveConnectProfile(buildConnectProfile, process.env);
+    if (profile.mode !== "legacy") return profile.mode === "owned";
+    return Boolean(
+      (normalizeSecureRelayUrl(process.env.T3CODE_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
+      (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
+      (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
+    );
+  } catch {
+    return false;
+  }
+})();

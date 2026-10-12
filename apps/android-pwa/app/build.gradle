@@ -28,6 +28,13 @@ def manifestAssetName = manifestAssetMatch.group(1)
 def signingStore = System.getenv('T3_PWA_KEYSTORE')
 def passwordFile = System.getenv('T3_PWA_PASSWORD_FILE')
 
+// Native inputs are a projection of the selected public build profile.
+def connectMode = System.getenv('T3_PWA_CONNECT_MODE') ?: 'legacy'
+if (!(connectMode in ['legacy', 'owned', 'cloudless'])) throw new GradleException('Invalid native Connect mode.')
+if (connectMode == 'owned' && ['T3_PWA_CLERK_PUBLISHABLE_KEY', 'T3_PWA_CLERK_JWT_TEMPLATE', 'T3_PWA_CLERK_CLI_OAUTH_CLIENT_ID', 'T3_PWA_RELAY_URL', 'T3_PWA_HOSTED_APP_URL'].any { !(System.getenv(it)?.trim()) }) {
+    throw new GradleException('Owned native Connect requires a complete public profile projection.')
+}
+
 android {
     namespace 'com.devotek.t3code.pwa'
     compileSdk 36
@@ -57,8 +64,10 @@ android {
         buildConfigField 'boolean', 'RECOVERY_BUILD', recoveryBuild
         buildConfigField 'int', 'UPDATER_PROTOCOL', '1'
         // The build helper resolves root env once and supplies the same public values to Vite.
-        for (entry in [CLERK_PUBLISHABLE_KEY: 'T3_PWA_CLERK_PUBLISHABLE_KEY', CLERK_JWT_TEMPLATE: 'T3_PWA_CLERK_JWT_TEMPLATE', RELAY_URL: 'T3_PWA_RELAY_URL']) {
-            buildConfigField 'String', entry.key, groovy.json.JsonOutput.toJson(System.getenv(entry.value) ?: '')
+        for (entry in [CONNECT_MODE: 'T3_PWA_CONNECT_MODE', CONNECT_PROFILE_DIGEST: 'T3_PWA_CONNECT_PROFILE_DIGEST', HOSTED_APP_URL: 'T3_PWA_HOSTED_APP_URL', CLERK_CLI_OAUTH_CLIENT_ID: 'T3_PWA_CLERK_CLI_OAUTH_CLIENT_ID', CLERK_PUBLISHABLE_KEY: 'T3_PWA_CLERK_PUBLISHABLE_KEY', CLERK_JWT_TEMPLATE: 'T3_PWA_CLERK_JWT_TEMPLATE', RELAY_URL: 'T3_PWA_RELAY_URL']) {
+            def value = entry.key == 'CONNECT_MODE' ? connectMode :
+                (connectMode == 'cloudless' && entry.key != 'CONNECT_PROFILE_DIGEST' ? '' : (System.getenv(entry.value) ?: ''))
+            buildConfigField 'String', entry.key, groovy.json.JsonOutput.toJson(value)
         }
         manifestPlaceholders = [pwaTargetPackage: packageName, sourceCommit: sourceCommit, sourceVersion: sourceVersion, recoveryBuild: recoveryBuild, updaterProtocol: '1']
         testInstrumentationRunner providers.gradleProperty('pwaTestRunner').getOrElse('com.devotek.t3code.pwa.BrowserSmokeInstrumentation')

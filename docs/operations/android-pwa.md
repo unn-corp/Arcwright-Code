@@ -698,9 +698,14 @@ Native foreground account authentication uses Clerk Android API 1.1.11, Kotlin 2
 coroutines 1.11.0 and OkHttp 5.4.0; the existing Java shell, updater, browser and notification code
 compile against that resolved graph. The APK uses the system browser Account Portal rather than
 web Clerk inside its WebView. Missing public key, JWT template or HTTPS relay URL leaves Connect
-disabled. The signed build helper passes one `loadRepoEnv` result to both native and bundled web
-builds; direct Gradle development checks must explicitly provide the corresponding public
-`T3_PWA_CLERK_PUBLISHABLE_KEY`, `T3_PWA_CLERK_JWT_TEMPLATE`, `T3_PWA_RELAY_URL` inputs.
+disabled in legacy builds. The signed helper selects one public Connect profile for native and
+bundled web builds. Use explicit `owned` mode with all five public fields or `cloudless` mode to
+clear ambient managed configuration; see [public profile selection](./connect-setup.md#public-application-configuration).
+Direct Gradle development checks use the corresponding `T3_PWA_CONNECT_MODE`,
+`T3_PWA_CLERK_PUBLISHABLE_KEY`, `T3_PWA_CLERK_JWT_TEMPLATE`, `T3_PWA_CLERK_CLI_OAUTH_CLIENT_ID`,
+`T3_PWA_RELAY_URL` and `T3_PWA_HOSTED_APP_URL` projection. Android's local asset origin stays
+separate from the remote hosted authorization origin. Owned/cloudless historical recovery remains
+blocked pending original-artifact profile/source/APK provenance.
 
 [ConnectAuthTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthTest.kt)
 and [ConnectAuthProtocolTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthProtocolTest.kt)

@@ -15,7 +15,9 @@ The **Settings → Environments** paths below describe the upstream mobile app.
 ## Arcwright Connect
 
 Arcwright Connect is the account-based relay option. The private Arcwright service is not yet
-commissioned. The setup below applies to a build configured for an available relay and Clerk
+commissioned. Owned builds use a complete public profile selected by the maintainer; explicit
+cloudless builds keep direct pairing without managed account setup. The setup below applies to a
+build configured for an available relay and Clerk
 application; the repository public example points to upstream T3 services. Direct and Tailscale
 pairing remain available without a Connect account. Native Connect sign-in in this fork's
 standalone Android APK is implemented, with live owned-service commissioning pending. Native

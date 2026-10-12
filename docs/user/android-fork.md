@@ -188,7 +188,9 @@ unavailable, and removes account relay routes. Direct/Tailscale pairings, drafts
 browser stay in place.
 
 Native foreground account sign-in is implemented; live commissioning of the owned Clerk and
-relay service remains pending. Cloudless builds retain direct pairing without an account. Native
+relay service remains pending. Maintainers explicitly select owned service configuration when
+building; cloudless builds retain direct pairing without an account even if upstream build
+configuration exists. Native
 background alerts for Connect/DPoP routes are implemented with native account renewal. Signing out
 or changing accounts closes managed alert connections and discards their queued alerts; directly
 paired alerts remain independent. Hardware proof with the owned relay is still pending.

@@ -478,6 +478,10 @@
     "./messageReplies": {
       "types": "./src/messageReplies.ts",
       "import": "./src/messageReplies.ts"
+    },
+    "./connectProfile": {
+      "types": "./src/connectProfile.ts",
+      "import": "./src/connectProfile.ts"
     }
   },
   "scripts": {

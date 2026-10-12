@@ -6,7 +6,13 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
-import { loadRepoEnv, resolvePublicConfig } from "./lib/public-config.ts";
+import {
+  loadRepoEnv,
+  resolvePublicConfig,
+  assertLegacyRecoveryConnectSelection,
+  connectProfileReceipt,
+  connectProfileDigest,
+} from "./lib/public-config.ts";
 import { androidManagedAuthBuildEnv } from "./lib/android-pwa-public-config.ts";
 import { forkUpstreamIdentity } from "./lib/build-identity.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -122,7 +128,10 @@ const forkBuildNumber = Number(
 );
 if (!Number.isSafeInteger(forkBuildNumber) || forkBuildNumber < 0 || forkBuildNumber > 2147483647)
   throw new Error("Invalid Arcwright build number.");
+if (plan.recovery) assertLegacyRecoveryConnectSelection(process.env);
 const publicEnv = loadRepoEnv({ repoRoot: plan.sourceDir });
+if (plan.recovery) assertLegacyRecoveryConnectSelection(publicEnv);
+const profileDigest = connectProfileDigest(connectProfileReceipt(publicEnv));
 const nativeAuthEnv = androidManagedAuthBuildEnv(resolvePublicConfig(publicEnv));
 const webAssets = NodePath.join(android, "app/build/generated/web-assets");
 NodeChildProcess.execFileSync("vp", ["build", "--outDir", webAssets, "--emptyOutDir"], {
@@ -157,6 +166,7 @@ NodeChildProcess.execFileSync(
     env: {
       ...publicEnv,
       ...nativeAuthEnv,
+      T3_PWA_CONNECT_PROFILE_DIGEST: profileDigest,
       T3_PWA_KEYSTORE: NodePath.resolve(values.keystore),
       T3_PWA_PASSWORD_FILE: NodePath.resolve(values["password-file"]),
       T3_PWA_KEY_ALIAS: values["key-alias"],

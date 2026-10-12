@@ -2,7 +2,11 @@ import "vite-plus/test/config";
 import { defineConfig, mergeConfig } from "vite-plus";
 
 import baseConfig from "../../vite.config.ts";
-import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
+import {
+  loadRepoEnv,
+  connectProfileReceipt,
+  connectProfileDigest,
+} from "../../scripts/lib/public-config.ts";
 import { buildIdentity } from "../../scripts/lib/build-identity.ts";
 import packageJson from "./package.json" with { type: "json" };
 import { WeightedShardSequencer } from "./src/testUtils/weightedShardSequencer.ts";
@@ -61,6 +65,14 @@ export default mergeConfig(
         __T3CODE_APP_VERSION__: JSON.stringify(configuredAppVersion),
         __T3CODE_BUILD_IDENTITY__: JSON.stringify(buildIdentity(configuredAppVersion)),
         __T3CODE_BUILD_CHANNEL__: JSON.stringify(cliBuildChannel),
+        __T3CODE_BUILD_CONNECT_MODE__: JSON.stringify(repoEnv.T3CODE_CONNECT_MODE ?? "legacy"),
+        __T3CODE_BUILD_HOSTED_APP_URL__: JSON.stringify(repoEnv.T3CODE_HOSTED_APP_URL ?? ""),
+        __T3CODE_BUILD_CLERK_JWT_TEMPLATE__: JSON.stringify(
+          repoEnv.T3CODE_CLERK_JWT_TEMPLATE ?? "",
+        ),
+        __T3CODE_BUILD_CONNECT_PROFILE_DIGEST__: JSON.stringify(
+          connectProfileDigest(connectProfileReceipt(repoEnv)),
+        ),
         __T3CODE_BUILD_RELAY_URL__: JSON.stringify(repoEnv.T3CODE_RELAY_URL?.trim() ?? ""),
         __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: JSON.stringify(
           repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",

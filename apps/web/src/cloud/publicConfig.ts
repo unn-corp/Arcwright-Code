@@ -1,5 +1,10 @@
 import { relayClerkTokenOptions } from "@t3tools/shared/relayAuth";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
+import {
+  resolveConnectMode,
+  selectConnectProfile,
+  type ConnectMode,
+} from "@t3tools/shared/connectProfile";
 import * as Schema from "effect/Schema";
 
 export class CloudPublicConfigMissingError extends Schema.TaggedError<CloudPublicConfigMissingError>()(
@@ -14,6 +19,8 @@ export class CloudPublicConfigMissingError extends Schema.TaggedError<CloudPubli
 }
 
 export interface CloudPublicConfig {
+  readonly connectMode: ConnectMode;
+  readonly hostedAppUrl: string | null;
   readonly clerkPublishableKey: string | null;
   readonly clerkJwtTemplate: string | null;
   readonly relayUrl: string | null;
@@ -38,13 +45,36 @@ function normalizeSecureUrl(value: string): string | null {
 }
 
 export function resolveCloudPublicConfig(): CloudPublicConfig {
+  const mode = resolveConnectMode(import.meta.env.VITE_CONNECT_MODE);
+  const profile =
+    mode === "legacy"
+      ? null
+      : selectConnectProfile(mode, [
+          {
+            T3CODE_CLERK_PUBLISHABLE_KEY: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+            T3CODE_CLERK_JWT_TEMPLATE: import.meta.env.VITE_CLERK_JWT_TEMPLATE,
+            T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: import.meta.env.VITE_CLERK_CLI_OAUTH_CLIENT_ID,
+            T3CODE_RELAY_URL: import.meta.env.VITE_T3CODE_RELAY_URL,
+            T3CODE_HOSTED_APP_URL: import.meta.env.VITE_CONNECT_HOSTED_APP_URL,
+          },
+        ]);
   return {
-    clerkPublishableKey: trimNonEmpty(
-      import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined,
+    connectMode: mode,
+    hostedAppUrl: trimNonEmpty(
+      profile?.T3CODE_HOSTED_APP_URL ?? import.meta.env.VITE_CONNECT_HOSTED_APP_URL,
     ),
-    clerkJwtTemplate: trimNonEmpty(import.meta.env.VITE_CLERK_JWT_TEMPLATE as string | undefined),
+    clerkPublishableKey: trimNonEmpty(
+      profile?.T3CODE_CLERK_PUBLISHABLE_KEY ??
+        (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined),
+    ),
+    clerkJwtTemplate: trimNonEmpty(
+      profile?.T3CODE_CLERK_JWT_TEMPLATE ??
+        (import.meta.env.VITE_CLERK_JWT_TEMPLATE as string | undefined),
+    ),
     relayUrl: normalizeSecureRelayUrl(
-      (import.meta.env.VITE_T3CODE_RELAY_URL as string | undefined) ?? "",
+      profile?.T3CODE_RELAY_URL ??
+        (import.meta.env.VITE_T3CODE_RELAY_URL as string | undefined) ??
+        "",
     ),
     relayTracing: {
       tracesUrl: normalizeSecureUrl(

@@ -81,8 +81,13 @@ Android web UI, upstream Expo mobile, and CLI output. Preserve internal `T3Conne
 `t3-connect` paths, `t3 connect` commands, `T3CODE_*` keys, JWT audiences, callbacks, and persisted
 connection formats. The [Connect architecture](../internals/t3-connect.md) and
 [setup runbook](./connect-setup.md) own its trust boundaries and deployment requirements.
-The example configuration selects upstream T3 services; private Arcwright Clerk/Cloudflare
-delivery is not commissioned. Standalone APK native foreground sign-in is implemented; live
+The example configuration selects upstream T3 services in legacy mode. Explicit owned builds
+require one complete validated public profile; cloudless builds clear managed aliases across web,
+CLI, standalone Android and Expo. [connectProfile.ts](../../packages/shared/src/connectProfile.ts)
+owns pure mode/authority selection; [public-config.ts](../../scripts/lib/public-config.ts) owns
+bounded public-file loading and receipt digests. Owned/cloudless release/recovery still requires
+original-artifact profile/source/APK binding. Private Arcwright Clerk/Cloudflare delivery is not
+commissioned. Standalone APK native foreground sign-in is implemented; live
 owned-service and phone verification remain pending. Keep direct/Tailscale routes,
 saved pairings, and credentials through branding changes. Account sign-in discovers environments;
 enabling host sharing exposes one, joining saves a client route, and deregistration revokes the
@@ -689,7 +694,8 @@ is the supported API-only SDK adapter; the SDK owns Android Keystore persistence
 [ConnectAuthBridge.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuthBridge.kt)
 owns the bounded origin/main-frame bridge. The app-owned auth context and Android observable store
 feed the shared [managedAuth.tsx](../../apps/web/src/cloud/managedAuth.tsx) relay cleanup/token path.
-The build helper resolves the same root public config for native BuildConfig and bundled Vite.
+The build helper resolves one selected public profile for native BuildConfig and bundled Vite;
+remote authorization origins remain separate from local surface classification.
 [NativeManagedNotifications.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedNotifications.kt)
 owns reference registration, SDK-restoration identity checks and logout cleanup without a WebView.
 [ManagedRegistrationCleanup.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ManagedRegistrationCleanup.kt)

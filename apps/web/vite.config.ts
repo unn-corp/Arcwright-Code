@@ -15,7 +15,12 @@ import {
 } from "@t3tools/shared/devProxy";
 
 import { buildIdentity } from "../../scripts/lib/build-identity.ts";
-import { loadRepoEnv } from "../../scripts/lib/public-config";
+import {
+  loadRepoEnv,
+  connectProfileReceipt,
+  connectProfileDigest,
+} from "../../scripts/lib/public-config";
+import { webSurfaceHostedAppUrl } from "../../scripts/lib/connect-build-surfaces.ts";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 
@@ -51,20 +56,7 @@ const configuredHostedAppChannel = isAndroidPwa
   : process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
 const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredAppBuildLabel = process.env.APP_BUILD_LABEL?.trim() || "";
-const configuredHostedAppUrl = (() => {
-  if (isAndroidPwa) return "https://appassets.androidplatform.net";
-  const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
-  if (explicitHostedAppUrl) {
-    return explicitHostedAppUrl;
-  }
-  if (process.env.VERCEL_ENV === "production" && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return undefined;
-})();
+const configuredHostedAppUrl = webSurfaceHostedAppUrl(process.env, isAndroidPwa);
 const sourcemapEnv = process.env.T3CODE_WEB_SOURCEMAP?.trim().toLowerCase();
 
 // Vite 8.1's experimental bundled dev mode: serves rolldown-bundled chunks in
@@ -207,6 +199,13 @@ export default defineConfig(() => {
       ],
     },
     define: {
+      "import.meta.env.VITE_CONNECT_MODE": JSON.stringify(repoEnv.T3CODE_CONNECT_MODE ?? "legacy"),
+      "import.meta.env.VITE_CONNECT_HOSTED_APP_URL": JSON.stringify(
+        repoEnv.VITE_CONNECT_HOSTED_APP_URL ?? "",
+      ),
+      "import.meta.env.VITE_CONNECT_PROFILE_DIGEST": JSON.stringify(
+        connectProfileDigest(connectProfileReceipt(repoEnv)),
+      ),
       "import.meta.env.VITE_ANDROID_PWA": JSON.stringify(isAndroidPwa ? "1" : ""),
       // In dev mode, tell the web app where the WebSocket server lives
       "import.meta.env.VITE_WS_URL": JSON.stringify(configuredWsUrl ?? ""),

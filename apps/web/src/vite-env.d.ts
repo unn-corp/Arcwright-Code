@@ -3,6 +3,9 @@
 import type { DesktopBridge } from "@t3tools/contracts";
 
 interface ImportMetaEnv {
+  readonly VITE_CONNECT_MODE: string;
+  readonly VITE_CONNECT_HOSTED_APP_URL: string;
+  readonly VITE_CONNECT_PROFILE_DIGEST: string;
   readonly VITE_ANDROID_PWA: string;
   readonly VITE_HTTP_URL: string;
   readonly VITE_WS_URL: string;

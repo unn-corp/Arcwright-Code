@@ -2,18 +2,24 @@ import { buildIdentity } from "../../scripts/lib/build-identity.ts";
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
-import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
+import {
+  mobileConnectBuildConfig,
+  resolveMobileVersionPolicy,
+} from "../../scripts/lib/connect-build-surfaces.ts";
+import { loadRepoEnv, connectProfileDigest } from "../../scripts/lib/public-config.ts";
 
 type AppVariant = "development" | "preview" | "production";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
+const connectBuild = mobileConnectBuildConfig(repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
 const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
-const runtimeVersionPolicy =
-  process.env.MOBILE_VERSION_POLICY ??
-  (APP_VARIANT === "development" ? "appVersion" : "fingerprint");
+const runtimeVersionPolicy = resolveMobileVersionPolicy(
+  repoEnv.MOBILE_VERSION_POLICY,
+  APP_VARIANT === "development",
+);
 
 const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
@@ -78,7 +84,6 @@ const VARIANT_CONFIG = {
     scheme: "t3code-dev",
     iosBundleIdentifier: "com.t3tools.t3code.dev",
     androidPackage: "com.t3tools.t3code.dev",
-    relyingParty: "clerk.t3.codes",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
@@ -86,7 +91,6 @@ const VARIANT_CONFIG = {
     scheme: "t3code-preview",
     iosBundleIdentifier: "com.t3tools.t3code.preview",
     androidPackage: "com.t3tools.t3code.preview",
-    relyingParty: "clerk.t3.codes",
     assets: PREVIEW_ASSETS,
   },
   production: {
@@ -94,7 +98,6 @@ const VARIANT_CONFIG = {
     scheme: "t3code",
     iosBundleIdentifier: "com.t3tools.t3code",
     androidPackage: "com.t3tools.t3code",
-    relyingParty: "clerk.t3.codes",
     assets: RELEASE_ASSETS,
   },
 } as const;
@@ -257,10 +260,7 @@ const config: ExpoConfig = {
     // does not fall back to a personal team (which cannot sign app groups,
     // Sign in with Apple, or push notification entitlements).
     appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-    ],
+    associatedDomains: connectBuild.associatedDomains,
     entitlements: {
       "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
     },
@@ -358,7 +358,14 @@ const config: ExpoConfig = {
     ],
     // appleSignIn must be gated here: withoutIosPersonalTeamCapabilities.cjs runs before
     // plugins earlier in this array, so it cannot strip the entitlement Clerk would add.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    ...(connectBuild.clerkPluginEnabled
+      ? [
+          [
+            "@clerk/expo",
+            { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild },
+          ] satisfies NonNullable<ExpoConfig["plugins"]>[number],
+        ]
+      : []),
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -467,6 +474,13 @@ const config: ExpoConfig = {
     ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
   ],
   extra: {
+    connect: {
+      mode: connectBuild.profile.mode,
+      hostedAppUrl: connectBuild.profile.T3CODE_HOSTED_APP_URL || null,
+      cliOAuthClientId: connectBuild.profile.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID || null,
+      profile: connectBuild.profile,
+      profileDigest: connectProfileDigest(connectBuild.profile),
+    },
     appVariant: APP_VARIANT,
     buildIdentity: buildIdentity("2.0.0"),
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
@@ -482,10 +496,14 @@ const config: ExpoConfig = {
     // the iOS URL scheme at prebuild to register it in Info.plist.
     // Unset values must be omitted (not null): the public manifest serializes
     // null to {}, which is truthy and would defeat Clerk's fallback checks.
-    EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME,
+    EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID:
+      repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID || undefined,
+    EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID:
+      repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID || undefined,
+    EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID:
+      repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID || undefined,
+    EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME:
+      repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME || undefined,
     observability: {
       tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? "https://api.axiom.co/v1/traces",
       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
