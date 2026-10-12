@@ -110,15 +110,13 @@ public final class AgentNotificationService extends Service {
         if (destroyed) return;
         long now = android.os.SystemClock.elapsedRealtime();
         try {
-            JSONArray alerts = pendingAlerts.take(now, NativeNotifications.phoneVisible(this) || presence.suppressed(now), presence.ready(now));
-            for (int i = 0; i < alerts.length(); i++) {
-                JSONObject alert = alerts.getJSONObject(i);
-                Connection connection = connections.get(alert.getString("environmentId"));
-                if (connection == null || connection.closed) continue;
-                NativeManagedNotifications.from(this).publishAlert(connection.id, connection.config,
+            pendingAlerts.flush(now, NativeNotifications.phoneVisible(this) || presence.suppressed(now), presence.ready(now), (id, thread, kind) -> {
+                Connection connection = connections.get(id);
+                if (connection == null || connection.closed) return false;
+                return NativeManagedNotifications.from(this).publishAlert(connection.id, connection.config,
                     connection.managedTicket == null ? null : connection.managedTicket.getFence(),
-                    alert.getJSONObject("thread"), alert.getString("kind"));
-            }
+                    thread, kind);
+            });
         } catch (org.json.JSONException ignored) { }
     }
     @Override public void onDestroy() {
@@ -155,15 +153,26 @@ public final class AgentNotificationService extends Service {
             return !closed && NativeManagedNotifications.from(AgentNotificationService.this).currentConnection(id, config,
                 managedTicket == null ? null : managedTicket.getFence());
         }
+        boolean owned() {
+            return !closed && NativeManagedNotifications.from(AgentNotificationService.this).ownedConnection(id, config,
+                managedTicket == null ? null : managedTicket.getFence());
+        }
+        void discard() {
+            close(); connected = false; updateStatus();
+            enqueue(AgentNotificationService.this::sync);
+        }
+        boolean admit() {
+            return NotificationConnectionRecovery.admit(authorized(), owned(), this::retry, this::discard);
+        }
         void connect() {
             if (closed || destroyed) return;
+            if (!managed && !admit()) return;
             ConnectAuthStatus operationFence = null;
             try {
                 HttpUrl address;
                 if (managed) {
                     operationFence = NativeManagedNotifications.from(AgentNotificationService.this).operationFence(id, config);
                     managedTicket = NativeManagedNotifications.from(AgentNotificationService.this).ticket(id, config);
-                    if (!authorized() || destroyed) return;
                     address = managedTicket.getAddress();
                 } else {
                     HttpUrl base = HttpUrl.get(config.getString("httpBaseUrl"));
@@ -180,9 +189,14 @@ public final class AgentNotificationService extends Service {
                             .addQueryParameter("clientAppVersion", BuildConfig.VERSION_NAME).addQueryParameter("connectionMethod", "direct").build();
                     }
                 }
+                if (destroyed || !admit()) return;
                 socket = http.newWebSocket(new Request.Builder().url(address).build(), new WebSocketListener() {
                     @Override public void onOpen(WebSocket webSocket, Response handshake) {
-                        if (destroyed || !authorized()) { webSocket.cancel(); return; }
+                        if (destroyed || !authorized()) {
+                            webSocket.cancel();
+                            enqueue(() -> { if (socket == webSocket) NotificationConnectionRecovery.admit(false, owned(), Connection.this::retry, Connection.this::discard); });
+                            return;
+                        }
                         if (managed) enqueue(() -> {
                             if (renewal != null) renewal.cancel(false);
                             renewal = worker.schedule(() -> retry(), Math.max(1, managedTicket.getRenewAt() - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
@@ -205,8 +219,11 @@ public final class AgentNotificationService extends Service {
                 });
             } catch (ManagedAuthRejected | ManagedProtocolRejected error) {
                 if (managed) {
-                    closed = true; connected = false;
                     boolean removed = operationFence != null && NativeManagedNotifications.from(AgentNotificationService.this).reject(id, config, operationFence);
+                    // SDK unreadiness can temporarily prevent a fenced rejection from owning cleanup.
+                    // Retain this registration's queue until readiness returns and the rejection is revalidated.
+                    if (!removed && owned() && !authorized()) { retry(); return; }
+                    closed = true; connected = false;
                     if (removed) pendingAlerts.removeEnvironment(id);
                     updateStatus();
                     enqueue(AgentNotificationService.this::sync);
@@ -218,7 +235,8 @@ public final class AgentNotificationService extends Service {
             try { worker.execute(action); } catch (java.util.concurrent.RejectedExecutionException ignored) { }
         }
         void receive(WebSocket webSocket, String text) {
-            if (closed || destroyed || socket != webSocket || !authorized()) { if (managed) webSocket.cancel(); return; }
+            if (closed || destroyed || socket != webSocket) return;
+            if (!admit()) return;
             try {
                 if (text.length() > 4 * 1024 * 1024) { webSocket.cancel(); retry(); return; }
                 Object decoded = new org.json.JSONTokener(text).nextValue();
@@ -248,13 +266,9 @@ public final class AgentNotificationService extends Service {
                 }
                 if (!NativeManagedNotifications.from(AgentNotificationService.this).persistState(id, config,
                         managedTicket == null ? null : managedTicket.getFence(), state.save())) {
-                    // Main-thread removal/replacement may have happened while this frame was parsed.
-                    // This connection owns the old in-memory queue; the worker cannot have opened its replacement yet.
-                    pendingAlerts.removeEnvironment(id);
-                    closed = true; connected = false;
-                    webSocket.cancel();
-                    // Re-prime from the selected registration's saved state, including after temporary SDK unreadiness.
-                    enqueue(AgentNotificationService.this::sync);
+                    // Readiness gaps retain this owner, prior queued alerts and parsed state through retry.
+                    // Displacement closes it and discards work before the replacement is created.
+                    NotificationConnectionRecovery.admit(false, owned(), this::retry, this::discard);
                 }
             } catch (Exception error) {
                 android.util.Log.w("T3Alerts", "Invalid shell update: " + error.getClass().getSimpleName());

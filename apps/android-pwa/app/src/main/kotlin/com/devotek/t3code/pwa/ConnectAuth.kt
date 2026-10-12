@@ -163,6 +163,12 @@ class ConnectAuth(
 
     /** The caller captures a fence before renewal; stale tokens never leave this process. */
     fun accountFence(): ConnectAuthStatus = status.value
+    /** Ownership survives SDK network/readiness gaps; this never authorizes a request or post. */
+    fun owns(fence: ConnectAuthStatus): Boolean {
+        val current = status.value
+        return !loggingOut && current.phase == "signedIn" && current.generation == fence.generation &&
+            current.userId == fence.userId && current.sessionId == fence.sessionId
+    }
     fun isCurrent(fence: ConnectAuthStatus): Boolean {
         val current = status.value
         val account = sdk.current().account

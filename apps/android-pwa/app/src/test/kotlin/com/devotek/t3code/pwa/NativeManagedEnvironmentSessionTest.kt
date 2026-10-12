@@ -20,9 +20,10 @@ import org.junit.Test
 class NativeManagedEnvironmentSessionTest {
     private class Account : NativeManagedAccount {
         @Volatile var fence = ConnectAuthStatus(true, "signedIn", 77, "user", "session")
+        var ready = true
         val refreshes = mutableListOf<Boolean>()
         override fun capture(userId: String, sessionId: String) = fence.also { if (it.userId != userId || it.sessionId != sessionId) throw ManagedAuthRejected() }
-        override fun current(fence: ConnectAuthStatus) = this.fence == fence && fence.phase == "signedIn"
+        override fun current(fence: ConnectAuthStatus) = ready && this.fence == fence && fence.phase == "signedIn"
         override fun relayToken(forceRefresh: Boolean): String { refreshes.add(forceRefresh); return "clerk-jwt" }
     }
     private class Backend : Interceptor {
@@ -217,4 +218,41 @@ class NativeManagedEnvironmentSessionTest {
             assertEquals(1, backend.tokenIndex); assertNotEquals(tickets[0].address.queryParameter("wsTicket"), tickets[1].address.queryParameter("wsTicket"))
         } finally { executor.shutdownNow() }
     }
+    private fun ticketAdmissionRecovery(displaced: Boolean) {
+        val backend = Backend()
+        val captured = backend.account.fence
+        val expected = JSONObject().put("mode", "managed").put("registrationRevision", "current")
+            .put("userId", "user").put("sessionId", "session")
+        var selected: JSONObject? = expected
+        val guard = NotificationFrameState(Any(), { selected }, backend.account::current, { _, _ -> }, { backend.account.fence == it })
+        var retry: Runnable? = null
+        var discarded = 0
+        val opened = mutableListOf<HttpUrl>()
+        lateinit var attempt: (Boolean) -> Unit
+        fun admitted() = NotificationConnectionRecovery.admit(guard.current("env-1", expected, captured), guard.owned("env-1", expected, captured),
+            { retry = Runnable { attempt(false) } }, { discarded++ })
+        attempt = { loseReadinessAfterTicket ->
+            if (admitted()) {
+                val ticket = backend.session.ticket("env-1", "user", "session", "current")
+                // Exact interleaving: complete a real proof-bound ticket exchange, then lose SDK
+                // readiness before the service-used admission helper can open its socket.
+                if (loseReadinessAfterTicket) backend.account.ready = false
+                if (admitted()) opened.add(ticket.address)
+            }
+        }
+        attempt(true)
+        assertEquals(1, backend.ticketIndex); assertTrue(opened.isEmpty()); assertNotNull(retry); assertEquals(0, discarded)
+        if (displaced) selected = JSONObject(expected.toString()).put("registrationRevision", "replacement")
+        backend.account.ready = true
+        retry!!.run() // Execute the scheduled backoff deterministically, with no WebView or registration write.
+        assertEquals(captured, backend.account.fence)
+        if (displaced) {
+            assertEquals(1, backend.ticketIndex); assertTrue(opened.isEmpty()); assertEquals(1, discarded)
+        } else {
+            assertEquals(2, backend.ticketIndex); assertEquals(1, opened.size); assertEquals(0, discarded)
+            assertEquals("single-use-2", opened.single().queryParameter("wsTicket"))
+        }
+    }
+    @Test fun sdkReadinessLostAfterTicketAdmissionRetriesSameSessionWithFreshSingleUseTicket() = ticketAdmissionRecovery(false)
+    @Test fun displacedRegistrationCannotIssueHttpOrOpenSocketFromOwnedRetry() = ticketAdmissionRecovery(true)
 }

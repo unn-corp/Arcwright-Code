@@ -36,8 +36,10 @@ class NativeManagedNotifications(private val app: ArcwrightApplication) {
         { id -> if (NativeNotifications.read(app, "preferences").optBoolean("enabled")) connections(app).optJSONObject(id) else null },
         { auth.isCurrent(it) },
         { id, state -> NativeNotifications.store(app).edit().putString("state:$id", state).apply() },
+        { auth.owns(it) },
     )
     fun currentConnection(id: String, config: JSONObject, fence: ConnectAuthStatus?) = frameState.current(id, config, fence)
+    fun ownedConnection(id: String, config: JSONObject, fence: ConnectAuthStatus?) = frameState.owned(id, config, fence)
     fun publishAlert(id: String, config: JSONObject, fence: ConnectAuthStatus?, thread: JSONObject, kind: String) = frameState.publish(id, config, fence) {
         NativeNotifications.alert(app, id, thread, kind)
     }

@@ -80,13 +80,24 @@ final class PhoneAlertQueue {
             default: return false;
         }
     }
-    JSONArray take(long now, boolean suppressed, boolean ready) throws JSONException {
+    interface Publisher { boolean publish(String environmentId, JSONObject thread, String kind) throws JSONException; }
+    void flush(long now, boolean suppressed, boolean ready, Publisher publisher) throws JSONException {
         pending.values().removeIf(alert -> now >= alert.expiresAt());
+        if (suppressed) { pending.clear(); return; }
+        if (!ready) return;
+        java.util.Iterator<Alert> entries = pending.values().iterator();
+        while (entries.hasNext()) {
+            Alert alert = entries.next();
+            // Rejected publication retains the same entry and expiry; it cannot extend its lease.
+            if (publisher.publish(alert.environmentId(), alert.thread(), alert.kind())) entries.remove();
+        }
+    }
+    JSONArray take(long now, boolean suppressed, boolean ready) throws JSONException {
         JSONArray result = new JSONArray();
-        if (suppressed) { pending.clear(); return result; }
-        if (!ready) return result;
-        for (Alert alert : pending.values()) result.put(new JSONObject().put("environmentId", alert.environmentId())
-            .put("thread", alert.thread()).put("kind", alert.kind()));
-        pending.clear(); return result;
+        flush(now, suppressed, ready, (environmentId, thread, kind) -> {
+            result.put(new JSONObject().put("environmentId", environmentId).put("thread", thread).put("kind", kind));
+            return true;
+        });
+        return result;
     }
 }

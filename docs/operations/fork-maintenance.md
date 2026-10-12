@@ -706,6 +706,11 @@ Actual registration replacement, including same-account managed re-registration,
 watermarks under the registration lock. Fresh snapshots re-prime outstanding approvals while keeping
 historical completions quiet; unchanged direct registration/retry retains state. Configuration removal
 also clears watermarks for dormant direct credentials before re-enable.
+Publication acknowledges queue entries only on success. Temporary SDK unreadiness retains owned
+pending work with its original expiry, and rejected frame/ticket/socket admission retries the same
+connection through bounded backoff; displacement discards it. Ownership retains the established
+native identity but never authorizes network requests or publication. Same-session recovery requires
+no WebView or registration update and always obtains a new single-use socket ticket.
 [NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
 and [NativeDpopKey.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeDpopKey.kt)
 own the worker-only renewal chain and separate native proof key. The notification service retains

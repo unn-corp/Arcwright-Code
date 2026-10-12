@@ -236,5 +236,10 @@ Registration replacement also clears its durable watermarks under the registrati
 authoritative snapshot can then alert on an outstanding approval without replaying completed history
 or transferring old queued content. Unchanged direct registration and socket retry retain watermarks;
 removing a dormant direct registration clears them before a later re-enable.
+SDK unreadiness does not relinquish established registration/account ownership. Rejected publication
+retains the owned alert's original expiry, and frame/ticket/socket admission gaps retry the same
+connection with bounded backoff. Recovery uses a fresh single-use ticket, without relying on a
+WebView or an identity-change notification. Removal, replacement and real account transitions still
+discard the old owner's queue; successful or viewed alerts remain consumed.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.
