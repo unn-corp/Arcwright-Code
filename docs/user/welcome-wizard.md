@@ -12,7 +12,7 @@ browser.
 
 You can add more computers before continuing:
 
-- **T3 Connect** connects computers that are signed in to your account.
+- **Arcwright Connect** connects computers that are signed in to your account.
   [Install the CLI](./install.md#command-line) and run `t3 connect` on each
   computer you want to add, then start Arcwright Code or run `t3 serve` so the
   computer stays available.
@@ -21,7 +21,7 @@ You can add more computers before continuing:
   the pairing link. You can also run `t3 serve --host <address>` and use
   `t3 pair` when the server is already reachable on your network.
 
-Saved computers and computers discovered through T3 Connect are selected by
+Saved computers and computers discovered through Arcwright Connect are selected by
 default. Uncheck any you do not want to set up; this does not disconnect them.
 Continue when your selected computers are connected. Setup checks
 agents across the selected computers, then offers project import grouped by computer.

@@ -220,7 +220,7 @@ export const make = Effect.gen(function* () {
         { concurrency: 4 },
       );
       // Anonymous installed PWAs are scoped directly to an environment, not
-      // to a T3 Connect user. Their delivery must therefore happen outside
+      // to an Arcwright Connect user. Their delivery must therefore happen outside
       // the linked-user fan-out above.
       const pwaNotifications = Option.isSome(webPushSubscriptions)
         ? yield* webPushSubscriptions.value

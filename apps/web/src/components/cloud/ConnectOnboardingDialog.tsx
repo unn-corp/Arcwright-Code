@@ -32,12 +32,12 @@ import { toastManager } from "../ui/toast";
 import { WizardSteps, WizardPopup, WizardHeader, WizardPanel, WizardFooter } from "../ui/wizard";
 
 /**
- * Post-sign-in onboarding wizard for T3 Connect. Opens on every in-session
+ * Post-sign-in onboarding wizard for Arcwright Connect. Opens on every in-session
  * sign-in — sign-out removes the connected relay environments, so each new
  * session starts with no devices to reach. It first prompts to publish this
  * environment (managed tunnel + agent activity, both defaulting on) when the
  * current session is authorized to manage the relay link, then lists the
- * account's T3 Connect environments so every device can be connected right
+ * account's Arcwright Connect environments so every device can be connected right
  * away. A cold load with a restored session does not count as a sign-in.
  */
 export function ConnectOnboardingDialog() {
@@ -220,9 +220,9 @@ function ConfiguredConnectOnboardingDialog() {
     if (!ok) return;
     toastManager.add({
       type: "success",
-      title: "T3 Connect enabled",
+      title: "Arcwright Connect enabled",
       description: exposeEnvironment
-        ? "This environment is available to your other devices through T3 Connect."
+        ? "This environment is available to your other devices through Arcwright Connect."
         : "This environment publishes agent activity to your mobile clients.",
     });
     setStep("devices");
@@ -239,7 +239,7 @@ function ConfiguredConnectOnboardingDialog() {
     >
       <WizardPopup>
         <WizardHeader
-          title="Set up T3 Connect"
+          title="Set up Arcwright Connect"
           description={
             <>
               Mesh your devices together — publish this environment and connect the rest, all in one
@@ -353,7 +353,7 @@ function PublishStep({
       <div className="rounded-lg border">
         <OnboardingToggleRow
           title="Publish this environment"
-          description="Make this environment available to your other devices through T3 Connect."
+          description="Make this environment available to your other devices through Arcwright Connect."
           checked={exposeEnvironment}
           disabled={disabled}
           onCheckedChange={onExposeEnvironmentChange}

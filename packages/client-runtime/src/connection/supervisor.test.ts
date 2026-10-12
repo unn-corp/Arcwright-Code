@@ -93,7 +93,7 @@ const LAN_ROUTE: ConnectionRoute = {
     }),
   ),
 };
-// LAN first, T3 Connect as the fallback.
+// LAN first, Arcwright Connect as the fallback.
 const LAN_THEN_RELAY_ENTRY: ConnectionCatalogEntry = {
   target: LAN_ROUTE.target,
   profile: LAN_ROUTE.profile,
@@ -1745,7 +1745,7 @@ describe("EnvironmentSupervisor", () => {
 });
 
 describe("EnvironmentSupervisor routes", () => {
-  it.effect("skips a silent LAN route and connects over T3 Connect", () =>
+  it.effect("skips a silent LAN route and connects over Arcwright Connect", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         checkRoute: (route) =>
@@ -1799,15 +1799,15 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 
-  it.effect("still tries a silent LAN route after the T3 Connect route fails", () =>
+  it.effect("still tries a silent LAN route after the Arcwright Connect route fails", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         checkRoute: (route) =>
           Effect.succeed(route.target._tag === "BearerConnectionTarget" ? "silent" : "unchecked"),
-        // Signed out of T3 Connect; the LAN is up but its check timed out.
+        // Signed out of Arcwright Connect; the LAN is up but its check timed out.
         prepare: (_attempt, target) =>
           target._tag === "RelayConnectionTarget"
-            ? Effect.fail(blocked("Sign in to T3 Connect."))
+            ? Effect.fail(blocked("Sign in to Arcwright Connect."))
             : Effect.succeed(preparedFor(target)),
       });
       const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
@@ -1827,7 +1827,7 @@ describe("EnvironmentSupervisor routes", () => {
         checkRoute: () => Effect.succeed("answered"),
         prepare: (_attempt, target) =>
           target._tag === "RelayConnectionTarget"
-            ? Effect.fail(blocked("Sign in to T3 Connect."))
+            ? Effect.fail(blocked("Sign in to Arcwright Connect."))
             : Effect.fail(transient("LAN socket refused.")),
       });
       const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
@@ -1937,7 +1937,7 @@ describe("EnvironmentSupervisor routes", () => {
       );
       yield* Ref.set(lanAnswers, true);
       yield* TestClock.adjust("60 seconds");
-      // The switch lands back on T3 Connect.
+      // The switch lands back on Arcwright Connect.
       yield* awaitState(
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 2,
@@ -2022,7 +2022,7 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 
-  it.effect("keeps a LAN session when the T3 Connect account changes", () =>
+  it.effect("keeps a LAN session when the Arcwright Connect account changes", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         checkRoute: () => Effect.succeed("answered"),
@@ -2044,7 +2044,7 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 
-  it.effect("learns the LAN address over T3 Connect and moves to it", () =>
+  it.effect("learns the LAN address over Arcwright Connect and moves to it", () =>
     Effect.gen(function* () {
       const relayEntry: ConnectionCatalogEntry = {
         target: RELAY_TARGET,
@@ -2091,7 +2091,7 @@ describe("EnvironmentSupervisor routes", () => {
           }),
       }).pipe(Effect.provide(harness.dependencies));
 
-      // Connected over T3 Connect, the server reports its LAN address; the
+      // Connected over Arcwright Connect, the server reports its LAN address; the
       // learned route ranks first, answers, and the session moves to it.
       yield* awaitState(
         supervisor.state,

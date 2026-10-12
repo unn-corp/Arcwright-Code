@@ -100,7 +100,7 @@ const buildEnvironmentAuthHeaders = (
  * A rejected credential gets one refresh and retry, with a new request-bound
  * proof. Cookie and bearer requests keep their existing authentication behavior.
  *
- * A DPoP request is T3 Connect work, so its span starts an exported trace that
+ * A DPoP request is Arcwright Connect work, so its span starts an exported trace that
  * the environment continues; its local caller's span would leave that trace
  * without a root.
  */

@@ -68,7 +68,7 @@ export const relayWebPushSubscriptions = pgTable(
   {
     id: varchar("id", { length: 64 }).primaryKey(),
     userId: varchar("user_id", { length: 255 }).notNull(),
-    // Anonymous PWA ownership is deliberately separate from a T3 Connect
+    // Anonymous PWA ownership is deliberately separate from an Arcwright Connect
     // account. Only a one-way hash of the opaque bearer credential is stored.
     environmentId: varchar("environment_id", { length: 191 }),
     installationId: varchar("installation_id", { length: 128 }),

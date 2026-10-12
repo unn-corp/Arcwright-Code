@@ -1,19 +1,23 @@
-# T3 Connect setup
+# Arcwright Connect setup
 
-Deployment and client configuration for T3 Connect. The [architecture note](../internals/t3-connect.md)
+Deployment and client configuration for Arcwright Connect. The [architecture note](../internals/t3-connect.md)
 explains the trust boundaries; the [relay README](../../infra/relay/README.md#deployment) owns relay
 provisioning instructions.
 
 ## Public application configuration
 
-T3 Connect is disabled in a fresh clone. To build against the production deployment, copy the
-repository-root example:
+Arcwright Connect is disabled in a fresh clone. The repository-root example contains public
+configuration for upstream T3 services at `relay.t3.codes` and `clerk.t3.codes`.
+Copy it only when deliberately building against that upstream service:
 
 ```sh
 cp .env.example .env
 ```
 
-For another deployment, set these values in the repository-root `.env` or `.env.local`:
+Private Arcwright Connect has not been commissioned. Its planned Clerk identity and Cloudflare
+relay deployment require their own configuration and verification before use; the branding does
+not provision those services. For your own deployment, set these values in the repository-root
+`.env` or `.env.local`:
 
 ```dotenv
 T3CODE_CLERK_PUBLISHABLE_KEY=<publishable key>
@@ -76,6 +80,10 @@ The Clerk Electron integration handles token
 persistence and system-browser callback delivery.
 
 ## Android native sign-in redirects
+
+This section applies to the upstream Expo client in `apps/mobile`. Native Arcwright Connect
+sign-in for the standalone fork APK in `apps/android-pwa` is forthcoming. Its existing direct
+and Tailscale pairing remain available; these upstream callbacks do not enable native APK sign-in.
 
 Clerk's native Android SDK uses `clerk://<applicationId>.callback`. In the Clerk instance selected by the app's publishable key, add each supported package to **Native applications > Allowlist for mobile SSO redirect**:
 

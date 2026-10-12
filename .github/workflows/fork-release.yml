@@ -260,7 +260,7 @@ jobs:
           path: android-codes.json
           if-no-files-found: error
 
-  # The JS bundle is built once from the pinned commit. There is no T3 Connect account
+  # The JS bundle is built once from the pinned commit. There is no Arcwright Connect account
   # provisioning in this fork, so no relay, Clerk, or tracing configuration is baked in.
   build_bundle:
     name: Build JS bundle

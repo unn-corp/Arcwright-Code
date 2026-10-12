@@ -79,7 +79,7 @@ export function usePrimaryCloudLinkState() {
         : null,
     [primary],
   );
-  // Builds without T3 Connect have no link to read; skip the request.
+  // Builds without Arcwright Connect have no link to read; skip the request.
   const atom =
     target && hasCloudPublicConfig() && canReadRelay
       ? primaryCloudLinkStateAtom(targetKey(target))
@@ -91,7 +91,7 @@ export function usePrimaryCloudLinkState() {
   let error: string | null = null;
   if (result._tag === "Failure") {
     const cause = Cause.squash(result.cause);
-    error = cause instanceof Error ? cause.message : "Could not read T3 Connect link state.";
+    error = cause instanceof Error ? cause.message : "Could not read Arcwright Connect link state.";
   }
 
   return {

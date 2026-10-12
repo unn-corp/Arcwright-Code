@@ -79,7 +79,7 @@ on:
         required: false
         default: true
         type: boolean
-      # Empty for builds that carry no T3 Connect account provisioning, such as the
+      # Empty for builds that carry no Arcwright Connect account provisioning, such as the
       # fork release workflow. The desktop build only reads them for macOS passkeys.
       clerk_publishable_key:
         required: false

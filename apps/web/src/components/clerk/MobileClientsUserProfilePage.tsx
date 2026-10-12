@@ -94,8 +94,8 @@ function EmptyMobileClients() {
       <EmptyHeader>
         <EmptyTitle>No mobile clients</EmptyTitle>
         <EmptyDescription>
-          Install Arcwright Code on your phone and sign in to T3 Connect to get push notifications
-          and Live Activities.
+          Install Arcwright Code on your phone and sign in to Arcwright Connect to get push
+          notifications and Live Activities.
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

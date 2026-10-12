@@ -13,7 +13,7 @@ import { Button, InlineButton } from "../ui/button";
 import { useT3ConnectAccountPage } from "./T3ConnectAccountPages";
 
 /**
- * Confirms removing a T3 Connect environment from this device. Removal here
+ * Confirms removing an Arcwright Connect environment from this device. Removal here
  * leaves the account registration (and its host space) in place, so the dialog
  * says so and links to the account page where it can be deregistered.
  */
@@ -48,7 +48,7 @@ export function RemoveT3ConnectEnvironmentDialog({
               This forgets its pairing, credentials, and cached threads here.
             </AlertDialogDescription>
             <AlertDialogDescription>
-              It stays on your T3 Connect account and keeps its host space. Deregister it in{" "}
+              It stays on your Arcwright Connect account and keeps its host space. Deregister it in{" "}
               {openAccountPage ? (
                 <InlineButton
                   onClick={() => {
@@ -56,10 +56,10 @@ export function RemoveT3ConnectEnvironmentDialog({
                     openAccountPage();
                   }}
                 >
-                  T3 Connect settings
+                  Arcwright Connect settings
                 </InlineButton>
               ) : (
-                "T3 Connect settings"
+                "Arcwright Connect settings"
               )}{" "}
               to free it.
             </AlertDialogDescription>

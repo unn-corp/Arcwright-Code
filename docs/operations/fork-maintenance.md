@@ -76,6 +76,17 @@ and Arcwright build identity belong in About and App updates. Development deskto
 recorded updater/recovery handoffs still relaunch it; NSIS shortcuts and uninstall metadata use
 the clean product name. Do not change those executable paths without a handoff migration.
 
+The account-based relay feature is named **Arcwright Connect** in web/desktop, the bundled
+Android web UI, upstream Expo mobile, and CLI output. Preserve internal `T3Connect` identifiers,
+`t3-connect` paths, `t3 connect` commands, `T3CODE_*` keys, JWT audiences, callbacks, and persisted
+connection formats. The [Connect architecture](../internals/t3-connect.md) and
+[setup runbook](./connect-setup.md) own its trust boundaries and deployment requirements.
+The example configuration selects upstream T3 services; private Arcwright Clerk/Cloudflare
+delivery and standalone APK native sign-in are not commissioned. Keep direct/Tailscale routes,
+saved pairings, and credentials through branding changes. Account sign-in discovers environments;
+enabling host sharing exposes one, joining saves a client route, and deregistration revokes the
+account link. Forgetting a route on one device does not deregister its host.
+
 ## Android client
 
 **Behavior and reason.** A standalone APK bundles the shared web client and native phone features.

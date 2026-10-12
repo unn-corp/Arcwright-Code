@@ -69,8 +69,8 @@ export function RelayClientInstallDialog() {
           </DialogTitle>
           <DialogDescription>
             {isInstalling
-              ? "Arcwright Code is preparing this environment for secure access through T3 Connect."
-              : "Arcwright Code needs the relay client to make this environment available through T3 Connect."}
+              ? "Arcwright Code is preparing this environment for secure access through Arcwright Connect."
+              : "Arcwright Code needs the relay client to make this environment available through Arcwright Connect."}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel scrollFade={false}>

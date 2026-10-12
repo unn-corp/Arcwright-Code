@@ -141,7 +141,7 @@ export class EnvironmentRegistry extends Context.Service<
       | ConnectionBlockedError
     >;
     /**
-     * Drops the T3 Connect route of every environment, after a cloud sign-out
+     * Drops the Arcwright Connect route of every environment, after a cloud sign-out
      * or account change. Environments with no other route are removed.
      */
     readonly removeRelayEnvironments: () => Effect.Effect<

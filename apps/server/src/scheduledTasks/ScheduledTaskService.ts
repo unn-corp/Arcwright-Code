@@ -69,7 +69,7 @@ const WEBHOOK_RATE_LIMIT_PER_MINUTE = 60;
 
 /**
  * Where a webhook task's public URL points: `${relayHookBaseUrl}/${taskId}/${token}`.
- * Null when the environment has no managed tunnel on T3 Connect; clients then show the path.
+ * Null when the environment has no managed tunnel on Arcwright Connect; clients then show the path.
  */
 interface WebhookOrigin {
   readonly relayHookBaseUrl: string | null;
@@ -116,7 +116,7 @@ export interface WebhookTriggerRequest extends WebhookRequest {
   readonly hookId: string;
   readonly token: string;
   readonly body: Uint8Array;
-  /** Set by T3 Connect; the same id is never dispatched twice. */
+  /** Set by Arcwright Connect; the same id is never dispatched twice. */
   readonly relayDeliveryId?: string;
   /** When the relay received a held request; defaults to now. */
   readonly receivedAt?: string;

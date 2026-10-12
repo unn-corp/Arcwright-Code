@@ -9,7 +9,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { makeRelayEnvironmentClient } from "./relayEnvironmentClient.ts";
 
 /**
- * Tells T3 Connect this environment is reachable again, so the relay delivers
+ * Tells Arcwright Connect this environment is reachable again, so the relay delivers
  * the webhook requests it held while we were offline now rather than at its
  * next backoff step. Nothing happens unless the environment opted in.
  */
@@ -33,10 +33,14 @@ export const layer = Layer.effectDiscard(
       // The relay retries on its own schedule too, so a few tries are enough.
       Effect.retry({ schedule: Schedule.exponential("2 seconds"), times: 3 }),
       Effect.tap((pending) =>
-        pending ? Effect.logInfo("T3 Connect is delivering held webhook requests") : Effect.void,
+        pending
+          ? Effect.logInfo("Arcwright Connect is delivering held webhook requests")
+          : Effect.void,
       ),
       Effect.catchCause((cause) =>
-        Effect.logWarning("Could not ask T3 Connect to deliver held webhook requests", { cause }),
+        Effect.logWarning("Could not ask Arcwright Connect to deliver held webhook requests", {
+          cause,
+        }),
       ),
     );
     yield* runtime.tunnelConnected.pipe(

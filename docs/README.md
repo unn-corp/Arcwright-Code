@@ -69,7 +69,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Product analytics](./internals/product-analytics.md)
 - [Environment auth](./internals/environment-auth.md)
 - [Organizations architecture](./internals/organizations.md)
-- [T3 Connect](./internals/t3-connect.md)
+- [Arcwright Connect](./internals/t3-connect.md)
 - [PWA Web Push](./internals/pwa-web-push.md)
 - [Remote preview viewing](./internals/preview-remote-viewing.md)
 - [Assistant citations](./internals/assistant-citations.md)
@@ -84,7 +84,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Fork Android APK: build, install, edit, and backend connections](./operations/android-pwa.md)
 
 - [Development and local builds](./operations/development.md)
-- [T3 Connect setup](./operations/connect-setup.md)
+- [Arcwright Connect setup](./operations/connect-setup.md)
 - [Release](./operations/release.md)
 - [Observability](./operations/observability.md)
 - [Relay observability](./operations/relay-observability.md)

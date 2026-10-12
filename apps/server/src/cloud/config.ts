@@ -85,7 +85,7 @@ const readSecretString = (name: string) =>
     Effect.orElseSucceed(() => null),
   );
 
-/** The relay URL and environment credential, or null when not linked to T3 Connect. */
+/** The relay URL and environment credential, or null when not linked to Arcwright Connect. */
 export const readRelayConnection = Effect.all([
   readSecretString(RELAY_URL_SECRET),
   readSecretString(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
@@ -95,7 +95,7 @@ export const readRelayConnection = Effect.all([
   ),
 );
 
-/** Whether this environment opted in to T3 Connect holding webhooks while it is offline. */
+/** Whether this environment opted in to Arcwright Connect holding webhooks while it is offline. */
 export const readHoldWebhooksWhileOffline = readSecretString(
   HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
 ).pipe(Effect.map((value) => value === "true"));

@@ -429,7 +429,7 @@ it.live(
         const approveWith = (code: string) =>
           decide(handler, params, { _tag: "pairing-code", access: "auto", code });
 
-        // A T3 Connect code is bound to a device key: refused, and still usable by its device.
+        // An Arcwright Connect code is bound to a device key: refused, and still usable by its device.
         const bound = yield* auth.createPairingLink({
           proofKeyThumbprint: "device-key-thumbprint",
         });

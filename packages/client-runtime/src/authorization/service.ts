@@ -72,7 +72,7 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
     readonly authorizeDpop: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
       /**
-       * Connect to this origin instead of the T3 Connect tunnel. The access
+       * Connect to this origin instead of the Arcwright Connect tunnel. The access
        * token is not bound to an origin, and each proof is minted for the URL
        * it signs, so a token from the relay also works on the environment's
        * LAN or tailnet address.
@@ -517,7 +517,7 @@ export const make = Effect.gen(function* () {
         return yield* mapDpopSocketError(cachedSocket.failure);
       }
       // An unreachable direct address says nothing about the token, so keep
-      // it for the T3 Connect route rather than forcing a relay round trip.
+      // it for the Arcwright Connect route rather than forcing a relay round trip.
       // A rejected token falls through and is replaced like on the tunnel.
       if (endpoint !== undefined && cachedSocket.failure._tag !== "EnvironmentAuthInvalidError") {
         return yield* mapDpopSocketError(cachedSocket.failure);

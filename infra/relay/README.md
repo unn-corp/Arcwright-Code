@@ -1,15 +1,16 @@
-# T3 Connect Relay
+# Arcwright Connect Relay
 
 > [!NOTE]
-> Sign in to T3 Connect from the app under Settings > Connections.
+> Sign in to Arcwright Connect from the app under Settings > Connections.
 
-The relay is the hosted control plane for T3 Connect. It helps clients discover and connect to
+The relay is the hosted control plane for Arcwright Connect. Private Arcwright infrastructure
+is not commissioned; repository public examples refer to upstream T3 services. It helps clients discover and connect to
 remote environments, manages the cloud-side records needed for those connections, and delivers
 optional mobile notifications and Live Activities.
 
 The relay is intentionally not in the hot path for normal T3 Code traffic. After a client connects,
 regular API and WebSocket traffic goes directly between that client and the selected environment.
-See the [T3 Connect architecture note](../../docs/internals/t3-connect.md) for the larger system
+See the [Arcwright Connect architecture note](../../docs/internals/t3-connect.md) for the larger system
 design.
 
 ## Responsibilities
@@ -163,6 +164,6 @@ and hosted web builds.
 
 See:
 
-- [T3 Connect setup](../../docs/operations/connect-setup.md) for Clerk keys, JWT templates, and sign-up restrictions.
+- [Arcwright Connect setup](../../docs/operations/connect-setup.md) for Clerk keys, JWT templates, and sign-up restrictions.
 - [Relay Observability](../../docs/operations/relay-observability.md) for deployment tracing and diagnostics.
-- [T3 Connect architecture](../../docs/internals/t3-connect.md) for environment linking and trust boundaries.
+- [Arcwright Connect architecture](../../docs/internals/t3-connect.md) for environment linking and trust boundaries.

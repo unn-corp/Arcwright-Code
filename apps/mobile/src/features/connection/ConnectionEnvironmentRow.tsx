@@ -201,7 +201,7 @@ export function ConnectionEnvironmentRow(props: {
           </View>
           {props.environment.isRelayManaged ? (
             <Text className="text-sm text-foreground-muted">
-              Managed by T3 Connect. Tunnel details update automatically.
+              Managed by Arcwright Connect. Tunnel details update automatically.
             </Text>
           ) : (
             <>

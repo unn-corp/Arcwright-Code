@@ -1,7 +1,7 @@
 # PWA Web Push
 
 > For maintainers. This document describes the two relay delivery paths. The
-> installed-PWA path is intentionally **not** a T3 Connect feature.
+> installed-PWA path is intentionally **not** an Arcwright Connect feature.
 
 Arcwright Code has two distinct ways to deliver Web Push. They share the relay's
 delivery queue and the `relay_web_push_subscriptions` table, but their identity,
@@ -11,14 +11,14 @@ them into one path or make an installed PWA require a Clerk account.
 | Path                    | Audience                                      | Identity                                        | Relay API group |
 | ----------------------- | --------------------------------------------- | ----------------------------------------------- | --------------- |
 | Anonymous installed PWA | A particular Home Screen/browser installation | Random installation ID plus local bearer secret | `pwa`           |
-| Account relay delivery  | A signed-in T3 Connect client                 | Clerk-backed relay client identity              | `client`        |
+| Account relay delivery  | A signed-in Arcwright Connect client          | Clerk-backed relay client identity              | `client`        |
 
 ## 1. Anonymous installed-PWA path
 
 This is the path used by **Notifications on this device** in the hosted web
 app. It is for iOS/iPadOS Home Screen installs (iOS/iPadOS 16.4 or later) and
 other standards-based installed PWAs. It does not read a Clerk token, does not
-create a T3 Connect link, and must not be affected by T3 Connect sign-out.
+create an Arcwright Connect link, and must not be affected by Arcwright Connect sign-out.
 
 ### Browser flow
 
@@ -60,7 +60,7 @@ handled by `infra/relay/src/http/Api.ts`:
 - `POST /v1/pwa/web-push/subscriptions/:subscriptionId/test`
 - `POST /v1/pwa/environments/:environmentId/threads/:threadId/agent-activity`
 
-For a server that has no T3 Connect environment credential,
+For a server that has no Arcwright Connect environment credential,
 `apps/server/src/relay/AgentAwarenessRelay.ts` uses the last endpoint. It signs
 each activity state with its environment key. The PWA endpoint verifies the
 signature, advances only the subscribed installations' per-thread baseline,
@@ -93,7 +93,7 @@ the standard `web-push` package. Transient push-service errors retry through
 Cloudflare Queues; a permanent `404` or `410` removes the subscription. The
 queue also records idempotent delivery attempts.
 
-## 2. Account/T3 Connect relay path
+## 2. Account/Arcwright Connect relay path
 
 The older account path remains in place for authenticated relay clients and is
 not the installed-PWA onboarding flow. Its endpoints are in the `client` group:
@@ -105,7 +105,7 @@ not the installed-PWA onboarding flow. Its endpoints are in the `client` group:
 
 These calls require the existing Clerk-backed relay client authentication. The
 subscription is associated with `userId`, and the normal
-`AgentActivityPublisher` fans out only through T3 Connect environment links and
+`AgentActivityPublisher` fans out only through Arcwright Connect environment links and
 their account-level notification preferences. Native APNs, Live Activities,
 and Android behavior remain on this path and must not be changed while editing
 the PWA flow.

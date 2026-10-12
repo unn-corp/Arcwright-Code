@@ -134,7 +134,7 @@ foreground service connected to enabled, directly paired environments. Android r
 service notification while background alerts run; it lets you stop them. Healthy connections do
 not repeatedly repost it when you open the app or refresh. Connection problems update its status
 silently. Agent alerts use their separate notification settings. This delivery path does not
-require Firebase, Google Play services, or a T3 Connect account. Cloud DPoP connections are not supported by the
+require Firebase, Google Play services, or an Arcwright Connect account. Cloud DPoP connections are not supported by the
 native background transport.
 
 Automatic agent alerts stay quiet while Arcwright Code is visible on an awake screen on any

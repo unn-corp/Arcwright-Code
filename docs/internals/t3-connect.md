@@ -1,6 +1,12 @@
-# T3 Connect
+# Arcwright Connect
 
-T3 Connect uses Clerk for cloud identity. The relay manages environment links,
+The Connect display name is Arcwright Connect across the fork's clients and CLI. This does not
+change the protocol, persisted identities, `t3 connect` command, `T3CODE_*` configuration keys,
+JWT audience, or callback schemes. The public example still selects upstream T3 services;
+private Arcwright Clerk and Cloudflare infrastructure is not commissioned. Native Connect
+authentication for the standalone fork APK remains forthcoming.
+
+Arcwright Connect uses Clerk for cloud identity. The relay manages environment links,
 credentials for reaching environments, and managed tunnel allocations. After
 bootstrap, clients send application traffic through the environment's tunnel
 hostname; the relay Worker does not proxy their HTTP or WebSocket sessions.
@@ -33,7 +39,7 @@ The installed-PWA notification flow is intentionally independent of this
 account system. See [PWA Web Push](./pwa-web-push.md) for the anonymous
 per-installation path and the separate authenticated relay path.
 
-T3 Connect uses one Clerk application for web, desktop, and mobile authentication. The relay verifies
+Arcwright Connect uses one Clerk application for web, desktop, and mobile authentication. The relay verifies
 two kinds of bearer credential: template JWTs generated from the `t3-relay` template with the shared
 `t3-code-relay` audience, and Clerk OAuth tokens issued to the CLI. `verifyRelayClientBearerToken` in
 `infra/relay/src/http/Api.ts` tries the template/session path first and falls back to OAuth

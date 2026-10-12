@@ -14,7 +14,7 @@ import {
 import { BearerConnectionTarget, type ConnectionTarget } from "./model.ts";
 
 /**
- * A saved environment can hold several routes: T3 Connect, direct URLs (LAN,
+ * A saved environment can hold several routes: Arcwright Connect, direct URLs (LAN,
  * tailnet, public), and SSH. The client connects over the first route in
  * preference order that answers as the expected environment, and moves back
  * to a better one when it becomes reachable again.
@@ -22,7 +22,7 @@ import { BearerConnectionTarget, type ConnectionTarget } from "./model.ts";
 
 export type ConnectionRouteKind = "relay" | "loopback" | "lan" | "tailnet" | "public" | "ssh";
 
-/** An environment has at most one T3 Connect route, so it needs no per-route id. */
+/** An environment has at most one Arcwright Connect route, so it needs no per-route id. */
 export const RELAY_ROUTE_ID = "relay";
 
 export function connectionRouteId(target: ConnectionTarget): string {
@@ -68,7 +68,7 @@ export function routeEntry(
   return entryWithRoutes(entry, [route]);
 }
 
-/** The base URL of a direct route, or null for T3 Connect and SSH. */
+/** The base URL of a direct route, or null for Arcwright Connect and SSH. */
 export function routeHttpBaseUrl(route: ConnectionRoute): string | null {
   if (route.target._tag === "PrimaryConnectionTarget") return route.target.httpBaseUrl;
   const profile = Option.getOrNull(route.profile);
@@ -113,7 +113,7 @@ const ROUTE_KIND_RANK: Record<ConnectionRouteKind, number> = {
 
 /**
  * Where a newly added route goes: after every saved route of the same or a
- * faster kind, so LAN lands ahead of tailnet and both ahead of T3 Connect.
+ * faster kind, so LAN lands ahead of tailnet and both ahead of Arcwright Connect.
  * Users can reorder afterwards; this only picks a sensible starting point.
  */
 export function insertRoute(
@@ -166,11 +166,11 @@ function routeAddressKey(route: ConnectionRoute): string | null {
   }
 }
 
-/** Short user-facing route description: "LAN", "Tailscale", "T3 Connect", a URL, or an SSH host. */
+/** Short user-facing route description: "LAN", "Tailscale", "Arcwright Connect", a URL, or an SSH host. */
 export function connectionRouteLabel(route: ConnectionRoute): string {
   switch (connectionRouteKind(route)) {
     case "relay":
-      return "T3 Connect";
+      return "Arcwright Connect";
     case "loopback":
       return "This device";
     case "lan":
@@ -188,7 +188,7 @@ export function connectionRouteLabel(route: ConnectionRoute): string {
   }
 }
 
-/** The address shown under a route, or null for T3 Connect. */
+/** The address shown under a route, or null for Arcwright Connect. */
 export function connectionRouteAddress(route: ConnectionRoute): string | null {
   if (route.target._tag === "SshConnectionTarget") {
     const profile = Option.getOrNull(route.profile);
@@ -197,7 +197,7 @@ export function connectionRouteAddress(route: ConnectionRoute): string | null {
   return routeHttpBaseUrl(route);
 }
 
-/** Whether the environment can be reached through T3 Connect. */
+/** Whether the environment can be reached through Arcwright Connect. */
 export function hasRelayRoute(
   entry: Pick<ConnectionCatalogEntry, "target" | "alternateRoutes">,
 ): boolean {
@@ -209,7 +209,7 @@ export function hasRelayRoute(
 /**
  * The routes after the server reports where it listens. Each newly reported
  * address becomes a learned route that authenticates the same way as the route
- * in use: the paired token for a bearer route, the T3 Connect credential for
+ * in use: the paired token for a bearer route, the Arcwright Connect credential for
  * relay. A learned route the server still reports keeps its place, so the
  * user's order holds; one it no longer reports is dropped, so a changed LAN
  * address replaces the old one. Routes the user saved are never touched, and
@@ -230,7 +230,7 @@ export function mergeLearnedRoutes(input: {
     return null;
   }
   // A route learned over another learned route inherits what that one uses:
-  // the T3 Connect credential, or the paired token it borrows.
+  // the Arcwright Connect credential, or the paired token it borrows.
   const activeProfile = Option.getOrNull(input.activeRoute.profile);
   const authorization =
     active._tag === "RelayConnectionTarget" ||
@@ -340,7 +340,7 @@ export function isLearned(route: ConnectionRoute): boolean {
 /**
  * Routes left after the user removes one. A learned route borrows the
  * credential of the route it was learned over, so it cannot outlive that
- * route: removing T3 Connect also removes routes learned through it, and
+ * route: removing Arcwright Connect also removes routes learned through it, and
  * removing a paired address removes routes that borrow its token.
  */
 export function routesAfterRemoving(
@@ -361,8 +361,8 @@ export function routesAfterRemoving(
 }
 
 /**
- * Whether removing T3 Connect leaves the environment no route, so signing out
- * removes it entirely. Routes learned through T3 Connect go with it.
+ * Whether removing Arcwright Connect leaves the environment no route, so signing out
+ * removes it entirely. Routes learned through Arcwright Connect go with it.
  */
 export function removedWithRelay(entry: ConnectionCatalogEntry): boolean {
   return routesAfterRemoving(connectionRoutes(entry), RELAY_ROUTE_ID).length === 0;

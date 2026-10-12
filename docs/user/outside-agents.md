@@ -19,10 +19,10 @@ https://<environment-address>/mcp
 The address must use HTTPS, or `localhost` when the agent runs on the host
 itself. Agents refuse to sign in over a plain `http://` LAN or tailnet address.
 
-- **An agent on your own computers** can use T3 Connect, Tailscale HTTPS, or
+- **An agent on your own computers** can use Arcwright Connect, Tailscale HTTPS, or
   `localhost` on the host. See [remote access](./remote-access.md).
 - **A hosted agent**, such as ChatGPT or a bot running in the cloud, must reach
-  the environment from the internet. Use the T3 Connect address. A Tailscale
+  the environment from the internet. Use the Arcwright Connect address. A Tailscale
   address only works from your own tailnet.
 
 ## Approve a sign-in

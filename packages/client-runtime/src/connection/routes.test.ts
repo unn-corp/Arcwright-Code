@@ -60,10 +60,10 @@ describe("connection routes", () => {
     expect(connectionRouteKind(direct("lo", "http://127.0.0.1:3773/"))).toBe("loopback");
     expect(connectionRouteKind(direct("ts6", "http://[fd7a:115c:a1e0::1]:3773/"))).toBe("tailnet");
     expect(connectionRouteLabel(TAILNET)).toBe("Tailscale");
-    expect(connectionRouteLabel(RELAY)).toBe("T3 Connect");
+    expect(connectionRouteLabel(RELAY)).toBe("Arcwright Connect");
   });
 
-  it("places a new route after faster kinds and ahead of T3 Connect", () => {
+  it("places a new route after faster kinds and ahead of Arcwright Connect", () => {
     expect(insertRoute([RELAY], LAN)).toEqual([LAN, RELAY]);
     expect(insertRoute([LAN, RELAY], TAILNET)).toEqual([LAN, TAILNET, RELAY]);
     expect(insertRoute([TAILNET], LAN)).toEqual([LAN, TAILNET]);
@@ -71,7 +71,7 @@ describe("connection routes", () => {
   });
 
   it("keeps a user's order when a saved route is replaced", () => {
-    // The user preferred T3 Connect over the LAN; re-pairing the LAN keeps that.
+    // The user preferred Arcwright Connect over the LAN; re-pairing the LAN keeps that.
     const repaired = direct("lan", "http://192.168.1.11:3773/");
     expect(upsertRoute([RELAY, LAN], repaired)).toEqual([RELAY, repaired]);
   });
@@ -87,7 +87,7 @@ describe("learned routes", () => {
     routes?.map((route) => connectionRouteId(route.target)) ?? null;
   const profileOf = (route: ConnectionRoute) => Option.getOrThrow(route.profile);
 
-  it("learns a LAN address over T3 Connect, ahead of it, using the T3 Connect credential", () => {
+  it("learns a LAN address over Arcwright Connect, ahead of it, using the Arcwright Connect credential", () => {
     const routes = mergeLearnedRoutes({
       entry: relayOnly,
       activeRoute: RELAY,
@@ -132,7 +132,7 @@ describe("learned routes", () => {
       reported: [lan],
       allowInsecure: true,
     })!;
-    // The user prefers T3 Connect over the learned LAN address.
+    // The user prefers Arcwright Connect over the learned LAN address.
     const reordered = entryWithRoutes(relayOnly, [first[1]!, first[0]!]);
     expect(
       mergeLearnedRoutes({
@@ -230,11 +230,11 @@ describe("learned routes", () => {
       allowInsecure: true,
     })!;
     expect(ids(routesAfterRemoving(overLan, "lan"))).toEqual(["relay"]);
-    // Removing T3 Connect keeps the paired LAN and what it learned.
+    // Removing Arcwright Connect keeps the paired LAN and what it learned.
     expect(ids(routesAfterRemoving(overLan, "relay"))).toHaveLength(2);
   });
 
-  it("counts an environment reached only through T3 Connect as removed with it", () => {
+  it("counts an environment reached only through Arcwright Connect as removed with it", () => {
     const learned = mergeLearnedRoutes({
       entry: relayOnly,
       activeRoute: RELAY,
@@ -262,7 +262,7 @@ describe("learned routes", () => {
     expect(gitHubRoutingConnectionKey(withLearned)).toBe(gitHubRoutingConnectionKey(relayOnly));
   });
 
-  it("keeps the T3 Connect credential when learning over a learned T3 Connect route", () => {
+  it("keeps the Arcwright Connect credential when learning over a learned Arcwright Connect route", () => {
     const first = mergeLearnedRoutes({
       entry: relayOnly,
       activeRoute: RELAY,

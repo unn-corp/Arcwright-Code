@@ -67,7 +67,7 @@ export type RelayWebPushSubscriptionRegistrationRequest =
 
 /**
  * A random credential held by one browser installation. It deliberately has
- * no relation to a Clerk account or T3 Connect identity.
+ * no relation to a Clerk account or Arcwright Connect identity.
  */
 export const RelayPwaInstallationCredentials = Schema.Struct({
   installationId: TrimmedNonEmptyString,
@@ -718,7 +718,7 @@ export class RelayEnvironmentPrincipal extends Context.Service<
 const RelayClientBearerAuthorization = HttpApiSecurity.http({ scheme: "bearer" }).pipe(
   HttpApiSecurity.annotate(
     OpenApi.Description,
-    "Clerk session or OAuth bearer token for the signed-in T3 Connect user.",
+    "Clerk session or OAuth bearer token for the signed-in Arcwright Connect user.",
   ),
 );
 
@@ -1342,7 +1342,7 @@ const RelayServerGroup = HttpApiGroup.make("server")
   .middleware(RelayEnvironmentAuth);
 
 /**
- * Browser PWA push is intentionally independent of the T3 Connect client
+ * Browser PWA push is intentionally independent of the Arcwright Connect client
  * group. A per-installation secret authorizes mutations; no account token is
  * involved.
  */
