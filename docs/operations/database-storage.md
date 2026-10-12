@@ -123,12 +123,30 @@ restore points and existing rescue/restore paths capture them together. Non-data
 snapshots use copy-on-write copies when supported, with a normal verified-copy fallback.
 Recovery-point retention and every journal/asset pin remain unchanged.
 
-The startup-only migration on an independent copy of the audited 26.49 GiB recovery
-database measured **274 ms**, with all three large removable indexes still present and
-its one-time shrink request pending. The earlier draft dropped indexes during schema
-setup and recorded a 51-second blocking SQLite operation on the same data; that work
-now belongs to fenced maintenance. This measures database setup, not full app launch
-or production storage savings. The original restore point and running home were untouched.
+Migration 103 stores separate SHA-256 fingerprints of the compiled migration/schema
+contract, the actual schema definitions, and the exact applied migration ledger. Future
+loads read only the small SQLite catalog, fingerprint row and migration ledger. A match
+skips the migration runner entirely; it does not hash or scan database contents. The
+normal migration and schema-validation path handles a missing or changed fingerprint.
+Required tables, defaults, constraints, indexes, views and triggers are checked against
+the compiled schema contract before recording success. Older physical column ordering
+is accepted, and the three deliberately retired indexes are excluded. Native maintenance
+admission still runs before opening the database.
+
+The contract is generated from a fresh in-memory database using the actual migrations.
+After adding a migration or changing its schema, regenerate it with
+`node apps/server/scripts/generate-schema-fingerprint.ts`. The focused schema tests compare it with
+the migration source, so a stale contract cannot pass release validation.
+
+On an independent copy of the audited **26.49 GiB** recovery database, first schema
+upgrade/verification measured **84 ms** and three subsequent database opens measured
+**5.52, 5.83 and 4.82 ms**, with bulk shrink still pending. These timings cover database
+setup, not whole-app launch or production space savings. The earlier draft dropped
+large indexes during setup and recorded a 51-second blocking SQLite operation on the
+same data; that work now runs only during fenced maintenance. Temporary SQLite spill
+files stay in a private directory on the data-home disk rather than inheriting a
+possibly RAM-backed system temporary directory. The original restore point and running
+home were untouched.
 
 ## Requesting optimization
 

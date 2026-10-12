@@ -113,8 +113,15 @@ export async function optimizeStorageHome(
   const space = await NodeFSP.statfs(state);
   if (Number(space.bavail) * Number(space.bsize) < 2 * beforeBytes + 1024 ** 3)
     throw new Error("Not enough free space to repack the database safely.");
-  const db = new NodeSqlite.DatabaseSync(database);
+  // VACUUM and temporary sorts can spill gigabytes. Use this data disk, never an inherited RAM-backed /tmp.
+  // The admitted optimizer is a dedicated process; its environment is restored for in-process fixtures.
+  const temp = await NodeFSP.mkdtemp(NodePath.join(state, ".arcwright-storage-temp-"));
+  const tempKeys = ["SQLITE_TMPDIR", "TMPDIR", "TEMP", "TMP"] as const;
+  const previousTemp = tempKeys.map((key) => [key, process.env[key]] as const);
+  for (const key of tempKeys) process.env[key] = temp;
+  let db: NodeSqlite.DatabaseSync | undefined;
   try {
+    db = new NodeSqlite.DatabaseSync(database);
     registerStorageFunctions(db);
     db.exec(
       "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA cache_size=-8192; PRAGMA temp_store=FILE",
@@ -181,6 +188,11 @@ export async function optimizeStorageHome(
     db.exec("COMMIT");
     return report;
   } finally {
-    db.close();
+    db?.close();
+    for (const [key, value] of previousTemp) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await NodeFSP.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }

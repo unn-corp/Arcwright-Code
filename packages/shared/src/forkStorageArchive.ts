@@ -82,11 +82,13 @@ export function storePayloadSync(db: NodeSqlite.DatabaseSync, json: string): str
 
 /** Only completed imports with transcript parity acquire a durable legacy replay/clock boundary. */
 export function recordLegacyBaselines(db: NodeSqlite.DatabaseSync, now: string): void {
+  // The version-only index can rescan every legacy event for each imported thread. Bound this join to each stream.
   db.prepare(`INSERT INTO arcwright_legacy_baselines(thread_id,stream_version,through_sequence,event_count,message_count,archived_at)
     SELECT imported.thread_id,COALESCE(MAX(event.stream_version),-1),COALESCE(MAX(event.sequence),0),
       COUNT(event.sequence),imported.imported_message_count,?
     FROM orchestration_v2_legacy_imports imported
-    LEFT JOIN orchestration_events event ON event.aggregate_kind='thread' AND event.stream_id=imported.thread_id
+    LEFT JOIN orchestration_events event INDEXED BY idx_orch_events_stream_sequence
+      ON event.aggregate_kind='thread' AND event.stream_id=imported.thread_id
       AND event.application_event_version=1
     WHERE imported.transcript_imported_at IS NOT NULL
       AND EXISTS (SELECT 1 FROM orchestration_v2_projection_threads thread WHERE thread.thread_id=imported.thread_id)
@@ -145,7 +147,8 @@ export async function archiveLegacyHistory(
     let cursor = 0;
     for (;;) {
       const keys = db
-        .prepare(`SELECT rowid AS position, ${spec.key} AS key FROM ${source}
+        // Resume on the rowid tree. Legacy thread indexes otherwise re-sort millions of candidates for every 128-row batch.
+        .prepare(`SELECT rowid AS position, ${spec.key} AS key FROM ${source} NOT INDEXED
         WHERE rowid > ? AND ${spec.where} ORDER BY rowid LIMIT 128`)
         .all(...(source === "orchestration_command_receipts" ? [cursor, cutoff] : [cursor])) as {
         position: number;

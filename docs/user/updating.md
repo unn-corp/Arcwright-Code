@@ -297,7 +297,7 @@ Large output bodies are stored once in compressed form while chats and their ori
 replay history stay available. Upgrading a populated database from an older build queues
 a one-time shrink. It waits for idle maintenance admission and a cancellable countdown,
 then verifies a restore point and repacks the database in a background worker. Running
-chats continue and hold cleanup until they finish. Later launches do not repeat completed cleanup.
+chats continue and hold cleanup until they finish. Later launches use a small schema fingerprint check and do not repeat completed cleanup.
 
 This data upgrade keeps your installed version and pin, independently of the automatic
 binary-update setting. If a managed server reports an older service launcher, refresh it

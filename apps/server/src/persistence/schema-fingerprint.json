@@ -1,0 +1,1716 @@
+{
+  "format": 1,
+  "schemaSha256": "f6b35ea4a2c806b20316a9f473163fa9d4780f73b8be705150987428b8d83944",
+  "objects": [
+    {
+      "type": "index",
+      "name": "arcwright_history_thread_idx",
+      "tbl_name": "arcwright_history_rows",
+      "sql": "CREATE INDEX arcwright_history_thread_idx\n    ON arcwright_history_rows(source, thread_id, row_key)"
+    },
+    {
+      "type": "index",
+      "name": "idx_auth_pairing_links_active",
+      "tbl_name": "auth_pairing_links",
+      "sql": "CREATE INDEX idx_auth_pairing_links_active\n    ON auth_pairing_links(revoked_at, consumed_at, expires_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_auth_sessions_active",
+      "tbl_name": "auth_sessions",
+      "sql": "CREATE INDEX idx_auth_sessions_active\n    ON auth_sessions(revoked_at, expires_at, issued_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_checkpoint_diff_blobs_thread_to_turn",
+      "tbl_name": "checkpoint_diff_blobs",
+      "sql": "CREATE INDEX idx_checkpoint_diff_blobs_thread_to_turn\n    ON checkpoint_diff_blobs(thread_id, to_turn_count)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_discord_bridge_messages_thread",
+      "tbl_name": "discord_bridge_messages",
+      "sql": "CREATE INDEX idx_discord_bridge_messages_thread\n    ON discord_bridge_messages(thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_discord_bridge_threads_discord_thread",
+      "tbl_name": "discord_bridge_threads",
+      "sql": "CREATE INDEX idx_discord_bridge_threads_discord_thread\n    ON discord_bridge_threads(discord_thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_discord_bridge_threads_state",
+      "tbl_name": "discord_bridge_threads",
+      "sql": "CREATE INDEX idx_discord_bridge_threads_state\n    ON discord_bridge_threads(state)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_orch_events_command_id",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE INDEX idx_orch_events_command_id\n    ON orchestration_events(command_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_orch_events_stream_sequence",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE INDEX idx_orch_events_stream_sequence\n    ON orchestration_events(aggregate_kind, stream_id, sequence)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_orch_events_stream_version",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE UNIQUE INDEX idx_orch_events_stream_version\n    ON orchestration_events(aggregate_kind, stream_id, stream_version)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_orchestration_events_agent_stream_sequence",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE INDEX idx_orchestration_events_agent_stream_sequence\n    ON orchestration_events(stream_id, sequence)\n    WHERE application_event_version = 2 AND aggregate_kind = 'thread'\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_orchestration_events_application_high_water",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE INDEX idx_orchestration_events_application_high_water\n    ON orchestration_events(sequence)\n    WHERE aggregate_kind = 'project'\n      OR (application_event_version = 2 AND aggregate_kind = 'thread')\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_orchestration_events_application_sequence",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE INDEX idx_orchestration_events_application_sequence\n    ON orchestration_events(application_event_version, sequence)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_pending_approvals_thread_status",
+      "tbl_name": "projection_pending_approvals",
+      "sql": "CREATE INDEX idx_projection_pending_approvals_thread_status\n    ON projection_pending_approvals(thread_id, status)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_projects_updated_at",
+      "tbl_name": "projection_projects",
+      "sql": "CREATE INDEX idx_projection_projects_updated_at\n    ON projection_projects(updated_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_projects_workspace_root_deleted_at",
+      "tbl_name": "projection_projects",
+      "sql": "CREATE INDEX idx_projection_projects_workspace_root_deleted_at\n    ON projection_projects(workspace_root, deleted_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_activities_kind",
+      "tbl_name": "projection_thread_activities",
+      "sql": "CREATE INDEX idx_projection_thread_activities_kind\n    ON projection_thread_activities(kind, thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_activities_thread_created",
+      "tbl_name": "projection_thread_activities",
+      "sql": "CREATE INDEX idx_projection_thread_activities_thread_created\n    ON projection_thread_activities(thread_id, created_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_activities_thread_sequence_created_id",
+      "tbl_name": "projection_thread_activities",
+      "sql": "CREATE INDEX idx_projection_thread_activities_thread_sequence_created_id\n    ON projection_thread_activities(thread_id, sequence, created_at, activity_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_messages_thread_created_id",
+      "tbl_name": "projection_thread_messages",
+      "sql": "CREATE INDEX idx_projection_thread_messages_thread_created_id\n    ON projection_thread_messages(thread_id, created_at, message_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_proposed_plans_thread_created",
+      "tbl_name": "projection_thread_proposed_plans",
+      "sql": "CREATE INDEX idx_projection_thread_proposed_plans_thread_created\n    ON projection_thread_proposed_plans(thread_id, created_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_pull_requests_pr",
+      "tbl_name": "projection_thread_pull_requests",
+      "sql": "CREATE INDEX idx_projection_thread_pull_requests_pr\n    ON projection_thread_pull_requests(host, repository, number)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_sessions_instance",
+      "tbl_name": "projection_thread_sessions",
+      "sql": "CREATE INDEX idx_projection_thread_sessions_instance\n    ON projection_thread_sessions(provider_instance_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_thread_sessions_provider_session",
+      "tbl_name": "projection_thread_sessions",
+      "sql": "CREATE INDEX idx_projection_thread_sessions_provider_session\n    ON projection_thread_sessions(provider_session_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_threads_project_archived_at",
+      "tbl_name": "projection_threads",
+      "sql": "CREATE INDEX idx_projection_threads_project_archived_at\n    ON projection_threads(project_id, archived_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_threads_project_deleted_created",
+      "tbl_name": "projection_threads",
+      "sql": "CREATE INDEX idx_projection_threads_project_deleted_created\n    ON projection_threads(project_id, deleted_at, created_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_threads_shell_active",
+      "tbl_name": "projection_threads",
+      "sql": "CREATE INDEX idx_projection_threads_shell_active\n    ON projection_threads(deleted_at, archived_at, project_id, created_at, thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_threads_shell_archived",
+      "tbl_name": "projection_threads",
+      "sql": "CREATE INDEX idx_projection_threads_shell_archived\n    ON projection_threads(deleted_at, archived_at, project_id, thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_turns_thread_checkpoint_completed",
+      "tbl_name": "projection_turns",
+      "sql": "CREATE INDEX idx_projection_turns_thread_checkpoint_completed\n    ON projection_turns(thread_id, checkpoint_turn_count, completed_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_projection_turns_thread_keyset",
+      "tbl_name": "projection_turns",
+      "sql": "CREATE INDEX idx_projection_turns_thread_keyset\n    ON projection_turns(thread_id, requested_at, turn_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_provider_session_runtime_instance",
+      "tbl_name": "provider_session_runtime",
+      "sql": "CREATE INDEX idx_provider_session_runtime_instance\n    ON provider_session_runtime(provider_instance_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_provider_session_runtime_provider",
+      "tbl_name": "provider_session_runtime",
+      "sql": "CREATE INDEX idx_provider_session_runtime_provider\n    ON provider_session_runtime(provider_name)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_provider_session_runtime_status",
+      "tbl_name": "provider_session_runtime",
+      "sql": "CREATE INDEX idx_provider_session_runtime_status\n    ON provider_session_runtime(status)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_scheduled_task_webhook_deliveries_task",
+      "tbl_name": "scheduled_task_webhook_deliveries",
+      "sql": "CREATE INDEX idx_scheduled_task_webhook_deliveries_task\n    ON scheduled_task_webhook_deliveries(task_id, received_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_scheduled_task_webhook_relay_deliveries_seen",
+      "tbl_name": "scheduled_task_webhook_relay_deliveries",
+      "sql": "CREATE INDEX idx_scheduled_task_webhook_relay_deliveries_seen\n    ON scheduled_task_webhook_relay_deliveries(seen_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_scheduled_tasks_due",
+      "tbl_name": "scheduled_tasks",
+      "sql": "CREATE INDEX idx_scheduled_tasks_due\n    ON scheduled_tasks(enabled, next_run_at)\n    WHERE enabled = 1 AND next_run_at IS NOT NULL\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_scheduled_tasks_project",
+      "tbl_name": "scheduled_tasks",
+      "sql": "CREATE INDEX idx_scheduled_tasks_project\n    ON scheduled_tasks(project_id, updated_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_events_v2_created_threads_idx",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE INDEX orchestration_events_v2_created_threads_idx\n    ON orchestration_events(stream_id)\n    WHERE application_event_version = 2\n      AND aggregate_kind = 'thread'\n      AND event_type = 'thread.created'\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_command_receipts_thread_sequence_idx",
+      "tbl_name": "orchestration_v2_command_receipts",
+      "sql": "CREATE INDEX orchestration_v2_command_receipts_thread_sequence_idx ON orchestration_v2_command_receipts(thread_id, result_sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_effect_outbox_claim_idx",
+      "tbl_name": "orchestration_v2_effect_outbox",
+      "sql": "CREATE INDEX orchestration_v2_effect_outbox_claim_idx\n    ON orchestration_v2_effect_outbox(status, available_at, lease_expires_at, created_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_effect_outbox_command_idx",
+      "tbl_name": "orchestration_v2_effect_outbox",
+      "sql": "CREATE INDEX orchestration_v2_effect_outbox_command_idx\n    ON orchestration_v2_effect_outbox(command_id, effect_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_effect_outbox_thread_status_idx",
+      "tbl_name": "orchestration_v2_effect_outbox",
+      "sql": "CREATE INDEX orchestration_v2_effect_outbox_thread_status_idx\n    ON orchestration_v2_effect_outbox(thread_id, status, effect_type)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_command_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_command_idx ON orchestration_v2_events(command_id, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_instance_sequence_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_instance_sequence_idx ON orchestration_v2_events(provider_instance_id, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_node_sequence_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_node_sequence_idx ON orchestration_v2_events(node_id, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_raw_event_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_raw_event_idx ON orchestration_v2_events(raw_event_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_run_sequence_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_run_sequence_idx ON orchestration_v2_events(run_id, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_thread_sequence_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_thread_sequence_idx ON orchestration_v2_events(thread_id, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_events_thread_type_sequence_idx",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE INDEX orchestration_v2_events_thread_type_sequence_idx ON orchestration_v2_events(thread_id, event_type, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_legacy_imports_pending_transcript_idx",
+      "tbl_name": "orchestration_v2_legacy_imports",
+      "sql": "CREATE INDEX orchestration_v2_legacy_imports_pending_transcript_idx\n    ON orchestration_v2_legacy_imports(transcript_imported_at, shell_imported_at, thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_message_reply_parent_idx",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE INDEX orchestration_v2_message_reply_parent_idx\n    ON orchestration_v2_projection_messages(thread_id, json_extract(payload_json, '$.context.replyTo.messageId'))\n    WHERE json_extract(payload_json, '$.context.replyTo.threadId') = thread_id"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_checkpoint_scopes_parent_idx",
+      "tbl_name": "orchestration_v2_projection_checkpoint_scopes",
+      "sql": "CREATE INDEX orchestration_v2_projection_checkpoint_scopes_parent_idx ON orchestration_v2_projection_checkpoint_scopes(parent_scope_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_checkpoint_scopes_thread_idx",
+      "tbl_name": "orchestration_v2_projection_checkpoint_scopes",
+      "sql": "CREATE INDEX orchestration_v2_projection_checkpoint_scopes_thread_idx ON orchestration_v2_projection_checkpoint_scopes(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_checkpoints_parent_idx",
+      "tbl_name": "orchestration_v2_projection_checkpoints",
+      "sql": "CREATE INDEX orchestration_v2_projection_checkpoints_parent_idx ON orchestration_v2_projection_checkpoints(parent_checkpoint_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_checkpoints_scope_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_checkpoints",
+      "sql": "CREATE UNIQUE INDEX orchestration_v2_projection_checkpoints_scope_ordinal_idx ON orchestration_v2_projection_checkpoints(scope_id, ordinal_within_scope)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_checkpoints_thread_idx",
+      "tbl_name": "orchestration_v2_projection_checkpoints",
+      "sql": "CREATE INDEX orchestration_v2_projection_checkpoints_thread_idx ON orchestration_v2_projection_checkpoints(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_context_handoffs_target_run_idx",
+      "tbl_name": "orchestration_v2_projection_context_handoffs",
+      "sql": "CREATE INDEX orchestration_v2_projection_context_handoffs_target_run_idx ON orchestration_v2_projection_context_handoffs(target_run_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_context_handoffs_thread_idx",
+      "tbl_name": "orchestration_v2_projection_context_handoffs",
+      "sql": "CREATE INDEX orchestration_v2_projection_context_handoffs_thread_idx ON orchestration_v2_projection_context_handoffs(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_context_transfers_source_thread_idx",
+      "tbl_name": "orchestration_v2_projection_context_transfers",
+      "sql": "CREATE INDEX orchestration_v2_projection_context_transfers_source_thread_idx ON orchestration_v2_projection_context_transfers(source_thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_context_transfers_target_run_idx",
+      "tbl_name": "orchestration_v2_projection_context_transfers",
+      "sql": "CREATE INDEX orchestration_v2_projection_context_transfers_target_run_idx ON orchestration_v2_projection_context_transfers(target_run_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_context_transfers_target_thread_idx",
+      "tbl_name": "orchestration_v2_projection_context_transfers",
+      "sql": "CREATE INDEX orchestration_v2_projection_context_transfers_target_thread_idx ON orchestration_v2_projection_context_transfers(target_thread_id, status)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_messages_latest_user_idx",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE INDEX orchestration_v2_projection_messages_latest_user_idx\n    ON orchestration_v2_projection_messages(thread_id, updated_at DESC, message_id DESC)\n    WHERE role = 'user'\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_messages_node_idx",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE INDEX orchestration_v2_projection_messages_node_idx ON orchestration_v2_projection_messages(node_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_messages_run_idx",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE INDEX orchestration_v2_projection_messages_run_idx ON orchestration_v2_projection_messages(run_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_messages_thread_created_idx",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE INDEX orchestration_v2_projection_messages_thread_created_idx ON orchestration_v2_projection_messages(thread_id, created_at, message_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_nodes_parent_idx",
+      "tbl_name": "orchestration_v2_projection_nodes",
+      "sql": "CREATE INDEX orchestration_v2_projection_nodes_parent_idx ON orchestration_v2_projection_nodes(parent_node_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_nodes_provider_turn_idx",
+      "tbl_name": "orchestration_v2_projection_nodes",
+      "sql": "CREATE INDEX orchestration_v2_projection_nodes_provider_turn_idx ON orchestration_v2_projection_nodes(provider_turn_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_nodes_thread_run_idx",
+      "tbl_name": "orchestration_v2_projection_nodes",
+      "sql": "CREATE INDEX orchestration_v2_projection_nodes_thread_run_idx ON orchestration_v2_projection_nodes(thread_id, run_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_plans_run_idx",
+      "tbl_name": "orchestration_v2_projection_plans",
+      "sql": "CREATE INDEX orchestration_v2_projection_plans_run_idx ON orchestration_v2_projection_plans(run_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_plans_thread_idx",
+      "tbl_name": "orchestration_v2_projection_plans",
+      "sql": "CREATE INDEX orchestration_v2_projection_plans_thread_idx ON orchestration_v2_projection_plans(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_session_bindings_thread_idx",
+      "tbl_name": "orchestration_v2_projection_provider_session_bindings",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_session_bindings_thread_idx\n    ON orchestration_v2_projection_provider_session_bindings(thread_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_sessions_instance_status_idx",
+      "tbl_name": "orchestration_v2_projection_provider_sessions",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_sessions_instance_status_idx ON orchestration_v2_projection_provider_sessions(provider_instance_id, status)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_sessions_provider_status_idx",
+      "tbl_name": "orchestration_v2_projection_provider_sessions",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_sessions_provider_status_idx ON orchestration_v2_projection_provider_sessions(provider, status)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_sessions_thread_idx",
+      "tbl_name": "orchestration_v2_projection_provider_sessions",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_sessions_thread_idx ON orchestration_v2_projection_provider_sessions(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_threads_instance_status_idx",
+      "tbl_name": "orchestration_v2_projection_provider_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_threads_instance_status_idx ON orchestration_v2_projection_provider_threads(provider_instance_id, status)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_threads_owner_idx",
+      "tbl_name": "orchestration_v2_projection_provider_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_threads_owner_idx ON orchestration_v2_projection_provider_threads(owner_node_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_threads_recovery_idx",
+      "tbl_name": "orchestration_v2_projection_provider_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_threads_recovery_idx\n    ON orchestration_v2_projection_provider_threads(provider_thread_id, thread_id, owner_node_id)\n    WHERE status = 'active'\n      OR CASE WHEN json_valid(payload_json)\n        THEN json_array_length(payload_json, '$.pendingBackgroundTasks') > 0\n        ELSE 0 END"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_threads_session_idx",
+      "tbl_name": "orchestration_v2_projection_provider_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_threads_session_idx ON orchestration_v2_projection_provider_threads(provider_session_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_threads_thread_idx",
+      "tbl_name": "orchestration_v2_projection_provider_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_threads_thread_idx ON orchestration_v2_projection_provider_threads(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_turns_thread_idx",
+      "tbl_name": "orchestration_v2_projection_provider_turns",
+      "sql": "CREATE INDEX orchestration_v2_projection_provider_turns_thread_idx ON orchestration_v2_projection_provider_turns(thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_provider_turns_thread_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_provider_turns",
+      "sql": "CREATE UNIQUE INDEX orchestration_v2_projection_provider_turns_thread_ordinal_idx ON orchestration_v2_projection_provider_turns(provider_thread_id, ordinal)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_requests_recovery_idx",
+      "tbl_name": "orchestration_v2_projection_runtime_requests",
+      "sql": "CREATE INDEX orchestration_v2_projection_requests_recovery_idx\n    ON orchestration_v2_projection_runtime_requests(thread_id)\n    WHERE status = 'pending'\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_run_attempts_run_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_run_attempts",
+      "sql": "CREATE UNIQUE INDEX orchestration_v2_projection_run_attempts_run_ordinal_idx ON orchestration_v2_projection_run_attempts(run_id, attempt_ordinal)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_run_attempts_thread_idx",
+      "tbl_name": "orchestration_v2_projection_run_attempts",
+      "sql": "CREATE INDEX orchestration_v2_projection_run_attempts_thread_idx ON orchestration_v2_projection_run_attempts(thread_id, run_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_runs_provider_thread_idx",
+      "tbl_name": "orchestration_v2_projection_runs",
+      "sql": "CREATE INDEX orchestration_v2_projection_runs_provider_thread_idx ON orchestration_v2_projection_runs(provider_thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_runs_recovery_idx",
+      "tbl_name": "orchestration_v2_projection_runs",
+      "sql": "CREATE INDEX orchestration_v2_projection_runs_recovery_idx\n    ON orchestration_v2_projection_runs(status, thread_id)\n    WHERE status IN ('queued', 'preparing', 'starting', 'running', 'waiting')\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_runs_thread_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_runs",
+      "sql": "CREATE UNIQUE INDEX orchestration_v2_projection_runs_thread_ordinal_idx ON orchestration_v2_projection_runs(thread_id, ordinal)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_runs_thread_status_idx",
+      "tbl_name": "orchestration_v2_projection_runs",
+      "sql": "CREATE INDEX orchestration_v2_projection_runs_thread_status_idx ON orchestration_v2_projection_runs(thread_id, status)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_runtime_requests_provider_turn_idx",
+      "tbl_name": "orchestration_v2_projection_runtime_requests",
+      "sql": "CREATE INDEX orchestration_v2_projection_runtime_requests_provider_turn_idx ON orchestration_v2_projection_runtime_requests(provider_turn_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_runtime_requests_thread_status_idx",
+      "tbl_name": "orchestration_v2_projection_runtime_requests",
+      "sql": "CREATE INDEX orchestration_v2_projection_runtime_requests_thread_status_idx ON orchestration_v2_projection_runtime_requests(thread_id, status)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_subagents_child_thread_idx",
+      "tbl_name": "orchestration_v2_projection_subagents",
+      "sql": "CREATE INDEX orchestration_v2_projection_subagents_child_thread_idx ON orchestration_v2_projection_subagents(child_thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_subagents_parent_node_idx",
+      "tbl_name": "orchestration_v2_projection_subagents",
+      "sql": "CREATE INDEX orchestration_v2_projection_subagents_parent_node_idx ON orchestration_v2_projection_subagents(parent_node_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_subagents_provider_thread_idx",
+      "tbl_name": "orchestration_v2_projection_subagents",
+      "sql": "CREATE INDEX orchestration_v2_projection_subagents_provider_thread_idx ON orchestration_v2_projection_subagents(provider_thread_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_subagents_thread_idx",
+      "tbl_name": "orchestration_v2_projection_subagents",
+      "sql": "CREATE INDEX orchestration_v2_projection_subagents_thread_idx ON orchestration_v2_projection_subagents(thread_id, started_at, subagent_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_threads_project_updated_idx",
+      "tbl_name": "orchestration_v2_projection_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_threads_project_updated_idx ON orchestration_v2_projection_threads(project_id, updated_at)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_node_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_node_ordinal_idx ON orchestration_v2_projection_turn_items(node_id, ordinal)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_provider_turn_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_provider_turn_idx ON orchestration_v2_projection_turn_items(provider_turn_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_recovery_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_recovery_idx\n    ON orchestration_v2_projection_turn_items(thread_id)\n    WHERE type IN ('command_execution', 'dynamic_tool', 'subagent')\n      AND status IN ('pending', 'running', 'waiting')\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_run_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_run_ordinal_idx ON orchestration_v2_projection_turn_items(run_id, ordinal)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_shell_pending_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_shell_pending_idx\n    ON orchestration_v2_projection_turn_items(thread_id, run_id)\n    WHERE type IN ('command_execution', 'dynamic_tool', 'subagent')\n      AND status NOT IN ('completed', 'interrupted', 'failed', 'cancelled')\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_thread_ordinal_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_thread_ordinal_idx ON orchestration_v2_projection_turn_items(thread_id, ordinal, turn_item_id)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_thread_run_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_thread_run_idx\n    ON orchestration_v2_projection_turn_items(thread_id, run_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "organization_active_resource_permits",
+      "tbl_name": "organization_work_resource_permits",
+      "sql": "CREATE INDEX organization_active_resource_permits\n    ON organization_work_resource_permits(state, lease_until, organization_id, project_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_architect_messages_by_org",
+      "tbl_name": "organization_architect_messages",
+      "sql": "CREATE INDEX organization_architect_messages_by_org\n    ON organization_architect_messages(organization_id, created_at, message_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_architect_one_pending_per_org",
+      "tbl_name": "organization_architect_requests",
+      "sql": "CREATE UNIQUE INDEX organization_architect_one_pending_per_org\n    ON organization_architect_requests(organization_id) WHERE status = 'pending'"
+    },
+    {
+      "type": "index",
+      "name": "organization_architect_proposals_by_request",
+      "tbl_name": "organization_architect_proposals",
+      "sql": "CREATE INDEX organization_architect_proposals_by_request\n    ON organization_architect_proposals(request_id, proposal_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_architect_proposals_position_unique",
+      "tbl_name": "organization_architect_proposals",
+      "sql": "CREATE UNIQUE INDEX organization_architect_proposals_position_unique\n    ON organization_architect_proposals(request_id, position)"
+    },
+    {
+      "type": "index",
+      "name": "organization_architect_requests_by_org",
+      "tbl_name": "organization_architect_requests",
+      "sql": "CREATE INDEX organization_architect_requests_by_org\n    ON organization_architect_requests(organization_id, created_at, request_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_attempts_by_work",
+      "tbl_name": "organization_work_attempts",
+      "sql": "CREATE INDEX organization_attempts_by_work ON organization_work_attempts(work_id, number)"
+    },
+    {
+      "type": "index",
+      "name": "organization_audit_by_organization",
+      "tbl_name": "organization_audit",
+      "sql": "CREATE INDEX organization_audit_by_organization\n    ON organization_audit(organization_id, applied_revision)\n  "
+    },
+    {
+      "type": "index",
+      "name": "organization_bindings_by_organization",
+      "tbl_name": "organization_project_bindings",
+      "sql": "CREATE INDEX organization_bindings_by_organization\n    ON organization_project_bindings(organization_id, detached_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "organization_director_messages_by_scope",
+      "tbl_name": "organization_director_messages",
+      "sql": "CREATE INDEX organization_director_messages_by_scope\n    ON organization_director_messages(organization_id, project_id, sequence)"
+    },
+    {
+      "type": "index",
+      "name": "organization_director_requests_by_org",
+      "tbl_name": "organization_director_requests",
+      "sql": "CREATE INDEX organization_director_requests_by_org\n    ON organization_director_requests(organization_id, project_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_findings_by_project",
+      "tbl_name": "organization_intake_findings",
+      "sql": "CREATE INDEX organization_findings_by_project\n    ON organization_intake_findings(organization_id, project_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_findings_for_proposal_scan",
+      "tbl_name": "organization_intake_findings",
+      "sql": "CREATE INDEX organization_findings_for_proposal_scan\n    ON organization_intake_findings(created_at, finding_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_git_candidate_intents_prepared",
+      "tbl_name": "organization_git_candidate_intents",
+      "sql": "CREATE INDEX organization_git_candidate_intents_prepared\n    ON organization_git_candidate_intents(status, prepared_at, attempt_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_intake_audit_by_org",
+      "tbl_name": "organization_intake_audit",
+      "sql": "CREATE INDEX organization_intake_audit_by_org\n    ON organization_intake_audit(organization_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_intake_correlation_jobs_due",
+      "tbl_name": "organization_intake_correlation_jobs",
+      "sql": "CREATE INDEX organization_intake_correlation_jobs_due\n    ON organization_intake_correlation_jobs(state, next_attempt_at, lease_expires_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_intake_findings_by_org",
+      "tbl_name": "organization_intake_findings",
+      "sql": "CREATE INDEX organization_intake_findings_by_org\n    ON organization_intake_findings(organization_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_intake_observations_by_org",
+      "tbl_name": "organization_intake_observations",
+      "sql": "CREATE INDEX organization_intake_observations_by_org\n    ON organization_intake_observations(organization_id, received_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_intake_sources_by_org",
+      "tbl_name": "organization_intake_sources",
+      "sql": "CREATE INDEX organization_intake_sources_by_org\n    ON organization_intake_sources(organization_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_live_work_phase_claims_by_organization",
+      "tbl_name": "organization_live_work_phase_claims",
+      "sql": "CREATE INDEX organization_live_work_phase_claims_by_organization\n    ON organization_live_work_phase_claims(organization_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_memory_by_scope",
+      "tbl_name": "organization_memory_records",
+      "sql": "CREATE INDEX organization_memory_by_scope\n    ON organization_memory_records(organization_id, project_id, updated_at DESC, record_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_memory_revisions_by_record",
+      "tbl_name": "organization_memory_revisions",
+      "sql": "CREATE INDEX organization_memory_revisions_by_record\n    ON organization_memory_revisions(organization_id, record_id, version)"
+    },
+    {
+      "type": "index",
+      "name": "organization_one_active_binding_per_project",
+      "tbl_name": "organization_project_bindings",
+      "sql": "CREATE UNIQUE INDEX organization_one_active_binding_per_project\n    ON organization_project_bindings(organization_id, project_id)\n    WHERE detached_at IS NULL\n  "
+    },
+    {
+      "type": "index",
+      "name": "organization_one_active_permit_per_work",
+      "tbl_name": "organization_work_resource_permits",
+      "sql": "CREATE UNIQUE INDEX organization_one_active_permit_per_work\n    ON organization_work_resource_permits(work_id) WHERE state = 'active'"
+    },
+    {
+      "type": "index",
+      "name": "organization_one_correlated_finding_per_key",
+      "tbl_name": "organization_intake_findings",
+      "sql": "CREATE UNIQUE INDEX organization_one_correlated_finding_per_key\n    ON organization_intake_findings(organization_id, dedup_key)\n    WHERE substr(dedup_key, 1, 15) = 'correlation-v1:'"
+    },
+    {
+      "type": "index",
+      "name": "organization_one_write_steward_per_project",
+      "tbl_name": "organization_project_bindings",
+      "sql": "CREATE UNIQUE INDEX organization_one_write_steward_per_project\n    ON organization_project_bindings(project_id)\n    WHERE access = 'write' AND detached_at IS NULL\n  "
+    },
+    {
+      "type": "index",
+      "name": "organization_proposal_candidates_due",
+      "tbl_name": "organization_proposal_candidates",
+      "sql": "CREATE INDEX organization_proposal_candidates_due\n    ON organization_proposal_candidates(state, next_attempt_at, finding_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_proposal_mutations_by_org",
+      "tbl_name": "organization_proposal_mutations",
+      "sql": "CREATE INDEX organization_proposal_mutations_by_org\n    ON organization_proposal_mutations(organization_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_provider_budget_active",
+      "tbl_name": "organization_provider_budget_admissions",
+      "sql": "CREATE INDEX organization_provider_budget_active\n    ON organization_provider_budget_admissions(state, organization_id, project_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_provider_budget_audit_scope",
+      "tbl_name": "organization_provider_budget_audit",
+      "sql": "CREATE INDEX organization_provider_budget_audit_scope\n    ON organization_provider_budget_audit(scope_kind, scope_id, audit_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_provider_budget_daily",
+      "tbl_name": "organization_provider_budget_admissions",
+      "sql": "CREATE INDEX organization_provider_budget_daily\n    ON organization_provider_budget_admissions(day_utc, state, organization_id, project_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_provider_process_launch_marker",
+      "tbl_name": "organization_provider_processes",
+      "sql": "CREATE UNIQUE INDEX organization_provider_process_launch_marker\n    ON organization_provider_processes(launch_marker) WHERE launch_marker IS NOT NULL"
+    },
+    {
+      "type": "index",
+      "name": "organization_repository_records_by_state",
+      "tbl_name": "organization_repository_records",
+      "sql": "CREATE INDEX organization_repository_records_by_state\n    ON organization_repository_records(organization_id, state, record_key)"
+    },
+    {
+      "type": "index",
+      "name": "organization_resource_permits_by_org",
+      "tbl_name": "organization_work_resource_permits",
+      "sql": "CREATE INDEX organization_resource_permits_by_org\n    ON organization_work_resource_permits(organization_id, state, lease_until)"
+    },
+    {
+      "type": "index",
+      "name": "organization_resource_permits_by_project",
+      "tbl_name": "organization_work_resource_permits",
+      "sql": "CREATE INDEX organization_resource_permits_by_project\n    ON organization_work_resource_permits(project_id, state, lease_until)"
+    },
+    {
+      "type": "index",
+      "name": "organization_standing_work_authorizations_active_scan",
+      "tbl_name": "organization_standing_work_authorizations",
+      "sql": "CREATE INDEX organization_standing_work_authorizations_active_scan\n    ON organization_standing_work_authorizations(organization_id, project_id, binding_id,\n      binding_version, published_revision, expires_at)\n    WHERE revoked_at IS NULL"
+    },
+    {
+      "type": "index",
+      "name": "organization_standing_work_authorizations_active_source",
+      "tbl_name": "organization_standing_work_authorizations",
+      "sql": "CREATE UNIQUE INDEX organization_standing_work_authorizations_active_source\n    ON organization_standing_work_authorizations(organization_id, project_id, source_id)\n    WHERE revoked_at IS NULL"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_by_org",
+      "tbl_name": "organization_work_items",
+      "sql": "CREATE INDEX organization_work_by_org ON organization_work_items(organization_id, created_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_intent_activations_by_organization",
+      "tbl_name": "organization_work_intent_activations",
+      "sql": "CREATE INDEX organization_work_intent_activations_by_organization\n    ON organization_work_intent_activations(organization_id, activated_at, intent_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_intents_by_organization",
+      "tbl_name": "organization_work_intents",
+      "sql": "CREATE INDEX organization_work_intents_by_organization\n    ON organization_work_intents(organization_id, created_at, intent_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_proposals_by_org",
+      "tbl_name": "organization_work_proposals",
+      "sql": "CREATE INDEX organization_work_proposals_by_org\n    ON organization_work_proposals(organization_id, updated_at DESC, proposal_id)"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_proposals_for_intent_newest",
+      "tbl_name": "organization_work_proposals",
+      "sql": "CREATE INDEX organization_work_proposals_for_intent_newest\n    ON organization_work_proposals(state, created_at DESC, proposal_id DESC)"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_scope_preparations_unit_name",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE UNIQUE INDEX organization_work_scope_preparations_unit_name\n    ON organization_work_scope_preparations(unit_name) WHERE unit_name IS NOT NULL"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_scopes_open",
+      "tbl_name": "organization_work_scopes",
+      "sql": "CREATE INDEX organization_work_scopes_open\n    ON organization_work_scopes(verified_stopped_at, prepared_at)"
+    },
+    {
+      "type": "index",
+      "name": "organization_work_transitions_by_work",
+      "tbl_name": "organization_work_transitions",
+      "sql": "CREATE INDEX organization_work_transitions_by_work\n    ON organization_work_transitions(work_id, created_at)"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_history_rows",
+      "tbl_name": "arcwright_history_rows",
+      "sql": "CREATE TABLE arcwright_history_rows (\n    source TEXT NOT NULL, row_key TEXT NOT NULL, thread_id TEXT NOT NULL,\n    sequence INTEGER, digest TEXT NOT NULL, raw_bytes INTEGER NOT NULL, compressed BLOB NOT NULL,\n    PRIMARY KEY (source, row_key)\n  ) WITHOUT ROWID"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_legacy_baselines",
+      "tbl_name": "arcwright_legacy_baselines",
+      "sql": "CREATE TABLE arcwright_legacy_baselines (\n    thread_id TEXT PRIMARY KEY, stream_version INTEGER NOT NULL, through_sequence INTEGER NOT NULL,\n    event_count INTEGER NOT NULL, message_count INTEGER NOT NULL, archived_at TEXT NOT NULL\n  ) WITHOUT ROWID"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_payload_blobs",
+      "tbl_name": "arcwright_payload_blobs",
+      "sql": "CREATE TABLE arcwright_payload_blobs (\n    digest TEXT PRIMARY KEY, raw_bytes INTEGER NOT NULL, compressed BLOB NOT NULL\n  ) WITHOUT ROWID"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_schema_fingerprint",
+      "tbl_name": "arcwright_schema_fingerprint",
+      "sql": "CREATE TABLE arcwright_schema_fingerprint (\n    id INTEGER PRIMARY KEY CHECK(id=1), manifest_sha256 TEXT NOT NULL,\n    schema_sha256 TEXT NOT NULL, ledger_sha256 TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_storage_migrations",
+      "tbl_name": "arcwright_storage_migrations",
+      "sql": "CREATE TABLE arcwright_storage_migrations (\n    version INTEGER PRIMARY KEY, state TEXT NOT NULL CHECK(state IN ('pending','complete')),\n    completed_at TEXT, before_bytes INTEGER, after_bytes INTEGER\n  )"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_storage_runs",
+      "tbl_name": "arcwright_storage_runs",
+      "sql": "CREATE TABLE arcwright_storage_runs (\n    transaction_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, completed_at TEXT,\n    report_json TEXT\n  ) WITHOUT ROWID"
+    },
+    {
+      "type": "table",
+      "name": "auth_pairing_links",
+      "tbl_name": "auth_pairing_links",
+      "sql": "CREATE TABLE auth_pairing_links (\n      id TEXT PRIMARY KEY,\n      credential TEXT NOT NULL UNIQUE,\n      method TEXT NOT NULL,\n      scopes TEXT NOT NULL,\n      subject TEXT NOT NULL,\n      label TEXT,\n      created_at TEXT NOT NULL,\n      expires_at TEXT NOT NULL,\n      consumed_at TEXT,\n      revoked_at TEXT\n    , proof_key_thumbprint TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "auth_sessions",
+      "tbl_name": "auth_sessions",
+      "sql": "CREATE TABLE auth_sessions (\n      session_id TEXT PRIMARY KEY,\n      subject TEXT NOT NULL,\n      scopes TEXT NOT NULL,\n      method TEXT NOT NULL,\n      client_label TEXT,\n      client_ip_address TEXT,\n      client_user_agent TEXT,\n      client_device_type TEXT NOT NULL DEFAULT 'unknown',\n      client_os TEXT,\n      client_browser TEXT,\n      issued_at TEXT NOT NULL,\n      expires_at TEXT NOT NULL,\n      last_connected_at TEXT,\n      revoked_at TEXT\n    , client_surface TEXT, client_app_version TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "checkpoint_diff_blobs",
+      "tbl_name": "checkpoint_diff_blobs",
+      "sql": "CREATE TABLE checkpoint_diff_blobs (\n      thread_id TEXT NOT NULL,\n      from_turn_count INTEGER NOT NULL,\n      to_turn_count INTEGER NOT NULL,\n      diff TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      UNIQUE (thread_id, from_turn_count, to_turn_count)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "discord_bridge_messages",
+      "tbl_name": "discord_bridge_messages",
+      "sql": "CREATE TABLE discord_bridge_messages (\n      message_id TEXT NOT NULL,\n      chunk_index INTEGER NOT NULL,\n      thread_id TEXT NOT NULL,\n      discord_thread_id TEXT NOT NULL,\n      discord_message_id TEXT NOT NULL,\n      published_length INTEGER NOT NULL DEFAULT 0,\n      frozen INTEGER NOT NULL DEFAULT 0,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      PRIMARY KEY (message_id, chunk_index)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "discord_bridge_threads",
+      "tbl_name": "discord_bridge_threads",
+      "sql": "CREATE TABLE discord_bridge_threads (\n      thread_id TEXT PRIMARY KEY,\n      guild_id TEXT NOT NULL,\n      channel_id TEXT NOT NULL,\n      discord_thread_id TEXT NOT NULL UNIQUE,\n      header_message_id TEXT NOT NULL,\n      last_seen_discord_message_id TEXT,\n      state TEXT NOT NULL DEFAULT 'active',\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "effect_sql_migrations",
+      "tbl_name": "effect_sql_migrations",
+      "sql": "CREATE TABLE \"effect_sql_migrations\" (\n  migration_id integer PRIMARY KEY NOT NULL,\n  created_at datetime NOT NULL DEFAULT current_timestamp,\n  name VARCHAR(255) NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_command_receipts",
+      "tbl_name": "orchestration_command_receipts",
+      "sql": "CREATE TABLE orchestration_command_receipts (\n      command_id TEXT PRIMARY KEY,\n      aggregate_kind TEXT NOT NULL,\n      aggregate_id TEXT NOT NULL,\n      accepted_at TEXT NOT NULL,\n      result_sequence INTEGER NOT NULL,\n      status TEXT NOT NULL,\n      error TEXT\n    , command_type TEXT NOT NULL DEFAULT 'legacy')"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_events",
+      "tbl_name": "orchestration_events",
+      "sql": "CREATE TABLE orchestration_events (\n      sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n      event_id TEXT NOT NULL UNIQUE,\n      aggregate_kind TEXT NOT NULL,\n      stream_id TEXT NOT NULL,\n      stream_version INTEGER NOT NULL,\n      event_type TEXT NOT NULL,\n      occurred_at TEXT NOT NULL,\n      command_id TEXT,\n      causation_event_id TEXT,\n      correlation_id TEXT,\n      actor_kind TEXT NOT NULL,\n      payload_json TEXT NOT NULL,\n      metadata_json TEXT NOT NULL\n    , application_event_version INTEGER NOT NULL DEFAULT 1, payload_bytes INTEGER)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_command_receipts",
+      "tbl_name": "orchestration_v2_command_receipts",
+      "sql": "CREATE TABLE orchestration_v2_command_receipts (\n      command_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      command_type TEXT NOT NULL,\n      accepted_at TEXT NOT NULL,\n      result_sequence INTEGER NOT NULL,\n      status TEXT NOT NULL,\n      error TEXT\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_effect_outbox",
+      "tbl_name": "orchestration_v2_effect_outbox",
+      "sql": "CREATE TABLE \"orchestration_v2_effect_outbox\" (\n      effect_id TEXT PRIMARY KEY,\n      command_id TEXT NOT NULL,\n      thread_id TEXT NOT NULL,\n      effect_type TEXT NOT NULL,\n      payload_json TEXT NOT NULL,\n      status TEXT NOT NULL CHECK (\n        status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')\n      ),\n      attempt_count INTEGER NOT NULL DEFAULT 0,\n      available_at TEXT NOT NULL,\n      lease_owner TEXT,\n      lease_expires_at TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      completed_at TEXT,\n      last_error TEXT\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_events",
+      "tbl_name": "orchestration_v2_events",
+      "sql": "CREATE TABLE orchestration_v2_events (\n      sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n      event_id TEXT NOT NULL UNIQUE,\n      command_id TEXT,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT,\n      provider TEXT,\n      raw_event_id TEXT,\n      event_type TEXT NOT NULL,\n      occurred_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    , driver TEXT, provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_legacy_imports",
+      "tbl_name": "orchestration_v2_legacy_imports",
+      "sql": "CREATE TABLE orchestration_v2_legacy_imports (\n      thread_id TEXT PRIMARY KEY,\n      source_updated_at TEXT NOT NULL,\n      shell_imported_at TEXT NOT NULL,\n      transcript_imported_at TEXT,\n      imported_message_count INTEGER NOT NULL DEFAULT 0,\n      last_error TEXT\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_checkpoint_scopes",
+      "tbl_name": "orchestration_v2_projection_checkpoint_scopes",
+      "sql": "CREATE TABLE orchestration_v2_projection_checkpoint_scopes (\n      scope_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT NOT NULL,\n      parent_scope_id TEXT,\n      provider_thread_id TEXT,\n      kind TEXT NOT NULL,\n      ordinal_within_parent INTEGER NOT NULL,\n      advances_app_run_count INTEGER NOT NULL,\n      created_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_checkpoints",
+      "tbl_name": "orchestration_v2_projection_checkpoints",
+      "sql": "CREATE TABLE orchestration_v2_projection_checkpoints (\n      checkpoint_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      scope_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT NOT NULL,\n      parent_checkpoint_id TEXT,\n      ordinal_within_scope INTEGER NOT NULL,\n      app_run_ordinal INTEGER,\n      status TEXT NOT NULL,\n      captured_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_context_handoffs",
+      "tbl_name": "orchestration_v2_projection_context_handoffs",
+      "sql": "CREATE TABLE orchestration_v2_projection_context_handoffs (\n      context_handoff_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      target_run_id TEXT NOT NULL,\n      to_provider_thread_id TEXT NOT NULL,\n      strategy TEXT NOT NULL,\n      status TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_context_transfers",
+      "tbl_name": "orchestration_v2_projection_context_transfers",
+      "sql": "CREATE TABLE orchestration_v2_projection_context_transfers (\n      context_transfer_id TEXT PRIMARY KEY,\n      source_thread_id TEXT NOT NULL,\n      target_thread_id TEXT NOT NULL,\n      target_run_id TEXT,\n      type TEXT NOT NULL,\n      status TEXT NOT NULL,\n      source_provider TEXT,\n      target_provider TEXT,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    , source_provider_instance_id TEXT, target_provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_messages",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE TABLE orchestration_v2_projection_messages (\n      message_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT,\n      role TEXT NOT NULL,\n      streaming INTEGER NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_metadata",
+      "tbl_name": "orchestration_v2_projection_metadata",
+      "sql": "CREATE TABLE orchestration_v2_projection_metadata (\n      projection_name TEXT PRIMARY KEY,\n      schema_version INTEGER NOT NULL,\n      last_sequence INTEGER NOT NULL,\n      updated_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_nodes",
+      "tbl_name": "orchestration_v2_projection_nodes",
+      "sql": "CREATE TABLE orchestration_v2_projection_nodes (\n      node_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      parent_node_id TEXT,\n      root_node_id TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      status TEXT NOT NULL,\n      provider_thread_id TEXT,\n      provider_turn_id TEXT,\n      runtime_request_id TEXT,\n      checkpoint_scope_id TEXT,\n      started_at TEXT,\n      completed_at TEXT,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_plans",
+      "tbl_name": "orchestration_v2_projection_plans",
+      "sql": "CREATE TABLE orchestration_v2_projection_plans (\n      plan_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      status TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_provider_session_bindings",
+      "tbl_name": "orchestration_v2_projection_provider_session_bindings",
+      "sql": "CREATE TABLE orchestration_v2_projection_provider_session_bindings (\n      provider_session_id TEXT NOT NULL,\n      thread_id TEXT NOT NULL,\n      PRIMARY KEY (provider_session_id, thread_id)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_provider_sessions",
+      "tbl_name": "orchestration_v2_projection_provider_sessions",
+      "sql": "CREATE TABLE orchestration_v2_projection_provider_sessions (\n      provider_session_id TEXT PRIMARY KEY,\n      thread_id TEXT,\n      provider TEXT NOT NULL,\n      status TEXT NOT NULL,\n      model TEXT,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    , driver TEXT, provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_provider_threads",
+      "tbl_name": "orchestration_v2_projection_provider_threads",
+      "sql": "CREATE TABLE orchestration_v2_projection_provider_threads (\n      provider_thread_id TEXT PRIMARY KEY,\n      thread_id TEXT,\n      owner_node_id TEXT,\n      provider TEXT NOT NULL,\n      provider_session_id TEXT,\n      status TEXT NOT NULL,\n      first_run_ordinal INTEGER,\n      last_run_ordinal INTEGER,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    , driver TEXT, provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_provider_turns",
+      "tbl_name": "orchestration_v2_projection_provider_turns",
+      "sql": "CREATE TABLE orchestration_v2_projection_provider_turns (\n      provider_turn_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      provider_thread_id TEXT NOT NULL,\n      node_id TEXT NOT NULL,\n      run_attempt_id TEXT,\n      ordinal INTEGER NOT NULL,\n      status TEXT NOT NULL,\n      started_at TEXT,\n      completed_at TEXT,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_run_attempts",
+      "tbl_name": "orchestration_v2_projection_run_attempts",
+      "sql": "CREATE TABLE orchestration_v2_projection_run_attempts (\n      attempt_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT NOT NULL,\n      attempt_ordinal INTEGER NOT NULL,\n      root_node_id TEXT NOT NULL,\n      provider TEXT NOT NULL,\n      provider_thread_id TEXT NOT NULL,\n      provider_turn_id TEXT,\n      status TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    , provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_runs",
+      "tbl_name": "orchestration_v2_projection_runs",
+      "sql": "CREATE TABLE orchestration_v2_projection_runs (\n      run_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      ordinal INTEGER NOT NULL,\n      provider TEXT NOT NULL,\n      provider_thread_id TEXT,\n      status TEXT NOT NULL,\n      requested_at TEXT NOT NULL,\n      completed_at TEXT,\n      payload_json TEXT NOT NULL\n    , provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_runtime_requests",
+      "tbl_name": "orchestration_v2_projection_runtime_requests",
+      "sql": "CREATE TABLE orchestration_v2_projection_runtime_requests (\n      runtime_request_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      node_id TEXT NOT NULL,\n      provider_turn_id TEXT,\n      kind TEXT NOT NULL,\n      status TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      resolved_at TEXT,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_subagents",
+      "tbl_name": "orchestration_v2_projection_subagents",
+      "sql": "CREATE TABLE orchestration_v2_projection_subagents (\n      subagent_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      parent_node_id TEXT NOT NULL,\n      provider TEXT NOT NULL,\n      provider_thread_id TEXT,\n      child_thread_id TEXT,\n      origin TEXT NOT NULL,\n      status TEXT NOT NULL,\n      started_at TEXT,\n      completed_at TEXT,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    , driver TEXT, provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_threads",
+      "tbl_name": "orchestration_v2_projection_threads",
+      "sql": "CREATE TABLE orchestration_v2_projection_threads (\n      thread_id TEXT PRIMARY KEY,\n      project_id TEXT NOT NULL,\n      title TEXT NOT NULL,\n      default_provider TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      active_provider_thread_id TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      archived_at TEXT,\n      deleted_at TEXT,\n      payload_json TEXT NOT NULL\n    , provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_projection_turn_items",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE TABLE orchestration_v2_projection_turn_items (\n      turn_item_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT,\n      provider_thread_id TEXT,\n      provider_turn_id TEXT,\n      parent_item_id TEXT,\n      ordinal INTEGER NOT NULL,\n      type TEXT NOT NULL,\n      status TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_thread_launch_workflows",
+      "tbl_name": "orchestration_v2_thread_launch_workflows",
+      "sql": "CREATE TABLE orchestration_v2_thread_launch_workflows (\n      command_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      status TEXT NOT NULL,\n      title TEXT NOT NULL,\n      worktree_path TEXT,\n      branch TEXT,\n      setup_committed INTEGER NOT NULL DEFAULT 0,\n      thread_committed INTEGER NOT NULL DEFAULT 0,\n      message_committed INTEGER NOT NULL DEFAULT 0,\n      last_error TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_turn_item_positions",
+      "tbl_name": "orchestration_v2_turn_item_positions",
+      "sql": "CREATE TABLE orchestration_v2_turn_item_positions (\n      thread_id TEXT NOT NULL,\n      turn_item_id TEXT NOT NULL,\n      ordinal INTEGER NOT NULL,\n      PRIMARY KEY (thread_id, turn_item_id),\n      UNIQUE (thread_id, ordinal)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_architect_messages",
+      "tbl_name": "organization_architect_messages",
+      "sql": "CREATE TABLE organization_architect_messages (\n    message_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    request_id TEXT NOT NULL REFERENCES organization_architect_requests(request_id),\n    role TEXT NOT NULL CHECK (role IN ('user', 'architect')),\n    text TEXT NOT NULL,\n    base_revision INTEGER NOT NULL CHECK (base_revision > 0),\n    model_selection_json TEXT,\n    created_at TEXT NOT NULL,\n    UNIQUE (request_id, role)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_architect_proposals",
+      "tbl_name": "organization_architect_proposals",
+      "sql": "CREATE TABLE organization_architect_proposals (\n    proposal_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    request_id TEXT NOT NULL REFERENCES organization_architect_requests(request_id),\n    response_message_id TEXT NOT NULL REFERENCES organization_architect_messages(message_id),\n    position INTEGER NOT NULL CHECK (position >= 0),\n    base_revision INTEGER NOT NULL CHECK (base_revision > 0),\n    change_json TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    UNIQUE (request_id, position)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_architect_requests",
+      "tbl_name": "organization_architect_requests",
+      "sql": "CREATE TABLE organization_architect_requests (\n    request_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    actor_subject TEXT NOT NULL,\n    base_revision INTEGER NOT NULL CHECK (base_revision > 0),\n    input_digest TEXT NOT NULL,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),\n    failure_message TEXT,\n    completion_digest TEXT,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_audit",
+      "tbl_name": "organization_audit",
+      "sql": "CREATE TABLE organization_audit (\n      mutation_id TEXT PRIMARY KEY,\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      actor TEXT NOT NULL,\n      action TEXT NOT NULL,\n      base_revision INTEGER NOT NULL,\n      applied_revision INTEGER NOT NULL,\n      payload_json TEXT NOT NULL,\n      created_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_config_versions",
+      "tbl_name": "organization_config_versions",
+      "sql": "CREATE TABLE organization_config_versions (\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      revision INTEGER NOT NULL,\n      config_json TEXT NOT NULL,\n      published_at TEXT NOT NULL,\n      PRIMARY KEY (organization_id, revision)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_director_messages",
+      "tbl_name": "organization_director_messages",
+      "sql": "CREATE TABLE organization_director_messages (\n    sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n    message_id TEXT NOT NULL UNIQUE,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT,\n    request_id TEXT NOT NULL REFERENCES organization_director_requests(request_id),\n    role TEXT NOT NULL CHECK (role IN ('user', 'director')),\n    text TEXT NOT NULL,\n    evidence_json TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    UNIQUE (request_id, role)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_director_requests",
+      "tbl_name": "organization_director_requests",
+      "sql": "CREATE TABLE organization_director_requests (\n    request_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT,\n    actor_subject TEXT NOT NULL,\n    request_digest TEXT NOT NULL,\n    created_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_emergency_provider_exits",
+      "tbl_name": "organization_emergency_provider_exits",
+      "sql": "CREATE TABLE organization_emergency_provider_exits (\n    work_id TEXT PRIMARY KEY REFERENCES organization_work_items(work_id),\n    organization_id TEXT NOT NULL REFERENCES organization_emergency_stops(organization_id),\n    process_id INTEGER NOT NULL CHECK (process_id > 0),\n    verified_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_emergency_scope_stops",
+      "tbl_name": "organization_emergency_scope_stops",
+      "sql": "CREATE TABLE organization_emergency_scope_stops (\n    operation_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organization_emergency_stops(organization_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    attempt_id TEXT NOT NULL REFERENCES organization_work_attempts(attempt_id),\n    disposition TEXT NOT NULL CHECK (disposition IN ('stopped', 'never-dispatched')),\n    identity_json TEXT,\n    verified_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_emergency_stops",
+      "tbl_name": "organization_emergency_stops",
+      "sql": "CREATE TABLE organization_emergency_stops (\n    organization_id TEXT PRIMARY KEY REFERENCES organizations(organization_id),\n    request_id TEXT NOT NULL UNIQUE,\n    requested_by TEXT NOT NULL,\n    requested_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_git_candidate_intents",
+      "tbl_name": "organization_git_candidate_intents",
+      "sql": "CREATE TABLE organization_git_candidate_intents (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT NOT NULL,\n    binding_id TEXT NOT NULL,\n    binding_version TEXT NOT NULL,\n    base_commit TEXT NOT NULL CHECK (length(base_commit) IN (40, 64)\n      AND base_commit NOT GLOB '*[^0-9a-f]*'),\n    artifact_ref TEXT NOT NULL,\n    artifact_receipt_digest TEXT NOT NULL CHECK (length(artifact_receipt_digest) = 64\n      AND artifact_receipt_digest NOT GLOB '*[^0-9a-f]*'),\n    reviewed_artifact_digest TEXT NOT NULL CHECK (length(reviewed_artifact_digest) = 64\n      AND reviewed_artifact_digest NOT GLOB '*[^0-9a-f]*'),\n    relative_path TEXT NOT NULL,\n    ref_name TEXT NOT NULL CHECK (\n      ref_name = 'refs/t3-organizations/candidates/' || reviewed_artifact_digest),\n    status TEXT NOT NULL CHECK (status IN ('prepared', 'retained')),\n    result_commit TEXT CHECK (result_commit IS NULL OR\n      (length(result_commit) = length(base_commit)\n       AND result_commit NOT GLOB '*[^0-9a-f]*')),\n    prepared_at TEXT NOT NULL,\n    retained_at TEXT,\n    CHECK ((status = 'prepared' AND result_commit IS NULL AND retained_at IS NULL)\n      OR (status = 'retained' AND result_commit IS NOT NULL AND retained_at IS NOT NULL))\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_git_integration_intents",
+      "tbl_name": "organization_git_integration_intents",
+      "sql": "CREATE TABLE organization_git_integration_intents (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT NOT NULL,\n    binding_id TEXT NOT NULL,\n    binding_version TEXT NOT NULL,\n    project_root_digest TEXT NOT NULL CHECK (length(project_root_digest) = 64),\n    base_commit TEXT NOT NULL CHECK (length(base_commit) IN (40, 64)),\n    result_commit TEXT NOT NULL CHECK (length(result_commit) = length(base_commit)),\n    candidate_ref TEXT NOT NULL,\n    reviewed_artifact_digest TEXT NOT NULL CHECK (length(reviewed_artifact_digest) = 64),\n    artifact_receipt_digest TEXT NOT NULL CHECK (length(artifact_receipt_digest) = 64),\n    approval_receipt_digest TEXT NOT NULL CHECK (length(approval_receipt_digest) = 64),\n    target_ref TEXT NOT NULL,\n    integrator_subject TEXT NOT NULL CHECK (length(integrator_subject) BETWEEN 1 AND 256),\n    status TEXT NOT NULL CHECK (status IN ('prepared', 'applied')),\n    prepared_at TEXT NOT NULL,\n    applied_at TEXT,\n    CHECK ((status = 'prepared' AND applied_at IS NULL)\n      OR (status = 'applied' AND applied_at IS NOT NULL))\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_intake_audit",
+      "tbl_name": "organization_intake_audit",
+      "sql": "CREATE TABLE organization_intake_audit (\n      sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n      audit_id TEXT NOT NULL UNIQUE,\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      source_id TEXT NOT NULL REFERENCES organization_intake_sources(source_id),\n      actor_subject TEXT NOT NULL,\n      action TEXT NOT NULL CHECK (action IN ('register', 'enable', 'disable', 'rotate-secret')),\n      created_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_intake_correlation_jobs",
+      "tbl_name": "organization_intake_correlation_jobs",
+      "sql": "CREATE TABLE organization_intake_correlation_jobs (\n    observation_id TEXT PRIMARY KEY REFERENCES organization_intake_observations(observation_id),\n    state TEXT NOT NULL CHECK (state IN ('pending', 'leased', 'complete', 'terminal')),\n    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),\n    next_attempt_at TEXT NOT NULL,\n    lease_token TEXT,\n    lease_expires_at TEXT,\n    outcome TEXT,\n    last_error_code TEXT,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_intake_findings",
+      "tbl_name": "organization_intake_findings",
+      "sql": "CREATE TABLE organization_intake_findings (\n      finding_id TEXT PRIMARY KEY,\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      source_id TEXT NOT NULL REFERENCES organization_intake_sources(source_id),\n      dedup_key TEXT NOT NULL,\n      title TEXT NOT NULL,\n      summary TEXT NOT NULL,\n      observation_ids_json TEXT NOT NULL,\n      state TEXT NOT NULL CHECK (state = 'tentative'),\n      created_at TEXT NOT NULL, project_id TEXT, evidence_json TEXT,\n      UNIQUE (organization_id, source_id, dedup_key)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_intake_observations",
+      "tbl_name": "organization_intake_observations",
+      "sql": "CREATE TABLE organization_intake_observations (\n      observation_id TEXT PRIMARY KEY,\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      source_id TEXT NOT NULL REFERENCES organization_intake_sources(source_id),\n      project_id TEXT,\n      external_event_id TEXT NOT NULL,\n      dedup_key TEXT NOT NULL,\n      occurred_at TEXT NOT NULL,\n      received_at TEXT NOT NULL,\n      title TEXT NOT NULL,\n      body TEXT NOT NULL,\n      attributes_json TEXT NOT NULL,\n      UNIQUE (organization_id, source_id, external_event_id),\n      UNIQUE (organization_id, source_id, dedup_key)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_intake_sources",
+      "tbl_name": "organization_intake_sources",
+      "sql": "CREATE TABLE organization_intake_sources (\n      source_id TEXT PRIMARY KEY,\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      project_id TEXT,\n      kind TEXT NOT NULL CHECK (kind IN ('manual', 'generic-http')),\n      name TEXT NOT NULL,\n      ingest_subject TEXT NOT NULL,\n      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),\n      secret_hash TEXT,\n      credential_version INTEGER NOT NULL CHECK (credential_version > 0),\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_live_work_drains",
+      "tbl_name": "organization_live_work_drains",
+      "sql": "CREATE TABLE organization_live_work_drains (\n    organization_id TEXT PRIMARY KEY REFERENCES organizations(organization_id),\n    request_id TEXT NOT NULL UNIQUE,\n    requested_by TEXT NOT NULL,\n    requested_at TEXT NOT NULL,\n    completed_at TEXT\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_live_work_failures",
+      "tbl_name": "organization_live_work_failures",
+      "sql": "CREATE TABLE organization_live_work_failures (\n    work_id TEXT PRIMARY KEY REFERENCES organization_work_items(work_id),\n    phase TEXT NOT NULL CHECK (phase IN ('attempt', 'qa', 'integration')),\n    error_code TEXT NOT NULL CHECK (error_code IN (\n      'budget_exhausted', 'budget_denied', 'provider_unavailable',\n      'authority_changed', 'qa_rejected', 'qa_unavailable',\n      'integration_conflict', 'integration_unavailable', 'attempt_unavailable',\n      'invalid_artifact', 'unexpected_failure')),\n    terminal INTEGER NOT NULL CHECK (terminal IN (0, 1)),\n    recorded_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_live_work_phase_claims",
+      "tbl_name": "organization_live_work_phase_claims",
+      "sql": "CREATE TABLE organization_live_work_phase_claims (\n    work_id TEXT PRIMARY KEY REFERENCES organization_work_items(work_id),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    phase TEXT NOT NULL CHECK (phase IN ('attempt', 'qa', 'integration')),\n    owner_epoch TEXT NOT NULL,\n    started_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_memory_records",
+      "tbl_name": "organization_memory_records",
+      "sql": "CREATE TABLE organization_memory_records (\n    record_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT,\n    version INTEGER NOT NULL CHECK (version > 0),\n    status TEXT NOT NULL CHECK (status IN ('active', 'archived', 'superseded')),\n    superseded_by_id TEXT REFERENCES organization_memory_records(record_id),\n    content_json TEXT NOT NULL,\n    created_by TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_memory_revisions",
+      "tbl_name": "organization_memory_revisions",
+      "sql": "CREATE TABLE organization_memory_revisions (\n    mutation_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    record_id TEXT NOT NULL REFERENCES organization_memory_records(record_id),\n    version INTEGER NOT NULL CHECK (version > 0),\n    action TEXT NOT NULL CHECK (action IN ('create', 'correct', 'archive', 'supersede')),\n    actor_subject TEXT NOT NULL,\n    request_digest TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    UNIQUE (record_id, version)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_project_bindings",
+      "tbl_name": "organization_project_bindings",
+      "sql": "CREATE TABLE organization_project_bindings (\n      binding_id TEXT PRIMARY KEY,\n      organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n      project_id TEXT NOT NULL,\n      access TEXT NOT NULL CHECK (access IN ('read', 'proposal', 'write')),\n      capabilities_json TEXT NOT NULL,\n      scope TEXT,\n      detached_at TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "organization_proposal_candidates",
+      "tbl_name": "organization_proposal_candidates",
+      "sql": "CREATE TABLE organization_proposal_candidates (\n    finding_id TEXT PRIMARY KEY REFERENCES organization_intake_findings(finding_id),\n    next_attempt_at TEXT NOT NULL,\n    attempts INTEGER NOT NULL CHECK (attempts >= 0),\n    state TEXT NOT NULL CHECK (state IN ('pending','terminal')),\n    last_reason TEXT,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_proposal_mutations",
+      "tbl_name": "organization_proposal_mutations",
+      "sql": "CREATE TABLE organization_proposal_mutations (\n    mutation_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    proposal_id TEXT,\n    action TEXT NOT NULL CHECK (action IN ('observation-mode','acknowledge','reject','defer')),\n    actor_subject TEXT NOT NULL,\n    request_digest TEXT NOT NULL,\n    snapshot_json TEXT NOT NULL,\n    created_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_proposal_settings",
+      "tbl_name": "organization_proposal_settings",
+      "sql": "CREATE TABLE organization_proposal_settings (\n    organization_id TEXT PRIMARY KEY REFERENCES organizations(organization_id),\n    observation_mode_enabled INTEGER NOT NULL CHECK (observation_mode_enabled IN (0, 1)),\n    enabled_at TEXT,\n    version INTEGER NOT NULL CHECK (version > 0),\n    updated_by TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_provider_budget_admissions",
+      "tbl_name": "organization_provider_budget_admissions",
+      "sql": "CREATE TABLE organization_provider_budget_admissions (\n    request_id TEXT PRIMARY KEY CHECK (length(request_id) BETWEEN 1 AND 128),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT NOT NULL REFERENCES projection_projects(project_id),\n    provider_instance_id TEXT NOT NULL CHECK (length(provider_instance_id) BETWEEN 1 AND 128),\n    model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 256),\n    estimated_tokens INTEGER NOT NULL CHECK (estimated_tokens BETWEEN 1 AND 1000000),\n    day_utc TEXT NOT NULL CHECK (length(day_utc) = 10),\n    state TEXT NOT NULL CHECK (state IN\n      ('reserved', 'dispatched', 'uncertain', 'released', 'reconciled')),\n    lease_until TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    dispatched_at TEXT,\n    reconciled_at TEXT,\n    disposition TEXT CHECK (disposition IS NULL OR\n      disposition IN ('completed', 'not-dispatched')),\n    measured_input_tokens INTEGER CHECK (measured_input_tokens IS NULL OR\n      measured_input_tokens BETWEEN 0 AND 1000000000),\n    measured_output_tokens INTEGER CHECK (measured_output_tokens IS NULL OR\n      measured_output_tokens BETWEEN 0 AND 1000000000),\n    CHECK ((measured_input_tokens IS NULL) = (measured_output_tokens IS NULL)),\n    CHECK ((state IN ('reserved', 'dispatched', 'uncertain') AND\n      reconciled_at IS NULL AND disposition IS NULL) OR\n      (state = 'released' AND reconciled_at IS NOT NULL AND\n        disposition = 'not-dispatched' AND measured_input_tokens IS NULL) OR\n      (state = 'reconciled' AND reconciled_at IS NOT NULL AND\n        disposition = 'completed'))\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_provider_budget_audit",
+      "tbl_name": "organization_provider_budget_audit",
+      "sql": "CREATE TABLE organization_provider_budget_audit (\n    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,\n    scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'organization', 'project')),\n    scope_id TEXT NOT NULL,\n    actor_id TEXT NOT NULL CHECK (length(actor_id) BETWEEN 1 AND 256),\n    previous_revision TEXT,\n    applied_revision TEXT NOT NULL,\n    previous_max_concurrent INTEGER,\n    previous_max_daily_calls INTEGER,\n    previous_max_daily_estimated_tokens INTEGER,\n    max_concurrent INTEGER NOT NULL CHECK (max_concurrent BETWEEN 0 AND 64),\n    max_daily_calls INTEGER NOT NULL CHECK (max_daily_calls BETWEEN 0 AND 10000),\n    max_daily_estimated_tokens INTEGER NOT NULL\n      CHECK (max_daily_estimated_tokens BETWEEN 0 AND 1000000000),\n    created_at TEXT NOT NULL,\n    CHECK ((previous_revision IS NULL AND previous_max_concurrent IS NULL\n      AND previous_max_daily_calls IS NULL AND previous_max_daily_estimated_tokens IS NULL)\n      OR (previous_revision IS NOT NULL AND previous_max_concurrent IS NOT NULL\n      AND previous_max_daily_calls IS NOT NULL AND previous_max_daily_estimated_tokens IS NOT NULL))\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_provider_budget_limits",
+      "tbl_name": "organization_provider_budget_limits",
+      "sql": "CREATE TABLE organization_provider_budget_limits (\n    scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'organization', 'project')),\n    scope_id TEXT NOT NULL,\n    max_concurrent INTEGER NOT NULL CHECK (max_concurrent BETWEEN 0 AND 64),\n    max_daily_calls INTEGER NOT NULL CHECK (max_daily_calls BETWEEN 0 AND 10000),\n    max_daily_estimated_tokens INTEGER NOT NULL\n      CHECK (max_daily_estimated_tokens BETWEEN 0 AND 1000000000),\n    updated_at TEXT NOT NULL,\n    PRIMARY KEY (scope_kind, scope_id),\n    CHECK ((scope_kind = 'global' AND scope_id = '*') OR\n      (scope_kind != 'global' AND length(scope_id) BETWEEN 1 AND 256))\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_provider_processes",
+      "tbl_name": "organization_provider_processes",
+      "sql": "CREATE TABLE organization_provider_processes (\n    work_id TEXT PRIMARY KEY REFERENCES organization_work_items(work_id),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    state TEXT NOT NULL CHECK (state IN ('launching', 'running', 'exited')),\n    process_id INTEGER CHECK (process_id IS NULL OR process_id > 0),\n    prepared_at TEXT NOT NULL,\n    spawned_at TEXT,\n    exited_at TEXT\n  , launch_marker TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "organization_repositories",
+      "tbl_name": "organization_repositories",
+      "sql": "CREATE TABLE organization_repositories (\n    organization_id TEXT PRIMARY KEY REFERENCES organizations(organization_id),\n    repository TEXT NOT NULL UNIQUE,\n    visibility TEXT NOT NULL CHECK (visibility IN ('private', 'public', 'internal')),\n    github_account_id TEXT,\n    auto_sync_enabled INTEGER NOT NULL DEFAULT 0 CHECK (auto_sync_enabled IN (0,1)),\n    public_exposure_acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (public_exposure_acknowledged IN (0,1)),\n    next_sync_at TEXT,\n    failure_count INTEGER NOT NULL DEFAULT 0,\n    last_accepted_commit TEXT,\n    last_sync_at TEXT,\n    last_error TEXT,\n    linked_by TEXT NOT NULL,\n    linked_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_repository_records",
+      "tbl_name": "organization_repository_records",
+      "sql": "CREATE TABLE organization_repository_records (\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    record_key TEXT NOT NULL,\n    remote_json TEXT NOT NULL,\n    remote_digest TEXT NOT NULL,\n    accepted_local_digest TEXT,\n    accepted_remote_digest TEXT,\n    state TEXT NOT NULL CHECK (state IN ('incoming', 'shared', 'conflict')),\n    resolution TEXT CHECK (resolution IN ('local', 'remote')),\n    updated_at TEXT NOT NULL,\n    PRIMARY KEY (organization_id, record_key)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_standing_work_activation_uses",
+      "tbl_name": "organization_standing_work_activation_uses",
+      "sql": "CREATE TABLE organization_standing_work_activation_uses (\n    intent_id TEXT PRIMARY KEY REFERENCES organization_work_intents(intent_id),\n    authorization_id TEXT NOT NULL REFERENCES organization_standing_work_authorizations(authorization_id),\n    work_id TEXT NOT NULL UNIQUE REFERENCES organization_work_items(work_id),\n    used_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_standing_work_authorizations",
+      "tbl_name": "organization_standing_work_authorizations",
+      "sql": "CREATE TABLE organization_standing_work_authorizations (\n    authorization_id TEXT PRIMARY KEY,\n    request_id TEXT NOT NULL UNIQUE,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT NOT NULL REFERENCES projection_projects(project_id),\n    source_id TEXT NOT NULL REFERENCES organization_intake_sources(source_id),\n    binding_id TEXT NOT NULL REFERENCES organization_project_bindings(binding_id),\n    binding_version TEXT NOT NULL,\n    published_revision INTEGER NOT NULL CHECK (published_revision > 0),\n    selection_json TEXT NOT NULL CHECK (json_valid(selection_json)\n      AND length(CAST(selection_json AS BLOB)) <= 24576),\n    max_activations INTEGER NOT NULL CHECK (max_activations BETWEEN 1 AND 32),\n    used_activations INTEGER NOT NULL DEFAULT 0 CHECK (used_activations >= 0\n      AND used_activations <= max_activations),\n    expires_at TEXT NOT NULL,\n    created_by TEXT NOT NULL CHECK (length(created_by) BETWEEN 1 AND 160),\n    created_at TEXT NOT NULL,\n    revoked_at TEXT,\n    revocation_reason TEXT CHECK (revocation_reason IN ('manual', 'expired', 'exhausted')),\n    CONSTRAINT organization_standing_revocation_pair CHECK (\n      (revoked_at IS NULL AND revocation_reason IS NULL)\n      OR (revoked_at IS NOT NULL AND revocation_reason IS NOT NULL)\n    )\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_approval_receipts",
+      "tbl_name": "organization_work_approval_receipts",
+      "sql": "CREATE TABLE organization_work_approval_receipts (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    project_id TEXT NOT NULL,\n    base_code_revision TEXT NOT NULL,\n    artifact_ref TEXT NOT NULL,\n    artifact_digest TEXT NOT NULL CHECK (length(artifact_digest) = 64),\n    qa_receipt_digest TEXT NOT NULL CHECK (length(qa_receipt_digest) = 64),\n    worker_subject TEXT NOT NULL,\n    qa_subject TEXT NOT NULL,\n    approver_subject TEXT NOT NULL CHECK (length(approver_subject) BETWEEN 1 AND 256),\n    approved INTEGER NOT NULL CHECK (approved IN (0, 1)),\n    evidence_ref TEXT NOT NULL CHECK (length(evidence_ref) BETWEEN 1 AND 512),\n    evidence_bytes BLOB NOT NULL CHECK (length(evidence_bytes) BETWEEN 1 AND 262144),\n    recorded_at TEXT NOT NULL,\n    receipt_digest TEXT NOT NULL CHECK (length(receipt_digest) = 64),\n    CHECK (worker_subject != qa_subject),\n    CHECK (approver_subject != worker_subject),\n    CHECK (approver_subject != qa_subject)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_artifacts",
+      "tbl_name": "organization_work_artifacts",
+      "sql": "CREATE TABLE organization_work_artifacts (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    artifact_ref TEXT NOT NULL UNIQUE,\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    project_id TEXT NOT NULL,\n    base_code_revision TEXT NOT NULL,\n    scope_unit_name TEXT NOT NULL,\n    scope_invocation_id TEXT NOT NULL,\n    scope_verified_stopped_at TEXT NOT NULL,\n    exit_code INTEGER NOT NULL CHECK (exit_code = 0),\n    exit_signal TEXT CHECK (exit_signal IS NULL),\n    timed_out INTEGER NOT NULL CHECK (timed_out = 0),\n    output_limit_exceeded INTEGER NOT NULL CHECK (output_limit_exceeded = 0),\n    resource_limit_exceeded INTEGER NOT NULL CHECK (resource_limit_exceeded = 0),\n    patch_bytes BLOB NOT NULL CHECK (length(patch_bytes) <= 1048576),\n    evidence_bytes BLOB NOT NULL CHECK (length(evidence_bytes) <= 262144),\n    artifact_digest TEXT NOT NULL CHECK (length(artifact_digest) = 64),\n    captured_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_attempts",
+      "tbl_name": "organization_work_attempts",
+      "sql": "CREATE TABLE organization_work_attempts (\n    attempt_id TEXT PRIMARY KEY,\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    number INTEGER NOT NULL CHECK (number > 0),\n    status TEXT NOT NULL CHECK (status IN ('running','submitted','qa-accepted',\n      'qa-rejected','expired','canceled')),\n    worker_subject TEXT NOT NULL,\n    lease_until TEXT NOT NULL,\n    artifact_digest TEXT,\n    artifact_ref TEXT,\n    qa_subject TEXT,\n    qa_evidence_ref TEXT,\n    started_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    UNIQUE (work_id, number)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_integration_receipts",
+      "tbl_name": "organization_work_integration_receipts",
+      "sql": "CREATE TABLE organization_work_integration_receipts (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    project_id TEXT NOT NULL,\n    base_code_revision TEXT NOT NULL,\n    result_code_revision TEXT NOT NULL,\n    artifact_ref TEXT NOT NULL,\n    artifact_digest TEXT NOT NULL CHECK (length(artifact_digest) = 64),\n    qa_receipt_digest TEXT NOT NULL CHECK (length(qa_receipt_digest) = 64),\n    approval_receipt_digest TEXT NOT NULL CHECK (length(approval_receipt_digest) = 64),\n    worker_subject TEXT NOT NULL,\n    qa_subject TEXT NOT NULL,\n    approver_subject TEXT NOT NULL,\n    integrator_subject TEXT NOT NULL CHECK (length(integrator_subject) BETWEEN 1 AND 256),\n    receipt_ref TEXT NOT NULL UNIQUE CHECK (length(receipt_ref) BETWEEN 1 AND 512),\n    evidence_bytes BLOB NOT NULL CHECK (length(evidence_bytes) BETWEEN 1 AND 262144),\n    recorded_at TEXT NOT NULL,\n    receipt_digest TEXT NOT NULL CHECK (length(receipt_digest) = 64),\n    CHECK (integrator_subject != worker_subject),\n    CHECK (integrator_subject != qa_subject),\n    CHECK (integrator_subject != approver_subject)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_intent_activations",
+      "tbl_name": "organization_work_intent_activations",
+      "sql": "CREATE TABLE organization_work_intent_activations (\n    intent_id TEXT PRIMARY KEY REFERENCES organization_work_intents(intent_id),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    work_id TEXT NOT NULL UNIQUE REFERENCES organization_work_items(work_id),\n    selection_json TEXT NOT NULL CHECK (json_valid(selection_json)\n      AND length(CAST(selection_json AS BLOB)) <= 24576),\n    activated_by TEXT NOT NULL CHECK (length(activated_by) BETWEEN 1 AND 160),\n    activated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_intents",
+      "tbl_name": "organization_work_intents",
+      "sql": "CREATE TABLE organization_work_intents (\n    intent_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    proposal_id TEXT NOT NULL REFERENCES organization_work_proposals(proposal_id),\n    proposal_version INTEGER NOT NULL CHECK (proposal_version > 0),\n    finding_id TEXT NOT NULL REFERENCES organization_intake_findings(finding_id),\n    project_id TEXT NOT NULL REFERENCES projection_projects(project_id),\n    binding_id TEXT NOT NULL REFERENCES organization_project_bindings(binding_id),\n    binding_version TEXT NOT NULL,\n    published_revision INTEGER NOT NULL CHECK (published_revision > 0),\n    evidence_json TEXT NOT NULL,\n    requested_by TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'awaiting-activation'\n      CHECK (status = 'awaiting-activation'),\n    created_at TEXT NOT NULL,\n    UNIQUE (proposal_id, proposal_version)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_items",
+      "tbl_name": "organization_work_items",
+      "sql": "CREATE TABLE organization_work_items (\n    work_id TEXT PRIMARY KEY,\n    request_id TEXT NOT NULL UNIQUE,\n    request_json TEXT NOT NULL,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    finding_id TEXT NOT NULL REFERENCES organization_intake_findings(finding_id),\n    project_id TEXT NOT NULL,\n    binding_id TEXT NOT NULL REFERENCES organization_project_bindings(binding_id),\n    binding_version TEXT NOT NULL,\n    scope TEXT,\n    published_revision INTEGER NOT NULL CHECK (published_revision > 0),\n    workflow_id TEXT NOT NULL,\n    workflow_version INTEGER NOT NULL CHECK (workflow_version > 0),\n    code_revision TEXT NOT NULL,\n    status TEXT NOT NULL CHECK (status IN ('pending','running','blocked','waiting-approval',\n      'retrying','succeeded','failed','canceled','recovering')),\n    attempt_limit INTEGER NOT NULL CHECK (attempt_limit BETWEEN 1 AND 3),\n    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),\n    creator_subject TEXT NOT NULL,\n    approval_subject TEXT,\n    approval_evidence_ref TEXT,\n    integration_subject TEXT,\n    integration_receipt_ref TEXT,\n    result_code_revision TEXT,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    UNIQUE (organization_id, finding_id, workflow_id, project_id)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_proposals",
+      "tbl_name": "organization_work_proposals",
+      "sql": "CREATE TABLE organization_work_proposals (\n    proposal_id TEXT PRIMARY KEY,\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    finding_id TEXT NOT NULL UNIQUE REFERENCES organization_intake_findings(finding_id),\n    project_id TEXT NOT NULL,\n    binding_id TEXT NOT NULL REFERENCES organization_project_bindings(binding_id),\n    binding_version TEXT NOT NULL,\n    published_revision INTEGER NOT NULL CHECK (published_revision > 0),\n    evidence_json TEXT NOT NULL,\n    title TEXT NOT NULL,\n    summary TEXT NOT NULL,\n    state TEXT NOT NULL CHECK (state IN ('proposed','acknowledged','rejected','deferred')),\n    version INTEGER NOT NULL CHECK (version > 0),\n    decided_by TEXT,\n    decision_reason TEXT,\n    reconsider_after TEXT,\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_qa_receipts",
+      "tbl_name": "organization_work_qa_receipts",
+      "sql": "CREATE TABLE organization_work_qa_receipts (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    project_id TEXT NOT NULL,\n    artifact_ref TEXT NOT NULL,\n    artifact_digest TEXT NOT NULL CHECK (length(artifact_digest) = 64),\n    worker_subject TEXT NOT NULL,\n    reviewer_subject TEXT NOT NULL CHECK (length(reviewer_subject) BETWEEN 1 AND 256),\n    accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),\n    evidence_ref TEXT NOT NULL CHECK (length(evidence_ref) BETWEEN 1 AND 512),\n    evidence_bytes BLOB NOT NULL CHECK (length(evidence_bytes) BETWEEN 1 AND 262144),\n    recorded_at TEXT NOT NULL,\n    receipt_digest TEXT NOT NULL CHECK (length(receipt_digest) = 64),\n    CHECK (reviewer_subject != worker_subject)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_resource_limits",
+      "tbl_name": "organization_work_resource_limits",
+      "sql": "CREATE TABLE organization_work_resource_limits (\n    scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global','organization','project')),\n    scope_id TEXT NOT NULL,\n    max_active INTEGER NOT NULL CHECK (max_active BETWEEN 1 AND 64),\n    PRIMARY KEY (scope_kind, scope_id),\n    CHECK ((scope_kind = 'global' AND scope_id = '*') OR\n      (scope_kind != 'global' AND length(scope_id) > 0))\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_resource_permits",
+      "tbl_name": "organization_work_resource_permits",
+      "sql": "CREATE TABLE organization_work_resource_permits (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    organization_id TEXT NOT NULL REFERENCES organizations(organization_id),\n    project_id TEXT NOT NULL,\n    state TEXT NOT NULL CHECK (state IN ('active','released','expired')),\n    lease_until TEXT NOT NULL,\n    granted_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_scope_preparations",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TABLE organization_work_scope_preparations (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    preparation_started_at TEXT NOT NULL\n  , unit_name TEXT, launch_requested_at TEXT, launch_state TEXT NOT NULL DEFAULT 'legacy-unknown'\n      CHECK (launch_state IN ('legacy-unknown', 'reserved', 'requested')\n        AND ((launch_state = 'requested') = (launch_requested_at IS NOT NULL))))"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_scope_recovery_receipts",
+      "tbl_name": "organization_work_scope_recovery_receipts",
+      "sql": "CREATE TABLE organization_work_scope_recovery_receipts (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_scope_preparations(attempt_id),\n    operation_id TEXT NOT NULL UNIQUE,\n    unit_name TEXT NOT NULL,\n    kind TEXT NOT NULL CHECK (kind IN ('never-dispatched', 'verified-stopped-unattached')),\n    recorded_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_scopes",
+      "tbl_name": "organization_work_scopes",
+      "sql": "CREATE TABLE organization_work_scopes (\n    attempt_id TEXT PRIMARY KEY REFERENCES organization_work_attempts(attempt_id),\n    unit_name TEXT NOT NULL UNIQUE,\n    invocation_id TEXT NOT NULL UNIQUE,\n    control_group TEXT NOT NULL UNIQUE,\n    sandbox_pid INTEGER NOT NULL CHECK (sandbox_pid > 0),\n    pid_namespace INTEGER NOT NULL CHECK (pid_namespace > 0),\n    prepared_at TEXT NOT NULL,\n    start_requested_at TEXT,\n    token_released_at TEXT,\n    started_at TEXT,\n    stop_requested_at TEXT,\n    verified_stopped_at TEXT,\n    CHECK (token_released_at IS NULL OR start_requested_at IS NOT NULL),\n    CHECK (started_at IS NULL OR token_released_at IS NOT NULL),\n    CHECK (verified_stopped_at IS NULL OR stop_requested_at IS NOT NULL)\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organization_work_transitions",
+      "tbl_name": "organization_work_transitions",
+      "sql": "CREATE TABLE organization_work_transitions (\n    transition_id TEXT PRIMARY KEY,\n    work_id TEXT NOT NULL REFERENCES organization_work_items(work_id),\n    action TEXT NOT NULL,\n    actor_subject TEXT NOT NULL,\n    request_json TEXT NOT NULL,\n    created_at TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "organizations",
+      "tbl_name": "organizations",
+      "sql": "CREATE TABLE organizations (\n      organization_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      mission TEXT NOT NULL,\n      lifecycle TEXT NOT NULL CHECK (lifecycle IN ('draft', 'active', 'paused', 'archived')),\n      draft_revision INTEGER NOT NULL CHECK (draft_revision > 0),\n      published_revision INTEGER,\n      architect_role_id TEXT NOT NULL,\n      director_role_id TEXT NOT NULL,\n      graph_json TEXT NOT NULL,\n      layout_json TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    , workflows_json TEXT NOT NULL DEFAULT '[]')"
+    },
+    {
+      "type": "table",
+      "name": "projection_pending_approvals",
+      "tbl_name": "projection_pending_approvals",
+      "sql": "CREATE TABLE projection_pending_approvals (\n      request_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      turn_id TEXT,\n      status TEXT NOT NULL,\n      decision TEXT,\n      created_at TEXT NOT NULL,\n      resolved_at TEXT\n    )"
+    },
+    {
+      "type": "table",
+      "name": "projection_projects",
+      "tbl_name": "projection_projects",
+      "sql": "CREATE TABLE projection_projects (\n      project_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      workspace_root TEXT NOT NULL,\n      github_account_id TEXT,\n      scripts_json TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      deleted_at TEXT\n    , default_model_selection_json TEXT, default_thread_env_mode TEXT, favicon_path TEXT, auto_pull INTEGER NOT NULL DEFAULT 0, project_icon_json TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "projection_state",
+      "tbl_name": "projection_state",
+      "sql": "CREATE TABLE projection_state (\n      projector TEXT PRIMARY KEY,\n      last_applied_sequence INTEGER NOT NULL,\n      updated_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "projection_thread_activities",
+      "tbl_name": "projection_thread_activities",
+      "sql": "CREATE TABLE projection_thread_activities (\n      activity_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      turn_id TEXT,\n      tone TEXT NOT NULL,\n      kind TEXT NOT NULL,\n      summary TEXT NOT NULL,\n      payload_json TEXT NOT NULL,\n      created_at TEXT NOT NULL\n    , sequence INTEGER)"
+    },
+    {
+      "type": "table",
+      "name": "projection_thread_messages",
+      "tbl_name": "projection_thread_messages",
+      "sql": "CREATE TABLE projection_thread_messages (\n      message_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      turn_id TEXT,\n      role TEXT NOT NULL,\n      text TEXT NOT NULL,\n      is_streaming INTEGER NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    , attachments_json TEXT, context_json TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "projection_thread_proposed_plans",
+      "tbl_name": "projection_thread_proposed_plans",
+      "sql": "CREATE TABLE projection_thread_proposed_plans (\n      plan_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      turn_id TEXT,\n      plan_markdown TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL\n    , implemented_at TEXT, implementation_thread_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "projection_thread_pull_requests",
+      "tbl_name": "projection_thread_pull_requests",
+      "sql": "CREATE TABLE projection_thread_pull_requests (\n      thread_id TEXT NOT NULL,\n      host TEXT NOT NULL,\n      repository TEXT NOT NULL,\n      number INTEGER NOT NULL,\n      url TEXT NOT NULL,\n      source TEXT NOT NULL,\n      linked_at TEXT NOT NULL,\n      snapshot_json TEXT,\n      stack_json TEXT,\n      PRIMARY KEY (thread_id, host, repository, number)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "projection_thread_sessions",
+      "tbl_name": "projection_thread_sessions",
+      "sql": "CREATE TABLE projection_thread_sessions (\n      thread_id TEXT PRIMARY KEY,\n      status TEXT NOT NULL,\n      provider_name TEXT,\n      provider_session_id TEXT,\n      provider_thread_id TEXT,\n      active_turn_id TEXT,\n      last_error TEXT,\n      updated_at TEXT NOT NULL\n    , runtime_mode TEXT NOT NULL DEFAULT 'full-access', provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "projection_threads",
+      "tbl_name": "projection_threads",
+      "sql": "CREATE TABLE projection_threads (\n      thread_id TEXT PRIMARY KEY,\n      project_id TEXT NOT NULL,\n      title TEXT NOT NULL,\n      branch TEXT,\n      worktree_path TEXT,\n      latest_turn_id TEXT,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      deleted_at TEXT\n    , runtime_mode TEXT NOT NULL DEFAULT 'full-access', interaction_mode TEXT NOT NULL DEFAULT 'default', model_selection_json TEXT, archived_at TEXT, latest_user_message_at TEXT, pending_approval_count INTEGER NOT NULL DEFAULT 0, pending_user_input_count INTEGER NOT NULL DEFAULT 0, has_actionable_proposed_plan INTEGER NOT NULL DEFAULT 0, settled_override TEXT, settled_at TEXT, snoozed_until TEXT, snoozed_at TEXT, title_regeneration_request_id TEXT, title_regeneration_started_at TEXT, pinned_at TEXT, pin_order_key TEXT, linked_pull_request_json TEXT, unsettled_at TEXT, branch_pull_request_json TEXT, active_order_key TEXT, title_state_json TEXT, auto_settle_disabled_at TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "projection_turns",
+      "tbl_name": "projection_turns",
+      "sql": "CREATE TABLE projection_turns (\n      row_id INTEGER PRIMARY KEY AUTOINCREMENT,\n      thread_id TEXT NOT NULL,\n      turn_id TEXT,\n      pending_message_id TEXT,\n      assistant_message_id TEXT,\n      state TEXT NOT NULL,\n      requested_at TEXT NOT NULL,\n      started_at TEXT,\n      completed_at TEXT,\n      checkpoint_turn_count INTEGER,\n      checkpoint_ref TEXT,\n      checkpoint_status TEXT,\n      checkpoint_files_json TEXT NOT NULL, source_proposed_plan_thread_id TEXT, source_proposed_plan_id TEXT,\n      UNIQUE (thread_id, turn_id),\n      UNIQUE (thread_id, checkpoint_turn_count)\n    )"
+    },
+    {
+      "type": "table",
+      "name": "provider_session_runtime",
+      "tbl_name": "provider_session_runtime",
+      "sql": "CREATE TABLE provider_session_runtime (\n      thread_id TEXT PRIMARY KEY,\n      provider_name TEXT NOT NULL,\n      adapter_key TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL DEFAULT 'full-access',\n      status TEXT NOT NULL,\n      last_seen_at TEXT NOT NULL,\n      resume_cursor_json TEXT,\n      runtime_payload_json TEXT\n    , provider_instance_id TEXT)"
+    },
+    {
+      "type": "table",
+      "name": "pull_request_files_viewed",
+      "tbl_name": "pull_request_files_viewed",
+      "sql": "CREATE TABLE pull_request_files_viewed (\n      provider TEXT NOT NULL,\n      host TEXT NOT NULL,\n      repository TEXT NOT NULL,\n      number INTEGER NOT NULL,\n      viewer TEXT NOT NULL,\n      path TEXT NOT NULL,\n      revision TEXT,\n      viewed_at TEXT NOT NULL,\n      PRIMARY KEY (provider, host, repository, number, viewer, path)\n    ) WITHOUT ROWID\n  "
+    },
+    {
+      "type": "table",
+      "name": "scheduled_task_webhook_deliveries",
+      "tbl_name": "scheduled_task_webhook_deliveries",
+      "sql": "CREATE TABLE scheduled_task_webhook_deliveries (\n      delivery_id TEXT PRIMARY KEY,\n      task_id TEXT NOT NULL,\n      received_at TEXT NOT NULL,\n      method TEXT NOT NULL,\n      query TEXT NOT NULL,\n      headers_json TEXT NOT NULL,\n      body TEXT NOT NULL,\n      body_bytes INTEGER NOT NULL,\n      body_truncated INTEGER NOT NULL,\n      outcome TEXT NOT NULL,\n      signature_verified INTEGER NOT NULL,\n      missing_fields_json TEXT NOT NULL,\n      rendered_prompt TEXT,\n      error TEXT\n    )"
+    },
+    {
+      "type": "table",
+      "name": "scheduled_task_webhook_relay_deliveries",
+      "tbl_name": "scheduled_task_webhook_relay_deliveries",
+      "sql": "CREATE TABLE scheduled_task_webhook_relay_deliveries (\n      relay_delivery_id TEXT PRIMARY KEY,\n      task_id TEXT NOT NULL,\n      seen_at TEXT NOT NULL\n    )"
+    },
+    {
+      "type": "table",
+      "name": "scheduled_tasks",
+      "tbl_name": "scheduled_tasks",
+      "sql": "CREATE TABLE scheduled_tasks (\n      task_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      enabled INTEGER NOT NULL,\n      schedule_json TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      thread_id TEXT,\n      workspace_strategy_json TEXT NOT NULL,\n      model_selection_json TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      created_by TEXT NOT NULL,\n      creation_source TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      next_run_at TEXT,\n      last_run_at TEXT,\n      last_run_status TEXT NOT NULL,\n      last_run_error TEXT,\n      run_count INTEGER NOT NULL\n    , webhook_token TEXT, webhook_secret TEXT)"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_git_candidate_intent_no_delete",
+      "tbl_name": "organization_git_candidate_intents",
+      "sql": "CREATE TRIGGER organization_git_candidate_intent_no_delete\n    BEFORE DELETE ON organization_git_candidate_intents\n    BEGIN SELECT RAISE(ABORT, 'Organization candidate intent cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_git_candidate_intent_transition",
+      "tbl_name": "organization_git_candidate_intents",
+      "sql": "CREATE TRIGGER organization_git_candidate_intent_transition\n    BEFORE UPDATE ON organization_git_candidate_intents\n    WHEN OLD.status != 'prepared' OR NEW.status != 'retained'\n      OR NEW.attempt_id IS NOT OLD.attempt_id\n      OR NEW.work_id IS NOT OLD.work_id\n      OR NEW.organization_id IS NOT OLD.organization_id\n      OR NEW.project_id IS NOT OLD.project_id\n      OR NEW.binding_id IS NOT OLD.binding_id\n      OR NEW.binding_version IS NOT OLD.binding_version\n      OR NEW.base_commit IS NOT OLD.base_commit\n      OR NEW.artifact_ref IS NOT OLD.artifact_ref\n      OR NEW.artifact_receipt_digest IS NOT OLD.artifact_receipt_digest\n      OR NEW.reviewed_artifact_digest IS NOT OLD.reviewed_artifact_digest\n      OR NEW.relative_path IS NOT OLD.relative_path\n      OR NEW.ref_name IS NOT OLD.ref_name\n      OR NEW.prepared_at IS NOT OLD.prepared_at\n    BEGIN SELECT RAISE(ABORT, 'Organization candidate intent is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_git_integration_intent_no_delete",
+      "tbl_name": "organization_git_integration_intents",
+      "sql": "CREATE TRIGGER organization_git_integration_intent_no_delete\n    BEFORE DELETE ON organization_git_integration_intents\n    BEGIN SELECT RAISE(ABORT, 'Organization Git integration intent cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_git_integration_intent_transition",
+      "tbl_name": "organization_git_integration_intents",
+      "sql": "CREATE TRIGGER organization_git_integration_intent_transition\n    BEFORE UPDATE ON organization_git_integration_intents\n    WHEN OLD.status != 'prepared' OR NEW.status != 'applied'\n      OR NEW.attempt_id IS NOT OLD.attempt_id\n      OR NEW.work_id IS NOT OLD.work_id\n      OR NEW.organization_id IS NOT OLD.organization_id\n      OR NEW.project_id IS NOT OLD.project_id\n      OR NEW.binding_id IS NOT OLD.binding_id\n      OR NEW.binding_version IS NOT OLD.binding_version\n      OR NEW.project_root_digest IS NOT OLD.project_root_digest\n      OR NEW.base_commit IS NOT OLD.base_commit\n      OR NEW.result_commit IS NOT OLD.result_commit\n      OR NEW.candidate_ref IS NOT OLD.candidate_ref\n      OR NEW.reviewed_artifact_digest IS NOT OLD.reviewed_artifact_digest\n      OR NEW.artifact_receipt_digest IS NOT OLD.artifact_receipt_digest\n      OR NEW.approval_receipt_digest IS NOT OLD.approval_receipt_digest\n      OR NEW.target_ref IS NOT OLD.target_ref\n      OR NEW.integrator_subject IS NOT OLD.integrator_subject\n      OR NEW.prepared_at IS NOT OLD.prepared_at\n    BEGIN SELECT RAISE(ABORT, 'Organization Git integration intent is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_provider_budget_audit_no_delete",
+      "tbl_name": "organization_provider_budget_audit",
+      "sql": "CREATE TRIGGER organization_provider_budget_audit_no_delete\n    BEFORE DELETE ON organization_provider_budget_audit\n    BEGIN SELECT RAISE(ABORT, 'Provider budget audit cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_provider_budget_audit_no_update",
+      "tbl_name": "organization_provider_budget_audit",
+      "sql": "CREATE TRIGGER organization_provider_budget_audit_no_update\n    BEFORE UPDATE ON organization_provider_budget_audit\n    BEGIN SELECT RAISE(ABORT, 'Provider budget audit is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_provider_budget_identity_immutable",
+      "tbl_name": "organization_provider_budget_admissions",
+      "sql": "CREATE TRIGGER organization_provider_budget_identity_immutable\n    BEFORE UPDATE ON organization_provider_budget_admissions\n    WHEN NEW.request_id IS NOT OLD.request_id\n      OR NEW.organization_id IS NOT OLD.organization_id\n      OR NEW.project_id IS NOT OLD.project_id\n      OR NEW.provider_instance_id IS NOT OLD.provider_instance_id\n      OR NEW.model_id IS NOT OLD.model_id\n      OR NEW.estimated_tokens IS NOT OLD.estimated_tokens\n      OR NEW.day_utc IS NOT OLD.day_utc\n      OR NEW.created_at IS NOT OLD.created_at\n    BEGIN SELECT RAISE(ABORT, 'Organization provider admission identity is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_provider_budget_no_delete",
+      "tbl_name": "organization_provider_budget_admissions",
+      "sql": "CREATE TRIGGER organization_provider_budget_no_delete\n    BEFORE DELETE ON organization_provider_budget_admissions\n    BEGIN SELECT RAISE(ABORT, 'Organization provider admission cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_approval_receipt_immutable",
+      "tbl_name": "organization_work_approval_receipts",
+      "sql": "CREATE TRIGGER organization_work_approval_receipt_immutable\n    BEFORE UPDATE ON organization_work_approval_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization work approval receipt is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_approval_receipt_no_delete",
+      "tbl_name": "organization_work_approval_receipts",
+      "sql": "CREATE TRIGGER organization_work_approval_receipt_no_delete\n    BEFORE DELETE ON organization_work_approval_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization work approval receipt cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_artifact_immutable",
+      "tbl_name": "organization_work_artifacts",
+      "sql": "CREATE TRIGGER organization_work_artifact_immutable\n    BEFORE UPDATE ON organization_work_artifacts\n    BEGIN SELECT RAISE(ABORT, 'Organization work artifact is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_artifact_no_delete",
+      "tbl_name": "organization_work_artifacts",
+      "sql": "CREATE TRIGGER organization_work_artifact_no_delete\n    BEFORE DELETE ON organization_work_artifacts\n    BEGIN SELECT RAISE(ABORT, 'Organization work artifact cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_integration_receipt_immutable",
+      "tbl_name": "organization_work_integration_receipts",
+      "sql": "CREATE TRIGGER organization_work_integration_receipt_immutable\n    BEFORE UPDATE ON organization_work_integration_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization work integration receipt is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_integration_receipt_no_delete",
+      "tbl_name": "organization_work_integration_receipts",
+      "sql": "CREATE TRIGGER organization_work_integration_receipt_no_delete\n    BEFORE DELETE ON organization_work_integration_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization work integration receipt cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_intent_activation_matches_work",
+      "tbl_name": "organization_work_intent_activations",
+      "sql": "CREATE TRIGGER organization_work_intent_activation_matches_work\n    BEFORE INSERT ON organization_work_intent_activations\n    WHEN NOT EXISTS (\n      SELECT 1 FROM organization_work_items work\n      JOIN organization_work_intents intent ON intent.intent_id = NEW.intent_id\n      WHERE work.work_id = NEW.work_id\n        AND work.organization_id = NEW.organization_id\n        AND intent.organization_id = NEW.organization_id\n        AND work.finding_id = intent.finding_id\n        AND work.project_id = intent.project_id\n        AND work.binding_id = intent.binding_id\n        AND work.binding_version = intent.binding_version\n        AND work.published_revision = intent.published_revision\n        AND work.creator_subject = NEW.activated_by\n    )\n    BEGIN SELECT RAISE(ABORT, 'Organization work activation target differs from its intent'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_intent_activations_immutable",
+      "tbl_name": "organization_work_intent_activations",
+      "sql": "CREATE TRIGGER organization_work_intent_activations_immutable\n    BEFORE UPDATE ON organization_work_intent_activations\n    BEGIN SELECT RAISE(ABORT, 'Organization work activation is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_intent_activations_no_delete",
+      "tbl_name": "organization_work_intent_activations",
+      "sql": "CREATE TRIGGER organization_work_intent_activations_no_delete\n    BEFORE DELETE ON organization_work_intent_activations\n    BEGIN SELECT RAISE(ABORT, 'Organization work activation cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_intents_immutable",
+      "tbl_name": "organization_work_intents",
+      "sql": "CREATE TRIGGER organization_work_intents_immutable\n    BEFORE UPDATE ON organization_work_intents\n    BEGIN SELECT RAISE(ABORT, 'Organization work intent is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_intents_no_delete",
+      "tbl_name": "organization_work_intents",
+      "sql": "CREATE TRIGGER organization_work_intents_no_delete\n    BEFORE DELETE ON organization_work_intents\n    BEGIN SELECT RAISE(ABORT, 'Organization work intent cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_qa_receipt_immutable",
+      "tbl_name": "organization_work_qa_receipts",
+      "sql": "CREATE TRIGGER organization_work_qa_receipt_immutable\n    BEFORE UPDATE ON organization_work_qa_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization work QA receipt is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_qa_receipt_no_delete",
+      "tbl_name": "organization_work_qa_receipts",
+      "sql": "CREATE TRIGGER organization_work_qa_receipt_no_delete\n    BEFORE DELETE ON organization_work_qa_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization work QA receipt cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_identity_immutable",
+      "tbl_name": "organization_work_scopes",
+      "sql": "CREATE TRIGGER organization_work_scope_identity_immutable\n    BEFORE UPDATE OF unit_name, invocation_id, control_group, sandbox_pid, pid_namespace\n    ON organization_work_scopes\n    WHEN OLD.unit_name != NEW.unit_name OR OLD.invocation_id != NEW.invocation_id OR\n      OLD.control_group != NEW.control_group OR OLD.sandbox_pid != NEW.sandbox_pid OR\n      OLD.pid_namespace != NEW.pid_namespace\n    BEGIN SELECT RAISE(ABORT, 'Organization work scope identity is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_launch_requested_immutable",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_launch_requested_immutable\n    BEFORE UPDATE OF launch_state, launch_requested_at ON organization_work_scope_preparations\n    WHEN NOT ((OLD.launch_state IS NEW.launch_state\n      AND OLD.launch_requested_at IS NEW.launch_requested_at)\n      OR (OLD.launch_state = 'reserved' AND NEW.launch_state = 'requested'\n        AND OLD.launch_requested_at IS NULL AND NEW.launch_requested_at IS NOT NULL\n        AND OLD.unit_name IS NOT NULL))\n    BEGIN SELECT RAISE(ABORT, 'Organization scope launch request is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_launch_requested_no_delete",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_launch_requested_no_delete\n    BEFORE DELETE ON organization_work_scope_preparations\n    WHEN OLD.launch_state = 'requested' OR OLD.launch_requested_at IS NOT NULL\n    BEGIN SELECT RAISE(ABORT, 'Organization scope launch request cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_launch_requested_no_insert",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_launch_requested_no_insert\n    BEFORE INSERT ON organization_work_scope_preparations\n    WHEN NEW.launch_state = 'requested' OR NEW.launch_requested_at IS NOT NULL\n    BEGIN SELECT RAISE(ABORT, 'Organization scope launch request requires a reservation'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_preparation_fences_permit_release",
+      "tbl_name": "organization_work_resource_permits",
+      "sql": "CREATE TRIGGER organization_work_scope_preparation_fences_permit_release\n    BEFORE UPDATE OF state ON organization_work_resource_permits\n    WHEN OLD.state = 'active' AND NEW.state IN ('released','expired')\n      AND EXISTS (SELECT 1 FROM organization_work_scope_preparations prep\n        WHERE prep.attempt_id = OLD.attempt_id)\n      AND NOT EXISTS (SELECT 1 FROM organization_work_scopes scope\n        WHERE scope.attempt_id = OLD.attempt_id\n          AND scope.verified_stopped_at IS NOT NULL)\n      AND NOT EXISTS (SELECT 1 FROM organization_work_scope_recovery_receipts receipt\n        JOIN organization_work_scope_preparations prep\n          ON prep.attempt_id = receipt.attempt_id\n        WHERE receipt.attempt_id = OLD.attempt_id\n          AND receipt.operation_id = OLD.attempt_id\n          AND receipt.unit_name = prep.unit_name\n          AND receipt.kind IN ('never-dispatched', 'verified-stopped-unattached')\n          AND NOT EXISTS (SELECT 1 FROM organization_work_scopes scope\n            WHERE scope.attempt_id = OLD.attempt_id))\n    BEGIN SELECT RAISE(ABORT, 'Organization scope preparation has no verified stop'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_preparation_immutable",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_preparation_immutable\n    BEFORE UPDATE ON organization_work_scope_preparations\n    WHEN OLD.attempt_id != NEW.attempt_id OR\n      OLD.preparation_started_at != NEW.preparation_started_at\n    BEGIN SELECT RAISE(ABORT, 'Organization scope preparation is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_preparation_retained_while_active",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_preparation_retained_while_active\n    BEFORE DELETE ON organization_work_scope_preparations\n    WHEN EXISTS (SELECT 1 FROM organization_work_resource_permits permit\n      WHERE permit.attempt_id = OLD.attempt_id AND permit.state = 'active')\n      AND NOT EXISTS (SELECT 1 FROM organization_work_scopes scope\n        WHERE scope.attempt_id = OLD.attempt_id\n          AND scope.verified_stopped_at IS NOT NULL)\n    BEGIN SELECT RAISE(ABORT, 'Active scope preparation cannot be erased'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_preparation_unit_immutable",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_preparation_unit_immutable\n    BEFORE UPDATE OF unit_name ON organization_work_scope_preparations\n    WHEN OLD.unit_name IS NOT NEW.unit_name\n    BEGIN SELECT RAISE(ABORT, 'Reserved Organization scope unit is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_recovery_fences_late_attach",
+      "tbl_name": "organization_work_scopes",
+      "sql": "CREATE TRIGGER organization_work_scope_recovery_fences_late_attach\n    BEFORE INSERT ON organization_work_scopes\n    WHEN EXISTS (SELECT 1 FROM organization_work_scope_recovery_receipts receipt\n      WHERE receipt.attempt_id = NEW.attempt_id)\n    BEGIN SELECT RAISE(ABORT, 'Recovered Organization scope cannot attach later'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_recovery_receipt_immutable",
+      "tbl_name": "organization_work_scope_recovery_receipts",
+      "sql": "CREATE TRIGGER organization_work_scope_recovery_receipt_immutable\n    BEFORE UPDATE ON organization_work_scope_recovery_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization scope recovery receipt is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_recovery_receipt_no_delete",
+      "tbl_name": "organization_work_scope_recovery_receipts",
+      "sql": "CREATE TRIGGER organization_work_scope_recovery_receipt_no_delete\n    BEFORE DELETE ON organization_work_scope_recovery_receipts\n    BEGIN SELECT RAISE(ABORT, 'Organization scope recovery receipt cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_recovery_receipt_valid",
+      "tbl_name": "organization_work_scope_recovery_receipts",
+      "sql": "CREATE TRIGGER organization_work_scope_recovery_receipt_valid\n    BEFORE INSERT ON organization_work_scope_recovery_receipts\n    WHEN NEW.operation_id != NEW.attempt_id\n      OR NEW.kind NOT IN ('never-dispatched', 'verified-stopped-unattached')\n      OR NOT EXISTS (SELECT 1 FROM organization_work_scope_preparations prep\n        WHERE prep.attempt_id = NEW.attempt_id\n          AND prep.unit_name = NEW.unit_name\n          AND prep.launch_state IN ('reserved', 'requested'))\n      OR EXISTS (SELECT 1 FROM organization_work_scopes scope\n        WHERE scope.attempt_id = NEW.attempt_id)\n    BEGIN SELECT RAISE(ABORT, 'Organization scope recovery receipt has no matching unlaunched reservation'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_recovery_retains_preparation",
+      "tbl_name": "organization_work_scope_preparations",
+      "sql": "CREATE TRIGGER organization_work_scope_recovery_retains_preparation\n    BEFORE DELETE ON organization_work_scope_preparations\n    WHEN EXISTS (SELECT 1 FROM organization_work_scope_recovery_receipts receipt\n      WHERE receipt.attempt_id = OLD.attempt_id)\n    BEGIN SELECT RAISE(ABORT, 'Recovered Organization scope preparation cannot be deleted'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "organization_work_scope_unit_matches_reservation",
+      "tbl_name": "organization_work_scopes",
+      "sql": "CREATE TRIGGER organization_work_scope_unit_matches_reservation\n    BEFORE INSERT ON organization_work_scopes\n    WHEN EXISTS (SELECT 1 FROM organization_work_scope_preparations prep\n      WHERE prep.attempt_id = NEW.attempt_id\n        AND (prep.unit_name IS NULL OR prep.unit_name != NEW.unit_name))\n    BEGIN SELECT RAISE(ABORT, 'Organization scope unit differs from reservation'); END"
+    }
+  ]
+}

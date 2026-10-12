@@ -45,7 +45,9 @@ before its existing contracts and JSON projection queries, preserving paired-cli
 compatibility and original replay byte budgets. Normal startup performs light schema
 work; migration 102 queues one-time historical shrink for populated older databases.
 Supported desktop, WSL and managed-service launchers perform it during native maintenance;
-older service launchers hold it pending until refreshed. Completed migrations are not rerun.
+older service launchers hold it pending until refreshed. Migration 103 binds a fast schema
+and ledger SHA check to the compiled schema contract; matching future loads skip migration
+execution. Completed bulk cleanup is tracked separately and is not rerun.
 The exact journal, native snapshots, worker parent/child identities, fencing, capacity
 checks and final health receipts govern the entire operation. Worker ownership survives
 an unexpected parent exit; recovery must not race a recorded storage worker.

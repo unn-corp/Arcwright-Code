@@ -108,6 +108,8 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "src/maintenance/MaintenanceCoordinator.test.ts",
       "src/orchestration-v2/ProjectionRecovery.test.ts",
       "src/persistence/Migrations/100_ProviderThreadRecoveryIndex.test.ts",
+      "src/persistence/Migrations/102_AutomaticStorageMigration.test.ts",
+      "src/persistence/SchemaFingerprint.test.ts",
       "src/persistence/StorageMaintenance.test.ts",
       "src/persistence/StorageCompatibility.test.ts",
       "src/resourceTelemetry/AgentStartAdmission.test.ts",

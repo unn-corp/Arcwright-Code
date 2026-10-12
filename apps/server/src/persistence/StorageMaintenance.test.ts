@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off preferSchemaOverJson:off
-import { afterEach, describe, expect, it } from "@effect/vitest";
+import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
@@ -135,6 +135,74 @@ function storageTest(
 }
 
 describe("admitted lossless storage optimization", () => {
+  storageTest(
+    "archives across batch boundaries using a resumable row scan without repeated history sorts",
+    async (f) => {
+      let db = new NodeSqlite.DatabaseSync(f.database);
+      const insert = db.prepare(
+        `INSERT INTO projection_thread_activities(activity_id,thread_id,turn_id,tone,kind,summary,payload_json,created_at) VALUES(?,'complete',NULL,'info','tool','batch boundary','{}','2026-01-01')`,
+      );
+      for (let n = 0; n < 300; n++) insert.run(`reverse-${300 - n}`);
+      db.close();
+      const snapshot = await createSnapshot(f.home, f.journal.id);
+      await f.store.writeJournal({
+        ...f.journal,
+        phase: "trial",
+        snapshots: { [f.home]: snapshot },
+      });
+      const queries = new Set<string>();
+      let baselineQuery = "";
+      const prepare = NodeSqlite.DatabaseSync.prototype.prepare;
+      const spy = vi
+        .spyOn(NodeSqlite.DatabaseSync.prototype, "prepare")
+        .mockImplementation(function (this: NodeSqlite.DatabaseSync, sql: string) {
+          if (sql.includes("SELECT rowid AS position")) queries.add(sql);
+          if (sql.includes("INSERT INTO arcwright_legacy_baselines")) baselineQuery = sql;
+          return prepare.call(this, sql);
+        });
+      try {
+        const result = await optimizeStorageHome({
+          home: f.home,
+          transactionId: f.journal.id,
+          store: f.store,
+        });
+        expect(result.archived).toMatchObject({ projection_thread_activities: 301 });
+      } finally {
+        spy.mockRestore();
+      }
+      db = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
+      try {
+        expect(queries.size).toBe(5);
+        expect(baselineQuery).not.toBe("");
+        const baselinePlan = db
+          .prepare(`EXPLAIN QUERY PLAN ${baselineQuery}`)
+          .all("2026-10-12") as { detail: string }[];
+        expect(
+          baselinePlan.some((row) =>
+            /SEARCH event .*aggregate_kind=\? AND stream_id=\?/.test(row.detail),
+          ),
+        ).toBe(true);
+        for (const sql of queries) {
+          const parameters = sql.includes("accepted_at < ?") ? [0, "2026-07-01"] : [0];
+          const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters) as {
+            detail: string;
+          }[];
+          expect(plan.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(false);
+          expect(plan.some((row) => row.detail.includes("INTEGER PRIMARY KEY (rowid>?)"))).toBe(
+            true,
+          );
+        }
+        expect(
+          db.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
+        ).toMatchObject({ count: 1 });
+        expect(readArchivedRow(db, "projection_thread_activities", "reverse-1")?.summary).toBe(
+          "batch boundary",
+        );
+      } finally {
+        db.close();
+      }
+    },
+  );
   storageTest(
     "runs the real CLI as the trial backend's low-priority child and waits for its completed rewrite",
     async (f) => {
