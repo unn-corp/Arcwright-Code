@@ -695,6 +695,10 @@ owns reference registration, SDK-restoration identity checks and logout cleanup 
 [ManagedRegistrationCleanup.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ManagedRegistrationCleanup.kt)
 binds rejection cleanup to the registration's opaque revision and native account fence under the
 registration lock; delayed cache eviction matches the same revision/fence.
+[NotificationFrameState.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NotificationFrameState.kt)
+protects final watermark writes and actual alert publication with that lock. Configure and direct
+registration mutations share it; direct selection checks remain independent of Clerk and preserve
+unchanged/legacy pairing credentials.
 [NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
 and [NativeDpopKey.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeDpopKey.kt)
 own the worker-only renewal chain and separate native proof key. The notification service retains
@@ -708,7 +712,10 @@ ES256/JWK/claims, exact exchanges, scope/expiry validation, nonce/replay rejecti
 concurrent renewal, redirect/mismatch rejection and account fences; SDK restoration tests cover
 process-local generations and transient readiness. Deterministic blocked-HTTP/lock fixtures verify
 that old rejection cleanup retains newer managed/direct registrations and state while current
-revocation still removes its own registration; deferred eviction cannot delete newer tokens. Full native assembly and lint prove the upgraded OkHttp/Kotlin dependency graph against
+revocation still removes its own registration; deferred eviction cannot delete newer tokens.
+Paused real-thread-watermark fixtures prove that logout/replacement cannot reintroduce stale receipts
+or suppress a new approval; current managed/direct frames persist and publish, and publication is
+serialized with direct/managed selection changes. Full native assembly and lint prove the upgraded OkHttp/Kotlin dependency graph against
 the retained Java shell. Keep direct pairing, installation-scoped push credentials, drafts and
 native browser state separate from account logout. A process killed mid-login cannot recover SDK
 private in-memory PKCE; an old exact callback is consumed with a retry message. Live sign-in,

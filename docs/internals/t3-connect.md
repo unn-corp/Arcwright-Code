@@ -223,5 +223,11 @@ that revision and the captured account/session/generation against native auth un
 as registration writes. An old HTTP rejection therefore cannot erase a newer registration or its
 state; deferred token eviction also matches the captured revision/fence. Cold restoration retains
 the revision while capturing the restored SDK session's fresh process generation.
+[NotificationFrameState.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NotificationFrameState.kt)
+revalidates the selected mode/config/revision and managed account fence under that same lock at
+watermark persistence and actual alert publication. Frames parsed before logout/removal/replacement
+cannot recreate cleared watermarks. Direct connections use their selected credentials/revision,
+independently of Clerk; unchanged direct selection retains its revision and legacy credential rows
+remain readable. Returning from a managed route gives the direct selection a fresh native revision.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.

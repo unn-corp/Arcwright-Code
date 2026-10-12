@@ -119,8 +119,10 @@ public final class AgentNotificationService extends Service {
             for (int i = 0; i < alerts.length(); i++) {
                 JSONObject alert = alerts.getJSONObject(i);
                 Connection connection = connections.get(alert.getString("environmentId"));
-                if (connection == null || !connection.authorized()) continue;
-                NativeNotifications.alert(this, alert.getString("environmentId"), alert.getJSONObject("thread"), alert.getString("kind"));
+                if (connection == null || connection.closed) continue;
+                NativeManagedNotifications.from(this).publishAlert(connection.id, connection.config,
+                    connection.managedTicket == null ? null : connection.managedTicket.getFence(),
+                    alert.getJSONObject("thread"), alert.getString("kind"));
             }
         } catch (org.json.JSONException ignored) { }
     }
@@ -153,8 +155,8 @@ public final class AgentNotificationService extends Service {
             state = new ThreadAlertState(NativeNotifications.store(AgentNotificationService.this).getString("state:" + id, "{}"));
         }
         boolean authorized() {
-            return !closed && (!managed || (managedTicket != null && NativeManagedNotifications.from(AgentNotificationService.this).current(id, config)
-                && NativeManagedNotifications.from(AgentNotificationService.this).isCurrent(managedTicket)));
+            return !closed && NativeManagedNotifications.from(AgentNotificationService.this).currentConnection(id, config,
+                managedTicket == null ? null : managedTicket.getFence());
         }
         void connect() {
             if (closed || destroyed) return;
@@ -247,7 +249,16 @@ public final class AgentNotificationService extends Service {
                     for (int i = 0; i < values.length(); i++) consume(values.getJSONObject(i));
                     webSocket.send("{\"_tag\":\"Ack\",\"requestId\":\"1\"}");
                 }
-                NativeNotifications.store(AgentNotificationService.this).edit().putString("state:" + id, state.save()).apply();
+                if (!NativeManagedNotifications.from(AgentNotificationService.this).persistState(id, config,
+                        managedTicket == null ? null : managedTicket.getFence(), state.save())) {
+                    // Main-thread removal/replacement may have happened while this frame was parsed.
+                    // This connection owns the old in-memory queue; the worker cannot have opened its replacement yet.
+                    pendingAlerts.removeEnvironment(id);
+                    closed = true; connected = false;
+                    webSocket.cancel();
+                    // Re-prime from the selected registration's saved state, including after temporary SDK unreadiness.
+                    enqueue(AgentNotificationService.this::sync);
+                }
             } catch (Exception error) {
                 android.util.Log.w("T3Alerts", "Invalid shell update: " + error.getClass().getSimpleName());
                 webSocket.cancel(); retry();

@@ -130,72 +130,79 @@ final class NativeNotifications {
                     }
                     break;
                 case "configure": {
-                    String configurationId = payload.optString("configurationId");
-                    if (configurationId.length() > 128) throw new JSONException("Invalid notification configuration.");
-                    store(activity).edit().putString("configurationId", configurationId).putString("registrationVersions", "{}").apply();
-                    JSONObject prefs = payload.getJSONObject("preferences");
-                    JSONArray ids = payload.getJSONArray("environmentIds");
-                    JSONObject connections = read(activity, "connections");
-                    if (!prefs.optBoolean("enabled")) {
-                        // Opting out must not queue events for the next time alerts are enabled.
-                        android.content.SharedPreferences.Editor editor = store(activity).edit();
-                        connections.keys().forEachRemaining(key -> editor.remove("state:" + key));
-                        editor.apply();
-                        activity.getSystemService(NotificationManager.class).cancelAll();
+                    synchronized (NotificationCredentials.class) {
+                        String configurationId = payload.optString("configurationId");
+                        if (configurationId.length() > 128) throw new JSONException("Invalid notification configuration.");
+                        store(activity).edit().putString("configurationId", configurationId).putString("registrationVersions", "{}").apply();
+                        JSONObject prefs = payload.getJSONObject("preferences");
+                        JSONArray ids = payload.getJSONArray("environmentIds");
+                        JSONObject connections = read(activity, "connections");
+                        if (!prefs.optBoolean("enabled")) {
+                            // Opting out must not queue events for the next time alerts are enabled.
+                            android.content.SharedPreferences.Editor editor = store(activity).edit();
+                            connections.keys().forEachRemaining(key -> editor.remove("state:" + key));
+                            editor.apply();
+                            activity.getSystemService(NotificationManager.class).cancelAll();
+                        }
+                        java.util.Set<String> keep = new java.util.HashSet<>();
+                        if (prefs.optBoolean("enabled")) for (int i = 0; i < ids.length(); i++) keep.add(ids.getString(i));
+                        java.util.List<String> removed = new java.util.ArrayList<>();
+                        connections.keys().forEachRemaining(key -> { if (!keep.contains(key)) removed.add(key); });
+                        for (String key : removed) { connections.remove(key); store(activity).edit().remove("state:" + key).apply(); }
+                        JSONObject direct = NotificationCredentials.read(activity);
+                        java.util.List<String> directRemoved = new java.util.ArrayList<>();
+                        direct.keys().forEachRemaining(key -> { if (!keep.contains(key)) directRemoved.add(key); });
+                        for (String key : directRemoved) direct.remove(key);
+                        NotificationCredentials.write(activity, direct);
+                        JSONObject managed = NotificationCredentials.read(activity, NativeManagedNotifications.STORAGE);
+                        java.util.List<String> managedRemoved = new java.util.ArrayList<>();
+                        managed.keys().forEachRemaining(key -> { if (!keep.contains(key)) managedRemoved.add(key); });
+                        for (String key : managedRemoved) NativeManagedNotifications.remove(activity, key);
+                        JSONObject preferred = read(activity, "managedPreferred");
+                        java.util.List<String> preferenceRemoved = new java.util.ArrayList<>();
+                        preferred.keys().forEachRemaining(key -> { if (!keep.contains(key)) preferenceRemoved.add(key); });
+                        for (String key : preferenceRemoved) preferred.remove(key);
+                        store(activity).edit().putString("managedPreferred", preferred.toString()).putString("preferences", prefs.toString()).putString("environmentIds", new JSONArray(keep).toString()).apply();
+                        refresh(); break;
                     }
-                    java.util.Set<String> keep = new java.util.HashSet<>();
-                    if (prefs.optBoolean("enabled")) for (int i = 0; i < ids.length(); i++) keep.add(ids.getString(i));
-                    java.util.List<String> removed = new java.util.ArrayList<>();
-                    connections.keys().forEachRemaining(key -> { if (!keep.contains(key)) removed.add(key); });
-                    for (String key : removed) { connections.remove(key); store(activity).edit().remove("state:" + key).apply(); }
-                    JSONObject direct = NotificationCredentials.read(activity);
-                    java.util.List<String> directRemoved = new java.util.ArrayList<>();
-                    direct.keys().forEachRemaining(key -> { if (!keep.contains(key)) directRemoved.add(key); });
-                    for (String key : directRemoved) direct.remove(key);
-                    NotificationCredentials.write(activity, direct);
-                    JSONObject managed = NotificationCredentials.read(activity, NativeManagedNotifications.STORAGE);
-                    java.util.List<String> managedRemoved = new java.util.ArrayList<>();
-                    managed.keys().forEachRemaining(key -> { if (!keep.contains(key)) managedRemoved.add(key); });
-                    for (String key : managedRemoved) NativeManagedNotifications.remove(activity, key);
-                    JSONObject preferred = read(activity, "managedPreferred");
-                    java.util.List<String> preferenceRemoved = new java.util.ArrayList<>();
-                    preferred.keys().forEachRemaining(key -> { if (!keep.contains(key)) preferenceRemoved.add(key); });
-                    for (String key : preferenceRemoved) preferred.remove(key);
-                    store(activity).edit().putString("managedPreferred", preferred.toString()).putString("preferences", prefs.toString()).putString("environmentIds", new JSONArray(keep).toString()).apply();
-                    refresh(); break;
                 }
                 case "registerManaged":
                 case "register": {
-                    String environmentId = payload.getString("environmentId");
-                    JSONArray allowedIds = new JSONArray(store(activity).getString("environmentIds", "[]"));
-                    boolean active = false;
-                    for (int i = 0; i < allowedIds.length(); i++) if (environmentId.equals(allowedIds.getString(i))) active = true;
-                    if (!active || !read(activity, "preferences").optBoolean("enabled")) throw new JSONException("Environment alerts are disabled.");
-                    JSONObject versions = read(activity, "registrationVersions");
-                    boolean ordered = payload.has("configurationId") || payload.has("sequence");
-                    if (ordered && !NotificationRegistrationPolicy.accepts(store(activity).getString("configurationId", ""), versions, environmentId, payload)) break;
-                    if ("registerManaged".equals(request.getString("action"))) {
-                        if (!ordered) throw new JSONException("Managed registration needs current configuration.");
-                        NativeManagedNotifications.register(activity, payload);
-                        versions.put(environmentId, payload.getLong("sequence"));
-                        store(activity).edit().putString("registrationVersions", versions.toString()).apply();
-                        refresh(); break;
+                    synchronized (NotificationCredentials.class) {
+                        String environmentId = payload.getString("environmentId");
+                        JSONArray allowedIds = new JSONArray(store(activity).getString("environmentIds", "[]"));
+                        boolean active = false;
+                        for (int i = 0; i < allowedIds.length(); i++) if (environmentId.equals(allowedIds.getString(i))) active = true;
+                        if (!active || !read(activity, "preferences").optBoolean("enabled")) throw new JSONException("Environment alerts are disabled.");
+                        JSONObject versions = read(activity, "registrationVersions");
+                        boolean ordered = payload.has("configurationId") || payload.has("sequence");
+                        if (ordered && !NotificationRegistrationPolicy.accepts(store(activity).getString("configurationId", ""), versions, environmentId, payload)) break;
+                        if ("registerManaged".equals(request.getString("action"))) {
+                            if (!ordered) throw new JSONException("Managed registration needs current configuration.");
+                            NativeManagedNotifications.register(activity, payload);
+                            versions.put(environmentId, payload.getLong("sequence"));
+                            store(activity).edit().putString("registrationVersions", versions.toString()).apply();
+                            refresh(); break;
+                        }
+                        // Legacy registrations cannot override managed selection. Current ordered writes can switch routes.
+                        if (!ordered && read(activity, "managedPreferred").has(environmentId)) break;
+                        String token = payload.getString("token");
+                        okhttp3.HttpUrl base = okhttp3.HttpUrl.parse(payload.getString("httpBaseUrl"));
+                        if (base == null || !base.username().isEmpty() || !base.password().isEmpty() || token.isEmpty() || token.length() > 8192) throw new JSONException("Invalid environment connection.");
+                        if (ordered) {
+                            NativeManagedNotifications.remove(activity, environmentId);
+                            versions.put(environmentId, payload.getLong("sequence"));
+                            store(activity).edit().putString("registrationVersions", versions.toString()).apply();
+                        }
+                        JSONObject connections = NotificationCredentials.read(activity);
+                        JSONObject preferred = read(activity, "managedPreferred");
+                        JSONObject previous = connections.optJSONObject(environmentId);
+                        JSONObject direct = NotificationRegistrationPolicy.directReference(previous, preferred.has(environmentId), base.toString(), token);
+                        preferred.remove(environmentId);
+                        store(activity).edit().putString("managedPreferred", preferred.toString()).apply();
+                        connections.put(environmentId, direct);
+                        NotificationCredentials.write(activity, connections); refresh(); break;
                     }
-                    // Legacy registrations cannot override managed selection. Current ordered writes can switch routes.
-                    if (!ordered && read(activity, "managedPreferred").has(environmentId)) break;
-                    String token = payload.getString("token");
-                    okhttp3.HttpUrl base = okhttp3.HttpUrl.parse(payload.getString("httpBaseUrl"));
-                    if (base == null || !base.username().isEmpty() || !base.password().isEmpty() || token.isEmpty() || token.length() > 8192) throw new JSONException("Invalid environment connection.");
-                    if (ordered) {
-                        NativeManagedNotifications.remove(activity, environmentId);
-                        versions.put(environmentId, payload.getLong("sequence"));
-                        store(activity).edit().putString("registrationVersions", versions.toString()).apply();
-                    }
-                    JSONObject connections = NotificationCredentials.read(activity);
-                    JSONObject preferred = read(activity, "managedPreferred"); preferred.remove(environmentId);
-                    store(activity).edit().putString("managedPreferred", preferred.toString()).apply();
-                    connections.put(environmentId, new JSONObject().put("httpBaseUrl", base.toString()).put("token", token));
-                    NotificationCredentials.write(activity, connections); refresh(); break;
                 }
                 case "background":
                     if (payload.getBoolean("enabled") && !allowed(activity)) throw new JSONException("Allow notifications before enabling background alerts.");
