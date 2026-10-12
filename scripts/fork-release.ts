@@ -52,7 +52,12 @@ import {
   BASELINE_MANIFEST_ASSET,
   baselineDigest,
 } from "./fork-release-baseline.ts";
-import { androidCodeRangeTag, androidCodeTag } from "./fork-release-policy.ts";
+import {
+  androidCodeRangeTag,
+  androidCodeTag,
+  FORK_TAG_PREFIX,
+  forkVersionFromTag,
+} from "./fork-release-policy.ts";
 import {
   createDraft,
   createGitHubApi,
@@ -138,8 +143,11 @@ const runPlan = async (values: Args) => {
   if (channel !== "stable" && channel !== "nightly")
     throw new Error("--channel must be stable or nightly.");
   const github = githubFromEnv();
-  const releases = await loadReleaseRecords(github);
-  const baseline = await loadBaseline(github);
+  const [releases, baseline, reservedTags] = await Promise.all([
+    loadReleaseRecords(github),
+    loadBaseline(github),
+    github.listTags(FORK_TAG_PREFIX),
+  ]);
   const outcome = buildPlan({
     channel,
     ...(channel === "nightly" ? { commit: values.commit ?? requireEnv("GITHUB_SHA") } : {}),
@@ -150,6 +158,10 @@ const runPlan = async (values: Args) => {
       values["android-recovery-tags"] ?? "[]",
     ),
     releases,
+    reservedVersions: reservedTags.flatMap((tag) => {
+      const version = forkVersionFromTag(tag);
+      return version === null ? [] : [version];
+    }),
     baseline: baseline
       ? {
           tag: BASELINE_TAG,

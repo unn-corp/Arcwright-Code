@@ -134,7 +134,10 @@ state lock, so cleanup cannot remove a predecessor during an active publication.
 dry run, scopes mutations to this fork, orders versions numerically within each
 channel, rechecks releases before deletion, and protects in-progress, queued and
 waiting workflows. `--apply` performs the reviewed deletions. The commissioning
-baseline retires after five numbered nightlies have replaced it. Other repositories
+baseline retires after five numbered nightlies have replaced it. Retained nightly
+core versions preserve the allocation floor after the baseline payload retires. Immutable
+fork version tags keep consumed stable versions reserved even after a draft or older payload
+is removed, so cleanup cannot regress versions or reuse one. Other repositories
 and unrelated release tags are outside this policy.
 
 Older release URLs stop serving binaries after retirement. Device recovery continues

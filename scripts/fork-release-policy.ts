@@ -364,11 +364,13 @@ const everyVersionUsed = (all: ReadonlyArray<ReleaseRecord>): string[] =>
 
 /**
  * Stable versions start at 1.0.0 and then take the next patch. Drafts and withdrawn releases
- * still consume their version, so a number is never published twice.
+ * still consume their version, so a number is never published twice. Retained nightly
+ * core versions preserve the floor when an old commissioning baseline is retired.
  */
 export const nextStableVersion = (
   all: ReadonlyArray<ReleaseRecord>,
   baselineVersion?: string,
+  reservedVersions: ReadonlyArray<string> = [],
 ): string => {
   let highest: ForkVersion | null = null;
   const baselineFloor =
@@ -377,14 +379,22 @@ export const nextStableVersion = (
     compareForkVersions(baselineVersion, FORK_FIRST_STABLE_VERSION) >= 0
       ? [baselineVersion]
       : [];
-  for (const raw of [...everyVersionUsed(all), ...baselineFloor]) {
+  const consumedVersions = [...everyVersionUsed(all), ...reservedVersions];
+  for (const raw of [...consumedVersions, ...baselineFloor]) {
     const parsed = parseForkVersion(raw);
     if (parsed?.channel !== "stable") continue;
     if (!highest || compareForkVersions(parsed.raw, highest.raw) > 0) highest = parsed;
   }
-  return highest
+  let next = highest
     ? `${highest.major}.${highest.minor}.${highest.patch + 1}`
     : FORK_FIRST_STABLE_VERSION;
+  for (const raw of consumedVersions) {
+    const parsed = parseForkVersion(raw);
+    if (parsed?.channel !== "nightly") continue;
+    const core = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+    if (compareForkVersions(core, next) > 0) next = core;
+  }
+  return next;
 };
 
 export const nightlyVersionFor = (
@@ -392,12 +402,13 @@ export const nightlyVersionFor = (
   date: Date,
   runNumber: number,
   baselineVersion?: string,
+  reservedVersions: ReadonlyArray<string> = [],
 ): string => {
   if (!Number.isInteger(runNumber) || runNumber < 1) {
     throw new Error("A nightly version needs a positive workflow run number.");
   }
   const day = date.toISOString().slice(0, 10).replaceAll("-", "");
-  return `${nextStableVersion(all, baselineVersion)}-nightly.${day}.${runNumber}`;
+  return `${nextStableVersion(all, baselineVersion, reservedVersions)}-nightly.${day}.${runNumber}`;
 };
 
 export interface Predecessor {
@@ -462,6 +473,7 @@ export const planNightly = (input: {
   readonly runNumber: number;
   readonly releases: ReadonlyArray<ReleaseRecord>;
   readonly baselineVersion?: string;
+  readonly reservedVersions?: ReadonlyArray<string>;
 }): PlanOutcome<ReleasePlan> => {
   assertFullSha(input.commit);
   const sameCommit = input.releases.find(
@@ -478,6 +490,7 @@ export const planNightly = (input: {
     input.now,
     input.runNumber,
     input.baselineVersion,
+    input.reservedVersions,
   );
   return {
     kind: "release",
@@ -565,6 +578,7 @@ export const planStable = (input: {
   readonly now: Date;
   readonly releases: ReadonlyArray<ReleaseRecord>;
   readonly baselineVersion?: string;
+  readonly reservedVersions?: ReadonlyArray<string>;
 }): PlanOutcome<ReleasePlan> => {
   const source = selectStableSource(input);
   if (!source) {
@@ -573,7 +587,7 @@ export const planStable = (input: {
       reason: "No eligible nightly has completed every required check at least 24 hours ago.",
     };
   }
-  const version = nextStableVersion(input.releases, input.baselineVersion);
+  const version = nextStableVersion(input.releases, input.baselineVersion, input.reservedVersions);
   return {
     kind: "release",
     plan: {
@@ -720,6 +734,8 @@ export const buildPlan = (input: {
   readonly commit?: string;
   readonly now: Date;
   readonly runNumber: number;
+  /** Immutable tags keep consumed versions reserved after release payload retention. */
+  readonly reservedVersions?: ReadonlyArray<string>;
   readonly releases: ReadonlyArray<ReleaseRecord>;
   /** Verified manual baseline: the first predecessor and a retained Android recovery source. */
   readonly baseline?: Omit<Predecessor, "baseline"> | null;
@@ -744,6 +760,7 @@ export const buildPlan = (input: {
         input.now,
         input.runNumber,
         input.baseline?.version,
+        input.reservedVersions,
       );
       const tag = forkTagForVersion(version);
       if (
@@ -776,6 +793,7 @@ export const buildPlan = (input: {
         now: input.now,
         runNumber: input.runNumber,
         releases: input.releases,
+        reservedVersions: input.reservedVersions ?? [],
         ...(input.baseline ? { baselineVersion: input.baseline.version } : {}),
       });
     }
@@ -783,6 +801,7 @@ export const buildPlan = (input: {
     outcome = planStable({
       now: input.now,
       releases: input.releases,
+      reservedVersions: input.reservedVersions ?? [],
       ...(input.baseline ? { baselineVersion: input.baseline.version } : {}),
     });
   }

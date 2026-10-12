@@ -92,6 +92,41 @@ describe("independent version allocation", () => {
     assert.equal(nextStableVersion(releases), "1.0.1");
   });
 
+  it("keeps the nightly version floor after the old baseline payload is retired", () => {
+    const retained = [makeRelease({ version: "1.0.1-nightly.20261012.88" })];
+    assert.equal(nextStableVersion(retained), "1.0.1");
+    assert.equal(nightlyVersionFor(retained, NOW, 90), "1.0.1-nightly.20261011.90");
+    assert.equal(nextStableVersion([...retained, makeRelease({ version: "1.0.1" })]), "1.0.2");
+  });
+
+  it("keeps deleted stable and nightly payload identities reserved through immutable tags", () => {
+    const retained = [makeRelease({ version: "1.0.1-nightly.20261009.88" })];
+    const reservedVersions = ["1.0.3", "1.0.4-nightly.20261010.89"];
+    assert.equal(nextStableVersion(retained, undefined, reservedVersions), "1.0.4");
+    const plan = buildPlan({
+      channel: "nightly",
+      commit: sha("new-after-retention"),
+      now: NOW,
+      runNumber: 90,
+      releases: retained,
+      reservedVersions,
+    });
+    assert.equal(plan.kind, "release");
+    if (plan.kind === "release") assert.equal(plan.plan.version, "1.0.4-nightly.20261011.90");
+    const stable = buildPlan({
+      channel: "stable",
+      now: NOW,
+      runNumber: 91,
+      releases: [
+        ...retained,
+        makeRelease({ version: "1.0.1-nightly.20261008.87", commit: sha("older-recovery") }),
+      ],
+      reservedVersions,
+    });
+    assert.equal(stable.kind, "release");
+    if (stable.kind === "release") assert.equal(stable.plan.version, "1.0.4");
+  });
+
   it("builds nightlies on the next stable patch with the run number", () => {
     const releases = [makeRelease({ version: "1.0.0" })];
     assert.equal(
