@@ -422,6 +422,13 @@ const buildAvailableEditors = Effect.fn("externalLauncher.buildAvailableEditors"
   const available: EditorId[] = [];
 
   for (const editor of EDITORS) {
+    if (editor.id === "default-app") {
+      const command = fileManagerCommandForPlatform(platform, env);
+      if (command !== undefined && (yield* isCommandAvailable(command, { env })))
+        available.push(editor.id);
+      continue;
+    }
+
     if (editor.commands === null) {
       if ((yield* resolveUsableFileManagerCommand(platform, env)) !== undefined) {
         available.push(editor.id);
@@ -544,6 +551,22 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
       target: input.cwd,
       command,
       args: [...baseArgs, ...resolveCommandEditorArgs(editorDef, input.cwd)],
+    };
+  }
+
+  if (editorDef.id === "default-app") {
+    const command = fileManagerCommandForPlatform(platform, env);
+    if (command === undefined || !(yield* isCommandAvailable(command, { env }))) {
+      return yield* new ExternalLauncherUnsupportedEditorError({ editor: input.editor });
+    }
+    return {
+      editor: editorDef.id,
+      target: input.cwd,
+      command,
+      args:
+        command === "explorer.exe" && env.WSL_DISTRO_NAME !== undefined
+          ? [resolveWslFileManagerPath(input.cwd, env.WSL_DISTRO_NAME)]
+          : [input.cwd],
     };
   }
 

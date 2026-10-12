@@ -297,6 +297,13 @@ File links refer to the environment's machine, including when you connect remote
 Previews use the original file, even outside the workspace. Moving or deleting it
 can break the preview, so save a copy if you need to keep it.
 
+## Files without a built-in preview
+
+Click a file linked by an agent to preview it in Arcwright Code. If its contents cannot be
+shown by the built-in viewers, AC opens it with the default application on the computer
+that owns the file. That environment must allow opening files and have a desktop app handler
+available. Missing files and denied access stay in the file panel instead of launching an app.
+
 ## Files outside the workspace
 
 Follow an agent's file link to read a report or other file outside the workspace.

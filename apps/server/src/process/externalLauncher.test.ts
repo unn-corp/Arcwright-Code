@@ -1392,3 +1392,36 @@ it.effect("rejects unknown editors through the service API", () =>
     assert.equal(error.message, "Unknown editor: missing-editor");
   }).pipe(Effect.provide(layerTest({ platform: "linux", env: { PATH: "" } }))),
 );
+
+it.effect.each([
+  { platform: "linux" as const, command: "xdg-open" },
+  { platform: "darwin" as const, command: "open" },
+  { platform: "win32" as const, command: "explorer" },
+])("opens unsupported files in the default app on $platform", ({ platform, command }) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const binDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-default-app-" });
+    const executable = path.join(binDir, command + (platform === "win32" ? ".CMD" : ""));
+    yield* fs.writeFileString(executable, "#!/bin/sh\n");
+    yield* fs.chmod(executable, 0o755);
+    let spawned: ChildProcess.StandardCommand | undefined;
+    const target = "/workspace/report with spaces.docx";
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchEditor({ editor: "default-app", cwd: target });
+    }).pipe(
+      Effect.provide(
+        layerTest({
+          platform,
+          env: { DISPLAY: ":0", PATH: binDir, PATHEXT: ".CMD", SYSTEMROOT: binDir },
+          onSpawn: (value) => {
+            spawned = value;
+          },
+        }),
+      ),
+    );
+    assert.equal(spawned?.command, command);
+    assert.deepEqual(spawned?.args, [target]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);

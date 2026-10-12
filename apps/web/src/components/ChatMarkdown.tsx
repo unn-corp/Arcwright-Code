@@ -57,7 +57,12 @@ import {
   mediaFileReference,
   mediaUrlReference,
 } from "@t3tools/client-runtime/media-reference";
-import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
+import { openChatFile } from "./files/openChatFile";
+import {
+  filePreviewKind,
+  mediaKindFromPath,
+  mediaMimeTypeFromExtension,
+} from "@t3tools/shared/filePreview";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import React, {
@@ -2523,6 +2528,10 @@ function useChatMarkdownState({
     reportFailure: false,
     refresh: true,
   });
+  const readChatFile = useAtomQueryRunner(projectEnvironment.readFile, {
+    reportFailure: false,
+    refresh: true,
+  });
   const searchProjectEntries = useAtomQueryRunner(projectEnvironment.searchEntries, {
     reportFailure: false,
   });
@@ -2804,8 +2813,53 @@ function useChatMarkdownState({
       // Claimed on every open so a synchronous one supersedes a lookup already
       // in flight.
       const isLatestLookup = claimWorkspaceBasenameLookup();
-      const openAt = (path: string) =>
-        useRightPanelStore.getState().openFile(threadRef, path, line);
+      const openAt = (path: string) => {
+        const preview = () => useRightPanelStore.getState().openFile(threadRef, path, line);
+        if (
+          !cwd ||
+          !canUseShellActions ||
+          !availableEditors.includes("default-app") ||
+          ["image", "video", "audio", "pdf", "html"].includes(filePreviewKind({ name: path }))
+        ) {
+          preview();
+          return;
+        }
+        void openChatFile({
+          read: () =>
+            readChatFile({
+              environmentId: threadRef.environmentId,
+              input: { cwd, relativePath: path },
+            }),
+          openDefaultApp: () =>
+            openInEditor({
+              environmentId: threadRef.environmentId,
+              input: { cwd: resolvePathLinkTarget(path, cwd), editor: "default-app" },
+            }),
+          preview,
+          isCurrent: isLatestLookup,
+        })
+          .then((result) => {
+            if (result?._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Unable to open file in default app",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+          })
+          .catch((cause: unknown) => {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Unable to open file",
+                description: cause instanceof Error ? cause.message : "An error occurred.",
+              }),
+            );
+          });
+      };
       if (!cwd || !needsWorkspaceBasenameLookup(panelPath)) {
         openAt(panelPath);
         return;
@@ -2816,7 +2870,15 @@ function useChatMarkdownState({
         openAt(match ?? panelPath);
       })();
     },
-    [cwd, findWorkspaceBasenameMatch, threadRef],
+    [
+      cwd,
+      findWorkspaceBasenameMatch,
+      threadRef,
+      canUseShellActions,
+      availableEditors,
+      readChatFile,
+      openInEditor,
+    ],
   );
   const revealMarkdownFileInFileManager = useCallback(
     async (fileLinkMeta: MarkdownFileLinkMeta) => {

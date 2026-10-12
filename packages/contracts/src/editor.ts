@@ -79,6 +79,7 @@ export const EDITORS = [
   { id: "rubymine", label: "RubyMine", commands: ["rubymine"], launchStyle: "line-column" },
   { id: "rustrover", label: "RustRover", commands: ["rustrover"], launchStyle: "line-column" },
   { id: "webstorm", label: "WebStorm", commands: ["webstorm"], launchStyle: "line-column" },
+  { id: "default-app", label: "Default app", commands: null, launchStyle: "direct-path" },
   { id: "file-manager", label: "File Manager", commands: null, launchStyle: "direct-path" },
 ] as const satisfies ReadonlyArray<EditorDefinition>;
 
