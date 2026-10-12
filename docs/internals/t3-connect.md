@@ -201,7 +201,22 @@ the relay token cache; readiness and network failures retain the catalog. Logout
 Clerk sessions even when remote logout fails, while directly paired connections, drafts, web-push
 installation credentials and native-browser state remain independent.
 
-Foreground Connect discovery and joining reuse the existing relay/DPoP protocol. Native background
-DPoP renewal and Connect alert delivery are a subsequent task; the Android notification coordinator
-still skips DPoP connections. No production deployment or phone commissioning is implied by the
-implementation or local APK build.
+Foreground Connect discovery and joining reuse the existing relay/DPoP protocol.
+[NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
+implements native background renewal with a distinct Android Keystore ES256 key. The origin-restricted
+notification bridge receives only environment/account/session references and ordered registration
+metadata. It never copies web DPoP tokens or keys. The worker exchanges the configured Clerk JWT at
+`/v1/client/dpop-token`, obtains a proof-bound environment bootstrap, verifies the public descriptor,
+and exchanges it at `/oauth/token` for only `orchestration:read`. Each socket gets a fresh DPoP-authenticated
+websocket ticket and sends protocol 2 mobile/Android/relay metadata. Renewal uses a serialized in-memory
+cache, bounded nonce retries, one rejected-token refresh and existing network backoff. Redirects,
+invalid scope/type/expiry, mismatched origins/descriptors and authorization denial are rejected.
+
+[NativeManagedNotifications.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedNotifications.kt)
+observes native auth without a WebView. Persisted references bind user/session identity; process-local
+generations are captured again after SDK restoration. Loading/network failures retain registrations.
+An authoritative logout/account change evicts managed references and fences HTTP, sockets and queued
+alerts while retaining independent direct pairing, browser state and drafts. Ordered configuration
+and registration writes allow managed/direct route changes while rejecting stale registrations.
+Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
+owned-service commissioning remain pending.

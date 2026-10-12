@@ -10,6 +10,7 @@ import org.json.JSONObject;
 final class PhoneAlertQueue {
     private record Alert(String environmentId, JSONObject thread, String kind, long expiresAt) { }
     private final LinkedHashMap<String, Alert> pending = new LinkedHashMap<>();
+    void removeEnvironment(String id) { pending.values().removeIf(alert -> id.equals(alert.environmentId())); }
     void configure(Set<String> ids) { pending.values().removeIf(alert -> !ids.contains(alert.environmentId())); }
     void offer(String environmentId, JSONObject thread, String kind, long now) throws JSONException {
         pending.put(environmentId + ":" + thread.getString("id") + ":" + kind,

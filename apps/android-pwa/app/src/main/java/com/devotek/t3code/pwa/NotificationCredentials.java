@@ -23,9 +23,10 @@ final class NotificationCredentials {
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());
         return generator.generateKey();
     }
-    static JSONObject read(Context context) {
+    static JSONObject read(Context context) { return read(context, "encryptedConnections"); }
+    static JSONObject read(Context context, String storageKey) {
         try {
-            String saved = NativeNotifications.store(context).getString("encryptedConnections", null);
+            String saved = NativeNotifications.store(context).getString(storageKey, null);
             if (saved == null) return new JSONObject();
             JSONObject envelope = new JSONObject(saved);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
@@ -33,13 +34,14 @@ final class NotificationCredentials {
             return new JSONObject(new String(cipher.doFinal(Base64.decode(envelope.getString("data"), Base64.NO_WRAP)), StandardCharsets.UTF_8));
         } catch (Exception ignored) { return new JSONObject(); }
     }
-    static void write(Context context, JSONObject connections) throws Exception {
+    static void write(Context context, JSONObject connections) throws Exception { write(context, "encryptedConnections", connections); }
+    static void write(Context context, String storageKey, JSONObject connections) throws Exception {
         if (connections.length() == 0) {
-            NativeNotifications.store(context).edit().remove("encryptedConnections").apply(); return;
+            NativeNotifications.store(context).edit().remove(storageKey).apply(); return;
         }
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key());
         JSONObject envelope = new JSONObject().put("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
             .put("data", Base64.encodeToString(cipher.doFinal(connections.toString().getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP));
-        NativeNotifications.store(context).edit().putString("encryptedConnections", envelope.toString()).apply();
+        NativeNotifications.store(context).edit().putString(storageKey, envelope.toString()).apply();
     }
 }

@@ -19,8 +19,8 @@ commissioned. The setup below applies to a build configured for an available rel
 application; the repository public example points to upstream T3 services. Direct and Tailscale
 pairing remain available without a Connect account. Native Connect sign-in in this fork's
 standalone Android APK is implemented, with live owned-service commissioning pending. Native
-background Connect/DPoP alerts remain a later task; the existing background path uses directly paired
-environments.
+background Connect/DPoP renewal is implemented using a native read-only session, alongside directly
+paired alerts. Real-phone delivery with the owned service remains pending commissioning.
 
 Arcwright Connect makes an environment available to your other devices without setting
 up router forwarding. In the desktop app on the host, open **Settings →

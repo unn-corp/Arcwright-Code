@@ -18,6 +18,13 @@ import org.json.JSONObject;
 
 /** Read-only shell streams; no provider jobs or conversations are ever started here. */
 public final class AgentNotificationService extends Service {
+    private static volatile AgentNotificationService activeService;
+    public static void managedIdentityChanged() {
+        AgentNotificationService service = activeService;
+        if (service != null && !service.destroyed) {
+            try { service.worker.execute(service::sync); } catch (java.util.concurrent.RejectedExecutionException ignored) { }
+        }
+    }
     private static final int ONGOING_ID = 9;
     private static final String STOP = "com.devotek.t3code.pwa.STOP_ALERTS";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
@@ -31,7 +38,7 @@ public final class AgentNotificationService extends Service {
     private volatile boolean destroyed;
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onCreate() {
-        super.onCreate(); NativeNotifications.channels(this);
+        super.onCreate(); activeService = this; NativeNotifications.channels(this);
         worker.scheduleWithFixedDelay(() -> {
             if (!NativeNotifications.allowed(this)) stopSelf();
         }, 30, 30, TimeUnit.SECONDS);
@@ -82,7 +89,8 @@ public final class AgentNotificationService extends Service {
         pendingAlerts.configure(ids);
         for (String id : new java.util.ArrayList<>(connections.keySet())) {
             JSONObject value = desired.optJSONObject(id);
-            if (value == null || !value.toString().equals(connections.get(id).config.toString())) {
+            Connection existing = connections.get(id);
+            if (value == null || !value.toString().equals(existing.config.toString()) || (existing.managed && existing.closed)) {
                 connections.remove(id).close();
             }
         }
@@ -96,6 +104,7 @@ public final class AgentNotificationService extends Service {
             }
         });
         updateStatus();
+        if (connections.isEmpty()) stopSelf();
     }
     private void queueAlert(String environmentId, JSONObject thread, String kind) throws org.json.JSONException {
         long now = android.os.SystemClock.elapsedRealtime();
@@ -109,12 +118,14 @@ public final class AgentNotificationService extends Service {
             JSONArray alerts = pendingAlerts.take(now, NativeNotifications.phoneVisible(this) || presence.suppressed(now), presence.ready(now));
             for (int i = 0; i < alerts.length(); i++) {
                 JSONObject alert = alerts.getJSONObject(i);
+                Connection connection = connections.get(alert.getString("environmentId"));
+                if (connection == null || !connection.authorized()) continue;
                 NativeNotifications.alert(this, alert.getString("environmentId"), alert.getJSONObject("thread"), alert.getString("kind"));
             }
         } catch (org.json.JSONException ignored) { }
     }
     @Override public void onDestroy() {
-        destroyed = true;
+        destroyed = true; if (activeService == this) activeService = null;
         // Evicting an idle TLS connection performs network I/O. Service.onDestroy runs on the
         // main thread, so keep both socket and pool teardown on the worker during APK replacement.
         worker.execute(() -> {
@@ -132,48 +143,72 @@ public final class AgentNotificationService extends Service {
         final ThreadAlertState state;
         WebSocket socket;
         volatile boolean closed;
+        final boolean managed;
+        NativeManagedEnvironmentSession.Ticket managedTicket;
+        java.util.concurrent.ScheduledFuture<?> renewal;
         boolean connected;
         int retries;
         Connection(String id, JSONObject config) {
-            this.id = id; this.config = config;
+            this.id = id; this.config = config; managed = "managed".equals(config.optString("mode"));
             state = new ThreadAlertState(NativeNotifications.store(AgentNotificationService.this).getString("state:" + id, "{}"));
+        }
+        boolean authorized() {
+            return !closed && (!managed || (managedTicket != null && NativeManagedNotifications.from(AgentNotificationService.this).current(id, config)
+                && NativeManagedNotifications.from(AgentNotificationService.this).isCurrent(managedTicket)));
         }
         void connect() {
             if (closed || destroyed) return;
             try {
-                HttpUrl base = HttpUrl.get(config.getString("httpBaseUrl"));
-                // Each socket needs a fresh, single-use ticket. Never reuse the WebView's ticket.
-                Request ticketRequest = new Request.Builder().url(base.resolve("api/auth/websocket-ticket"))
-                    .header("Authorization", "Bearer " + config.getString("token"))
-                    .post(RequestBody.create(new byte[0], null)).build();
-                try (Response response = http.newCall(ticketRequest).execute()) {
-                    if (response.code() == 401 || response.code() == 403) { closed = true; updateStatus(); return; }
-                    if (!response.isSuccessful() || response.body() == null) throw new java.io.IOException("Ticket unavailable");
-                    String ticket = new JSONObject(response.body().string()).getString("ticket");
-                    HttpUrl address = base.resolve("ws").newBuilder().addQueryParameter("wsTicket", ticket)
-                        .addQueryParameter("orchestrationProtocol", "2")
-                        .addQueryParameter("clientSurface", "mobile").addQueryParameter("clientOs", "android")
-                        .addQueryParameter("clientAppVersion", BuildConfig.VERSION_NAME).addQueryParameter("connectionMethod", "direct").build();
-                    socket = http.newWebSocket(new Request.Builder().url(address).build(), new WebSocketListener() {
-                        @Override public void onOpen(WebSocket webSocket, Response handshake) {
-                            if (destroyed || closed) { webSocket.cancel(); return; }
-                            try {
-                                webSocket.send(new JSONObject().put("_tag", "Request").put("id", "1")
-                                    .put("tag", "orchestration.subscribeShell").put("payload", new JSONObject())
-                                    .put("headers", new JSONArray()).toString());
-                                webSocket.send(new JSONObject().put("_tag", "Request").put("id", "2")
-                                    .put("tag", "subscribeBackgroundPolicy").put("payload", new JSONObject())
-                                    .put("headers", new JSONArray()).toString());
-                            } catch (org.json.JSONException ignored) { webSocket.cancel(); }
-                        }
-                        @Override public void onMessage(WebSocket webSocket, String text) {
-                            enqueue(() -> receive(webSocket, text));
-                        }
-                        @Override public void onClosing(WebSocket webSocket, int code, String reason) { webSocket.close(code, reason); }
-                        @Override public void onFailure(WebSocket webSocket, Throwable error, Response response) { enqueue(() -> { if (socket == webSocket) retry(); }); }
-                        @Override public void onClosed(WebSocket webSocket, int code, String reason) { enqueue(() -> { if (socket == webSocket) retry(); }); }
-                    });
+                HttpUrl address;
+                if (managed) {
+                    managedTicket = NativeManagedNotifications.from(AgentNotificationService.this).ticket(id, config);
+                    if (!authorized() || destroyed) return;
+                    address = managedTicket.getAddress();
+                } else {
+                    HttpUrl base = HttpUrl.get(config.getString("httpBaseUrl"));
+                    Request ticketRequest = new Request.Builder().url(base.resolve("api/auth/websocket-ticket"))
+                        .header("Authorization", "Bearer " + config.getString("token"))
+                        .post(RequestBody.create(new byte[0], null)).build();
+                    try (Response response = http.newCall(ticketRequest).execute()) {
+                        if (response.code() == 401 || response.code() == 403) { closed = true; updateStatus(); return; }
+                        if (!response.isSuccessful() || response.body() == null) throw new java.io.IOException("Ticket unavailable");
+                        String ticket = new JSONObject(response.body().string()).getString("ticket");
+                        address = base.resolve("ws").newBuilder().addQueryParameter("wsTicket", ticket)
+                            .addQueryParameter("orchestrationProtocol", "2")
+                            .addQueryParameter("clientSurface", "mobile").addQueryParameter("clientOs", "android")
+                            .addQueryParameter("clientAppVersion", BuildConfig.VERSION_NAME).addQueryParameter("connectionMethod", "direct").build();
+                    }
                 }
+                socket = http.newWebSocket(new Request.Builder().url(address).build(), new WebSocketListener() {
+                    @Override public void onOpen(WebSocket webSocket, Response handshake) {
+                        if (destroyed || !authorized()) { webSocket.cancel(); return; }
+                        if (managed) enqueue(() -> {
+                            if (renewal != null) renewal.cancel(false);
+                            renewal = worker.schedule(() -> retry(), Math.max(1, managedTicket.getRenewAt() - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
+                        });
+                        try {
+                            webSocket.send(new JSONObject().put("_tag", "Request").put("id", "1")
+                                .put("tag", "orchestration.subscribeShell").put("payload", new JSONObject())
+                                .put("headers", new JSONArray()).toString());
+                            webSocket.send(new JSONObject().put("_tag", "Request").put("id", "2")
+                                .put("tag", "subscribeBackgroundPolicy").put("payload", new JSONObject())
+                                .put("headers", new JSONArray()).toString());
+                        } catch (org.json.JSONException ignored) { webSocket.cancel(); }
+                    }
+                    @Override public void onMessage(WebSocket webSocket, String text) {
+                        enqueue(() -> receive(webSocket, text));
+                    }
+                    @Override public void onClosing(WebSocket webSocket, int code, String reason) { webSocket.close(code, reason); }
+                    @Override public void onFailure(WebSocket webSocket, Throwable error, Response response) { enqueue(() -> { if (socket == webSocket) retry(); }); }
+                    @Override public void onClosed(WebSocket webSocket, int code, String reason) { enqueue(() -> { if (socket == webSocket) retry(); }); }
+                });
+            } catch (ManagedAuthRejected | ManagedProtocolRejected error) {
+                if (managed) {
+                    closed = true; connected = false;
+                    NativeManagedNotifications.remove(AgentNotificationService.this, id);
+                    pendingAlerts.removeEnvironment(id); updateStatus();
+                    enqueue(AgentNotificationService.this::sync);
+                } else retry();
             } catch (Exception error) { retry(); }
         }
         void enqueue(Runnable action) {
@@ -181,7 +216,7 @@ public final class AgentNotificationService extends Service {
             try { worker.execute(action); } catch (java.util.concurrent.RejectedExecutionException ignored) { }
         }
         void receive(WebSocket webSocket, String text) {
-            if (closed || destroyed || socket != webSocket) return;
+            if (closed || destroyed || socket != webSocket || !authorized()) { if (managed) webSocket.cancel(); return; }
             try {
                 if (text.length() > 4 * 1024 * 1024) { webSocket.cancel(); retry(); return; }
                 Object decoded = new org.json.JSONTokener(text).nextValue();
@@ -230,6 +265,7 @@ public final class AgentNotificationService extends Service {
         void retry() {
             if (closed || destroyed) return;
             if (socket != null) { WebSocket old = socket; socket = null; old.cancel(); }
+            if (renewal != null) { renewal.cancel(false); renewal = null; }
             connected = false; updateStatus();
             // A failed socket may report both a close and a failure. Only schedule one retry.
             if (reconnect != null && !reconnect.isDone()) return;
@@ -239,6 +275,8 @@ public final class AgentNotificationService extends Service {
         java.util.concurrent.ScheduledFuture<?> reconnect;
         void close() {
             closed = true;
+            if (renewal != null) renewal.cancel(false);
+            if (managed) pendingAlerts.removeEnvironment(id);
             if (reconnect != null) reconnect.cancel(false);
             if (socket != null) socket.cancel();
         }

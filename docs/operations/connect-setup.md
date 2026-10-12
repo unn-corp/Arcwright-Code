@@ -111,9 +111,11 @@ lifetime; the native bridge does not accept caller-selected templates.
 Local compile/unit/lint checks do not commission delivery. Before declaring a configured APK ready,
 verify live Google sign-in/callback, canceled and interrupted login, process-death stale callback,
 established-session restoration, token renewal/revocation, logout offline and account replacement,
-while retaining direct pairings, drafts and browser state. Native background DPoP/Connect alerts
-remain unimplemented in this bounded change. Production Clerk/domain/relay setup and deployment
-require separate commissioning.
+while retaining direct pairings, drafts and browser state. Native background DPoP/Connect renewal
+is implemented; commission locked/background delivery, expiry renewal, process restart without a
+WebView, account replacement, offline recovery and revocation against the owned relay. The
+protocol tests use fake HTTP and do not establish live delivery. Production Clerk/domain/relay setup
+and deployment require separate commissioning.
 
 ## Desktop passkeys
 

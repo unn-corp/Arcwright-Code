@@ -10,6 +10,9 @@ class ArcwrightApplication : Application() {
     lateinit var connectAuth: ConnectAuth
         private set
 
+    lateinit var managedNotifications: NativeManagedNotifications
+        private set
+
     override fun onCreate() {
         super.onCreate()
         val preferences = getSharedPreferences("connect_auth_navigation", MODE_PRIVATE)
@@ -23,6 +26,7 @@ class ArcwrightApplication : Application() {
         }
         val configured = BuildConfig.CLERK_PUBLISHABLE_KEY.isNotBlank() && BuildConfig.CLERK_JWT_TEMPLATE.isNotBlank() && secureRelay(BuildConfig.RELAY_URL)
         connectAuth = ConnectAuth(ClerkConnectAuthSdk(this, BuildConfig.CLERK_PUBLISHABLE_KEY, authScope), authScope, markers, BuildConfig.CLERK_JWT_TEMPLATE, configured)
+        managedNotifications = NativeManagedNotifications(this)
     }
 
     private fun secureRelay(raw: String): Boolean = try {

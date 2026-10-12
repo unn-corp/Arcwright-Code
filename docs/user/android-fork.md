@@ -130,19 +130,20 @@ Android delivery without starting an agent. Completion, failure, proposed-plan, 
 approval alerts open their thread when tapped.
 
 Background alerts work while the app is closed or the phone is locked by keeping a native
-foreground service connected to enabled, directly paired environments. Android requires a quiet
+foreground service connected to enabled environments. Android requires a quiet
 service notification while background alerts run; it lets you stop them. Healthy connections do
 not repeatedly repost it when you open the app or refresh. Connection problems update its status
 silently. Agent alerts use their separate notification settings. This delivery path does not
-require Firebase, Google Play services, or an Arcwright Connect account. Cloud DPoP connections are not supported by the
-native background transport.
+require Firebase or Google Play services. Directly paired alerts do not require a Connect account.
+Configured Connect routes use the restored native account and renew a separate read-only session;
+owned-service and real-phone delivery commissioning remain pending.
 
 Automatic agent alerts stay quiet while Arcwright Code is visible on an awake screen on any
 connected device, including this phone. Input inactivity and loss of focus do not end suppression;
 minimizing, hiding, locking, or sleeping the display does. Viewed events are consumed rather than
 replayed when you minimize. **Send test** still sends an explicit test notification.
 
-Presence is shared through the phone's enabled, directly paired environments. Disconnected devices
+Presence is shared through the phone's enabled environments. Disconnected devices
 expire after at most 45 seconds; older clients and browser PWAs can have less accurate screen-sleep
 information. Update the desktop clients for native display-state detection.
 
@@ -188,5 +189,6 @@ browser stay in place.
 
 Native foreground account sign-in is implemented; live commissioning of the owned Clerk and
 relay service remains pending. Cloudless builds retain direct pairing without an account. Native
-background alerts for Connect/DPoP routes are a later task; use the directly paired notification
-flow described above for the existing background path.
+background alerts for Connect/DPoP routes are implemented with native account renewal. Signing out
+or changing accounts closes managed alert connections and discards their queued alerts; directly
+paired alerts remain independent. Hardware proof with the owned relay is still pending.

@@ -262,7 +262,11 @@ raise `NetworkOnMainThreadException` during an update or when background alerts 
 `AndroidNotificationCoordinator` copies enabled directly paired Bearer connections to the native
 notification bridge. `NotificationCredentials` encrypts the native copy with an Android Keystore
 AES-GCM key. Removing or disabling an environment, or disabling alerts, removes the corresponding
-background registration without deleting the web client's saved connections.
+background registration without deleting the web client's saved connections. Managed DPoP routes
+register only native account/session/environment references. The Application-owned native observer
+restores matching SDK sessions without a WebView; a separate Keystore proof key renews read-only
+managed sessions on the service worker. Configuration IDs and increasing registration sequences
+reject stale writes while permitting deliberate managed/direct switches.
 
 `AgentNotificationService` uses those pairing credentials to request a fresh, single-use ticket
 from `/api/auth/websocket-ticket`, connects to `/ws` using orchestration protocol 2, and subscribes
@@ -295,7 +299,7 @@ the notification is explicitly silent and hides its timestamp. `ConnectionNotifi
 prevents app/credential refreshes from restarting the foreground notification or reposting an
 unchanged status, including after Android allows a user to dismiss it. A new service instance
 still posts the notification Android requires. Agent alerts remain on their separate channels.
-Tailscale and the host must remain reachable. Android power
+The selected route and host must remain reachable (Tailscale for direct tailnet routes). Android power
 saving can delay connections; force-stop prevents delivery until the app opens again, and the
 app must be opened once after reboot. Historical completions are not replayed on first activation.
 See the [notification setup](../user/android-fork.md#notifications) for the phone's settings.
@@ -706,6 +710,11 @@ account transitions, native observable state and the browser/Electron adapter. T
 isolated fixture state and do not require installing or restarting a phone app.
 
 The [Connect setup runbook](./connect-setup.md#android-native-sign-in-redirects) owns registration,
-public configuration and pending phone proof. Live owned-service commissioning is pending; no
-background Connect alert delivery is claimed. Existing directly paired Bearer alert paths remain
-available and the coordinator still skips DPoP routes.
+public configuration and pending phone proof. Native background Connect renewal is implemented;
+[NativeManagedEnvironmentSessionTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSessionTest.kt)
+verifies real ES256 proofs and the complete fake-HTTP exchange/renewal chain.
+[ConnectManagedAccountTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectManagedAccountTest.kt)
+verifies pending SDK restoration, fresh process generations and transient-readiness handling.
+Live owned-service and real-phone delivery commissioning remain pending. Check locked/background
+alerts, token expiry, process restart without a WebView, stale callbacks, offline recovery, revocation
+and account switching while preserving direct notifications and native browser/upload/update guards.

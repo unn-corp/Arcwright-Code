@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import * as Option from "effect/Option";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { androidAuthStore } from "./connectAuth";
 import { useClientSettings } from "../hooks/useSettings";
 import { useEnvironments } from "../state/environments";
 import { usePreparedConnection } from "../state/session";
 import { androidNotificationRequest, supportsAndroidNotifications } from "./notifications";
+
+let registrationSequence = 0;
 
 export function AndroidNotificationCoordinator() {
   const { isReady, environments } = useEnvironments();
@@ -17,13 +20,20 @@ export function AndroidNotificationCoordinator() {
     [environments],
   );
   const configuration = JSON.stringify({ preferences, environmentIds: ids });
-  const [configured, setConfigured] = useState<string | null>(null);
+  const [configured, setConfigured] = useState<{
+    readonly configuration: string;
+    readonly id: string;
+  } | null>(null);
   useEffect(() => {
     if (!isReady || !supportsAndroidNotifications()) return;
     let current = true;
-    void androidNotificationRequest("configure", JSON.parse(configuration))
+    const id = `${Date.now()}:${++registrationSequence}`;
+    void androidNotificationRequest("configure", {
+      ...JSON.parse(configuration),
+      configurationId: id,
+    })
       .then(() => {
-        if (current) setConfigured(configuration);
+        if (current) setConfigured({ configuration, id });
       })
       .catch(() => {});
     return () => {
@@ -35,29 +45,52 @@ export function AndroidNotificationCoordinator() {
   if (
     !isReady ||
     !preferences.enabled ||
-    configured !== configuration ||
+    configured?.configuration !== configuration ||
     !supportsAndroidNotifications()
   )
     return null;
   return ids.map((environmentId) => (
-    <RegisterEnvironment key={environmentId} environmentId={environmentId} />
+    <RegisterEnvironment
+      key={environmentId}
+      environmentId={environmentId}
+      configurationId={configured.id}
+    />
   ));
 }
 
-function RegisterEnvironment({ environmentId }: { readonly environmentId: EnvironmentId }) {
+function RegisterEnvironment({
+  environmentId,
+  configurationId,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly configurationId: string;
+}) {
   const prepared = usePreparedConnection(environmentId);
+  const account = useSyncExternalStore(androidAuthStore.subscribe, androidAuthStore.getSnapshot);
   useEffect(() => {
     if (Option.isNone(prepared)) return;
     const connection = prepared.value;
     const authorization = connection.httpAuthorization;
+    const registration = { configurationId, sequence: ++registrationSequence };
+    if (authorization?._tag === "Dpop") {
+      if (account.phase !== "signedIn") return;
+      void androidNotificationRequest("registerManaged", {
+        environmentId,
+        ...registration,
+        userId: account.userId,
+        sessionId: account.sessionId,
+        generation: account.generation,
+      }).catch(() => {});
+      return;
+    }
     // Direct pairing credentials can reconnect without a signed-in cloud account.
-    // DPoP connections need a different native token-refresh path and are not copied.
     if (authorization?._tag !== "Bearer") return;
     void androidNotificationRequest("register", {
       environmentId,
+      ...registration,
       httpBaseUrl: connection.httpBaseUrl,
       token: authorization.token,
     }).catch(() => {});
-  }, [environmentId, prepared]);
+  }, [environmentId, configurationId, prepared, account]);
   return null;
 }

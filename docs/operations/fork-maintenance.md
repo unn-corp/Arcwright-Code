@@ -679,7 +679,8 @@ continues through Git. Shared web changes require rebuilding the fork APK to shi
 **Behavior and entry.** Configured APKs select the native managed-auth shell, open Account Portal
 in the system browser, and expose app-owned sign-in/account/sign-out UI. Browser/Electron retain
 Clerk providers, account menus and modals. CLI authorization remains hosted-browser-only. Cloudless
-builds keep direct pairing. Native background DPoP account renewal/Connect alerts are a later task.
+builds keep direct pairing. Configured managed alert routes renew a separate native read-only DPoP
+session; owned-service and real-phone delivery commissioning remain pending.
 
 **Ownership.** [ConnectAuth.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuth.kt)
 owns account generations, callback lifecycle, cancellation and local logout recovery.
@@ -689,11 +690,20 @@ is the supported API-only SDK adapter; the SDK owns Android Keystore persistence
 owns the bounded origin/main-frame bridge. The app-owned auth context and Android observable store
 feed the shared [managedAuth.tsx](../../apps/web/src/cloud/managedAuth.tsx) relay cleanup/token path.
 The build helper resolves the same root public config for native BuildConfig and bundled Vite.
+[NativeManagedNotifications.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedNotifications.kt)
+owns reference registration, SDK-restoration identity checks and logout cleanup without a WebView.
+[NativeManagedEnvironmentSession.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeManagedEnvironmentSession.kt)
+and [NativeDpopKey.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/NativeDpopKey.kt)
+own the worker-only renewal chain and separate native proof key. The notification service retains
+its shell/presence/dedup/backoff policies and requests only `orchestration:read`.
 
 **Verification and coupling.** Native unit tests cover cancellation, stale and duplicate callback
 handling, initialization, process-death logout cleanup, renewal fencing and origin/request bounds.
 Focused web tests cover readiness, account transitions, stale tokens and browser/Electron account
-capabilities; full native assembly and lint prove the upgraded OkHttp/Kotlin dependency graph against
+capabilities and ordered managed/direct notification registration. Fake HTTP native tests verify
+ES256/JWK/claims, exact exchanges, scope/expiry validation, nonce/replay rejection, fresh tickets,
+concurrent renewal, redirect/mismatch rejection and account fences; SDK restoration tests cover
+process-local generations and transient readiness. Full native assembly and lint prove the upgraded OkHttp/Kotlin dependency graph against
 the retained Java shell. Keep direct pairing, installation-scoped push credentials, drafts and
 native browser state separate from account logout. A process killed mid-login cannot recover SDK
 private in-memory PKCE; an old exact callback is consumed with a retry message. Live sign-in,
