@@ -34,6 +34,12 @@ import {
   hostedAppUrlConfig,
   type CloudCliOAuthConfig,
 } from "./publicConfig.ts";
+import {
+  CliPublicAuthority,
+  admitsCliCredential,
+  cliAuthorityFromMetadata,
+  selectedConnectAuthority,
+} from "./connectAuthority.ts";
 import { renderLoopbackAuthorizationCompleteHtml } from "./cliAuthHtml.ts";
 
 const CLOUD_CLI_OAUTH_TOKEN_SECRET = "cloud-cli-oauth-token";
@@ -123,6 +129,7 @@ const PersistedToken = Schema.Struct({
   refreshToken: Schema.String,
   expiresAtEpochMs: Schema.Number,
   identity: Schema.optional(Schema.String),
+  publicAuthority: Schema.optional(CliPublicAuthority),
 });
 export type PersistedToken = typeof PersistedToken.Type;
 
@@ -212,9 +219,13 @@ export class CloudCliAuthorizationError extends Schema.TaggedError<CloudCliAutho
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not authorize the Arcwright Connect CLI.";
+    return this.cause === "cloudless"
+      ? "Arcwright Connect login is disabled in cloudless mode. Select an owned Connect profile to sign in."
+      : "Could not authorize the Arcwright Connect CLI.";
   }
 }
+
+const isAuthorizationError = Schema.is(CloudCliAuthorizationError);
 
 export class CloudCliAuthorizationTimeoutError extends Schema.TaggedError<CloudCliAuthorizationTimeoutError>()(
   "CloudCliAuthorizationTimeoutError",
@@ -270,12 +281,14 @@ function bytesToString(value: Uint8Array): string {
 const readTokenResponse = Effect.fn("cloud.cli_token.read_token_response")(function* (
   response: HttpClientResponse.HttpClientResponse,
   params: Record<string, string>,
+  metadata: Pick<CloudCliOAuthConfig, "tokenEndpoint" | "clientId">,
 ) {
   const body = yield* HttpClientResponse.schemaBodyJson(OAuthTokenResponse)(response);
   const now = yield* Clock.currentTimeMillis;
   const identity = idTokenIdentity(body.id_token);
   return {
     token: {
+      publicAuthority: cliAuthorityFromMetadata(metadata),
       accessToken: body.access_token,
       refreshToken: body.refresh_token ?? params.refresh_token ?? "",
       expiresAtEpochMs: now + body.expires_in * 1_000,
@@ -286,7 +299,7 @@ const readTokenResponse = Effect.fn("cloud.cli_token.read_token_response")(funct
 });
 
 const exchangeToken = Effect.fn("cloud.cli_token.exchange")(function* (
-  metadata: Pick<CloudCliOAuthConfig, "tokenEndpoint">,
+  metadata: Pick<CloudCliOAuthConfig, "tokenEndpoint" | "clientId">,
   params: Record<string, string>,
 ) {
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
@@ -294,7 +307,7 @@ const exchangeToken = Effect.fn("cloud.cli_token.exchange")(function* (
     HttpClientRequest.bodyUrlParams(params),
     httpClient.execute,
   );
-  return yield* readTokenResponse(response, params);
+  return yield* readTokenResponse(response, params, metadata);
 });
 
 const makePkceRequest = Effect.gen(function* () {
@@ -354,7 +367,7 @@ const pollDeviceToken = Effect.fn("cloud.cli_token.poll_device_token")(function*
       continue;
     }
     if (response.value.status >= 200 && response.value.status < 300) {
-      return yield* readTokenResponse(response.value, params);
+      return yield* readTokenResponse(response.value, params, metadata);
     }
     const failure = yield* HttpClientResponse.schemaBodyJson(OAuthErrorResponse)(response.value);
     switch (failure.error) {
@@ -384,6 +397,9 @@ const pollDeviceToken = Effect.fn("cloud.cli_token.poll_device_token")(function*
  */
 export const deviceAuthorizationLogin = Effect.fn("cloud.cli_token.device_authorization_login")(
   function* <E, R>(showPrompt: (prompt: DeviceAuthorizationPrompt) => Effect.Effect<void, E, R>) {
+    const authority = yield* selectedConnectAuthority;
+    if (authority.mode === "cloudless" || authority.mode === "unavailable")
+      return yield* new CloudCliAuthorizationError({ cause: authority.mode });
     const metadata = yield* cloudCliOAuthConfig;
     const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
     const authorization = yield* HttpClientRequest.post(metadata.deviceAuthorizationEndpoint).pipe(
@@ -427,6 +443,7 @@ export const make = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const terminal = yield* Terminal.Terminal;
   const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
+  const authority = yield* selectedConnectAuthority;
   const semaphore = yield* Semaphore.make(1);
   const persist = Effect.fn("cloud.cli_token.persist")(function* (token: PersistedToken) {
     const encoded = yield* encodePersistedToken(token);
@@ -446,6 +463,14 @@ export const make = Effect.gen(function* () {
 
   const refresh = Effect.fn("cloud.cli_token.refresh")(function* (token: PersistedToken) {
     const metadata = yield* cloudCliOAuthConfig;
+    if (
+      !admitsCliCredential(
+        { mode: "legacy", cli: cliAuthorityFromMetadata(metadata) },
+        token.publicAuthority,
+      )
+    ) {
+      return yield* new CloudCliCredentialRefreshError({ cause: "authority-mismatch" });
+    }
     const { token: refreshed } = yield* exchangeToken(metadata, {
       grant_type: "refresh_token",
       refresh_token: token.refreshToken,
@@ -527,7 +552,8 @@ export const make = Effect.gen(function* () {
 
   const getExistingNoLock = Effect.fn("cloud.cli_token.get_existing_no_lock")(function* () {
     const token = yield* read();
-    if (Option.isNone(token)) return token;
+    if (Option.isNone(token) || !admitsCliCredential(authority, token.value.publicAuthority))
+      return Option.none<PersistedToken>();
     const now = yield* Clock.currentTimeMillis;
     if (token.value.expiresAtEpochMs - CLOUD_CLI_OAUTH_REFRESH_EARLY_MS > now) {
       return token;
@@ -543,12 +569,18 @@ export const make = Effect.gen(function* () {
   );
   const hasCredential = semaphore.withPermits(1)(
     read().pipe(
-      Effect.map(Option.isSome),
+      Effect.map(
+        (token) =>
+          Option.isSome(token) && admitsCliCredential(authority, token.value.publicAuthority),
+      ),
       Effect.mapError((cause) => new CloudCliCredentialReadError({ cause })),
     ),
   );
   const get = semaphore.withPermits(1)(
     Effect.gen(function* () {
+      if (authority.mode === "cloudless" || authority.mode === "unavailable") {
+        return yield* new CloudCliAuthorizationError({ cause: authority.mode });
+      }
       // A stored credential that can't be read or refreshed (corrupt, revoked,
       // expired grant) must fall through to a fresh login rather than dead-end
       // the command — authorizeCli applies the same fallback to device
@@ -565,7 +597,9 @@ export const make = Effect.gen(function* () {
         : authorization;
     }).pipe(
       Effect.mapError((cause) =>
-        Terminal.isQuitError(cause) ? cause : new CloudCliAuthorizationError({ cause }),
+        Terminal.isQuitError(cause) || isAuthorizationError(cause)
+          ? cause
+          : new CloudCliAuthorizationError({ cause }),
       ),
       Effect.provide(services),
     ),

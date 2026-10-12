@@ -2008,6 +2008,31 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
 
   return (
     <>
+      {primaryCloudLinkState.data?.authorityStatus &&
+      primaryCloudLinkState.data.authorityStatus !== "active" ? (
+        <SettingsRow
+          title="Saved Connect link"
+          description={primaryCloudLinkState.data.authorityMessage ?? "The saved link is inactive."}
+          control={
+            primaryCloudLinkState.data.linked ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canManageRelay || isBusy}
+                onClick={() => void reconcileCloudState({ managedTunnel: false, publish: false })}
+              >
+                Unlink locally
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+      {primaryCloudLinkState.data?.remoteCleanupPending ? (
+        <SettingsRow
+          title="Remote cleanup pending"
+          description="The old relay record may still exist. Select its original Connect profile and sign in deliberately to remove it."
+        />
+      ) : null}
       {window.desktopBridge ? (
         <SettingsRow
           title={searchableSetting("t3-connect").title}
@@ -2016,7 +2041,11 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
               ? "This environment is available to your other devices through Arcwright Connect."
               : "Make this environment available to your other devices through Arcwright Connect."
           }
-          status={operationError ?? primaryCloudLinkState.error}
+          status={
+            operationError ??
+            primaryCloudLinkState.error ??
+            primaryCloudLinkState.data?.authorityMessage
+          }
           control={
             <CloudLinkSwitch
               checked={managedTunnelActive}

@@ -21,7 +21,13 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { CLOUD_MINT_PUBLIC_KEY, RELAY_ISSUER_SECRET, RELAY_URL_SECRET } from "../cloud/config.ts";
+import {
+  CLOUD_MINT_PUBLIC_KEY,
+  RELAY_ISSUER_SECRET,
+  RELAY_URL_SECRET,
+  readPersistedRelayAuthorityStatus,
+} from "../cloud/config.ts";
+import { selectedConnectAuthority } from "../cloud/connectAuthority.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 
 /** Covers the relay's 24-hour hold plus a margin. */
@@ -45,10 +51,13 @@ export class RelayDeliveryProof extends Context.Service<
 >()("t3/scheduledTasks/RelayDeliveryProof") {}
 
 const make = Effect.gen(function* () {
+  const authority = yield* selectedConnectAuthority;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const verify: RelayDeliveryProof["Service"]["verify"] = (input) =>
     Effect.gen(function* () {
+      if ((yield* readPersistedRelayAuthorityStatus(secrets, authority)) !== "active")
+        return Option.none();
       const proof = input.headers[RELAY_HOOK_DELIVERY_HEADER];
       const deliveryId = input.headers["x-t3-relay-delivery-id"];
       const receivedAt = input.headers["x-t3-relay-received-at"];

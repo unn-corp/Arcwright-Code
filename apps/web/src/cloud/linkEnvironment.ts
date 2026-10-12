@@ -225,12 +225,12 @@ export function unlinkPrimaryEnvironmentFromCloud(input: {
 > {
   return Effect.gen(function* () {
     const client = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
-    yield* client.connect
+    const localResult = yield* client.connect
       .unlink({ headers: {} })
       .pipe(Effect.mapError(environmentApiError("Could not unlink the environment from cloud.")));
 
     const configuredRelayUrl = relayUrl();
-    if (configuredRelayUrl && input.clerkToken) {
+    if (localResult.remoteCleanupAllowed !== false && configuredRelayUrl && input.clerkToken) {
       const relayClient = yield* ManagedRelay.ManagedRelayClient;
       yield* relayClient
         .unlinkEnvironment({

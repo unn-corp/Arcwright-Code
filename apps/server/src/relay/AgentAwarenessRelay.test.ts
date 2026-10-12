@@ -17,6 +17,7 @@ import {
 import { RelayAgentActivityState } from "@t3tools/contracts/relay";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
@@ -364,6 +365,34 @@ describe("AgentAwarenessRelay", () => {
         { threadId: THREAD_ID, revision: 2 },
       ]);
     }),
+  );
+
+  it.effect.each(["owned", "cloudless"] as const)(
+    "does not publish or schedule catchup for %s foreign saved authority",
+    (mode) =>
+      Effect.gen(function* () {
+        const { relay, publications, shellReads } = yield* makeTestRelay();
+        yield* relay.publishThread(THREAD_ID);
+        yield* relay.requestCatchUp();
+        yield* relay.drain;
+        assert.equal(publications.length, 0);
+        assert.equal(shellReads.length, 0);
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: mode,
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      ),
   );
 
   it.effect("deduplicates state and republishes title changes", () =>

@@ -37,6 +37,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
+import { selectedConnectAuthority } from "../cloud/connectAuthority.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
   isAgentActivityPublishingEnabledValue,
@@ -44,6 +45,7 @@ import {
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
+  readPersistedRelayAuthorityStatus,
 } from "../cloud/config.ts";
 import { getOrCreateEnvironmentKeyPairFromSecretStore } from "../cloud/environmentKeys.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -388,7 +390,9 @@ export const make = Effect.gen(function* () {
         ),
       );
 
+  const authority = yield* selectedConnectAuthority;
   const readRelayConfig = Effect.gen(function* () {
+    if ((yield* readPersistedRelayAuthorityStatus(secrets, authority)) !== "active") return null;
     const [url, issuer, environmentCredential] = yield* Effect.all([
       readSecretString(RELAY_URL_SECRET),
       readSecretString(RELAY_ISSUER_SECRET),
@@ -704,6 +708,8 @@ export const make = Effect.gen(function* () {
   // Publishes the active threads once. Returns why it did not, so the retry
   // knows whether it is waiting on a link or on the publish setting.
   const publishActiveThreadsUnsafe = Effect.gen(function* () {
+    if ((yield* readPersistedRelayAuthorityStatus(secrets, authority)) !== "active")
+      return "disabled" as const;
     // One secret read settles the common never-linked case; the full link
     // config is read only once publishing is on.
     const relayUrl = yield* readSecretString(RELAY_URL_SECRET).pipe(

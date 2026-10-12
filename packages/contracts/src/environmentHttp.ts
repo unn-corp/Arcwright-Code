@@ -404,10 +404,17 @@ const EnvironmentHttpCloudErrors = [
 export const EnvironmentCloudRelayConfigResult = Schema.Struct({
   ok: Schema.Boolean,
   endpointRuntimeStatus: Schema.Unknown,
+  remoteCleanupPending: Schema.optional(Schema.Boolean),
+  remoteCleanupAllowed: Schema.optional(Schema.Boolean),
 });
 export type EnvironmentCloudRelayConfigResult = typeof EnvironmentCloudRelayConfigResult.Type;
 
 export const EnvironmentCloudLinkStateResult = Schema.Struct({
+  remoteCleanupPending: Schema.optional(Schema.Boolean),
+  authorityStatus: Schema.optional(
+    Schema.Literals(["active", "cloudless", "incompatible", "unavailable"]),
+  ),
+  authorityMessage: Schema.optional(Schema.NullOr(Schema.String)),
   linked: Schema.Boolean,
   cloudUserId: Schema.NullOr(Schema.String),
   relayUrl: Schema.NullOr(Schema.String),

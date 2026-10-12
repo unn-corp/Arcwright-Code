@@ -390,4 +390,22 @@ describe("web cloud link environment client", () => {
       );
     }),
   );
+  it.effect("keeps incompatible remote cleanup pending after a local unlink", () =>
+    Effect.gen(function* () {
+      const fetchMock = vi.fn().mockResolvedValue(
+        Response.json({
+          ok: true,
+          endpointRuntimeStatus: { status: "disabled" },
+          remoteCleanupPending: true,
+          remoteCleanupAllowed: false,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      yield* withServices(
+        unlinkPrimaryEnvironmentFromCloud({ target: TARGET, clerkToken: "new-service-token" }),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3000/api/connect/unlink");
+    }),
+  );
 });

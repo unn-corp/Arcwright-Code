@@ -105,6 +105,7 @@ import * as DiscordBridge from "./discord/Services/DiscordBridge.ts";
 import { DiscordBridgeLive } from "./discord/Layers/DiscordBridge.ts";
 import * as DiscordRestClient from "./discord/DiscordRestClient.ts";
 import * as DiscordBridgeLinks from "./persistence/DiscordBridgeLinks.ts";
+import { selectedConnectAuthority } from "./cloud/connectAuthority.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
@@ -188,6 +189,7 @@ import {
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   decodeRuntimeConfig,
   RELAY_URL_SECRET,
+  readPersistedRelayAuthorityStatus,
 } from "./cloud/config.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as CloudHttp from "./cloud/http.ts";
@@ -521,8 +523,11 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
   ScheduledTaskWebhookOrigin,
   Effect.gen(function* () {
     const secrets = yield* ServerSecretStore.ServerSecretStore;
+    const authority = yield* selectedConnectAuthority;
     // The reference holds an effect so each read sees the current link state.
     return Effect.gen(function* () {
+      if ((yield* readPersistedRelayAuthorityStatus(secrets, authority)) !== "active")
+        return { relayHookBaseUrl: null };
       const [relayUrl, tunnelConfig] = yield* Effect.all([
         secrets.get(RELAY_URL_SECRET),
         secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),

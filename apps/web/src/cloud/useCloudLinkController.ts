@@ -149,6 +149,15 @@ export function useCloudLinkController() {
         reportUpdateFailure(new Error("Sign in to Arcwright Connect before enabling this."));
         return false;
       }
+      if (currentLinkState.authorityStatus && currentLinkState.authorityStatus !== "active") {
+        reportUpdateFailure(
+          new Error(
+            currentLinkState.authorityMessage ??
+              "Unlink and reconnect to the selected account service.",
+          ),
+        );
+        return false;
+      }
       const currentManagedTunnel = currentLinkState.managedTunnelActive ?? currentLinkState.linked;
       if (!currentLinkState.linked || currentManagedTunnel !== desired.managedTunnel) {
         const linkResult = await linkPrimaryEnvironment({

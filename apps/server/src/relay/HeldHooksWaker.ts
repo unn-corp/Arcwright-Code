@@ -13,7 +13,8 @@ import { makeRelayEnvironmentClient } from "./relayEnvironmentClient.ts";
  * the webhook requests it held while we were offline now rather than at its
  * next backoff step. Nothing happens unless the environment opted in.
  */
-const wakeHeldHooks = Effect.fn("HeldHooksWaker.wake")(function* () {
+/** @public One wake operation; admission also applies when the connector emits a wake event. */
+export const wakeHeldHooks = Effect.fn("HeldHooksWaker.wake")(function* () {
   if (!(yield* readHoldWebhooksWhileOffline)) return false;
   const connection = yield* readRelayConnection;
   if (connection === null) return false;

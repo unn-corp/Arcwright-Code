@@ -227,4 +227,19 @@ describe("useCloudLinkController", () => {
     expect(testState.preferences).not.toHaveBeenCalled();
     expect(testState.refreshLink).toHaveBeenCalledOnce();
   });
+  it("requires local unlink before enabling a link saved under another authority", async () => {
+    testState.snapshot = {
+      ...linkedState,
+      authorityStatus: "incompatible",
+      authorityMessage:
+        "This Connect link belongs to another account service; unlink and reconnect.",
+      managedTunnelActive: false,
+      publishAgentActivity: false,
+    };
+    await mountController();
+    const ok = await reconcile({ managedTunnel: true, publish: false });
+    expect(ok).toBe(false);
+    expect(testState.link).not.toHaveBeenCalled();
+    expect(testState.unlink).not.toHaveBeenCalled();
+  });
 });

@@ -5,6 +5,7 @@ import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -15,6 +16,14 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import {
+  readPersistedRelayAuthorityStatus,
+  CLOUD_ENDPOINT_RUNTIME_CONFIG,
+  decodeRuntimeConfig,
+} from "./config.ts";
+import { selectedConnectAuthority } from "./connectAuthority.ts";
+
 export type CloudManagedEndpointRuntimeStatus =
   | {
       readonly status: "disabled";
@@ -22,7 +31,11 @@ export type CloudManagedEndpointRuntimeStatus =
   | {
       readonly status: "failed";
       readonly providerKind: RelayManagedEndpointRuntimeConfig["providerKind"];
-      readonly failure: "unsupported-platform" | "not-installed" | "spawn-failed";
+      readonly failure:
+        | "unsupported-platform"
+        | "not-installed"
+        | "spawn-failed"
+        | "authority-unavailable";
       readonly reason: string;
       readonly tunnelId?: string;
       readonly tunnelName?: string;
@@ -139,6 +152,21 @@ const stopConnector = (connector: ActiveConnector | null) =>
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
+  const authority = yield* selectedConnectAuthority;
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  const admitted = readPersistedRelayAuthorityStatus(secrets, authority).pipe(
+    Effect.map((status) => status === "active"),
+  );
+  const admitsConfig = (config: RelayManagedEndpointRuntimeConfig) =>
+    Effect.gen(function* () {
+      if (!(yield* admitted)) return false;
+      if (authority.mode === "legacy") return true;
+      const saved = yield* secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG);
+      const parsed = Option.isSome(saved)
+        ? decodeRuntimeConfig(new TextDecoder().decode(saved.value))
+        : Option.none();
+      return Option.isSome(parsed) && runtimeConfigKey(parsed.value) === runtimeConfigKey(config);
+    }).pipe(Effect.orElseSucceed(() => false));
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const relayClient = yield* RelayClient.RelayClient;
   const activeRef = yield* Ref.make<ActiveConnector | null>(null);
@@ -310,6 +338,16 @@ export const make = Effect.gen(function* () {
         : { status: "disabled" };
     }
 
+    if (!(yield* admitsConfig(config))) {
+      yield* Ref.set(desiredConfigRef, null);
+      yield* stopActive;
+      return {
+        status: "failed",
+        providerKind: "cloudflare_tunnel",
+        failure: "authority-unavailable",
+        reason: "The stored Connect tunnel does not belong to the selected account service.",
+      };
+    }
     const nextConfigKey = runtimeConfigKey(config);
     const active = yield* Ref.get(activeRef);
     if (active?.configKey === nextConfigKey) {
@@ -447,8 +485,13 @@ export const make = Effect.gen(function* () {
 
   const runtime = CloudManagedEndpointRuntime.of({
     applyConfig,
-    recoveryRequests: Stream.fromQueue(recoveryRequests),
-    requestRecovery: (config) => Queue.offer(recoveryRequests, config).pipe(Effect.asVoid),
+    recoveryRequests: Stream.fromQueue(recoveryRequests).pipe(Stream.filterEffect(admitsConfig)),
+    requestRecovery: (config) =>
+      admitsConfig(config).pipe(
+        Effect.flatMap((allowed) =>
+          allowed ? Queue.offer(recoveryRequests, config).pipe(Effect.asVoid) : Effect.void,
+        ),
+      ),
     tunnelConnected: Stream.fromQueue(tunnelConnections),
     withLinkStateLock: linkStateSemaphore.withPermits(1),
   });

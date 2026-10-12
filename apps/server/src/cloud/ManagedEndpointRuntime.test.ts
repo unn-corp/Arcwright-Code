@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -111,6 +112,129 @@ describe("CloudManagedEndpointRuntime", () => {
       ManagedEndpointRuntime.isRetryableManagedEndpointRuntimeStatus({ status: "unsupported" }),
     ).toBe(false);
   });
+
+  it.effect.each([
+    "compatible",
+    "foreign-url",
+    "foreign-issuer",
+    "foreign-runtime",
+    "missing-url",
+    "missing-user",
+    "missing-credential",
+    "legacy-foreign-stamp",
+    "cloudless",
+  ] as const)("admits connector and recovery only for %s authority", (admission) =>
+    Effect.gen(function* () {
+      const config: RelayManagedEndpointRuntimeConfig = {
+        providerKind: "cloudflare_tunnel",
+        connectorToken: "fixture-token",
+      };
+      const values = new Map<string, Uint8Array>([
+        [
+          "cloud-relay-url",
+          new TextEncoder().encode(
+            admission === "foreign-url" ? "https://old.example.test" : "https://relay.example.test",
+          ),
+        ],
+        [
+          "cloud-relay-issuer",
+          new TextEncoder().encode(
+            admission === "foreign-issuer"
+              ? "https://old.example.test"
+              : "https://relay.example.test",
+          ),
+        ],
+        [
+          "cloud-endpoint-runtime-config",
+          new TextEncoder().encode(
+            JSON.stringify(
+              admission === "foreign-runtime"
+                ? { ...config, connectorToken: "another-token" }
+                : config,
+            ),
+          ),
+        ],
+      ]);
+      values.set("cloud-linked-user-id", new TextEncoder().encode("selected-user"));
+      values.set(
+        "cloud-relay-environment-credential",
+        new TextEncoder().encode("fixture-environment-credential"),
+      );
+      if (admission === "legacy-foreign-stamp")
+        values.set(
+          "cloud-public-authority",
+          new TextEncoder().encode(
+            JSON.stringify({
+              version: 1,
+              relayOrigin: "https://relay.example.test",
+              cli: {
+                version: 1,
+                issuer: "https://clerk.example.test",
+                tokenEndpointOrigin: "https://clerk.example.test",
+                clientId: "another-client",
+              },
+            }),
+          ),
+        );
+      if (admission === "missing-url") values.delete("cloud-relay-url");
+      if (admission === "missing-user") values.delete("cloud-linked-user-id");
+      if (admission === "missing-credential") values.delete("cloud-relay-environment-credential");
+      let spawns = 0;
+      const runtime = yield* ManagedEndpointRuntime.make.pipe(
+        Effect.provide(layerRelayClientAvailable),
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() =>
+            Effect.sync(() => {
+              spawns++;
+              return makeHandle({ pid: 1234, onKill: () => {} });
+            }),
+          ),
+        ),
+        Effect.provideService(
+          ServerSecretStore.ServerSecretStore,
+          ServerSecretStore.ServerSecretStore.of({
+            get: (name) => Effect.succeed(Option.fromNullishOr(values.get(name))),
+            set: () => Effect.die("unused"),
+            create: () => Effect.die("unused"),
+            remove: () => Effect.die("unused"),
+            getOrCreateRandom: () => Effect.die("unused"),
+          }),
+        ),
+      );
+      const status = yield* runtime.applyConfig(config);
+      expect(status.status).toBe(admission === "compatible" ? "running" : "failed");
+      expect(spawns).toBe(admission === "compatible" ? 1 : 0);
+      if (admission !== "compatible")
+        expect(ManagedEndpointRuntime.isRetryableManagedEndpointRuntimeStatus(status)).toBe(false);
+      yield* runtime.requestRecovery(config);
+      if (admission === "compatible") {
+        const requested = yield* runtime.recoveryRequests.pipe(Stream.take(1), Stream.runCollect);
+        expect(requested).toEqual([config]);
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              T3CODE_CONNECT_MODE:
+                admission === "cloudless"
+                  ? "cloudless"
+                  : admission === "legacy-foreign-stamp"
+                    ? "legacy"
+                    : "owned",
+              T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+              T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+              T3CODE_CLERK_JWT_TEMPLATE: "connect",
+              T3CODE_RELAY_URL: "https://relay.example.test",
+              T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+            },
+          }),
+        ),
+      ),
+    ),
+  );
 
   it.effect("serializes updates to persisted cloud link state", () =>
     Effect.gen(function* () {

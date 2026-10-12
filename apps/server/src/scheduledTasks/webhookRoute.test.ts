@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync.
 import * as NodeCrypto from "node:crypto";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -143,6 +144,67 @@ describe("webhook route", () => {
       await dispose();
     }
   });
+
+  it.live.each(["owned", "cloudless"] as const)(
+    "treats a valid old-realm scheduled delivery proof as direct in %s mode",
+    (mode) =>
+      Effect.gen(function* () {
+        const receivedAt = "2026-10-04T10:00:00.000Z";
+        const proof = yield* relayProof({ deliveryId: "relay-1", receivedAt, hookId: "id" });
+        const verifier = yield* Effect.service(RelayDeliveryProof.RelayDeliveryProof).pipe(
+          Effect.provide(RelayDeliveryProof.layer),
+          Effect.provideService(
+            ServerSecretStore.ServerSecretStore,
+            ServerSecretStore.ServerSecretStore.of({
+              get: (name) =>
+                Effect.succeed(
+                  Option.map(Option.fromUndefinedOr(linkedSecrets.get(name)), (value) =>
+                    new TextEncoder().encode(value),
+                  ),
+                ),
+              set: () => Effect.die("unused"),
+              create: () => Effect.die("unused"),
+              remove: () => Effect.die("unused"),
+              getOrCreateRandom: () => Effect.die("unused"),
+            }),
+          ),
+          Effect.provideService(
+            ServerEnvironment.ServerEnvironment,
+            ServerEnvironment.ServerEnvironment.of({
+              getEnvironmentId: Effect.succeed(environmentId),
+              getDescriptor: Effect.die("unused"),
+            }),
+          ),
+        );
+        expect(
+          Option.isNone(
+            yield* verifier.verify({
+              hookId: "id",
+              headers: {
+                "x-t3-relay-delivery-id": "relay-1",
+                "x-t3-relay-received-at": receivedAt,
+                "x-t3-relay-delivery": proof,
+              },
+            }),
+          ),
+        ).toBe(true);
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: mode,
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      ),
+  );
 
   // Live clock: the server checks proofs against real time.
   it.live("trusts the relay's delivery id and receive time only with its signed proof", () =>

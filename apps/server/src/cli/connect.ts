@@ -27,6 +27,7 @@ import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as BootService from "../cloud/bootService.ts";
+import { readPersistedRelayAuthorityStatus } from "../cloud/config.ts";
 import * as CliState from "../cloud/CliState.ts";
 import * as CliTokenManager from "../cloud/CliTokenManager.ts";
 import { filterRelayResponse } from "../cloud/relayResponse.ts";
@@ -35,8 +36,19 @@ import {
   isAgentActivityPublishingEnabledValue,
   PUBLISH_AGENT_ACTIVITY_SECRET,
   RELAY_URL_SECRET,
+  RELAY_ISSUER_SECRET,
 } from "../cloud/config.ts";
-import { relayUrlConfig } from "../cloud/publicConfig.ts";
+import {
+  readPendingRemoteCleanup,
+  rememberPendingRemoteCleanup,
+  clearMatchingPendingRemoteCleanup,
+} from "../cloud/pendingRemoteCleanup.ts";
+import {
+  authorityMessage,
+  classifyRelayAuthority,
+  selectedConnectAuthority,
+  type ConnectAuthorityStatus,
+} from "../cloud/connectAuthority.ts";
 import * as RelayTracing from "../cloud/relayTracing.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -137,6 +149,8 @@ function stringToBytes(value: string): Uint8Array {
 }
 
 interface CloudCliStatus {
+  readonly authorityStatus: ConnectAuthorityStatus;
+  readonly remoteCleanupPending: boolean;
   readonly desired: boolean;
   readonly authenticated: boolean;
   readonly linked: boolean;
@@ -191,7 +205,13 @@ function formatCloudStatus(status: CloudCliStatus, options?: { readonly json?: b
 
   return [
     "Arcwright Connect",
-    `  Exposure: ${status.desired ? "enabled" : "disabled"}`,
+    ...(status.remoteCleanupPending
+      ? [
+          "  Old relay cleanup: pending; select its original profile and sign in deliberately to remove it.",
+        ]
+      : []),
+    `  Authority: ${authorityMessage(status.authorityStatus) ?? "selected service"}`,
+    `  Exposure: ${status.desired && status.authorityStatus === "active" ? "enabled" : "disabled"}`,
     `  Authorization: ${status.authenticated ? "stored credential" : "missing"}`,
     `  Environment link: ${provisioned}`,
     `  Relay: ${status.relayUrl ?? "not provisioned"}`,
@@ -302,6 +322,7 @@ const runLiveCloudUnlink = Effect.fn("cloud.cli.run_live_unlink")(function* () {
 });
 
 type RelayUnlinkResult =
+  | { readonly status: "authority-blocked" }
   | { readonly status: "not-authenticated" }
   | { readonly status: "revoked" }
   | { readonly status: "not-linked" };
@@ -321,7 +342,12 @@ const logCloudDisconnectFailure = (
     }),
   );
 
-const unlinkRelayEnvironment = Effect.fn("cloud.cli.unlink_relay_environment")(function* () {
+const unlinkRelayEnvironment = Effect.fn("cloud.cli.unlink_relay_environment")(function* (target: {
+  readonly relayUrl: string;
+  readonly relayIssuer?: string;
+}) {
+  if (classifyRelayAuthority(yield* selectedConnectAuthority, target) !== "active")
+    return { status: "authority-blocked" } satisfies RelayUnlinkResult;
   const tokens = yield* CliTokenManager.CloudCliTokenManager;
   const token = yield* tokens.getExisting;
   if (Option.isNone(token)) {
@@ -330,7 +356,7 @@ const unlinkRelayEnvironment = Effect.fn("cloud.cli.unlink_relay_environment")(f
 
   const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const environmentId = yield* environment.getEnvironmentId;
-  const relayUrl = yield* relayUrlConfig;
+  const relayUrl = target.relayUrl;
   const httpClient = yield* HttpClient.HttpClient;
   const response = yield* HttpClientRequest.delete(
     `${relayUrl}/v1/client/environment-links/${encodeURIComponent(environmentId)}`,
@@ -341,6 +367,7 @@ const unlinkRelayEnvironment = Effect.fn("cloud.cli.unlink_relay_environment")(f
     Effect.flatMap(HttpClientResponse.schemaBodyJson(RelayOkResponse)),
     withRelayClientTracing,
   );
+  if (response.ok) yield* clearMatchingPendingRemoteCleanup({ relayUrl, environmentId });
   return response.ok
     ? ({ status: "revoked" } satisfies RelayUnlinkResult)
     : ({ status: "not-linked" } satisfies RelayUnlinkResult);
@@ -376,18 +403,58 @@ export const reportCloudDisconnectResults = Effect.fn("cloud.cli.report_disconne
           ? "Could not revoke the relay-side environment record before signing out.\nThe stored CLI authorization was still removed locally."
           : "Could not revoke the relay-side environment record yet.\nRun `t3 connect unlink` again when the relay is reachable.",
       );
+    } else if (
+      input.relayResult.value.status === "authority-blocked" ||
+      input.relayResult.value.status === "not-authenticated"
+    ) {
+      yield* Console.warn(
+        "The old relay record may still exist; remote cleanup is pending. Select its original Connect profile and sign in deliberately to remove it.",
+      );
     } else if (input.relayResult.value.status === "revoked") {
       yield* Console.log("Revoked the relay-side environment record.");
     }
   },
 );
 
-const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (options: {
+/** @public Deliberate CLI reverse flow; background work never calls this action. */
+export const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (options: {
   readonly clearAuthorization: boolean;
 }) {
   yield* CliState.setCliDesiredCloudLink(false);
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  const selected = yield* selectedConnectAuthority;
+  const savedStatus = yield* readPersistedRelayAuthorityStatus(secrets);
+  const savedIssuer = yield* secrets.get(RELAY_ISSUER_SECRET);
+  const savedRelay = yield* secrets.get(RELAY_URL_SECRET);
+  if (Option.isSome(savedRelay)) {
+    const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
+    yield* rememberPendingRemoteCleanup({
+      relayUrl: bytesToString(savedRelay.value),
+      environmentId: yield* environment.getEnvironmentId,
+    });
+  }
+  const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
+  const environmentId = yield* environment.getEnvironmentId;
+  const pending = yield* readPendingRemoteCleanup;
+  const candidate = pending.find(
+    (reference) =>
+      reference.environmentId === environmentId &&
+      (selected.mode === "owned" || selected.mode === "legacy") &&
+      selected.relayOrigin === reference.relayOrigin,
+  );
+  const target = Option.isSome(savedRelay)
+    ? {
+        relayUrl: bytesToString(savedRelay.value),
+        ...(Option.isSome(savedIssuer) ? { relayIssuer: bytesToString(savedIssuer.value) } : {}),
+      }
+    : candidate
+      ? { relayUrl: candidate.relayOrigin }
+      : null;
   const liveResult = yield* runLiveCloudUnlink();
-  const relayResult = yield* Effect.exit(unlinkRelayEnvironment());
+  const relayResult =
+    target !== null && (Option.isNone(savedRelay) || savedStatus === "active")
+      ? yield* Effect.exit(unlinkRelayEnvironment(target))
+      : Exit.succeed({ status: "authority-blocked" } as const);
   yield* CliState.clearPersistedCloudLink;
 
   if (options.clearAuthorization) {
@@ -555,15 +622,22 @@ const connectStatusCommand = Command.make("status", {
             ],
             { concurrency: "unbounded" },
           );
+        const authorityStatus = yield* readPersistedRelayAuthorityStatus(secrets);
         const status: CloudCliStatus = {
+          remoteCleanupPending: (yield* readPendingRemoteCleanup).length > 0,
+          authorityStatus,
           desired,
           authenticated,
           linked: Option.isSome(cloudUserId),
           cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
           relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
-          publishAgentActivity: isAgentActivityPublishingEnabledValue(
-            Option.isSome(publishAgentActivity) ? bytesToString(publishAgentActivity.value) : null,
-          ),
+          publishAgentActivity:
+            authorityStatus === "active" &&
+            isAgentActivityPublishingEnabledValue(
+              Option.isSome(publishAgentActivity)
+                ? bytesToString(publishAgentActivity.value)
+                : null,
+            ),
           relayClient: executable,
         };
         yield* Console.log(formatCloudStatus(status, { json: flags.json }));

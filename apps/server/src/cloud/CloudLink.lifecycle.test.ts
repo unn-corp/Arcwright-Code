@@ -1,7 +1,10 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- The owned link fixture needs a real Ed25519 public key.
+import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -32,11 +35,13 @@ import { CLOUD_CLI_DESIRED_LINK_SECRET } from "./CliState.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
 import { RelayManagedEndpointRecoveryRegistrationRequest } from "@t3tools/contracts/relay";
 import {
+  CLOUD_PUBLIC_AUTHORITY_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
   decodeConfirmedOrigin,
   decodeRuntimeConfig,
+  readPersistedRelayAuthorityStatus,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
@@ -158,10 +163,10 @@ describe("reconcileDesiredCloudLink", () => {
         ServerConfigModule.ServerConfig,
         ServerConfigModule.ServerConfig.of({} as ServerConfigModule.ServerConfig["Service"]),
       ),
-      Effect.provideService(
-        ServerSecretStore.ServerSecretStore,
-        makeSecretStore(unusedSecretStoreOperation),
-      ),
+      Effect.provideService(ServerSecretStore.ServerSecretStore, {
+        ...makeSecretStore(unusedSecretStoreOperation),
+        get: () => Effect.succeedNone,
+      }),
       Effect.provideService(
         ServerEnvironment.ServerEnvironment,
         ServerEnvironment.ServerEnvironment.of({
@@ -1158,4 +1163,146 @@ describe("releaseManagedTunnelOnShutdown", () => {
       }),
     );
   });
+
+  it.effect(
+    "installs an owned fresh link with an OAuth authority stamp and refuses another realm on the same relay",
+    () => {
+      const { store, values } = makeMemorySecretStore();
+      const applyConfigCalls: Array<unknown> = [];
+      const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      const publicKey = NodeCrypto.generateKeyPairSync("ed25519", {
+        publicKeyEncoding: { format: "pem", type: "spki" },
+        privateKeyEncoding: { format: "pem", type: "pkcs8" },
+      }).publicKey;
+      return Effect.gen(function* () {
+        const link = yield* CloudLink.CloudLink;
+        yield* link.applyRelayConfig({
+          relayUrl: "https://selected.example.test",
+          relayIssuer: "https://selected.example.test",
+          cloudUserId: "selected-user",
+          environmentCredential: "selected-environment-token",
+          cloudMintPublicKey: publicKey,
+          endpointRuntime: null,
+        });
+        expect((yield* link.linkState()).authorityStatus).toBe("active");
+        expect(values.has(CLOUD_PUBLIC_AUTHORITY_SECRET)).toBe(true);
+        expect(
+          yield* readPersistedRelayAuthorityStatus(store, {
+            mode: "owned",
+            relayOrigin: "https://selected.example.test",
+            cli: {
+              version: 1,
+              issuer: "https://clerk.example.test",
+              tokenEndpointOrigin: "https://clerk.example.test",
+              clientId: "another-client",
+            },
+          }),
+        ).toBe("incompatible");
+        expect(requests).toEqual([]);
+        const bad = yield* Effect.flip(
+          link.applyRelayConfig({
+            relayUrl: "https://selected.example.test",
+            relayIssuer: "https://old.example.test",
+            cloudUserId: "selected-user",
+            environmentCredential: "replacement-token",
+            cloudMintPublicKey: publicKey,
+            endpointRuntime: null,
+          }),
+        );
+        expect(bad._tag).toBe("CloudLinkAuthorityUnavailableError");
+        expect(new TextDecoder().decode(values.get(RELAY_ENVIRONMENT_CREDENTIAL_SECRET))).toBe(
+          "selected-environment-token",
+        );
+      }).pipe(
+        provideReleaseHarness({ store, applyConfigCalls, requests }),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: "owned",
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      );
+    },
+  );
+
+  it.effect.each(["owned", "cloudless"] as const)(
+    "keeps %s foreign links dormant through restore, recovery, proofs and shutdown",
+    (mode) => {
+      const { store, values } = makeMemorySecretStore([
+        ...managedLinkSecrets,
+        [
+          CLOUD_ENDPOINT_RUNTIME_CONFIG,
+          JSON.stringify({ providerKind: "cloudflare_tunnel", connectorToken: "old-tunnel-token" }),
+        ],
+        [CLOUD_LINKED_USER_ID, "old-account"],
+        [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "old-credential"],
+      ]);
+      const applyConfigCalls: Array<unknown> = [];
+      const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      return Effect.gen(function* () {
+        const link = yield* CloudLink.CloudLink;
+        expect(
+          yield* link.startManagedTunnelIfOriginConfirmed("http://127.0.0.1:3773", {
+            requireConfirmedOrigin: false,
+          }),
+        ).toBe(false);
+        expect(yield* link.releaseManagedTunnelOnShutdown()).toBe(false);
+        const attempts: ReadonlyArray<
+          Effect.Effect<void, Effect.Error<ReturnType<typeof link.reconcileDesiredLink>>>
+        > = [
+          link.registerManagedTunnelRecovery("http://127.0.0.1:3773").pipe(Effect.asVoid),
+          link.recoverManagedTunnel("http://127.0.0.1:3773").pipe(Effect.asVoid),
+          link.reconcileDesiredLink("http://127.0.0.1:3773").pipe(Effect.asVoid),
+        ];
+        for (const effect of attempts) {
+          const error = yield* Effect.flip(effect);
+          expect(error._tag).toBe("CloudLinkAuthorityUnavailableError");
+          expect(CloudLink.shouldRetryCloudLink(error)).toBe(false);
+        }
+        expect((yield* Effect.flip(link.answerHealthRequest({ proof: "old-proof" })))._tag).toBe(
+          "CloudLinkAuthorityUnavailableError",
+        );
+        expect((yield* Effect.flip(link.mintCredential({ proof: "old-proof" })))._tag).toBe(
+          "CloudLinkAuthorityUnavailableError",
+        );
+        const state = yield* link.linkState();
+        expect(state.linked).toBe(true);
+        expect(state.managedTunnelActive).toBe(false);
+        expect(state.authorityStatus).toBe(mode === "owned" ? "incompatible" : "cloudless");
+        expect(applyConfigCalls).toEqual([]);
+        expect(requests).toEqual([]);
+        expect(values.has(RELAY_URL_SECRET)).toBe(true);
+        const result = yield* link.unlink();
+        expect(result.remoteCleanupPending).toBe(true);
+        expect(result.remoteCleanupAllowed).toBe(false);
+        expect(values.has(RELAY_URL_SECRET)).toBe(false);
+        expect((yield* link.linkState()).remoteCleanupPending).toBe(true);
+        expect(requests).toEqual([]);
+      }).pipe(
+        provideReleaseHarness({ store, applyConfigCalls, requests }),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: mode,
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      );
+    },
+  );
 });

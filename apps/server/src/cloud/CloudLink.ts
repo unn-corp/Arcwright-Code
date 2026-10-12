@@ -83,6 +83,7 @@ import {
 } from "./CliState.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
 import {
+  CLOUD_PUBLIC_AUTHORITY_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
@@ -94,12 +95,20 @@ import {
   HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
   PUBLISH_AGENT_ACTIVITY_SECRET,
   readRelayConnection,
+  readPersistedRelayAuthorityStatus,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
 import { getOrCreateEnvironmentKeyPairFromSecretStore } from "./environmentKeys.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
+import { readPendingRemoteCleanup, rememberPendingRemoteCleanup } from "./pendingRemoteCleanup.ts";
+import {
+  LinkPublicAuthority,
+  authorityMessage,
+  classifyRelayAuthority,
+  selectedConnectAuthority,
+} from "./connectAuthority.ts";
 import { relayUrlConfig } from "./publicConfig.ts";
 import {
   filterRelayResponse,
@@ -171,6 +180,15 @@ export class CloudLinkOriginInvalidError extends Schema.TaggedError<CloudLinkOri
     return this.origin === "endpoint"
       ? "Invalid managed endpoint origin."
       : "Could not resolve local environment origin.";
+  }
+}
+
+export class CloudLinkAuthorityUnavailableError extends Schema.TaggedError<CloudLinkAuthorityUnavailableError>()(
+  "CloudLinkAuthorityUnavailableError",
+  { status: Schema.Literals(["cloudless", "incompatible", "unavailable"]) },
+) {
+  override get message(): string {
+    return authorityMessage(this.status)!;
   }
 }
 
@@ -300,6 +318,7 @@ const internalError =
 const isPermanentLinkError = Schema.is(
   Schema.Union([
     CloudLinkRelayConfigInvalidError,
+    CloudLinkAuthorityUnavailableError,
     CloudLinkOriginInvalidError,
     CloudLinkNotLinkedError,
     CloudLinkAccountMismatchError,
@@ -392,6 +411,7 @@ function normalizePemForSignedPayload(value: string): string {
   return value.trim();
 }
 
+const encodeLinkPublicAuthority = Schema.encodeEffect(Schema.fromJsonString(LinkPublicAuthority));
 const decodeCloudHealthProof = Schema.decodeUnknownEffect(RelayCloudEnvironmentHealthProofPayload);
 const decodeCloudMintProof = Schema.decodeUnknownEffect(RelayCloudMintCredentialProofPayload);
 
@@ -410,6 +430,7 @@ type ManagedTunnelRecoveryProofInput = {
 
 /** Every failure CloudLink constructs itself. */
 export type CloudLinkError =
+  | CloudLinkAuthorityUnavailableError
   | CloudLinkAccountMismatchError
   | CloudLinkAuthorizationMissingError
   | CloudLinkEndpointUnavailableError
@@ -423,6 +444,7 @@ export type CloudLinkError =
 
 /** Failures of the link work that talks to the relay: linking, recovery and shutdown. */
 type CloudLinkBackgroundError =
+  | CloudLinkAuthorityUnavailableError
   | CloudLinkEndpointUnavailableError
   | CloudLinkInternalError
   | CloudLinkOriginInvalidError
@@ -451,13 +473,17 @@ export class CloudLink extends Context.Service<
       httpRequest: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<
       RelayEnvironmentLinkProof,
-      CloudLinkOriginInvalidError | CloudLinkInternalError | EnvironmentAuth.ServerAuthInternalError
+      | CloudLinkAuthorityUnavailableError
+      | CloudLinkOriginInvalidError
+      | CloudLinkInternalError
+      | EnvironmentAuth.ServerAuthInternalError
     >;
     /** Installs the link the relay returned and, for a managed tunnel, confirms its origin. */
     readonly applyRelayConfig: (
       payload: RelayEnvironmentConfigRequest,
     ) => Effect.Effect<
       EnvironmentCloudRelayConfigResult,
+      | CloudLinkAuthorityUnavailableError
       | CloudLinkAccountMismatchError
       | CloudLinkEndpointUnavailableError
       | CloudLinkInternalError
@@ -484,13 +510,14 @@ export class CloudLink extends Context.Service<
       input: EnvironmentCloudPreferencesRequest,
     ) => Effect.Effect<
       EnvironmentCloudLinkStateResult,
-      CloudLinkNotLinkedError | CloudLinkInternalError
+      CloudLinkAuthorityUnavailableError | CloudLinkNotLinkedError | CloudLinkInternalError
     >;
     /** Answers the relay's signed health check once per proof. */
     readonly answerHealthRequest: (
       request: RelayCloudEnvironmentHealthRequest,
     ) => Effect.Effect<
       RelayEnvironmentHealthResponse,
+      | CloudLinkAuthorityUnavailableError
       | CloudLinkProofRejectedError
       | CloudLinkProofReplayedError
       | CloudLinkInternalError
@@ -501,6 +528,7 @@ export class CloudLink extends Context.Service<
       request: RelayCloudMintCredentialRequest,
     ) => Effect.Effect<
       RelayEnvironmentMintResponse,
+      | CloudLinkAuthorityUnavailableError
       | CloudLinkProofRejectedError
       | CloudLinkProofReplayedError
       | CloudLinkInternalError
@@ -512,6 +540,7 @@ export class CloudLink extends Context.Service<
     ) => Effect.Effect<
       CliDesiredLinkMode,
       | CloudLinkBackgroundError
+      | CloudLinkAuthorityUnavailableError
       | CloudLinkAccountMismatchError
       | CloudLinkAuthorizationMissingError
       | CloudLinkRelayConfigInvalidError
@@ -524,6 +553,7 @@ export class CloudLink extends Context.Service<
     ) => Effect.Effect<
       CliDesiredLinkMode | null,
       | CloudLinkBackgroundError
+      | CloudLinkAuthorityUnavailableError
       | CloudLinkAccountMismatchError
       | CloudLinkAuthorizationMissingError
       | CloudLinkRelayConfigInvalidError
@@ -566,6 +596,7 @@ export class CloudLink extends Context.Service<
 >()("t3/cloud/CloudLink") {}
 
 const make = Effect.gen(function* () {
+  const authority = yield* selectedConnectAuthority;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const endpointRuntime = yield* ManagedEndpointRuntime.CloudManagedEndpointRuntime;
@@ -578,6 +609,27 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+
+  const hasPersistedLink = Effect.all([
+    secrets.get(RELAY_URL_SECRET),
+    secrets.get(CLOUD_LINKED_USER_ID),
+    secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
+    secrets.get(CLOUD_MINT_PUBLIC_KEY),
+    secrets.get(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
+    secrets.get(RELAY_ISSUER_SECRET),
+    secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET),
+  ]).pipe(Effect.map((records) => records.some(Option.isSome)));
+  const persistedAuthorityStatus = readPersistedRelayAuthorityStatus(secrets, authority);
+  const requirePersistedAuthority = Effect.gen(function* () {
+    const status = yield* persistedAuthorityStatus;
+    if (status !== "active") return yield* new CloudLinkAuthorityUnavailableError({ status });
+  });
+  const requireRelayAuthority = (relayUrl: string, relayIssuer?: string) => {
+    const status = classifyRelayAuthority(authority, { relayUrl, relayIssuer });
+    return status === "active"
+      ? Effect.void
+      : Effect.fail(new CloudLinkAuthorityUnavailableError({ status }));
+  };
 
   const withSecrets = Effect.provideService(ServerSecretStore.ServerSecretStore, secrets);
   const withRuntimeFiles = <A, E>(
@@ -629,6 +681,12 @@ const make = Effect.gen(function* () {
     request: RelayLinkProofRequest,
     requestUrl: string,
   ) {
+    yield* requireRelayAuthority(request.relayIssuer);
+    if (
+      Option.isSome(yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET)) ||
+      (authority.mode !== "legacy" && (yield* hasPersistedLink))
+    )
+      yield* requirePersistedAuthority;
     const keyPair = yield* getOrCreateEnvironmentKeyPairFromSecretStore(secrets);
     if (
       !isSupportedLinkProviderKind(request) ||
@@ -749,6 +807,7 @@ const make = Effect.gen(function* () {
   const startManagedTunnelIfOriginConfirmed = Effect.fn(
     "environment.cloud.startManagedCloudTunnelIfOriginConfirmed",
   )(function* (localOrigin: string, options?: { readonly requireConfirmedOrigin?: boolean }) {
+    if ((yield* persistedAuthorityStatus) !== "active") return false;
     const requireConfirmedOrigin = options?.requireConfirmedOrigin ?? true;
     const parsedOrigin = yield* Effect.try({
       try: () => parseManagedEndpointLocalOrigin(localOrigin),
@@ -800,6 +859,12 @@ const make = Effect.gen(function* () {
   ) {
     const apply = Effect.gen(function* () {
       yield* validateRelayConfigPayload(payload);
+      yield* requireRelayAuthority(payload.relayUrl, payload.relayIssuer);
+      if (
+        Option.isSome(yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET)) ||
+        (authority.mode !== "legacy" && (yield* hasPersistedLink))
+      )
+        yield* requirePersistedAuthority;
       yield* validateLinkedCloudUser(payload.cloudUserId);
       yield* validateCloudMintPublicKey(payload.cloudMintPublicKey);
       // Reject unsupported runtimes before touching the connector so a bad
@@ -819,6 +884,14 @@ const make = Effect.gen(function* () {
       yield* endpointRuntime.applyConfig(null);
       yield* secrets.remove(CLOUD_ENDPOINT_CONFIRMED_ORIGIN);
 
+      if (authority.mode === "owned") {
+        const stamp = yield* encodeLinkPublicAuthority({
+          version: 1,
+          relayOrigin: authority.relayOrigin,
+          cli: authority.cli,
+        });
+        yield* secrets.set(CLOUD_PUBLIC_AUTHORITY_SECRET, stringToBytes(stamp));
+      }
       yield* secrets.set(RELAY_URL_SECRET, stringToBytes(payload.relayUrl));
       yield* secrets.set(
         RELAY_ISSUER_SECRET,
@@ -880,6 +953,13 @@ const make = Effect.gen(function* () {
 
   const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesiredLinkWith")(
     function* (localOrigin: string) {
+      if (
+        authority.mode !== "legacy" ||
+        Option.isSome(yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET))
+      ) {
+        if ((yield* hasPersistedLink) || authority.mode !== "owned")
+          yield* requirePersistedAuthority;
+      }
       const parsedOrigin = yield* Effect.try({
         try: () => parseManagedEndpointLocalOrigin(localOrigin),
         catch: () => new CloudLinkOriginInvalidError({ origin: "local" }),
@@ -1014,6 +1094,7 @@ const make = Effect.gen(function* () {
   const registerManagedTunnelRecovery = Effect.fn(
     "environment.cloud.registerManagedCloudTunnelRecovery",
   )(function* (localOrigin: string, options?: { readonly retryRuntimeFailures?: boolean }) {
+    yield* requirePersistedAuthority;
     const [runtimeConfig, relayUrl, cloudUserId, environmentCredential] = yield* Effect.all([
       secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
       secrets.get(RELAY_URL_SECRET),
@@ -1085,6 +1166,7 @@ const make = Effect.gen(function* () {
     expectedConfig?: RelayManagedEndpointRuntimeConfig,
     options?: { readonly retryRuntimeFailures?: boolean },
   ) {
+    yield* requirePersistedAuthority;
     const [runtimeConfig, relayUrl, cloudUserId, environmentCredential] = yield* Effect.all([
       secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
       secrets.get(RELAY_URL_SECRET),
@@ -1224,6 +1306,7 @@ const make = Effect.gen(function* () {
   const releaseManagedTunnelOnShutdown = Effect.fn(
     "environment.cloud.releaseManagedTunnelOnShutdown",
   )(function* () {
+    if ((yield* persistedAuthorityStatus) !== "active") return false;
     // Only a managed link stores a runtime config; publish-only links have no
     // tunnel to release.
     const runtimeConfig = yield* secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG);
@@ -1320,19 +1403,35 @@ const make = Effect.gen(function* () {
       ],
       { concurrency: 6 },
     );
+    const status =
+      authority.mode === "owned" && !(yield* hasPersistedLink)
+        ? "active"
+        : yield* persistedAuthorityStatus;
     return {
+      remoteCleanupPending:
+        (yield* readPendingRemoteCleanup.pipe(
+          withRuntimeFiles,
+          Effect.mapError(
+            (cause) => new CloudLinkInternalError({ operation: "read-relay-config", cause }),
+          ),
+        )).length > 0,
+      authorityStatus: status,
+      authorityMessage: authorityMessage(status),
       linked: Option.isSome(cloudUserId),
       cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
       relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
       relayIssuer: Option.isSome(relayIssuer) ? bytesToString(relayIssuer.value) : null,
       // The managed tunnel runtime config is only stored for managed links; a
       // publish-only link leaves it absent.
-      managedTunnelActive: Option.isSome(endpointRuntimeConfig),
-      publishAgentActivity: Option.isSome(publishAgentActivity)
-        ? bytesToString(publishAgentActivity.value) === "true"
-        : false,
+      managedTunnelActive: status === "active" && Option.isSome(endpointRuntimeConfig),
+      publishAgentActivity:
+        status === "active" && Option.isSome(publishAgentActivity)
+          ? bytesToString(publishAgentActivity.value) === "true"
+          : false,
       holdWebhooksWhileOffline:
-        Option.isSome(holdWebhooks) && bytesToString(holdWebhooks.value) === "true",
+        status === "active" &&
+        Option.isSome(holdWebhooks) &&
+        bytesToString(holdWebhooks.value) === "true",
     } satisfies EnvironmentCloudLinkStateResult;
   });
 
@@ -1347,9 +1446,22 @@ const make = Effect.gen(function* () {
     function* () {
       return yield* endpointRuntime.withLinkStateLock(
         Effect.gen(function* () {
+          const savedLink = yield* secrets.get(RELAY_URL_SECRET);
+          const status = yield* persistedAuthorityStatus;
+          if (Option.isSome(savedLink))
+            yield* rememberPendingRemoteCleanup({
+              relayUrl: bytesToString(savedLink.value),
+              environmentId: yield* environment.getEnvironmentId,
+            }).pipe(
+              withRuntimeFiles,
+              Effect.mapError(
+                (cause) => new CloudLinkInternalError({ operation: "remove-relay-config", cause }),
+              ),
+            );
           const endpointRuntimeStatus = yield* endpointRuntime.applyConfig(null);
           yield* Effect.all(
             [
+              secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET),
               secrets.remove(CLOUD_LINKED_USER_ID),
               secrets.remove(RELAY_URL_SECRET),
               secrets.remove(RELAY_ISSUER_SECRET),
@@ -1363,7 +1475,12 @@ const make = Effect.gen(function* () {
             { concurrency: 9 },
           );
           yield* setCliDesiredCloudLink(false).pipe(withSecrets);
-          return { ok: true, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
+          return {
+            ok: true,
+            endpointRuntimeStatus,
+            remoteCleanupPending: Option.isSome(savedLink),
+            remoteCleanupAllowed: status === "active",
+          } satisfies EnvironmentCloudRelayConfigResult;
         }),
       );
     },
@@ -1397,6 +1514,7 @@ const make = Effect.gen(function* () {
 
   const savePreferences = Effect.fn("CloudPreferences.update")(
     function* (input: EnvironmentCloudPreferencesRequest) {
+      yield* requirePersistedAuthority;
       // All or nothing: the activity setting is saved first, before the relay
       // is told anything, and put back if the hold change then fails. Both
       // current values are read up front; a failed read stops here, before
@@ -1448,6 +1566,7 @@ const make = Effect.gen(function* () {
 
   const answerHealthRequest = Effect.fn("environment.cloud.health")(
     function* (request: RelayCloudEnvironmentHealthRequest) {
+      yield* requirePersistedAuthority;
       const cloudMintPublicKey = yield* secrets
         .get(CLOUD_MINT_PUBLIC_KEY)
         .pipe(
@@ -1552,6 +1671,7 @@ const make = Effect.gen(function* () {
 
   const mintCredential = Effect.fn("environment.cloud.mintCredential")(
     function* (request: RelayCloudMintCredentialRequest) {
+      yield* requirePersistedAuthority;
       const cloudMintPublicKey = yield* secrets
         .get(CLOUD_MINT_PUBLIC_KEY)
         .pipe(

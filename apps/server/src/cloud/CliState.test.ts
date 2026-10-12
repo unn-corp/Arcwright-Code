@@ -8,17 +8,20 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as CliState from "./CliState.ts";
 import {
+  CLOUD_PUBLIC_AUTHORITY_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
   CLOUD_MINT_PUBLIC_KEY,
   PUBLISH_AGENT_ACTIVITY_SECRET,
+  HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
 
 const persistedCloudLinkSecrets = [
+  CLOUD_PUBLIC_AUTHORITY_SECRET,
   CLOUD_LINKED_USER_ID,
   RELAY_URL_SECRET,
   RELAY_ISSUER_SECRET,
@@ -27,6 +30,7 @@ const persistedCloudLinkSecrets = [
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   PUBLISH_AGENT_ACTIVITY_SECRET,
+  HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
 ] as const;
 
 const layerTest = () =>

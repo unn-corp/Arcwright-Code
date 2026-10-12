@@ -3,11 +3,13 @@ import * as Option from "effect/Option";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
+  CLOUD_PUBLIC_AUTHORITY_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
   CLOUD_MINT_PUBLIC_KEY,
   PUBLISH_AGENT_ACTIVITY_SECRET,
+  HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
@@ -62,6 +64,7 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
   yield* Effect.all(
     [
       secrets.remove(CLOUD_CLI_DESIRED_LINK_SECRET),
+      secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET),
       secrets.remove(CLOUD_LINKED_USER_ID),
       secrets.remove(RELAY_URL_SECRET),
       secrets.remove(RELAY_ISSUER_SECRET),
@@ -70,6 +73,7 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
       secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG),
       secrets.remove(CLOUD_ENDPOINT_CONFIRMED_ORIGIN),
       secrets.remove(PUBLISH_AGENT_ACTIVITY_SECRET),
+      secrets.remove(HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET),
     ],
     { concurrency: "unbounded" },
   );

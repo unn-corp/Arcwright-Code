@@ -6,8 +6,16 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import {
+  LinkPublicAuthority,
+  classifyRelayAuthority,
+  selectedConnectAuthority,
+  type SelectedConnectAuthority,
+} from "./connectAuthority.ts";
+
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
+export const CLOUD_PUBLIC_AUTHORITY_SECRET = "cloud-public-authority";
 export const CLOUD_MINT_PUBLIC_KEY = "cloud-mint-ed25519-public-key";
 export const CLOUD_ENDPOINT_RUNTIME_CONFIG = "cloud-endpoint-runtime-config";
 export const CLOUD_ENDPOINT_CONFIRMED_ORIGIN = "cloud-endpoint-confirmed-origin";
@@ -17,6 +25,43 @@ export const RELAY_ISSUER_SECRET = "cloud-relay-issuer";
 export const RELAY_ENVIRONMENT_CREDENTIAL_SECRET = "cloud-relay-environment-credential";
 export const PUBLISH_AGENT_ACTIVITY_SECRET = "cloud-publish-agent-activity";
 export const HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET = "cloud-hold-webhooks-while-offline";
+
+const decodeLinkPublicAuthority = Schema.decodeUnknownOption(
+  Schema.fromJsonString(LinkPublicAuthority),
+);
+
+/** Fail closed without removing the saved record or implying it needs automatic enrollment. */
+export const readPersistedRelayAuthorityStatus = (
+  secrets: ServerSecretStore.ServerSecretStore["Service"],
+  selected?: SelectedConnectAuthority,
+) =>
+  Effect.gen(function* () {
+    const authority = selected ?? (yield* selectedConnectAuthority);
+    if (authority.mode === "cloudless" || authority.mode === "unavailable") return authority.mode;
+    const stamp = yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET);
+    const publicAuthority = Option.isSome(stamp)
+      ? decodeLinkPublicAuthority(new TextDecoder().decode(stamp.value))
+      : Option.none();
+    if (Option.isSome(stamp) && Option.isNone(publicAuthority)) return "unavailable";
+    if (authority.mode === "legacy" && Option.isNone(stamp)) return "active";
+    if (authority.mode === "owned") {
+      const credentials = yield* Effect.all([
+        secrets.get(CLOUD_LINKED_USER_ID),
+        secrets.get(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
+      ]);
+      if (credentials.some((value) => Option.isNone(value) || value.value.length === 0))
+        return "incompatible";
+    }
+    const [url, issuer] = yield* Effect.all([
+      secrets.get(RELAY_URL_SECRET),
+      secrets.get(RELAY_ISSUER_SECRET),
+    ]);
+    return classifyRelayAuthority(authority, {
+      ...(Option.isSome(publicAuthority) ? { publicAuthority: publicAuthority.value } : {}),
+      relayUrl: Option.isSome(url) ? new TextDecoder().decode(url.value) : null,
+      relayIssuer: Option.isSome(issuer) ? new TextDecoder().decode(issuer.value) : null,
+    });
+  }).pipe(Effect.orElseSucceed(() => "unavailable" as const));
 
 export const encodeEndpointRuntimeConfigJson = Schema.encodeEffect(
   Schema.fromJsonString(RelayManagedEndpointRuntimeConfig),
@@ -51,6 +96,7 @@ export const readAgentActivityPublishingActive = (
   secrets: ServerSecretStore.ServerSecretStore["Service"],
 ): Effect.Effect<boolean> =>
   Effect.gen(function* () {
+    if ((yield* readPersistedRelayAuthorityStatus(secrets)) !== "active") return false;
     const readSecretString = (name: string) =>
       secrets
         .get(name)
@@ -86,14 +132,18 @@ const readSecretString = (name: string) =>
   );
 
 /** The relay URL and environment credential, or null when not linked to Arcwright Connect. */
-export const readRelayConnection = Effect.all([
-  readSecretString(RELAY_URL_SECRET),
-  readSecretString(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
-]).pipe(
-  Effect.map(([url, environmentCredential]) =>
-    url && environmentCredential ? { url, environmentCredential } : null,
-  ),
-);
+export const readRelayConnection = Effect.gen(function* () {
+  const secrets = yield* ServerSecretStore.ServerSecretStore;
+  if ((yield* readPersistedRelayAuthorityStatus(secrets)) !== "active") return null;
+  return yield* Effect.all([
+    readSecretString(RELAY_URL_SECRET),
+    readSecretString(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
+  ]).pipe(
+    Effect.map(([url, environmentCredential]) =>
+      url && environmentCredential ? { url, environmentCredential } : null,
+    ),
+  );
+});
 
 /** Whether this environment opted in to Arcwright Connect holding webhooks while it is offline. */
 export const readHoldWebhooksWhileOffline = readSecretString(

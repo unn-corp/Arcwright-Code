@@ -743,3 +743,22 @@ the retained Java shell. Keep direct pairing, installation-scoped push credentia
 native browser state separate from account logout. A process killed mid-login cannot recover SDK
 private in-memory PKCE; an old exact callback is consumed with a retry message. Live sign-in,
 restoration/renewal/logout and private service commissioning still require the runbook's phone proof.
+
+## Persisted Connect service authority
+
+Server/CLI authority admission lives in [connectAuthority.ts](../../apps/server/src/cloud/connectAuthority.ts)
+and [CloudLink.ts](../../apps/server/src/cloud/CloudLink.ts). Preserve dormant raw link presence:
+an incompatible or cloudless saved record must never look absent to auto-enrollment. New OAuth
+exchanges and owned links carry public authority bindings, checked even when a known binding
+is read in legacy mode; historical unbound legacy restore remains explicit compatibility behavior.
+Connector restore/offline fallback, recovery/deletion, signed proof acceptance, publishers, held
+hooks and webhook advertisements all use this policy. Local unlink clears only Connect link
+secrets, intent and preferences and retains a bounded public cleanup reminder, without scheduling
+old-service work or retaining credentials for it. Only deliberate matching-profile CLI remote
+success clears its matching reminder. Keep provider/direct credentials, data and automation choices.
+
+Run the focused cloud lifecycle/token/runtime, relay publisher, webhook proof and web link-controller
+regressions when changing this boundary. [Connect setup](./connect-setup.md#changing-the-account-service)
+explains the reverse flow. Native/PWA installation credentials and historical release/recovery
+rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its
+own live validation.

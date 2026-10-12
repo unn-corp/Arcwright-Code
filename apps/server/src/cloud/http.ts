@@ -59,6 +59,7 @@ const conflict = (error: { readonly message: string }) =>
 /** How a connect route answers each CloudLink failure. Messages carry through unchanged. */
 const connectErrorCases = {
   CloudLinkRelayConfigInvalidError: badRequest,
+  CloudLinkAuthorityUnavailableError: conflict,
   CloudLinkOriginInvalidError: badRequest,
   CloudLinkNotLinkedError: badRequest,
   CloudLinkAccountMismatchError: conflict,

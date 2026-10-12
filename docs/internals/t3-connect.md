@@ -250,3 +250,23 @@ reset, cancellation and suspending calls. Session-cache eviction stays asynchron
 waits for the session/network lock while holding this monitor. Direct admission remains account-independent.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.
+
+## Persisted authority admission
+
+[`connectAuthority.ts`](../../apps/server/src/cloud/connectAuthority.ts) classifies the validated
+effective public profile and persisted OAuth/relay authority. CLI token exchanges stamp metadata
+at the successful exchange, and arbitrary `store` calls do not bless old records. Known stamps
+are checked even in legacy mode; unbound legacy records retain their historical behavior.
+[`config.ts`](../../apps/server/src/cloud/config.ts) shares saved-link admission across CloudLink,
+connector restore/recovery, activity publishing, held webhooks, descriptors and scheduled delivery
+proofs. CloudLink status retains raw `linked` presence while reporting `authorityStatus` and
+`authorityMessage`, with exposure/preferences inactive on rejected authority. Routes remain thin
+service adapters. Fresh owned relay configurations must match both the selected relay origin and
+issuer before persistence, and carry a public OAuth binding; existing cryptographic proof checks
+are unchanged.
+
+Local unlink keeps a bounded public pending-cleanup reference using the server's atomic public
+state writer, before removing Connect secrets and intent. It never retains the old key or bearer
+credential for autonomous cleanup. Explicit CLI cleanup under the deliberately selected original
+profile can delete its matching reminder after remote success. Older source without these checks
+is outside this admission guarantee; cross-realm historical rollback remains NEXT Task4D.

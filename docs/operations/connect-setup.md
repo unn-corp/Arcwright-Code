@@ -43,7 +43,8 @@ supported. `CLERK_SECRET_KEY` belongs only in relay secrets, never in a public p
 Cloudless mode explicitly clears managed canonical, web, Expo and native build inputs even when
 ambient/root env configuration exists. Unrelated signing, toolchain, tracing and development
 inputs retain their existing precedence. Expo omits Clerk setup and credential associations.
-This build selection does not complete the historical CloudLink lifecycle/authority migration.
+The server leaves saved Connect credentials and links dormant when the selected authority does
+not match; direct pairing and application access remain available.
 
 Web, bundled CLI, standalone APK and Expo use the selected profile. Owned CLI headless OAuth
 uses its hosted origin; runtime overrides must supply all five fields atomically. An owned or
@@ -61,6 +62,44 @@ selection independently of ambient build overrides, so selecting legacy in today
 cannot mask an owned or cloudless predecessor. This refusal does not establish original-artifact
 provenance. Do not publish owned builds before that release/recovery work
 and live commissioning are verified.
+
+## Changing the account service
+
+New CLI OAuth exchanges record the actual issuer/token endpoint origin and public client ID.
+Owned mode accepts a saved CLI credential only when this binding matches its complete effective
+profile; old unbound CLI records need deliberate `t3 connect login` authorization. Background
+startup never signs in, moves a refresh credential to a new endpoint, or removes a foreign record.
+Legacy mode retains old unbound credential/link behavior, but checks a known authority binding.
+
+Saved relay URL and effective issuer must match the selected owned relay origin. New owned links
+also bind their public OAuth authority, so changing the Clerk realm or public client ID on the same
+relay origin makes that link dormant. Changing only a hosted frontend URL or build version does
+not require enrollment. Incompatible links remain saved and report “belongs to another account
+service; unlink and reconnect”; cloudless links stay inactive. The connector, offline startup
+fallback, remote recovery/shutdown deletion, relay proofs, activity publishing, held-webhook wake,
+and advertised webhook origin all respect this admission. Existing nonce, replay, key and scope
+checks still apply to admitted links.
+
+Before changing profiles, explicitly select the original profile and use `t3 connect logout` while
+that service is reachable if you want to revoke its environment record and remove its CLI login.
+After selecting a new owned profile, `t3 connect unlink` (or **Unlink locally** in Connections)
+stops the local connector and clears only Connect link state, intent and preferences, including
+“hold webhooks while offline”. It leaves the old relay untouched and preserves the CLI authorization
+unless you explicitly request logout. Provider credentials, direct connections and conversation data
+are unaffected.
+
+A local unlink writes a public pending-cleanup reminder beside `server-runtime.json` in
+`connect-pending-remote-cleanup.json`: at most 16 old relay origins, environment IDs, timestamps
+and pending statuses (8 KiB maximum). It contains no credentials, and causes no background retry.
+The warning survives restart. To remove an old relay record later, deliberately select its original
+profile, sign in with `t3 connect login`, and run `t3 connect unlink`; a compatible successful CLI
+remote deletion clears only that matching reminder. A failed deletion or web local unlink can
+leave a conservative reminder until that explicit cleanup. If the bounded reminder file is full or
+unreadable, unlink refuses to discard the saved link rather than lose the cleanup reference.
+
+These server guards do not authorize automatic cross-realm rollback to older source that lacks
+binding checks. Historical release/recovery authority enforcement remains **NEXT Task4D**; native
+installation/SDK credential authority handling and live owned-service commissioning are separate.
 
 Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment settings.
 Deploy `prod` before personal stages because it owns the retained database that their branches

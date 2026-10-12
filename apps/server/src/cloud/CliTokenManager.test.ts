@@ -190,6 +190,12 @@ it.layer(NodeServices.layer)("CliTokenManager.deviceAuthorizationLogin", (it) =>
           expiresIn: Duration.seconds(600),
         },
       ]);
+      assert.deepEqual(token.publicAuthority, {
+        version: 1,
+        issuer: "https://clerk.example.test",
+        tokenEndpointOrigin: "https://clerk.example.test",
+        clientId: "oauth_client_test",
+      });
       assert.equal(token.accessToken, "access-token-1");
       assert.equal(token.refreshToken, "refresh-token-1");
       assert.equal(token.identity, "theo@example.test");

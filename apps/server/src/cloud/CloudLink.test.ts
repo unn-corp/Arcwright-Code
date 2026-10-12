@@ -102,7 +102,9 @@ const withService = <A, E>(
       Layer.mock(HttpServer.HttpServer)({
         address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 3773),
       }),
-      Layer.mock(ServerConfig.ServerConfig)({} as ServerConfig.ServerConfig["Service"]),
+      ServerConfig.layerTest("/", { prefix: "t3-cloud-preferences-test-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
       Layer.succeed(
         HttpClient.HttpClient,
         HttpClient.make(() => Effect.die("unused")),

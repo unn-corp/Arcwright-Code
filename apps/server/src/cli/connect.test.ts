@@ -1,3 +1,14 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { EnvironmentId } from "@t3tools/contracts";
+import * as Layer from "effect/Layer";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as ServerConfig from "../config.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as CliTokenManager from "../cloud/CliTokenManager.ts";
+import { readPendingRemoteCleanup } from "../cloud/pendingRemoteCleanup.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { assert, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -12,6 +23,7 @@ import * as Terminal from "effect/Terminal";
 
 import * as BootService from "../cloud/bootService.ts";
 import {
+  disconnectCloud,
   acquireRelayClientForLink,
   headlessSessionConfig,
   reportCloudDisconnectResults,
@@ -189,3 +201,107 @@ it.effect("keeps disconnect causes in structured logs and out of console warning
     ),
   );
 });
+
+it.effect.each(["compatible", "incompatible", "cloudless"] as const)(
+  "deliberate %s CLI unlink preserves login and reports pending remote cleanup honestly",
+  (admission) => {
+    const values = new Map<string, Uint8Array>([
+      [
+        "cloud-relay-url",
+        new TextEncoder().encode(
+          admission === "compatible" ? "https://selected.example.test" : "https://old.example.test",
+        ),
+      ],
+      [
+        "cloud-relay-issuer",
+        new TextEncoder().encode(
+          admission === "compatible" ? "https://selected.example.test" : "https://old.example.test",
+        ),
+      ],
+      ["cloud-linked-user-id", new TextEncoder().encode("old-user")],
+      ["cloud-relay-environment-credential", new TextEncoder().encode("fixture-environment-token")],
+      ["cloud-hold-webhooks-while-offline", new TextEncoder().encode("true")],
+      ["cloud-cli-oauth-token", new TextEncoder().encode("preserved-cli-authorization")],
+    ]);
+    let requests = 0;
+    return Effect.gen(function* () {
+      yield* disconnectCloud({ clearAuthorization: false });
+      assert.equal(requests, admission === "compatible" ? 1 : 0);
+      assert.isFalse(values.has("cloud-relay-url"));
+      assert.isFalse(values.has("cloud-hold-webhooks-while-offline"));
+      assert.isTrue(values.has("cloud-cli-oauth-token"));
+      assert.equal((yield* readPendingRemoteCleanup).length, admission === "compatible" ? 0 : 1);
+    }).pipe(
+      Effect.provide(
+        ServerConfig.layerTest("/", { prefix: "t3-connect-disconnect-test-" }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+      Effect.provideService(
+        ServerSecretStore.ServerSecretStore,
+        ServerSecretStore.ServerSecretStore.of({
+          get: (name) => Effect.succeed(Option.fromNullishOr(values.get(name))),
+          set: (name, bytes) =>
+            Effect.sync(() => {
+              values.set(name, bytes);
+            }),
+          remove: (name) =>
+            Effect.sync(() => {
+              values.delete(name);
+            }),
+          create: () => Effect.die("unused"),
+          getOrCreateRandom: () => Effect.die("unused"),
+        }),
+      ),
+      Effect.provideService(
+        ServerEnvironment.ServerEnvironmentIdentity,
+        ServerEnvironment.ServerEnvironmentIdentity.of({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("env-one")),
+        }),
+      ),
+      Effect.provide(Layer.mock(EnvironmentAuth.EnvironmentAuth)({})),
+      Effect.provideService(
+        CliTokenManager.CloudCliTokenManager,
+        CliTokenManager.CloudCliTokenManager.of({
+          get: Effect.die("unexpected interactive login"),
+          getExisting: Effect.succeedSome({
+            accessToken: "matching-token",
+            refreshToken: "matching-refresh",
+            expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
+          }),
+          hasCredential: Effect.succeed(true),
+          store: () => Effect.die("unused"),
+          clear: Effect.die("unexpected logout"),
+        }),
+      ),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.sync(() => {
+            requests++;
+            assert.equal(
+              request.url,
+              "https://selected.example.test/v1/client/environment-links/env-one",
+            );
+            assert.equal(request.method, "DELETE");
+            return HttpClientResponse.fromWeb(request, Response.json({ ok: true }));
+          }),
+        ),
+      ),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              T3CODE_CONNECT_MODE: admission === "cloudless" ? "cloudless" : "owned",
+              T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+              T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+              T3CODE_CLERK_JWT_TEMPLATE: "connect",
+              T3CODE_RELAY_URL: "https://selected.example.test",
+              T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+            },
+          }),
+        ),
+      ),
+    );
+  },
+);

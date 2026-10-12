@@ -49,6 +49,17 @@ connection. Pull request diffs and provider settings keep working after the
 previous credential expires. A failed renewal affects that request; it does not
 disconnect an otherwise healthy conversation.
 
+Changing the server's owned account service leaves any old Connect login and link saved but
+inactive. A message explains that the link belongs to another account service; direct paired routes
+still work. Choose **Unlink locally** in Connections or run `t3 connect unlink` to stop its local
+connector and clear Connect link preferences. This does not delete the old remote record and
+leaves a public cleanup reminder that survives restart. To revoke it later, deliberately select the
+original Connect profile, sign in with `t3 connect login`, and run `t3 connect unlink` again. Before
+migrating, explicit `t3 connect logout` under the original reachable profile can revoke the record
+and remove that CLI login. See [changing the account service](../operations/connect-setup.md#changing-the-account-service).
+Native/PWA credential authority migration, historical rollback, and private live commissioning
+remain separate validation work.
+
 ## Pair over a LAN or private network
 
 To rename a saved environment, open **Settings → Connections**, choose its
