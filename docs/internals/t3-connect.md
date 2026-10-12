@@ -218,5 +218,10 @@ generations are captured again after SDK restoration. Loading/network failures r
 An authoritative logout/account change evicts managed references and fences HTTP, sockets and queued
 alerts while retaining independent direct pairing, browser state and drafts. Ordered configuration
 and registration writes allow managed/direct route changes while rejecting stale registrations.
+Every accepted managed registration gets an opaque native revision. Rejection cleanup compares
+that revision and the captured account/session/generation against native auth under the same lock
+as registration writes. An old HTTP rejection therefore cannot erase a newer registration or its
+state; deferred token eviction also matches the captured revision/fence. Cold restoration retains
+the revision while capturing the restored SDK session's fresh process generation.
 Fake HTTP tests verify real ES256 signatures and the complete protocol; real-phone delivery and
 owned-service commissioning remain pending.

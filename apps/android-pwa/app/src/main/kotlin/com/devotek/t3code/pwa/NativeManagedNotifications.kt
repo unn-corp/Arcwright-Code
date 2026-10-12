@@ -10,9 +10,19 @@ import java.util.concurrent.TimeUnit
 
 /** Application-owned observer works without any activity or WebView. Keystore is opened lazily. */
 class NativeManagedNotifications(private val app: ArcwrightApplication) {
-    private val registered = ConcurrentHashMap<String, ConnectAccount>().apply {
-        val saved = NotificationCredentials.read(app, STORAGE)
-        saved.keys().forEach { put(it, saved.getJSONObject(it).let { ref -> ConnectAccount(ref.getString("userId"), ref.getString("sessionId")) }) }
+    private val registered = ConcurrentHashMap<String, String>().apply {
+        synchronized(NotificationCredentials::class.java) {
+            val saved = NotificationCredentials.read(app, STORAGE)
+            var adopted = false
+            saved.keys().forEach { id ->
+                val ref = saved.getJSONObject(id)
+                if (ref.optString("registrationRevision").isEmpty()) {
+                    ref.put("registrationRevision", java.util.UUID.randomUUID().toString()); adopted = true
+                }
+                put(id, ref.getString("registrationRevision"))
+            }
+            if (adopted) NotificationCredentials.write(app, STORAGE, saved)
+        }
     }
     private val auth get() = app.connectAuth
     private val sessionDelegate = lazy {
@@ -21,6 +31,18 @@ class NativeManagedNotifications(private val app: ArcwrightApplication) {
             .followRedirects(false).followSslRedirects(false).build())
     }
     private val session get() = sessionDelegate.value
+    private val cleanup = ManagedRegistrationCleanup(
+        NotificationCredentials::class.java,
+        { NotificationCredentials.read(app, STORAGE) },
+        { NotificationCredentials.write(app, STORAGE, it) },
+        { auth.isCurrent(it) },
+        { id, ref, fence ->
+            val revision = ref.getString("registrationRevision")
+            registered.remove(id, revision)
+            NativeNotifications.store(app).edit().remove("state:$id").apply()
+            if (sessionDelegate.isInitialized()) app.authScope.launch(Dispatchers.IO) { session.remove(id, revision, fence) }
+        },
+    )
     init {
         var observedIdentity: Triple<String?, String?, Long>? = null
         app.authScope.launch {
@@ -32,17 +54,23 @@ class NativeManagedNotifications(private val app: ArcwrightApplication) {
                         observedIdentity = identity
                         reconcile(status)
                         AgentNotificationService.managedIdentityChanged()
-                        if (sessionDelegate.isInitialized()) launch(Dispatchers.IO) { session.cancelPending(); session.clear() }
+                        if (sessionDelegate.isInitialized()) launch(Dispatchers.IO) { session.cancelObsolete(auth::accountFence); session.clearObsolete(auth::accountFence) }
                     }
                 }
             }
         }
     }
-    fun ticket(id: String, config: JSONObject) = session.ticket(id, config.getString("userId"), config.getString("sessionId"))
+    fun operationFence(id: String, config: JSONObject): ConnectAuthStatus {
+        val fence = ConnectManagedAccount(auth).capture(config.getString("userId"), config.getString("sessionId"))
+        if (!current(id, config)) throw ManagedAuthRejected()
+        return fence
+    }
+    fun ticket(id: String, config: JSONObject) = session.ticket(id, config.getString("userId"), config.getString("sessionId"), config.getString("registrationRevision"))
+    fun reject(id: String, config: JSONObject, fence: ConnectAuthStatus): Boolean = cleanup.reject(id, config, fence)
     fun isCurrent(ticket: NativeManagedEnvironmentSession.Ticket) = session.isCurrent(ticket)
     fun current(id: String, config: JSONObject): Boolean {
         val fence = auth.accountFence()
-        return registered[id] == ConnectAccount(config.optString("userId"), config.optString("sessionId")) && fence.userId == config.optString("userId") && fence.sessionId == config.optString("sessionId") && auth.isCurrent(fence)
+        return registered[id] == config.optString("registrationRevision") && fence.userId == config.optString("userId") && fence.sessionId == config.optString("sessionId") && auth.isCurrent(fence)
     }
     private fun reconcile(status: ConnectAuthStatus) = synchronized(NotificationCredentials::class.java) {
         val refs = NotificationCredentials.read(app, STORAGE)
@@ -65,22 +93,26 @@ class NativeManagedNotifications(private val app: ArcwrightApplication) {
             val ref = NotificationRegistrationPolicy.managedReference(payload, app.connectAuth)
             val id = payload.getString("environmentId")
             val refs = NotificationCredentials.read(context, STORAGE)
+            val oldRef = refs.optJSONObject(id)
             refs.put(id, ref)
             val previous = app.managedNotifications.registered[id]
             NotificationCredentials.write(context, STORAGE, refs)
-            val identity = ConnectAccount(ref.getString("userId"), ref.getString("sessionId"))
-            app.managedNotifications.registered[id] = identity
+            val revision = ref.getString("registrationRevision")
+            app.managedNotifications.registered[id] = revision
             val preferred = NativeNotifications.read(context, "managedPreferred").put(id, true)
             val editor = NativeNotifications.store(context).edit().putString("managedPreferred", preferred.toString())
-            if (previous != identity) editor.remove("state:$id")
+            val sameAccount = oldRef != null && oldRef.optString("userId") == ref.getString("userId") && oldRef.optString("sessionId") == ref.getString("sessionId")
+            if (previous == null || !sameAccount) editor.remove("state:$id")
             editor.apply()
         }
         @JvmStatic fun remove(context: Context, id: String) = synchronized(NotificationCredentials::class.java) {
             val owner = from(context)
-            owner.registered.remove(id)
-            if (owner.sessionDelegate.isInitialized()) owner.app.authScope.launch(Dispatchers.IO) { owner.session.remove(id) }
             val refs = NotificationCredentials.read(context, STORAGE)
-            if (refs.has(id)) {
+            val previous = refs.optJSONObject(id)
+            owner.registered.remove(id)
+            if (previous != null) {
+                val revision = previous.getString("registrationRevision")
+                if (owner.sessionDelegate.isInitialized()) owner.app.authScope.launch(Dispatchers.IO) { owner.session.remove(id, revision) }
                 refs.remove(id)
                 NotificationCredentials.write(context, STORAGE, refs)
                 NativeNotifications.store(context).edit().remove("state:$id").apply()

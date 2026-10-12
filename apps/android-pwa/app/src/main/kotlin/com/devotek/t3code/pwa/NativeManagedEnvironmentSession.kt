@@ -30,14 +30,15 @@ class NativeManagedEnvironmentSession(
     private val appVersion: String = BuildConfig.VERSION_NAME,
 ) {
     data class Ticket(val address: HttpUrl, val fence: ConnectAuthStatus, val renewAt: Long)
-    private data class Session(val fence: ConnectAuthStatus, val base: HttpUrl, val ws: HttpUrl, val token: String, val expiresAt: Long)
+    private data class Session(val fence: ConnectAuthStatus, val base: HttpUrl, val ws: HttpUrl, val token: String, val expiresAt: Long, val registrationRevision: String)
     private val http = http.newBuilder().followRedirects(false).followSslRedirects(false).callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).build()
     private val relayBase = secureBase(relay.trim().trimEnd('/') + "/")
     private val cache = mutableMapOf<String, Session>()
-    private val calls = java.util.concurrent.ConcurrentHashMap.newKeySet<Call>()
-    fun cancelPending() { calls.forEach { it.cancel() } }
+    private val calls = java.util.concurrent.ConcurrentHashMap<Call, ConnectAuthStatus>()
+    fun cancelObsolete(current: () -> ConnectAuthStatus) { calls.forEach { (call, fence) -> if (!sameFence(fence, current())) call.cancel() } }
     private val nonces = mutableMapOf<String, String>()
     companion object {
+        private fun sameFence(left: ConnectAuthStatus, right: ConnectAuthStatus) = left.generation == right.generation && left.userId == right.userId && left.sessionId == right.sessionId
         private const val GRANT = "urn:ietf:params:oauth:grant-type:token-exchange"
         private const val ACCESS = "urn:ietf:params:oauth:token-type:access_token"
         fun secureBase(raw: String): HttpUrl {
@@ -49,17 +50,24 @@ class NativeManagedEnvironmentSession(
         }
         fun validEnvironmentId(value: String) = value.length in 1..256 && value.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]*"))
     }
-    @Synchronized fun remove(id: String) { cache.remove(id) }
-    @Synchronized fun clear() { cache.clear(); nonces.clear() }
+    @Synchronized fun remove(id: String, revision: String, fence: ConnectAuthStatus? = null) {
+        val cached = cache[id] ?: return
+        if (cached.registrationRevision == revision && (fence == null || sameFence(cached.fence, fence))) cache.remove(id)
+    }
+    @Synchronized fun clearObsolete(current: () -> ConnectAuthStatus) {
+        val latest = current()
+        cache.entries.removeAll { !sameFence(it.value.fence, latest) }
+        nonces.clear()
+    }
     fun isCurrent(ticket: Ticket) = account.current(ticket.fence)
     private fun checkFence(fence: ConnectAuthStatus) { account.validate(fence) }
-    @Synchronized fun ticket(environmentId: String, userId: String, sessionId: String): Ticket {
+    @Synchronized fun ticket(environmentId: String, userId: String, sessionId: String, registrationRevision: String = ""): Ticket {
         if (!validEnvironmentId(environmentId)) throw ManagedProtocolRejected()
         val fence = account.capture(userId, sessionId); checkFence(fence)
         for (attempt in 0..1) {
             try {
                 val cached = cache[environmentId]
-                val session = if (cached != null && cached.fence == fence && cached.expiresAt > clock() + 5_000) cached else establish(environmentId, fence, attempt > 0).also { cache[environmentId] = it }
+                val session = if (cached != null && sameFence(cached.fence, fence) && cached.registrationRevision == registrationRevision && cached.expiresAt > clock() + 5_000) cached else establish(environmentId, fence, attempt > 0, registrationRevision).also { cache[environmentId] = it }
                 val result = request(session.base.resolve("/api/auth/websocket-ticket")!!, "POST", ByteArray(0).toRequestBody(null), fence, session.token)
                 val ticket = secret(result, "ticket")
                 expiry(result.getString("expiresAt"), 300_000)
@@ -71,14 +79,14 @@ class NativeManagedEnvironmentSession(
                 return Ticket(address, fence, session.expiresAt - minOf(5_000, maxOf(1, (session.expiresAt - clock()) / 2)))
             } catch (_: org.json.JSONException) { throw ManagedProtocolRejected()
             } catch (rejected: ManagedAuthRejected) {
-                cache.remove(environmentId)
+                remove(environmentId, registrationRevision, fence)
                 checkFence(fence)
                 if (attempt == 1) throw rejected
             }
         }
         throw ManagedAuthRejected()
     }
-    private fun establish(id: String, fence: ConnectAuthStatus, force: Boolean): Session {
+    private fun establish(id: String, fence: ConnectAuthStatus, force: Boolean, registrationRevision: String): Session {
         val relayToken = token(request(relayBase.resolve("/v1/client/dpop-token")!!, "POST", form(mapOf(
             "grant_type" to GRANT, "subject_token" to account.relayToken(force), "subject_token_type" to "urn:ietf:params:oauth:token-type:jwt",
             "requested_token_type" to ACCESS, "resource" to relayBase.toString().removeSuffix("/"), "scope" to "environment:connect", "client_id" to "t3-mobile")), fence), "environment:connect")
@@ -104,7 +112,7 @@ class NativeManagedEnvironmentSession(
             "grant_type" to GRANT, "subject_token" to secret(connected, "credential"), "subject_token_type" to "urn:t3:params:oauth:token-type:environment-bootstrap",
             "requested_token_type" to ACCESS, "scope" to "orchestration:read", "client_label" to "Arcwright Code Android background alerts", "client_device_type" to "mobile", "client_os" to "android")), fence), "orchestration:read")
         checkFence(fence)
-        return Session(fence, base, ws.newBuilder().encodedPath("/ws").build(), access.first, access.second)
+        return Session(fence, base, ws.newBuilder().encodedPath("/ws").build(), access.first, access.second, registrationRevision)
     }
     private fun form(values: Map<String, String>) = FormBody.Builder().apply { for ((name, value) in values) add(name, value) }.build()
     private fun token(result: JSONObject, scope: String): Pair<String, Long> {
@@ -133,7 +141,7 @@ class NativeManagedEnvironmentSession(
             if (token != null) builder.header("Authorization", "DPoP $token")
             if (proof) builder.header("DPoP", key.proof(method, url.toString(), clock(), token, nonces[origin]))
             val call = http.newCall(builder.build())
-            calls.add(call)
+            calls[call] = fence
             try {
                 call.execute().use { response ->
                     checkFence(fence)

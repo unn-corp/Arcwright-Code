@@ -158,9 +158,11 @@ public final class AgentNotificationService extends Service {
         }
         void connect() {
             if (closed || destroyed) return;
+            ConnectAuthStatus operationFence = null;
             try {
                 HttpUrl address;
                 if (managed) {
+                    operationFence = NativeManagedNotifications.from(AgentNotificationService.this).operationFence(id, config);
                     managedTicket = NativeManagedNotifications.from(AgentNotificationService.this).ticket(id, config);
                     if (!authorized() || destroyed) return;
                     address = managedTicket.getAddress();
@@ -205,8 +207,9 @@ public final class AgentNotificationService extends Service {
             } catch (ManagedAuthRejected | ManagedProtocolRejected error) {
                 if (managed) {
                     closed = true; connected = false;
-                    NativeManagedNotifications.remove(AgentNotificationService.this, id);
-                    pendingAlerts.removeEnvironment(id); updateStatus();
+                    boolean removed = operationFence != null && NativeManagedNotifications.from(AgentNotificationService.this).reject(id, config, operationFence);
+                    if (removed) pendingAlerts.removeEnvironment(id);
+                    updateStatus();
                     enqueue(AgentNotificationService.this::sync);
                 } else retry();
             } catch (Exception error) { retry(); }

@@ -33,7 +33,10 @@ class ConnectManagedAccountTest {
         val fence = account.capture("user", "session")
         assertEquals(1L, fence.generation); assertTrue(account.current(fence))
         val payload = JSONObject().put("environmentId", "env").put("userId", "user").put("sessionId", "session").put("generation", fence.generation).put("configurationId", "config").put("sequence", 1)
-        assertEquals(setOf("mode", "userId", "sessionId"), NotificationRegistrationPolicy.managedReference(payload, auth).keys().asSequence().toSet())
+        assertEquals(setOf("mode", "userId", "sessionId", "registrationRevision"), NotificationRegistrationPolicy.managedReference(payload, auth).keys().asSequence().toSet())
+        val capturedRef = NotificationRegistrationPolicy.managedReference(payload, auth)
+        val firstRevision = capturedRef.getString("registrationRevision")
+        assertNotEquals(firstRevision, NotificationRegistrationPolicy.managedReference(payload, auth).getString("registrationRevision"))
         assertThrows(ManagedAuthRejected::class.java) { NotificationRegistrationPolicy.managedReference(JSONObject(payload.toString()).put("userId", "forged"), auth) }
         assertThrows(ManagedAuthRejected::class.java) { NotificationRegistrationPolicy.managedReference(JSONObject(payload.toString()).put("generation", 999), auth) }
         assertThrows(ManagedProtocolRejected::class.java) { NotificationRegistrationPolicy.managedReference(JSONObject(payload.toString()).put("httpBaseUrl", "https://attacker.test"), auth) }
@@ -47,6 +50,13 @@ class ConnectManagedAccountTest {
         sdk.states.value = ConnectSdkState(true, ConnectAccount("other", "other-session")); runCurrent()
         assertThrows(ManagedAuthRejected::class.java) { account.validate(fence) }
         assertThrows(ManagedAuthRejected::class.java) { account.capture("user", "session") }
+        val newPayload = JSONObject(payload.toString()).put("userId", "other").put("sessionId", "other-session").put("generation", auth.status.value.generation)
+        val currentRef = NotificationRegistrationPolicy.managedReference(newPayload, auth)
+        var persisted = JSONObject().put("env", currentRef)
+        var deletedState = false
+        val cleanup = ManagedRegistrationCleanup(Any(), { JSONObject(persisted.toString()) }, { persisted = it }, auth::isCurrent, { _, _, _ -> deletedState = true })
+        assertFalse(cleanup.reject("env", capturedRef, fence)); assertFalse(deletedState)
+        assertEquals(currentRef.getString("registrationRevision"), persisted.getJSONObject("env").getString("registrationRevision"))
         auth.signOut(); runCurrent()
         assertThrows(ManagedAuthRejected::class.java) { account.capture("other", "other-session") }
     }

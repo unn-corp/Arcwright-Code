@@ -10,7 +10,7 @@ object NotificationRegistrationPolicy {
         if (!NativeManagedEnvironmentSession.validEnvironmentId(id)) throw ManagedProtocolRejected()
         val fence = auth.accountFence()
         if (payload.opt("userId") != fence.userId || payload.opt("sessionId") != fence.sessionId || (payload.opt("generation") as? Number)?.toDouble() != fence.generation.toDouble() || !auth.isCurrent(fence)) throw ManagedAuthRejected()
-        return JSONObject().put("mode", "managed").put("userId", fence.userId).put("sessionId", fence.sessionId)
+        return JSONObject().put("mode", "managed").put("userId", fence.userId).put("sessionId", fence.sessionId).put("registrationRevision", java.util.UUID.randomUUID().toString())
     }
     @JvmStatic fun accepts(configurationId: String, versions: JSONObject, id: String, payload: JSONObject): Boolean {
         if (payload.optString("configurationId") != configurationId || configurationId.isEmpty()) return false

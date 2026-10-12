@@ -7,6 +7,8 @@ import java.security.spec.*
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -171,6 +173,41 @@ class NativeManagedEnvironmentSessionTest {
         val redirected = Backend(); redirected.code = { 302 }
         assertThrows(ManagedProtocolRejected::class.java) { redirected.ticket() }; assertEquals(1, redirected.paths.size)
         for (url in listOf("http://relay.test", "https://user@relay.test", "https://relay.test/?token=x", "https://relay.test/#fragment", "https://relay.test/path")) assertThrows(ManagedProtocolRejected::class.java) { NativeManagedEnvironmentSession.secureBase(url) }
+    }
+    @Test fun lateFakeHttpRejectionUsesRegistrationScopedCleanupAndPreservesReplacement() {
+        val backend = Backend(); val old = JSONObject().put("mode", "managed").put("userId", "user").put("sessionId", "session").put("registrationRevision", "old")
+        val lock = Any(); var refs = JSONObject().put("env-1", old); var state: String? = "old-state"; var evictions = 0
+        val cleanup = ManagedRegistrationCleanup(lock, { JSONObject(refs.toString()) }, { refs = it }, backend.account::current, { _, _, _ -> state = null; evictions++ })
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        backend.after = { if (it.url.encodedPath == "/api/auth/websocket-ticket") { entered.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)) } }
+        backend.code = { if (it.url.encodedPath == "/api/auth/websocket-ticket") 403 else 200 }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val result = executor.submit<Boolean> {
+                val captured = backend.account.capture("user", "session")
+                try { backend.session.ticket("env-1", "user", "session", "old"); throw AssertionError("Expected rejection") }
+                catch (_: ManagedProtocolRejected) { cleanup.reject("env-1", old, captured) }
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            synchronized(lock) { refs.put("env-1", JSONObject(old.toString()).put("registrationRevision", "new")); state = "new-state" }
+            release.countDown(); assertFalse(result.get(5, TimeUnit.SECONDS))
+            assertEquals("new", refs.getJSONObject("env-1").getString("registrationRevision")); assertEquals("new-state", state); assertEquals(0, evictions)
+        } finally { release.countDown(); executor.shutdownNow() }
+    }
+    @Test fun delayedRevisionOrGenerationEvictionCannotRemoveNewerSessionToken() {
+        val backend = Backend(); val oldFence = backend.account.fence
+        backend.session.ticket("env-1", "user", "session", "old")
+        backend.session.ticket("env-1", "user", "session", "new")
+        assertEquals(2, backend.tokenIndex)
+        backend.session.remove("env-1", "old", oldFence) // A previously queued cleanup reaches the cache late.
+        backend.session.ticket("env-1", "user", "session", "new"); assertEquals(2, backend.tokenIndex)
+        backend.account.fence = oldFence.copy(generation = oldFence.generation + 1)
+        backend.session.ticket("env-1", "user", "session", "new"); assertEquals(3, backend.tokenIndex)
+        backend.session.remove("env-1", "new", oldFence)
+        backend.session.clearObsolete { backend.account.fence }
+        backend.session.ticket("env-1", "user", "session", "new"); assertEquals(3, backend.tokenIndex)
+        backend.session.remove("env-1", "new", backend.account.fence)
+        backend.session.ticket("env-1", "user", "session", "new"); assertEquals(4, backend.tokenIndex)
     }
     @Test fun concurrentRenewalUsesOneSessionAndSeparateTickets() {
         val backend = Backend(); val executor = Executors.newFixedThreadPool(2)
