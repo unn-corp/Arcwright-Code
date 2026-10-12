@@ -84,12 +84,18 @@ function readFields(source: ConnectEnvironment, strict: boolean): ConnectPublicF
 
 export function normalizeOwnedConnectOrigin(value: string, field: string): string {
   try {
+    // URL parsing erases dot segments and repairs missing authority slashes.
+    // Admit origin syntax first so those inputs cannot become valid origins.
+    if (
+      !/^https:\/\/[^/?#\\@]+\/?$/i.test(value) ||
+      value.length > 2048 ||
+      /[\s\\?#]/.test(value) ||
+      Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+    )
+      throw new Error("invalid origin syntax");
     const url = new URL(value);
     const hostname = url.hostname.replace(/\.+$/, "");
     if (
-      value.length > 2048 ||
-      /[\s\\?#]/.test(value) ||
-      Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
       url.protocol !== "https:" ||
       url.username ||
       url.password ||

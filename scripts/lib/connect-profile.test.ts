@@ -402,3 +402,42 @@ it("cannot mask historical root cloudless mode with an empty local or ambient le
     }),
   ).toThrow(/original artifact/);
 });
+
+describe.each(["T3CODE_RELAY_URL", "T3CODE_HOSTED_APP_URL"] as const)(
+  "owned raw origin syntax for %s",
+  (key) => {
+    it.each([
+      "https://origin.example.test/path/..",
+      "https://origin.example.test/%2e",
+      "https://origin.example.test/%2e%2e",
+      "https://origin.example.test/.",
+      "https://origin.example.test/..",
+      "https:origin.example.test",
+      "https:/origin.example.test",
+      "https:///origin.example.test",
+      "https://origin.example.test\\path\\..",
+      "https://origin.example.test//",
+      "https://@origin.example.test",
+    ])("rejects non-origin input before URL canonicalization %#", (value) => {
+      expect(() =>
+        loadRepoEnv({
+          repoRoot: fixture(),
+          baseEnv: { ...owned, T3CODE_CONNECT_MODE: "owned", [key]: value },
+        }),
+      ).toThrow(/Invalid owned Connect HTTPS origin/);
+    });
+    it.each([
+      ["https://ORIGIN.example.test/", "https://origin.example.test"],
+      ["HTTPS://ORIGIN.EXAMPLE.TEST:443", "https://origin.example.test"],
+      ["https://origin.example.test:8443/", "https://origin.example.test:8443"],
+      ["https://bücher.example", "https://xn--bcher-kva.example"],
+    ])("normalizes valid authority syntax %#", (value, expected) => {
+      expect(
+        loadRepoEnv({
+          repoRoot: fixture(),
+          baseEnv: { ...owned, T3CODE_CONNECT_MODE: "owned", [key]: value },
+        })[key],
+      ).toBe(expected);
+    });
+  },
+);

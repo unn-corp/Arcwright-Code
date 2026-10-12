@@ -35,8 +35,9 @@ This explicit file wins incidental root env files. Process Connect fields alongs
 complete, normalized-identical profile; partial or conflicting process overrides fail.
 
 Owned profiles validate the Clerk publishable key, bounded identifiers, and HTTPS relay/hosted
-origins without credentials, paths, query or fragments. Relay, hosted app and decoded Clerk issuer
-cannot use `t3.codes` or its subdomains. Generic Clerk development `*.accounts.dev` issuers are
+origins written as `https://authority` with at most one root slash, without credentials, paths,
+query or fragments. Malformed authority syntax and dot-segment paths fail before URL normalization.
+Relay, hosted app and decoded Clerk issuer cannot use `t3.codes` or its subdomains. Generic Clerk development `*.accounts.dev` issuers are
 supported. `CLERK_SECRET_KEY` belongs only in relay secrets, never in a public profile.
 
 Cloudless mode explicitly clears managed canonical, web, Expo and native build inputs even when
