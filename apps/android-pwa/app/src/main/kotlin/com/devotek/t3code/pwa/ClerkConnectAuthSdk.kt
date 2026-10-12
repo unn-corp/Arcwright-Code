@@ -17,7 +17,8 @@ class ClerkConnectAuthSdk(private val application: Application, private val key:
     override fun current(): ConnectSdkState {
         if (!Clerk.isInitialized.value) return ConnectSdkState(false, error = Clerk.initializationError.value != null)
         val session = Clerk.session
-        val userId = session?.user?.id ?: Clerk.user?.id
+        // Bind identity to this session snapshot; the separate user flow may still be transitioning.
+        val userId = session?.user?.id ?: session?.publicUserData?.userId
         if (session != null && (session.status == Session.SessionStatus.PENDING || userId == null)) {
             return ConnectSdkState(false, error = true)
         }
