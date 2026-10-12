@@ -4,7 +4,7 @@ import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { APP_BUILD_IDENTITY, APP_BUILD_LABEL, APP_VERSION } from "../../branding";
-import { formatBuildVersion } from "@t3tools/shared/buildVersion";
+import { formatBuildVersion, formatCompactBuildVersion } from "@t3tools/shared/buildVersion";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
@@ -238,7 +238,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
         <TooltipTrigger
           render={
             <p className="truncate px-2 text-3xs leading-4 text-muted-foreground/70 group-data-[collapsible=icon]:hidden">
-              {formatBuildVersion(APP_BUILD_IDENTITY)}
+              {formatCompactBuildVersion(APP_BUILD_IDENTITY)}
               {APP_BUILD_LABEL ? ` · ${APP_BUILD_LABEL}` : null}
             </p>
           }

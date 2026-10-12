@@ -40,6 +40,10 @@ provenance in web, server, desktop, and native Android; release manifests carry 
 additively. Nightly build counters come from their exact release version, and stable
 build counters come from `ARCWRIGHT_BUILD_NUMBER` (the fork workflow run number).
 Recovery builds read their predecessor's source; unknown historical provenance stays unknown.
+The sidebar uses a compact channel-first label such as **Nightly 35 · T3 0.0.45**, so narrowing it
+does not hide the nightly counter. Local `preview.YYYYMMDD.N` artifacts show **Local Nightly N**;
+their local counter is independent of published fork build counters. The tooltip retains the full
+included-base and exact installer identities.
 
 [`buildVersion.ts`](../../packages/shared/src/buildVersion.ts) owns shared presentation;
 Android's [`VersionLabels.java`](../../apps/android-pwa/app/src/main/java/com/devotek/t3code/pwa/VersionLabels.java)
@@ -529,6 +533,23 @@ the correct build name after a second launch, a ready backend, and working saved
 Record the exact source commit, version, artifact digest, coordinator transaction, health result, and
 retired entry names in the private installation record. Do not rerun first-launch migration or copy
 the database simply to update a menu entry.
+
+### Reboot launch and stale binaries on Linux
+
+When a desktop remains at **Starting**, compare its actual AppImage path with the installed build
+and read the server startup error. `Cannot upgrade unrecognized migration history` means the
+launched binary does not recognize the saved schema; repeatedly retrying that binary will not
+finish startup. Use the compatible build through coordinated installation. Do not edit the
+migration ledger or restore an older database to make the old launcher work. Verify the stable
+launcher and canonical menu after replacement, including a second launch.
+
+Disabling XDG autostart alone does not prevent KDE Wayland from restoring a previously open app.
+When the person requests no automatic login launch, keep its autostart entries disabled and add
+`com.t3tools.T3Code.desktop` to `ksmserverrc` → `General` → `excludeApps`, preserving other
+exclusions and the chosen login mode. Back up and remove only matching Arcwright entries from
+`~/.local/state/plasmasessionrestorestaterc`; KDE's fallback restorer reads that saved list on login.
+Retain a disabled canonical autostart override so a saved fallback entry cannot start the app.
+Recheck this preference after menu replacement; never enable login launch while changing a build name.
 
 ## Commissioning
 

@@ -22,7 +22,10 @@ Android displays its source version separately from its installation sequence.
 
 The main label is **Arcwright Code 0.0.45 · Arcwright build 35 · Nightly**, for example.
 The T3 version identifies the upstream code included; the Arcwright number identifies
-our build. About retains the exact upstream and Arcwright commits and the installer
+our build. The sidebar starts with **Nightly N** for a published nightly or **Local Nightly N**
+for a local build, followed by the included T3 version. Hover over it for the full identity and exact
+installer release. Local counters are separate from published nightly counters.
+About retains the exact upstream and Arcwright commits and the installer
 release for diagnosis. Android's installation sequence is separate: recovery installs
 older source using a higher Android code. Historical builds with unknown upstream
 provenance show only their Arcwright counter rather than guessing a T3 version.
