@@ -74,8 +74,9 @@ new remote enrollment waits for its actual completion. Removal captures the exac
 record and generation, so a late response cannot clear a changed same-ID registration.
 A removal's client lifetime is ten seconds (the relay API deadline is nine), with an abort
 and a persistent opaque uncertainty marker if no reliable completion arrives. Time alone
-never permits reenrollment. In owned mode, a separate explicit Reset preserves the old
-current authority in the same private quarantine and prepares fresh installation credentials
+never permits reenrollment. Ordinary Disable preserves authority and uncertainty; it never
+authorizes quarantine or credential rotation. In owned mode, a separate explicit Reset preserves
+the old current authority in the same private quarantine and prepares fresh installation credentials
 for the next Enable tap. The old removal's installation ID and secret cannot authorize a
 delete of the replacement. Normal same-service identity remains stable. Legacy global keys
 stay preserved; uncertain legacy cleanup needs confirmation at the original service before

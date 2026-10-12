@@ -247,7 +247,7 @@ export function PwaNotificationSettings() {
     onBindingMismatch: reportBindingMismatch,
   });
 
-  const disableNotifications = async () => {
+  const disableNotifications = async (intent: "disable" | "reset" = "disable") => {
     const action = ++actionRef.current;
     const profile = getPwaPushRelayProfile();
     enableControllerRef.current?.abort();
@@ -287,7 +287,9 @@ export function PwaNotificationSettings() {
         throw new Error(
           "Your notification preference is off, but browser push cleanup is incomplete. Retry Disable or Reset browser push.",
         );
-      resetPwaPushAuthority(profile);
+      // Local Disable never authorizes credential rotation, even if remote cleanup
+      // became uncertain while unsubscribe was pending. Reset is a separate tap.
+      if (intent === "reset") resetPwaPushAuthority(profile);
       setRemoteCleanupState(getPwaPushRemovalState());
       setBindingMismatch(false);
     } catch (error) {
@@ -426,7 +428,7 @@ export function PwaNotificationSettings() {
               size="xs"
               variant="outline"
               disabled={isSaving}
-              onClick={() => void disableNotifications()}
+              onClick={() => void disableNotifications("reset")}
             >
               Reset browser push
             </Button>

@@ -75,6 +75,7 @@ separate tap. Old registrations remain saved; disabling unsubscribes this browse
 while cleanup at the previous service may remain pending. If browser cleanup fails, the
 preference stays off but **Disable** or **Reset browser push** remains available to retry,
 including after reopening Settings. Remote cleanup does not hold those local controls busy.
+**Disable** keeps saved credentials and any unresolved cleanup; it does not reset them.
 If cleanup has an uncertain outcome in owned mode, **Reset browser push** preserves the old
 registration and prepares a fresh installation for a separate Enable tap. Legacy service
 credentials remain saved and need confirmation of cleanup at that service before renewal.

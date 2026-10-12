@@ -6,6 +6,7 @@ import { PwaNotificationSettings } from "./AgentNotificationSettings";
 import {
   registerPwaPushSubscription,
   getPwaPushSubscriptionId,
+  getPwaPushRemovalState,
 } from "../../agentNotifications/pwaPushRelay";
 
 const fixture = vi.hoisted(() => ({
@@ -412,7 +413,7 @@ it.each(["owned-foreign", "cloudless"])(
   },
 );
 it.each(["malformed", "foreign"])(
-  "explicit reset quarantines the exact %s current record and a later Enable enrolls fresh",
+  "Disable preserves the %s current record until a separate Reset and Enable",
   async (recordType) => {
     const key = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
     const raw =
@@ -429,6 +430,16 @@ it.each(["malformed", "foreign"])(
     existing = makeSubscription();
     await mount();
     expect(values.get(key)).toBe(raw);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
+    await act(async () => button("Disable").props.onClick());
+    expect(existing).toBeNull();
+    expect(values.get(key)).toBe(raw);
+    expect([...values.keys()].some((target) => target.startsWith(`${key}:quarantine:`))).toBe(
+      false,
+    );
+    expect(button("Reset browser push").props.disabled).toBe(false);
+    await act(async () => enable());
+    expect(subscribe).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method)).toHaveLength(0);
     await act(async () => button("Reset browser push").props.onClick());
     expect(existing).toBeNull();
@@ -503,6 +514,57 @@ it("full local storage cannot hide a failed browser cleanup retry or erase old a
   storageFailure.mockRestore();
   await act(async () => button("Disable").props.onClick());
   expect(existing).toBeNull();
+});
+it("Disable preserves authority and uncertainty when remote failure precedes local completion", async () => {
+  await seedBoundSubscription();
+  const key = "t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test";
+  const raw = values.get(key)!;
+  const originalInstallation = JSON.parse(raw).installation;
+  let finishLocal: () => void = () => {};
+  unsubscribe.mockImplementationOnce(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finishLocal = () => {
+          existing = null;
+          resolve(true);
+        };
+      }),
+  );
+  fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") throw new Error("offline");
+    return {
+      ok: true,
+      status: 200,
+      json: async () =>
+        init?.method === "PUT" ? { subscriptionId: "remote-1" } : { applicationServerKey: pushKey },
+    };
+  });
+  await act(async () => button("Disable").props.onClick());
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  expect(existing).not.toBeNull();
+  await act(async () => finishLocal());
+  expect(existing).toBeNull();
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  expect(values.get(key)).toBe(raw);
+  expect([...values.keys()].some((target) => target.startsWith(`${key}:quarantine:`))).toBe(false);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  expect(button("Reset browser push").props.disabled).toBe(false);
+  await act(async () => enable());
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(0);
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(values.get(`${key}:quarantine:0`)).toBe(raw);
+  expect(values.has(key)).toBe(false);
+  expect(getPwaPushRemovalState()).toBe("none");
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  operations.length = 0;
+  await act(async () => {
+    enable();
+    expect(operations[0]).toBe("subscribe");
+  });
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  expect(JSON.parse(values.get(key)!).installation).not.toEqual(originalInstallation);
+  expect(values.get(`${key}:quarantine:0`)).toBe(raw);
 });
 it.each(["reject", "false"])(
   "local cleanup retries stay available with %s unsubscribe and a hung deduplicated remote removal",
