@@ -286,3 +286,10 @@ remote receipt. Unknown and mismatched references remain. This adds no RPC and d
 remote authentication. Cloudless paired sessions can still read status and unlink locally; frontend
 managed sign-in and link creation are gated separately. Older source without these checks
 is outside this admission guarantee; cross-realm historical rollback remains NEXT Task4D.
+
+Append and matching confirmation hold the same cross-process `proper-lockfile` lease from read
+through atomic rename, using the resolved state path. Acquisition retries are bounded to two
+seconds; a finite one-second heartbeat detects compromised ownership. Automatic stale-lock
+reaping is disabled. Scoped release runs on failure and interruption, and release refusal reports
+cleanup failure. A crash-leftover `.json.lock` directory requires manual review after all server/CLI
+writers sharing the data directory are stopped; it never schedules remote cleanup or contains credentials.

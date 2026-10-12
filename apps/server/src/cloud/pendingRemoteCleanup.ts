@@ -1,5 +1,6 @@
 /** Public reminders only: never credentials, mint keys, or background retry work. */
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -11,6 +12,8 @@ import { LinkPublicAuthority } from "./connectAuthority.ts";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import * as ServerConfig from "../config.ts";
+import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
+import { lock } from "proper-lockfile";
 
 const PendingCleanupReference = Schema.Struct({
   relayOrigin: Schema.NullOr(Schema.String),
@@ -29,6 +32,7 @@ export class PendingRemoteCleanupError extends Schema.TaggedError<PendingRemoteC
     return "Could not preserve the pending Connect remote cleanup reminder.";
   }
 }
+const isPendingRemoteCleanupError = Schema.is(PendingRemoteCleanupError);
 const statePath = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const path = yield* Path.Path;
@@ -37,6 +41,58 @@ const statePath = Effect.gen(function* () {
     "connect-pending-remote-cleanup.json",
   );
 });
+
+/** Serialize the complete transaction across server/CLI processes, never stealing a stale lock. */
+const withPendingCleanupWriteLock = <A, E, R>(task: Effect.Effect<A, E, R>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const target = yield* resolveSymlinkTarget(yield* statePath);
+      yield* fs.makeDirectory(path.dirname(target), { recursive: true });
+      const directory = yield* fs.realPath(path.dirname(target));
+      const filePath = path.join(directory, path.basename(target));
+      const compromised = yield* Deferred.make<never, PendingRemoteCleanupError>();
+      const services = yield* Effect.context<never>();
+      yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: () =>
+            lock(filePath, {
+              realpath: false,
+              // A crashed owner requires explicit review after all writers are stopped.
+              stale: Infinity,
+              update: 1000,
+              retries: {
+                retries: 20,
+                factor: 1,
+                minTimeout: 100,
+                maxTimeout: 100,
+                maxRetryTime: 2000,
+              },
+              onCompromised: () =>
+                Effect.runSyncWith(services)(
+                  Deferred.fail(
+                    compromised,
+                    new PendingRemoteCleanupError({ cause: "lock-compromised" }),
+                  ),
+                ),
+            }),
+          catch: () => new PendingRemoteCleanupError({ cause: "lock-unavailable" }),
+        }),
+        // A release failure must fail cleanup, preserving local authorization material.
+        (release) =>
+          Effect.tryPromise({
+            try: () => release(),
+            catch: () => new PendingRemoteCleanupError({ cause: "lock-release-failed" }),
+          }).pipe(Effect.orDie),
+      );
+      return yield* Effect.raceFirst(task, Deferred.await(compromised));
+    }),
+  ).pipe(
+    Effect.catchDefect((cause) =>
+      isPendingRemoteCleanupError(cause) ? Effect.fail(cause) : Effect.die(cause),
+    ),
+  );
 export const readPendingRemoteCleanup = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const filePath = yield* statePath;
@@ -117,6 +173,7 @@ export const rememberPendingRemoteCleanup = Effect.fn("cloud.rememberPendingRemo
       return yield* new PendingRemoteCleanupError({ cause: "size-limit" });
     yield* writeFileStringAtomically({ filePath: yield* statePath, contents });
   },
+  withPendingCleanupWriteLock,
   Effect.mapError((cause) => new PendingRemoteCleanupError({ cause })),
 );
 
@@ -138,5 +195,6 @@ export const clearMatchingPendingRemoteCleanup = Effect.fn(
     });
     return true;
   },
+  withPendingCleanupWriteLock,
   Effect.mapError((cause) => new PendingRemoteCleanupError({ cause })),
 );

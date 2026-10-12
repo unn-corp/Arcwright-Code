@@ -765,6 +765,10 @@ allow desired-off and local connector stop while retaining credentials/binding a
 Preserve `cloud-local-disabled` admission across restart; optional `locallyDisabled` uses the existing
 neutral wire status instead of adding a closed-enum value. Only successful explicit cleanup or
 deliberate realm-valid configuration completion clears it; autonomous reconcile stays inactive.
+Reminder append/confirmation must share a cross-process lock over the entire read/modify/write,
+not only atomic rename or an in-process semaphore. Keep bounded acquisition, a finite heartbeat,
+scoped release, and no automatic stale-lock reaping. Crash-leftover locks require manual review
+with all writers stopped; contention or ownership failure must retain the local-disabled state.
 Reminder-only CLI cleanup must not bypass surviving incompatible state, including missing saved URLs.
 Cloudless terminal link commands reject before runtime acquisition or OAuth. Keep provider/direct
 credentials, data and automation choices.

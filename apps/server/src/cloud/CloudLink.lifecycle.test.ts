@@ -1499,7 +1499,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
   );
   it.effect.each(
     (["owned", "cloudless"] as const).flatMap((mode) =>
-      ["full", "corrupt"].map((shape) => ({ mode, shape })),
+      ["full", "corrupt", "locked"].map((shape) => ({ mode, shape })),
     ),
   )(
     "disables $mode locally while preserving credentials when cleanup reminders are $shape",
@@ -1557,6 +1557,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
               );
         yield* fs.makeDirectory(directory, { recursive: true });
         yield* fs.writeFileString(reminderPath, contents);
+        if (shape === "locked") yield* fs.makeDirectory(`${reminderPath}.lock`);
         const link = yield* CloudLink.CloudLink;
         const error = yield* Effect.flip(link.unlink());
         expect(error._tag).toBe("CloudLinkInternalError");
@@ -1603,6 +1604,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
         expect(applyConfigCalls).toEqual([null]);
         expect(requests).toEqual([]);
         // Manual reminder repair followed by a deliberate retry can finish cleanup.
+        if (shape === "locked") yield* fs.remove(`${reminderPath}.lock`, { recursive: true });
         yield* fs.writeFileString(reminderPath, "[]");
         yield* link.unlink();
         expect(values.size).toBe(0);

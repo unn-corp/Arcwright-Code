@@ -111,6 +111,12 @@ before retrying; logout also retains authorization on this failure. A local disa
 the retained link inactive across restart, including connectors, publishing and relay proofs.
 Full explicit cleanup or a deliberate valid same-service relink clears that marker; background
 reconciliation cannot reactivate it.
+Server and CLI serialize each reminder read/modify/write through
+`connect-pending-remote-cleanup.json.lock`. Acquisition waits at most a short bounded two-second
+retry window, then reports failure; it never removes an old or unknown lock automatically. A crash
+can leave this lock directory behind. Stop and verify all writers sharing that data directory before
+manually reviewing and removing only the leftover lock directory, then retry explicit cleanup.
+While the lock is unavailable, local disable and connector stop still occur, with credentials retained.
 
 These server guards do not authorize automatic cross-realm rollback to older source that lacks
 binding checks. Historical release/recovery authority enforcement remains **NEXT Task4D**; native

@@ -66,6 +66,9 @@ If the cleanup reminder file is full or cannot be read, unlink still disables Co
 local connector, but keeps credentials and reports that manual reminder review is needed. Logout
 also keeps its authorization on that failure; review the reminders before retrying. The retained
 link stays disabled after restart until cleanup succeeds or you complete a valid deliberate relink.
+Concurrent server/CLI cleanup writes are serialized. If a leftover cleanup lock blocks progress after
+a crash, stop all writers sharing the data directory before manually reviewing that lock; active or
+unknown locks are never removed automatically. The warning keeps the retained link disabled.
 Native/PWA credential authority migration, historical rollback, and private live commissioning
 remain separate validation work.
 
