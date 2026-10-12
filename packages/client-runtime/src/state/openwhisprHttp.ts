@@ -8,10 +8,7 @@ import { HttpClient } from "effect/http";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
-import {
-  makeEnvironmentHttpApiUrlBuilder,
-  type RemoteEnvironmentRequestError,
-} from "../rpc/http.ts";
+import { type RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 
 export const fetchEnvironmentTranscription = Effect.fn("clientRuntime.voice.transcribe")(
@@ -27,7 +24,7 @@ export const fetchEnvironmentTranscription = Effect.fn("clientRuntime.voice.tran
       ...input,
       group: "voice",
       method: "POST",
-      url: (base) => makeEnvironmentHttpApiUrlBuilder(base).voice.transcribe(),
+      url: (urls) => urls.transcribe(),
       timeoutMs: OPENWHISPR_TIMEOUT_MS + 5_000,
       request: ({ client, headers }) => client.transcribe({ payload: input.audio, headers }),
     });

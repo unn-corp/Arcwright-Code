@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 import * as Effect from "effect/Effect";
 import { afterEach, expect, it } from "@effect/vitest";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import * as Backup from "./BackupService.ts";
 
 const roots: string[] = [];

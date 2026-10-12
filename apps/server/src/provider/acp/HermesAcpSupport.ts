@@ -7,7 +7,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
-import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 
 const HERMES_AUTH_METHOD_SETUP = "hermes-setup";
 
@@ -76,17 +76,23 @@ export function currentHermesModelIdFromSessionSetup(
 }
 
 export function applyHermesAcpModelSelection<E>(input: {
-  readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setSessionModel">;
+  readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setSessionModel"> &
+    Partial<Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setModel">>;
   readonly currentModelId: string | undefined;
   readonly requestedModelId: string | undefined;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<string | undefined, E> {
-  const shouldSwitchModel =
-    input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
-  if (!shouldSwitchModel) {
+  const requestedModelId = input.requestedModelId;
+  if (requestedModelId === undefined || requestedModelId === input.currentModelId) {
     return Effect.succeed(input.currentModelId);
   }
-  return input.runtime
-    .setSessionModel(input.requestedModelId)
-    .pipe(Effect.mapError(input.mapError), Effect.as(input.requestedModelId));
+  return input.runtime.setSessionModel(requestedModelId).pipe(
+    Effect.catchTag("AcpRequestError", (cause) =>
+      cause.code === -32601 && input.runtime.setModel !== undefined
+        ? input.runtime.setModel(requestedModelId)
+        : Effect.fail(cause),
+    ),
+    Effect.mapError(input.mapError),
+    Effect.as(requestedModelId),
+  );
 }

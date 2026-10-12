@@ -1,3 +1,4 @@
+import { AppActivityIndicator } from "../../components/AppActivityIndicator";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { type EnvironmentMachineKind, resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -110,7 +111,7 @@ export function SettingsClientStorageRouteScreen() {
             </View>
           ) : !summary ? (
             <View className="items-center gap-3 px-6 py-8">
-              <ActivityIndicator />
+              <AppActivityIndicator />
               <Text className="text-center text-sm text-foreground-muted">
                 Inspecting cached data…
               </Text>

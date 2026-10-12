@@ -1,4 +1,9 @@
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import {
+  Environment as HostProcessEnvironment,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
   defaultInstanceIdForDriver,
@@ -16,7 +21,7 @@ import type * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/process";
 import * as EffectAcpErrors from "effect-acp/errors";
 import * as ServerConfig from "../../config.ts";
-import { makeAcpNativeLoggerFactory } from "../../provider/acp/AcpNativeLogging.ts";
+import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
 import {
   applyHermesAcpModelSelection,
   currentHermesModelIdFromSessionSetup,
@@ -24,23 +29,23 @@ import {
   resolveHermesAcpBaseModelId,
 } from "../../provider/acp/HermesAcpSupport.ts";
 import { makeHermesEnvironment } from "../../provider/Drivers/HermesHome.ts";
-import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
-import * as AcpSessionRuntime from "../../provider/acp/AcpSessionRuntime.ts";
-import * as ProviderEventLoggers from "../../provider/ProviderEventLoggers.ts";
-import * as IdAllocator from "../IdAllocator.ts";
-import * as ProviderContinuationRequests from "../ProviderContinuationRequests.ts";
-import * as ProviderAdapter from "../ProviderAdapter.ts";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
   type ProviderAdapterDriverCreateInput,
-} from "../ProviderAdapterDriver.ts";
+} from "@t3tools/provider-core/server/adapterDriver";
 import {
   AcpProviderCapabilitiesV2,
   makeAcpAdapterV2,
   type AcpAdapterV2Flavor,
   type AcpAdapterV2RuntimeInput,
-} from "./AcpAdapterV2.ts";
+} from "@t3tools/provider-acp/server/adapter";
 export const HERMES_PROVIDER = ProviderDriverKind.make("hermes");
 const HERMES_DRIVER_KIND = HERMES_PROVIDER;
 export const HERMES_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(HERMES_DRIVER_KIND);
@@ -131,10 +136,6 @@ export function makeHermesAdapterV2(options: HermesAdapterV2Options) {
   return makeAcpAdapterV2({
     instanceId: options.instanceId,
     flavor,
-    crypto: options.crypto,
-    fileSystem: options.fileSystem,
-    idAllocator: options.idAllocator,
-    serverConfig: options.serverConfig,
     selfInvocation: options.selfInvocation,
     ...(options.nativeLogging === undefined ? {} : { nativeLogging: options.nativeLogging }),
     ...(options.continuationRequests === undefined
@@ -145,6 +146,8 @@ export function makeHermesAdapterV2(options: HermesAdapterV2Options) {
 }
 
 export type HermesAdapterV2DriverEnv =
+  | McpProviderSessions.McpProviderSessions
+  | ProviderHost.ProviderHost
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
@@ -173,12 +176,12 @@ export const HermesAdapterV2Driver: ProviderAdapterDriver<
       const serverConfig = yield* ServerConfig.ServerConfig;
       const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
       const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
-      return makeHermesAdapterV2({
+      return yield* makeHermesAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
         environment: yield* makeHermesEnvironment(
           input.config,
-          mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+          yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
         ),
         hostPlatform,
         childProcessSpawner,
@@ -214,6 +217,8 @@ export const HermesAdapterV2Driver: ProviderAdapterDriver<
 const layer: Layer.Layer<
   ProviderAdapter.ProviderAdapterV2,
   never,
+  | McpProviderSessions.McpProviderSessions
+  | ProviderHost.ProviderHost
   | Path.Path
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
@@ -235,7 +240,7 @@ const layer: Layer.Layer<
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
     const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
-    return makeHermesAdapterV2({
+    return yield* makeHermesAdapterV2({
       instanceId: HERMES_DEFAULT_INSTANCE_ID,
       settings: DEFAULT_HERMES_SETTINGS,
       environment: hostEnvironment,

@@ -44,6 +44,23 @@ for await (const line of NodeReadline.createInterface({ input: process.stdin }))
       result = {};
       break;
     case "session/prompt":
+      if (process.env.T3_ACP_EMIT_TOOL_CALLS === "1") {
+        write({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: "architect-forbidden-tool",
+              title: "Attempted command",
+              kind: "execute",
+              status: "pending",
+              rawInput: { command: "pwd" },
+            },
+          },
+        });
+      }
       write({
         jsonrpc: "2.0",
         method: "session/update",

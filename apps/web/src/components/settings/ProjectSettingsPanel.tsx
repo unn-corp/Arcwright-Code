@@ -684,9 +684,10 @@ function ProjectDetail({
         applyProviderInstanceSettings(
           deriveProviderInstanceEntries(serverProviders),
           projectSettings,
+          representative.id,
         ),
       ),
-    [serverProviders, projectSettings],
+    [representative.id, serverProviders, projectSettings],
   );
   const modelOptionsByInstance = useMemo(
     () =>
@@ -781,11 +782,19 @@ function ProjectDetail({
           ? applyProviderInstanceSettings(
               deriveProviderInstanceEntries(config.providers),
               config.settings,
+              member.id,
             ).find((candidate) => candidate.instanceId === selection.instanceId)
           : undefined;
         const options = config
           ? getCustomModelOptionsByInstance(
-              { ...projectSettings, ...config.settings },
+              {
+                ...projectSettings,
+                ...config.settings,
+                favorites: config.settings.favorites ?? projectSettings.favorites,
+                providerModelPreferences:
+                  config.settings.providerModelPreferences ??
+                  projectSettings.providerModelPreferences,
+              },
               config.providers,
             ).get(selection.instanceId)
           : undefined;
@@ -1273,6 +1282,7 @@ function ProjectDetail({
               resolvedSelection && activeEntry ? (
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   <ProviderModelPicker
+                    environmentId={representative.environmentId}
                     activeInstanceId={resolvedSelection.instanceId}
                     model={resolvedSelection.model}
                     lockedProvider={null}

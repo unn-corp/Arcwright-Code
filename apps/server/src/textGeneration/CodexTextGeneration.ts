@@ -21,7 +21,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { codexExecLaunchArgs, resolveCodexLaunchArgs } from "../provider/codexLaunchArgs.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import { normalizeCodexArchitectOutputJson } from "./CodexArchitectOutput.ts";
@@ -31,7 +31,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "./TextGenerationPrompts.ts";
+} from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   normalizeCliError,
   requireAllJsonSchemaProperties,
@@ -39,7 +39,8 @@ import {
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-} from "./TextGenerationUtils.ts";
+} from "@t3tools/provider-core/server/textGenerationUtils";
+import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import { codexModelFamily, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../codexModelOptions.ts";
 import {
@@ -50,6 +51,7 @@ import {
   buildOrganizationPatchPrompt,
   validateOrganizationPatchProposal,
 } from "../organizations/OrganizationPatchPrompt.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 const CODEX_TIMEOUT_MS = 180_000;
 const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -135,6 +137,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
+      | "generateReviewGuide"
       | "generateOrganizationArchitectTurn"
       | "generateOrganizationPatchProposal",
     value: unknown,
@@ -192,11 +195,13 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     imagePaths = [],
     cleanupPaths = [],
     modelSelection,
+    investigate,
   }: {
     operation:
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateReviewGuide"
       | "generateThreadTitle"
       | "generateOrganizationArchitectTurn"
       | "generateOrganizationPatchProposal";
@@ -206,6 +211,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     imagePaths?: ReadonlyArray<string>;
     cleanupPaths?: ReadonlyArray<string>;
     modelSelection: ModelSelection;
+    investigate?: { readonly timeoutMs: number } | undefined;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const outputSchema = toJsonSchemaObject(outputSchemaJson);
     const schemaJson = yield* encodeJsonForOperation(
@@ -296,7 +302,12 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         env: {
           ...effectiveEnvironment,
           ...(effectiveConfig.homePath
-            ? { CODEX_HOME: expandHomePath(effectiveConfig.homePath) }
+            ? {
+                CODEX_HOME: expandHomePath(
+                  effectiveConfig.homePath,
+                  yield* HostProcess.HomeDirectory,
+                ),
+              }
             : {}),
           ...observer?.environment,
         },
@@ -390,7 +401,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           operation === "generateOrganizationArchitectTurn" ||
             operation === "generateOrganizationPatchProposal"
             ? 60_000
-            : CODEX_TIMEOUT_MS,
+            : (investigate?.timeoutMs ?? CODEX_TIMEOUT_MS),
         ),
         Effect.flatMap(
           Option.match({
@@ -593,6 +604,9 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
   });
 
   return {
+    generateReviewGuide: TextGenerationOperations.fromRunner("CodexTextGeneration", (request) =>
+      runCodexJson({ ...request, outputSchemaJson: request.outputSchema }),
+    ).generateReviewGuide,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

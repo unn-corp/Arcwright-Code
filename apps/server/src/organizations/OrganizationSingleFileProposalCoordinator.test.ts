@@ -135,6 +135,7 @@ const textLayer = (generate: Generator) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       return {
+        generateReviewGuide: () => Effect.die(new Error("Unexpected review guide generation")),
         generateCommitMessage: () => Effect.die("unused"),
         generatePrContent: () => Effect.die("unused"),
         generateBranchName: () => Effect.die("unused"),

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - the host probe is mocked; no filesystem calls are made.
 import type * as NodeFS from "node:fs";
 import { assert, it } from "@effect/vitest";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import { vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";

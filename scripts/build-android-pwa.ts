@@ -7,7 +7,7 @@ import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
 import { forkUpstreamIdentity } from "./lib/build-identity.ts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import {
   ANDROID_METADATA_FILE,
   androidBuildMetadata,

@@ -678,6 +678,7 @@ export function AgentProjectPullRequests({
               <div className="grid gap-2">
                 {selectedProviderEntry ? (
                   <ProviderModelPicker
+                    environmentId={environmentId}
                     activeInstanceId={combinationModelSelection.instanceId}
                     disabled={combinationBusy}
                     instanceEntries={providerInstanceEntries}

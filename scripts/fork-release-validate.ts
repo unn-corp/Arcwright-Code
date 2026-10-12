@@ -16,7 +16,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as Effect from "effect/Effect";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import * as Asar from "@electron/asar";
 import type { CandidateRecord } from "./fork-release.ts";
 import { FORK_ANDROID_PACKAGE } from "./fork-release-contract.ts";

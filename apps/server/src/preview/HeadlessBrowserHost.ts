@@ -23,7 +23,10 @@
  *   source data, because a viewer watching frames has no page of its own to
  *   pick in and would otherwise have no selection at all.
  */
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  Environment as HostProcessEnvironment,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import {
   type PreviewAutomationOperation,
   type PreviewAutomationRequest,

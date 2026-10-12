@@ -110,7 +110,11 @@ export function OrganizationArchitectConversation({
   const { networkStatus } = useEnvironments();
   const settings = usePrimarySettings();
   const providers = useAtomValue(primaryServerProvidersAtom);
-  const entries = applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings);
+  const entries = applyProviderInstanceSettings(
+    deriveProviderInstanceEntries(providers),
+    settings,
+    null,
+  );
   const architectEntries = entries.filter(
     (entry) =>
       entry.enabled &&

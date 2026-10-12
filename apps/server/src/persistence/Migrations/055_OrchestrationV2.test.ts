@@ -13,9 +13,29 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 98 }, (_, index) => index + 1),
+        Array.from({ length: 106 }, (_, index) => index + 1),
       );
     }),
+  );
+
+  it.effect("upgrades the previous fork schema 103 without renumbering installed history", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 103 });
+      const before =
+        yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations ORDER BY migration_id`;
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(executed, [
+        [104, "McpAppModelContext"],
+        [105, "ThreadSnapshotWindowIndexes"],
+        [106, "PullRequestReviewGuides"],
+      ]);
+      assert.deepStrictEqual(
+        yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id <= 103 ORDER BY migration_id`,
+        before,
+      );
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect("upgrades fork schema 93 through the latest migrations", () =>
@@ -30,6 +50,14 @@ layer("055_OrchestrationV2", (it) => {
         [96, "RemoveRedundantProjectionIndexes"],
         [97, "ScheduledTaskWebhooks"],
         [98, "WebhookRelayDeliveries"],
+        [99, "MessageReplyIndex"],
+        [100, "ProviderThreadRecoveryIndex"],
+        [101, "LosslessStorage"],
+        [102, "AutomaticStorageMigration"],
+        [103, "StartupSchemaFingerprint"],
+        [104, "McpAppModelContext"],
+        [105, "ThreadSnapshotWindowIndexes"],
+        [106, "PullRequestReviewGuides"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -48,6 +76,14 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 96, name: "RemoveRedundantProjectionIndexes" },
         { migration_id: 97, name: "ScheduledTaskWebhooks" },
         { migration_id: 98, name: "WebhookRelayDeliveries" },
+        { migration_id: 99, name: "MessageReplyIndex" },
+        { migration_id: 100, name: "ProviderThreadRecoveryIndex" },
+        { migration_id: 101, name: "LosslessStorage" },
+        { migration_id: 102, name: "AutomaticStorageMigration" },
+        { migration_id: 103, name: "StartupSchemaFingerprint" },
+        { migration_id: 104, name: "McpAppModelContext" },
+        { migration_id: 105, name: "ThreadSnapshotWindowIndexes" },
+        { migration_id: 106, name: "PullRequestReviewGuides" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

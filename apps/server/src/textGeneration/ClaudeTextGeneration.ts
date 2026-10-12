@@ -31,14 +31,15 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "./TextGenerationPrompts.ts";
+} from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   normalizeCliError,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
   toJsonSchemaObject,
-} from "./TextGenerationUtils.ts";
+} from "@t3tools/provider-core/server/textGenerationUtils";
+import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import {
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
@@ -72,6 +73,22 @@ const PATCH_TIMEOUT_MS = 60_000;
 const PATCH_STDOUT_MAX_BYTES = 256 * 1024;
 const PATCH_STDERR_MAX_BYTES = 8_000;
 const isTextGenerationError = Schema.is(TextGenerationError);
+/** The tools an investigation can see. `--tools` takes bare names; patterns go in the allow list. */
+const CLAUDE_INVESTIGATION_TOOLS = "Read,Grep,Glob,Bash";
+/** What it may run without asking. In dontAsk mode every other call, Bash included, is refused. */
+const CLAUDE_INVESTIGATION_ALLOWED = [
+  "Read",
+  "Grep",
+  "Glob",
+  "Bash(git diff:*)",
+  "Bash(git log:*)",
+  "Bash(git show:*)",
+].join(",");
+/**
+ * The allowed git commands accept any trailing arguments, and `--output` makes each of them write
+ * a file anywhere. Deny rules win over allow rules, so this keeps the investigation read-only.
+ */
+const CLAUDE_INVESTIGATION_DENIED = ["Bash(git * --output*)", "Bash(git * -o *)"].join(",");
 
 /**
  * Schema for the wrapper JSON returned by `claude -p --output-format json`.
@@ -144,6 +161,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
+      | "generateReviewGuide"
       | "generateOrganizationArchitectTurn"
       | "generateOrganizationPatchProposal",
     value: unknown,
@@ -170,11 +188,13 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     prompt,
     outputSchemaJson,
     modelSelection,
+    investigate,
   }: {
     operation:
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateReviewGuide"
       | "generateThreadTitle"
       | "generateOrganizationArchitectTurn"
       | "generateOrganizationPatchProposal";
@@ -182,6 +202,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     prompt: string;
     outputSchemaJson: S;
     modelSelection: ModelSelection;
+    investigate?: { readonly timeoutMs: number } | undefined;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
     const catalog = yield* scopedModelCatalog;
     const resolvedModelSelection = {
@@ -269,8 +290,18 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           "--settings",
           settingsJson,
           // Metadata prompts need no executable capabilities, even when they contain a skill name.
-          "--tools",
-          "",
+          // An investigation gets the read-only file tools and Git's read commands, and nothing
+          // that writes: in dontAsk mode anything not allowed here is refused.
+          ...(investigate
+            ? [
+                "--tools",
+                CLAUDE_INVESTIGATION_TOOLS,
+                "--allowedTools",
+                CLAUDE_INVESTIGATION_ALLOWED,
+                "--disallowedTools",
+                CLAUDE_INVESTIGATION_DENIED,
+              ]
+            : ["--tools", ""]),
           "--disable-slash-commands",
           "--strict-mcp-config",
           "--permission-mode",
@@ -379,7 +410,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           ? ARCHITECT_TIMEOUT_MS
           : operation === "generateOrganizationPatchProposal"
             ? PATCH_TIMEOUT_MS
-            : CLAUDE_TIMEOUT_MS,
+            : (investigate?.timeoutMs ?? CLAUDE_TIMEOUT_MS),
       ),
       Effect.flatMap(
         Option.match({
@@ -553,6 +584,9 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
   });
 
   return {
+    generateReviewGuide: TextGenerationOperations.fromRunner("ClaudeTextGeneration", (request) =>
+      runClaudeJson({ ...request, outputSchemaJson: request.outputSchema }),
+    ).generateReviewGuide,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

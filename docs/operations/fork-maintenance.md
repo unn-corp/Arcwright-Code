@@ -37,6 +37,9 @@ contains Git submodule entries, preserve their root-relative registration in `.g
 initialization disabled. GitHub checkout's credential cleanup traverses these entries even during
 a sparse checkout; missing root metadata can stop every build before dependency installation.
 
+The [2026-10-12 integration record](upstream-integration-20261012.md) records the
+pinned upstream range, retained package ownership and compatibility corrections.
+
 ## Lossless data storage
 
 Migration 101 adds content-addressed compressed event/tool bodies, checksummed cold
@@ -97,8 +100,10 @@ regeneration and verification. Linux desktop registration uses content-derived i
 Header images, launchers, splash screens, notifications, and
 widgets must use these shared outputs. Keep installed package IDs, signing identities, URL
 schemes, legacy data folders, and recovery artifact names compatible when changing display names.
-Installed Android, Windows and Linux application names are exactly **Arcwright Code**. Channel
-and Arcwright build identity belong in About and App updates. Development desktops retain the
+The product name remains **Arcwright Code**. New numbered nightly installations use
+**Arcwright Code — Nightly N** in their launcher and application identity; the allocated release
+version, source and digest remain the update/recovery authority. About and App updates also
+show the included T3 base separately from the Arcwright build. Development desktops retain the
 `(Dev)` label. Windows keeps its previous channel-specific executable filename so already
 recorded updater/recovery handoffs still relaunch it; NSIS shortcuts and uninstall metadata use
 the clean product name. Do not change those executable paths without a handoff migration.
@@ -334,7 +339,11 @@ runtime context must carry its singleton admission service into server-scoped la
 and [maintenance policy](../../apps/server/src/maintenance/MaintenanceCoordinator.test.ts)
 regressions with their domain suites.
 Provider-role/model defaults and upstream orchestration event changes require reviewing adapters
-and contracts. Restoring old data must not silently replay schedules, queues, or standing work
+and contracts. Tool-free Architect prompts, output validation and credential redaction now live in
+[provider-core](../../packages/provider-core/src/server/OrganizationArchitectPrompt.ts), with
+server compatibility exports. Packaged Cursor, Grok and OpenCode drivers own their text generation;
+both OpenCode protocol versions expose the isolated Architect handler. Preserve the bound output,
+private temporary directories, tool denial and native process ownership when changing their runners. Restoring old data must not silently replay schedules, queues, or standing work
 authorization.
 
 ## Experimental Codex Cloud integration
@@ -501,7 +510,10 @@ This is host functionality, not an APK or cloud-push feature.
 Maintenance uses the `active-runtime` projection selector; restart recovery keeps
 `runtime`, which also reconciles ready provider sessions. A ready session alone is
 not active work. Keep one shared `IdleProcessRoots` service at server scope so
-spawn sites and the collector use the same exact PID/creation identity registry.
+spawn sites and the collector use the same exact PID/creation identity registry. The shared
+package owns [idleProcessRoots](../../packages/shared/src/idleProcessRoots.ts); the server
+[compatibility export](../../apps/server/src/maintenance/IdleProcessRoots.ts) re-exports that same
+service object. Provider packages must import the shared service rather than create their own registry.
 Only a verified provider root is exempt: terminal shells, unregistered helper
 children (including a lingering code-mode host), reused PIDs, and unknown process
 observations still hold installation. A completed turn does not prove those

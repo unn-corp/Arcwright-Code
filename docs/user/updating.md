@@ -34,6 +34,20 @@ release for diagnosis. Android's installation sequence is separate: recovery ins
 older source using a higher Android code. Historical builds with unknown upstream
 provenance show only their Arcwright counter rather than guessing a T3 version.
 
+## Continue threads after restarts
+
+**Settings → General → Continue threads after restarts** is off by default.
+It resumes supported active threads after an update, crash, or machine
+restart. Changes are saved to connected environments that support this setting;
+update older servers first. If a supported environment was offline or has a
+different value, use **Apply to all** in Settings after it connects.
+Arcwright Code must start again on that machine;
+the setting does not enable automatic startup. Terminal commands may still be
+interrupted, and threads without saved provider resume state need a new message.
+A thread is not resumed while it waits for your approval, answer, or secret, or
+while it is archived, snoozed, or settled. After three automatic resumes in a row,
+the thread waits for your next message.
+
 Desktop sidebar update controls and **Check for Updates** in the application
 menu open this same status surface. Downloads are not ready to install until
 verification completes. Release history links to this fork.

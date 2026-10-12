@@ -1,12 +1,12 @@
 # Migration upgrades
 
-The fork keeps its published migration IDs through 96. The upstream release
-uses IDs 36–58 for a different sequence, so a database upgraded from upstream
+The fork keeps its published migration IDs through 103. The upstream release
+uses IDs 36–61 for a different sequence, so a database upgraded from upstream
 cannot be migrated by comparing only the highest ID. On startup, the server
 recognizes the pinned upstream ledger, matches those completed migrations by
 name, and moves their ledger records to the fork IDs. It then applies the
 fork-only migrations in the gaps before recording the already-present V2 and
-webhook schema at fork IDs 95–98.
+webhook schema at fork IDs 95–98. Upstream MCP App model context, snapshot window indexes, and pull request review guides map to fork IDs 104–106. Reconciliation runs every missing fork migration through the highest remapped identity before restoring the ledger, including lossless storage and the schema fingerprint at 99–103. A previous fork at 103 only applies 104–106; its existing IDs and timestamps stay intact.
 
 The same reconciler handles older fork preview databases that recorded V2 at
 53 or 54. It preserves their V2 import state and applies the missing fork

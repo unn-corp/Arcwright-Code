@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "f6b35ea4a2c806b20316a9f473163fa9d4780f73b8be705150987428b8d83944",
+  "schemaSha256": "5413f5d4507661987187d93d87ab0abb0815989d367b036d0a5e04b625358e2a",
   "objects": [
     {
       "type": "index",
@@ -394,6 +394,12 @@
     },
     {
       "type": "index",
+      "name": "orchestration_v2_projection_nodes_live_idx",
+      "tbl_name": "orchestration_v2_projection_nodes",
+      "sql": "CREATE INDEX orchestration_v2_projection_nodes_live_idx\n    ON orchestration_v2_projection_nodes(thread_id)\n    WHERE status IN ('pending', 'starting', 'running', 'waiting')\n  "
+    },
+    {
+      "type": "index",
       "name": "orchestration_v2_projection_nodes_parent_idx",
       "tbl_name": "orchestration_v2_projection_nodes",
       "sql": "CREATE INDEX orchestration_v2_projection_nodes_parent_idx ON orchestration_v2_projection_nodes(parent_node_id)"
@@ -613,6 +619,12 @@
       "name": "orchestration_v2_projection_turn_items_thread_run_idx",
       "tbl_name": "orchestration_v2_projection_turn_items",
       "sql": "CREATE INDEX orchestration_v2_projection_turn_items_thread_run_idx\n    ON orchestration_v2_projection_turn_items(thread_id, run_id)\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_user_message_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_user_message_idx\n    ON orchestration_v2_projection_turn_items(thread_id, ordinal, turn_item_id)\n    WHERE type = 'user_message'\n  "
     },
     {
       "type": "index",
@@ -955,6 +967,12 @@
       "name": "effect_sql_migrations",
       "tbl_name": "effect_sql_migrations",
       "sql": "CREATE TABLE \"effect_sql_migrations\" (\n  migration_id integer PRIMARY KEY NOT NULL,\n  created_at datetime NOT NULL DEFAULT current_timestamp,\n  name VARCHAR(255) NOT NULL\n)"
+    },
+    {
+      "type": "table",
+      "name": "mcp_app_model_context",
+      "tbl_name": "mcp_app_model_context",
+      "sql": "CREATE TABLE mcp_app_model_context (\n      thread_id TEXT NOT NULL,\n      item_id TEXT NOT NULL,\n      server TEXT NOT NULL,\n      tool TEXT NOT NULL,\n      text TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      PRIMARY KEY (thread_id, item_id)\n    )"
     },
     {
       "type": "table",
@@ -1483,6 +1501,12 @@
       "name": "pull_request_files_viewed",
       "tbl_name": "pull_request_files_viewed",
       "sql": "CREATE TABLE pull_request_files_viewed (\n      provider TEXT NOT NULL,\n      host TEXT NOT NULL,\n      repository TEXT NOT NULL,\n      number INTEGER NOT NULL,\n      viewer TEXT NOT NULL,\n      path TEXT NOT NULL,\n      revision TEXT,\n      viewed_at TEXT NOT NULL,\n      PRIMARY KEY (provider, host, repository, number, viewer, path)\n    ) WITHOUT ROWID\n  "
+    },
+    {
+      "type": "table",
+      "name": "pull_request_review_guides",
+      "tbl_name": "pull_request_review_guides",
+      "sql": "CREATE TABLE pull_request_review_guides (\n      host TEXT NOT NULL,\n      repository TEXT NOT NULL,\n      number INTEGER NOT NULL,\n      guide_json TEXT NOT NULL,\n      PRIMARY KEY (host, repository, number)\n    ) WITHOUT ROWID\n  "
     },
     {
       "type": "table",

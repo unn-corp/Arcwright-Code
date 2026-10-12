@@ -5,6 +5,7 @@ import {
   NativeSessionResumeError,
   ProviderDriverKind,
   ProviderInstanceId,
+  defaultInstanceIdForDriver,
   ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderThread,
@@ -15,13 +16,13 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { discoverAgentSessions } from "../provider/agentSessionDiscovery.ts";
 import { readAgentTranscript } from "../provider/agentTranscript.ts";
 import { ProviderInstanceRegistry } from "../provider/ProviderInstanceRegistry.ts";
 import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
 import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
-import { IdAllocatorV2 } from "../orchestration-v2/IdAllocator.ts";
+import { IdAllocatorV2 } from "@t3tools/provider-core/server/IdAllocator";
 import { ThreadCommandExecutor } from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { agentSessionMessageEvents } from "../project/AgentSessionImporter.ts";
 import { CodexSessionsListInput, CodexSessionsResumeInput } from "@t3tools/contracts";
@@ -35,14 +36,19 @@ const resolveSource = (instanceId?: string, driverHint?: string) =>
         ? undefined
         : yield* instances.getInstance(ProviderInstanceId.make(instanceId));
     const driver = driverHint ?? instance?.driverKind ?? "codex";
+    // `claude` remains a native-session alias, while its settings live under the
+    // built-in `claudeAgent` driver. Legacy provider settings were migrated into
+    // this default instance, so callers without an explicit instance id must read
+    // that canonical config instead of the retired `providers` map.
+    const settingsDriver = ProviderDriverKind.make(driver === "claude" ? "claudeAgent" : driver);
     const config =
       instanceId === undefined
-        ? undefined
+        ? current.providerInstances[defaultInstanceIdForDriver(settingsDriver)]
         : current.providerInstances[ProviderInstanceId.make(instanceId)];
     const providerSettings =
-      config?.driver === driver
+      config?.driver === settingsDriver
         ? config.config
-        : current.providers[driver as keyof typeof current.providers];
+        : current.providers[settingsDriver as keyof typeof current.providers];
     const homePath =
       typeof providerSettings === "object" &&
       providerSettings !== null &&
@@ -58,7 +64,7 @@ const resolveSource = (instanceId?: string, driverHint?: string) =>
       hermes: ".hermes",
     };
     const home = homePath
-      ? expandHomePath(homePath)
+      ? expandHomePath(homePath, NodeOS.homedir())
       : defaults[driver] === undefined
         ? undefined
         : `${NodeOS.homedir()}/${defaults[driver]}`;

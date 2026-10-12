@@ -50,7 +50,8 @@ function versionCore(version: string): string {
 
 /**
  * The skew a user can act on: the connected server runs an older Arcwright Code than
- * this client, so the server is the side that needs updating.
+ * this client (or than `clientVersion`, the version this client is about to
+ * update to), so the server is the side that needs updating.
  *
  * Fork builds compare their recorded included upstream bases, not installer counters.
  * Fork release availability belongs to the maintenance controller instead.
@@ -63,8 +64,9 @@ function versionCore(version: string): string {
 export function resolveVersionMismatch(
   serverVersion: string | null | undefined,
   serverUpstreamVersion?: string,
+  clientVersion: string = APP_VERSION,
 ): VersionMismatch | null {
-  const normalizedClientVersion = normalizeVersion(APP_VERSION);
+  const normalizedClientVersion = normalizeVersion(clientVersion);
   const normalizedServerVersion = normalizeVersion(serverVersion);
   if (!normalizedClientVersion || !normalizedServerVersion) {
     return null;

@@ -405,6 +405,7 @@ const makeLayer = () => {
     ),
   );
   const text = Layer.succeed(TextGeneration, {
+    generateReviewGuide: () => Effect.die(new Error("Unexpected review guide generation")),
     generateCommitMessage: () => Effect.die("unused"),
     generatePrContent: () => Effect.die("unused"),
     generateBranchName: () => Effect.die("unused"),

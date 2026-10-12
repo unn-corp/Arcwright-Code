@@ -27,5 +27,7 @@ module.exports = {
     }
     return chunk;
   },
+  // Hash the pinned Screens fork's native source, rather than only its version.
+  nativeModuleSourceType: "files",
   extraSources: [{ type: "contents", id: "appMajorVersion", contents: majorVersion }],
 };

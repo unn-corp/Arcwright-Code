@@ -23,7 +23,10 @@ import {
   type ForkMaintenanceController,
 } from "@t3tools/shared/forkMaintenanceController";
 import { listForkReleases, type FetchLike } from "@t3tools/shared/forkMaintenanceFeed";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  Architecture as HostProcessArchitecture,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

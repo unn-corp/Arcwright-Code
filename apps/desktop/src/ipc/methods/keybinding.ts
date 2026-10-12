@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - ydotool is the Linux desktop input boundary.
 import * as NodeChildProcess from "node:child_process";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 

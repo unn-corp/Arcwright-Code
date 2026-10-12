@@ -87,7 +87,7 @@ it.effect(
       const sql = yield* SqlClient.SqlClient;
       assert.isTrue(yield* hasCurrentSchemaFingerprint(migrationManifest));
       assert.isFalse(
-        yield* hasCurrentSchemaFingerprint([...migrationManifest, [104, "FutureUpgrade"]]),
+        yield* hasCurrentSchemaFingerprint([...migrationManifest, [107, "FutureUpgrade"]]),
       );
       yield* sql`UPDATE effect_sql_migrations SET name='other-build' WHERE migration_id=103`;
       assert.isFalse(yield* hasCurrentSchemaFingerprint(migrationManifest));

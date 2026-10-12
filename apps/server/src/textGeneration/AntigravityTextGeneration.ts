@@ -20,23 +20,13 @@ import { type AcpError, AcpRequestError } from "effect-acp/errors";
 
 import { applyAntigravityAcpModelSelection } from "../provider/acp/AntigravityAcpSupport.ts";
 import { removeAntigravitySessionFiles } from "../provider/acp/AntigravitySessionFiles.ts";
-import type { AcpSessionRuntime } from "../provider/acp/AcpSessionRuntime.ts";
+import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import type * as TextGeneration from "./TextGeneration.ts";
+import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import {
   buildOrganizationArchitectPrompt,
   validateOrganizationArchitectOutput,
 } from "../organizations/OrganizationArchitectPrompt.ts";
-import type * as TextGeneration from "./TextGeneration.ts";
-import {
-  buildBranchNamePrompt,
-  buildCommitMessagePrompt,
-  buildPrContentPrompt,
-  buildThreadTitlePrompt,
-} from "./TextGenerationPrompts.ts";
-import {
-  sanitizeCommitSubject,
-  sanitizePrTitle,
-  sanitizeThreadTitle,
-} from "./TextGenerationUtils.ts";
 
 const ANTIGRAVITY_TIMEOUT_MS = 180_000;
 const MAX_OUTPUT_CHARS = 128_000;
@@ -47,7 +37,7 @@ const decodeConfiguration = Schema.decodeEffect(Schema.fromJsonString(Configurat
 const decodeConfigurationObject = Schema.decodeUnknownEffect(Configuration);
 
 type AntigravityTextRuntime = Pick<
-  AcpSessionRuntime["Service"],
+  AcpSessionRuntime.AcpSessionRuntime["Service"],
   | "start"
   | "setMode"
   | "getConfigOptions"
@@ -342,78 +332,6 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
       ),
   );
 
-  const generateCommitMessage: TextGeneration.TextGeneration["Service"]["generateCommitMessage"] =
-    Effect.fn("AntigravityTextGeneration.generateCommitMessage")(function* (input) {
-      const generated = yield* runAntigravityJson({
-        operation: "generateCommitMessage",
-        ...buildCommitMessagePrompt({
-          branch: input.branch,
-          stagedSummary: input.stagedSummary,
-          stagedPatch: input.stagedPatch,
-          includeBranch: input.includeBranch === true,
-          policy: input.policy,
-        }),
-        modelSelection: input.modelSelection,
-      });
-      return {
-        subject: sanitizeCommitSubject(generated.subject),
-        body: generated.body.trim(),
-        ...("branch" in generated && typeof generated.branch === "string"
-          ? { branch: sanitizeFeatureBranchName(generated.branch) }
-          : {}),
-      };
-    });
-
-  const generatePrContent: TextGeneration.TextGeneration["Service"]["generatePrContent"] =
-    Effect.fn("AntigravityTextGeneration.generatePrContent")(function* (input) {
-      const generated = yield* runAntigravityJson({
-        operation: "generatePrContent",
-        ...buildPrContentPrompt({
-          baseBranch: input.baseBranch,
-          headBranch: input.headBranch,
-          commitSummary: input.commitSummary,
-          diffSummary: input.diffSummary,
-          diffPatch: input.diffPatch,
-          policy: input.policy,
-          changeRequestTemplate: input.changeRequestTemplate,
-        }),
-        modelSelection: input.modelSelection,
-      });
-      return { title: sanitizePrTitle(generated.title), body: generated.body.trim() };
-    });
-
-  const generateBranchName: TextGeneration.TextGeneration["Service"]["generateBranchName"] =
-    Effect.fn("AntigravityTextGeneration.generateBranchName")(function* (input) {
-      const generated = yield* runAntigravityJson({
-        operation: "generateBranchName",
-        ...buildBranchNamePrompt({
-          message: input.message,
-          attachments: input.attachments,
-          naming: input.naming,
-        }),
-        modelSelection: input.modelSelection,
-      });
-      return { branch: formatGeneratedBranchName(generated.branch, input.naming) };
-    });
-
-  const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
-    Effect.fn("AntigravityTextGeneration.generateThreadTitle")(function* (input) {
-      const generated = yield* runAntigravityJson({
-        operation: "generateThreadTitle",
-        ...buildThreadTitlePrompt({
-          message: input.message,
-          previousTitle: input.previousTitle,
-          linkedContext: input.linkedContext,
-          attachments: input.attachments,
-        }),
-        modelSelection: input.modelSelection,
-      });
-      return {
-        title: sanitizeThreadTitle(generated.title),
-        ...(generated.needsRefinement ? { needsRefinement: true } : {}),
-      };
-    });
-
   const generateOrganizationArchitectTurn: NonNullable<
     TextGeneration.TextGeneration["Service"]["generateOrganizationArchitectTurn"]
   > = Effect.fn("AntigravityTextGeneration.generateOrganizationArchitectTurn")(function* (input) {
@@ -428,10 +346,10 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
   });
 
   return {
-    generateCommitMessage,
-    generatePrContent,
-    generateBranchName,
-    generateThreadTitle,
+    ...TextGenerationOperations.fromRunner(
+      "AntigravityTextGeneration",
+      TextGenerationOperations.withoutInvestigation("Antigravity", runAntigravityJson),
+    ),
     generateOrganizationArchitectTurn,
-  } satisfies TextGeneration.TextGeneration["Service"];
+  };
 });

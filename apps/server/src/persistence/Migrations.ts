@@ -123,6 +123,9 @@ import {
   recordSchemaFingerprint,
   expectedSchemaObjects,
 } from "./SchemaFingerprint.ts";
+import Migration0104 from "./Migrations/059_McpAppModelContext.ts";
+import Migration0105 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
+import Migration0106 from "./Migrations/061_PullRequestReviewGuides.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -238,6 +241,9 @@ export const migrationEntries = [
   [101, "LosslessStorage", Migration0101],
   [102, "AutomaticStorageMigration", Migration0102],
   [103, "StartupSchemaFingerprint", Migration0103],
+  [104, "McpAppModelContext", Migration0104],
+  [105, "ThreadSnapshotWindowIndexes", Migration0105],
+  [106, "PullRequestReviewGuides", Migration0106],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

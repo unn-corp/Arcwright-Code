@@ -11,7 +11,7 @@ import { Command } from "effect/cli";
 import type { ForkUpdateStatus } from "@t3tools/contracts";
 import { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 import { AGENT_IDLE_WINDOW_MS } from "@t3tools/shared/forkMaintenanceAdmission";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import { bootstrapManagedScopeBroker } from "./scopeBrokerBootstrap.ts";
 import { maintenanceCommand } from "../cli/maintenance.ts";
 import {

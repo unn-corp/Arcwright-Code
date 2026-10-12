@@ -1,7 +1,7 @@
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import type { AssetResource, ThreadId } from "@t3tools/contracts";
 
-import { safeDecodeURIComponent } from "./markdownLinks.ts";
+import { safeDecodeURIComponent } from "@t3tools/shared/markdownLinks";
 
 /** Select the chat-readable evidence route; the server verifies ownership and canonical paths. */
 export function mediaFileAssetResource(

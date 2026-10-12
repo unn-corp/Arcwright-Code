@@ -21,8 +21,9 @@ export type MediaVideoPreviewSource = {
           readonly _tag:
             | "attachment"
             | "media-file"
-            | "conversation-evidence"
-            | "draft-workspace-file";
+            | "draft-workspace-file"
+            | "github-media"
+            | "conversation-evidence";
         }
       >;
     }
@@ -53,14 +54,22 @@ export function mediaVideoThumbnailKey(source: MediaVideoPreviewSource): string 
               source.resource.path,
               source.srcFragment ?? "",
             ]
-          : [
-              "media-video",
-              "draft-workspace-file",
-              source.environmentId,
-              source.resource.cwd,
-              source.resource.path,
-              source.srcFragment ?? "",
-            ],
+          : source.resource._tag === "github-media"
+            ? [
+                "media-video",
+                "github-media",
+                source.environmentId,
+                source.resource.cwd,
+                source.resource.url,
+              ]
+            : [
+                "media-video",
+                "draft-workspace-file",
+                source.environmentId,
+                source.resource.cwd,
+                source.resource.path,
+                source.srcFragment ?? "",
+              ],
   );
 }
 

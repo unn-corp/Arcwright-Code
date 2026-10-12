@@ -116,6 +116,8 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "src/orchestration-v2/EffectOutbox.memory.test.ts",
       "src/maintenance/IdleProcessRoots.test.ts",
       "src/storageCleanup.test.ts",
+      "src/vcs/GitProcessBudget.test.ts",
+      "src/vcs/GitVcsDriverCore.test.ts",
       "src/diagnostics/ProcessDiagnostics.test.ts",
       "src/maintenance/MaintenanceOperatorHttp.test.ts",
       "src/maintenance/WorkAdmission.test.ts",

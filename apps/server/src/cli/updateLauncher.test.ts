@@ -4,11 +4,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import {
-  HostProcessEnvironment,
-  HostProcessInvokedAs,
-  HostProcessPlatform,
-  HostProcessWorkingDirectory,
-} from "@t3tools/shared/hostProcess";
+  Environment as HostProcessEnvironment,
+  InvokedAs as HostProcessInvokedAs,
+  Platform as HostProcessPlatform,
+  WorkingDirectory as HostProcessWorkingDirectory,
+} from "@t3tools/shared/HostProcess";
 
 import { resolveLauncherPath } from "./updateLauncher.ts";
 

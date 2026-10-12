@@ -36,7 +36,7 @@ it("reports exhaustion rather than allocating outside its range", () => {
 // The external Tailscale process is faked; the publisher and HTTP proxy are real.
 import { NodeServices } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import { Effect, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import * as TestClock from "effect/testing/TestClock";
