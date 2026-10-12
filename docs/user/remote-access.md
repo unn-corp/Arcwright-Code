@@ -62,6 +62,10 @@ failed remote deletion or acknowledgement remains pending. To revoke it later, d
 original Connect profile, sign in with `t3 connect login`, and run `t3 connect unlink` again. Before
 migrating, explicit `t3 connect logout` under the original reachable profile can revoke the record
 and remove that CLI login. See [changing the account service](../operations/connect-setup.md#changing-the-account-service).
+If the cleanup reminder file is full or cannot be read, unlink still disables Connect and stops its
+local connector, but keeps credentials and reports that manual reminder review is needed. Logout
+also keeps its authorization on that failure; review the reminders before retrying. The retained
+link stays disabled after restart until cleanup succeeds or you complete a valid deliberate relink.
 Native/PWA credential authority migration, historical rollback, and private live commissioning
 remain separate validation work.
 

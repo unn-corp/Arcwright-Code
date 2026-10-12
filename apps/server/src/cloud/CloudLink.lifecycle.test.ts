@@ -36,6 +36,7 @@ import * as CliTokenManager from "./CliTokenManager.ts";
 import { RelayManagedEndpointRecoveryRegistrationRequest } from "@t3tools/contracts/relay";
 import {
   CLOUD_PUBLIC_AUTHORITY_SECRET,
+  CLOUD_LOCAL_DISABLED_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
@@ -43,6 +44,8 @@ import {
   decodeConfirmedOrigin,
   decodeRuntimeConfig,
   readPersistedRelayAuthorityStatus,
+  readAgentActivityPublishingActive,
+  readRelayConnection,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_URL_SECRET,
 } from "./config.ts";
@@ -1201,6 +1204,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
           }),
         ).toBe("incompatible");
         expect(requests).toEqual([]);
+        yield* store.set(CLOUD_LOCAL_DISABLED_SECRET, new TextEncoder().encode("true"));
         const bad = yield* Effect.flip(
           link.applyRelayConfig({
             relayUrl: "https://selected.example.test",
@@ -1212,9 +1216,20 @@ describe("releaseManagedTunnelOnShutdown", () => {
           }),
         );
         expect(bad._tag).toBe("CloudLinkAuthorityUnavailableError");
+        expect(values.has(CLOUD_LOCAL_DISABLED_SECRET)).toBe(true);
         expect(new TextDecoder().decode(values.get(RELAY_ENVIRONMENT_CREDENTIAL_SECRET))).toBe(
           "selected-environment-token",
         );
+        yield* link.applyRelayConfig({
+          relayUrl: "https://selected.example.test",
+          relayIssuer: "https://selected.example.test",
+          cloudUserId: "selected-user",
+          environmentCredential: "selected-environment-token",
+          cloudMintPublicKey: publicKey,
+          endpointRuntime: null,
+        });
+        expect(values.has(CLOUD_LOCAL_DISABLED_SECRET)).toBe(false);
+        expect((yield* link.linkState()).authorityStatus).toBe("active");
       }).pipe(
         provideReleaseHarness({ store, applyConfigCalls, requests }),
         Effect.provide(
@@ -1482,6 +1497,159 @@ describe("releaseManagedTunnelOnShutdown", () => {
       );
     },
   );
+  it.effect.each(
+    (["owned", "cloudless"] as const).flatMap((mode) =>
+      ["full", "corrupt"].map((shape) => ({ mode, shape })),
+    ),
+  )(
+    "disables $mode locally while preserving credentials when cleanup reminders are $shape",
+    ({ mode, shape }) => {
+      const { store, values } = makeMemorySecretStore([
+        [RELAY_URL_SECRET, "https://selected.example.test"],
+        [CLOUD_LINKED_USER_ID, "old-user"],
+        [RELAY_ENVIRONMENT_CREDENTIAL_SECRET, "old-credential"],
+        [CLOUD_MINT_PUBLIC_KEY, "old-mint-key"],
+        [
+          CLOUD_PUBLIC_AUTHORITY_SECRET,
+          JSON.stringify({
+            version: 1,
+            relayOrigin: "https://selected.example.test",
+            cli: {
+              version: 1,
+              issuer: "https://clerk.example.test",
+              tokenEndpointOrigin: "https://clerk.example.test",
+              clientId: "oauth_client_test",
+            },
+          }),
+        ],
+        [
+          CLOUD_ENDPOINT_RUNTIME_CONFIG,
+          JSON.stringify({
+            providerKind: "cloudflare_tunnel",
+            connectorToken: "old-runtime-token",
+          }),
+        ],
+        ["cloud-publish-agent-activity", "true"],
+        ["cloud-hold-webhooks-while-offline", "true"],
+        [CLOUD_CLI_DESIRED_LINK_SECRET, "managed"],
+      ]);
+      const original = new Map(values);
+      original.delete(CLOUD_CLI_DESIRED_LINK_SECRET);
+      original.set(CLOUD_LOCAL_DISABLED_SECRET, new TextEncoder().encode("true"));
+      const applyConfigCalls: Array<unknown> = [];
+      const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      return Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const config = yield* ServerConfigModule.ServerConfig;
+        const directory = path.dirname(config.serverRuntimeStatePath);
+        const reminderPath = path.join(directory, "connect-pending-remote-cleanup.json");
+        const contents =
+          shape === "corrupt"
+            ? "not-json"
+            : JSON.stringify(
+                Array.from({ length: 16 }, (_, i) => ({
+                  relayOrigin: `https://old-${i}.example.test`,
+                  environmentId: `old-env-${i}`,
+                  unlinkedAt: "2026-01-01T00:00:00.000Z",
+                  status: "pending",
+                })),
+              );
+        yield* fs.makeDirectory(directory, { recursive: true });
+        yield* fs.writeFileString(reminderPath, contents);
+        const link = yield* CloudLink.CloudLink;
+        const error = yield* Effect.flip(link.unlink());
+        expect(error._tag).toBe("CloudLinkInternalError");
+        expect(error.message).toContain("disabled locally");
+        expect(applyConfigCalls).toEqual([null]);
+        expect(values).toEqual(original);
+        const disabledState = yield* link.linkState();
+        expect(disabledState.locallyDisabled).toBe(true);
+        expect(disabledState.remoteCleanupPending).toBe(true);
+        expect(yield* fs.readFileString(reminderPath)).toBe(contents);
+        expect(requests).toEqual([]);
+        // Construct a new service over retained compatible records, as after a cold restart.
+        yield* Effect.gen(function* () {
+          const restarted = yield* CloudLink.CloudLink;
+          expect(
+            yield* restarted.startManagedTunnelIfOriginConfirmed("http://127.0.0.1:3773", {
+              requireConfirmedOrigin: false,
+            }),
+          ).toBe(false);
+          for (const attempt of [
+            restarted.reconcileDesiredLink("http://127.0.0.1:3773").pipe(Effect.asVoid),
+            restarted.registerManagedTunnelRecovery("http://127.0.0.1:3773").pipe(Effect.asVoid),
+            restarted.recoverManagedTunnel("http://127.0.0.1:3773").pipe(Effect.asVoid),
+          ]) {
+            const rejected = yield* Effect.flip(attempt);
+            expect(rejected._tag).toBe("CloudLinkAuthorityUnavailableError");
+            expect(rejected.message).toContain("disabled locally");
+            expect(CloudLink.shouldRetryCloudLink(rejected)).toBe(false);
+          }
+          expect((yield* Effect.flip(restarted.mintCredential({ proof: "old-proof" })))._tag).toBe(
+            "CloudLinkAuthorityUnavailableError",
+          );
+          expect(
+            (yield* Effect.flip(restarted.answerHealthRequest({ proof: "old-proof" })))._tag,
+          ).toBe("CloudLinkAuthorityUnavailableError");
+          const state = yield* restarted.linkState();
+          expect(state.locallyDisabled).toBe(true);
+          expect(state.authorityStatus).toBe("unavailable");
+          expect(state.managedTunnelActive).toBe(false);
+          expect(state.publishAgentActivity).toBe(false);
+          expect(yield* readAgentActivityPublishingActive(store)).toBe(false);
+          expect(yield* readRelayConnection).toBe(null);
+        }).pipe(provideReleaseHarness({ store, applyConfigCalls, requests }));
+        expect(applyConfigCalls).toEqual([null]);
+        expect(requests).toEqual([]);
+        // Manual reminder repair followed by a deliberate retry can finish cleanup.
+        yield* fs.writeFileString(reminderPath, "[]");
+        yield* link.unlink();
+        expect(values.size).toBe(0);
+        expect((yield* link.linkState()).locallyDisabled).toBe(false);
+        expect(applyConfigCalls).toEqual([null, null]);
+        expect(requests).toEqual([]);
+      }).pipe(
+        provideReleaseHarness({ store, applyConfigCalls, requests }),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_CONNECT_MODE: mode,
+                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                T3CODE_RELAY_URL: "https://selected.example.test",
+                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+              },
+            }),
+          ),
+        ),
+      );
+    },
+  );
+  it.effect("still stops locally if persisting desired-off fails", () => {
+    const { store, values } = makeMemorySecretStore([[CLOUD_CLI_DESIRED_LINK_SECRET, "managed"]]);
+    const guarded = ServerSecretStore.ServerSecretStore.of({
+      ...store,
+      remove: (name) =>
+        name === CLOUD_CLI_DESIRED_LINK_SECRET
+          ? Effect.fail(
+              new ServerSecretStore.SecretStoreRemoveError({
+                resource: name,
+                cause: "fixture-denied",
+              }),
+            )
+          : store.remove(name),
+    });
+    const applyConfigCalls: Array<unknown> = [];
+    return Effect.gen(function* () {
+      const link = yield* CloudLink.CloudLink;
+      expect((yield* Effect.flip(link.unlink()))._tag).toBe("CloudLinkInternalError");
+      expect(applyConfigCalls).toEqual([null]);
+      expect(values.has(CLOUD_CLI_DESIRED_LINK_SECRET)).toBe(true);
+    }).pipe(provideReleaseHarness({ store: guarded, applyConfigCalls, requests: [] }));
+  });
   it.effect("does not downgrade a foreign binding if local key removal fails", () => {
     const { store, values } = makeMemorySecretStore([
       [RELAY_URL_SECRET, "https://selected.example.test"],

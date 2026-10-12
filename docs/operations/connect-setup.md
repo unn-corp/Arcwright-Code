@@ -102,8 +102,15 @@ acknowledges the matching origin/environment through the paired server write gra
 delete or acknowledgement retains the reminder. Unknown-origin references are never cleared
 by a matching-current-profile guess. The Connections cleanup action remains visible in cloudless and partial-link states without
 account sign-in; it still requires View relay and Manage relay permissions on the direct pairing.
-Managed login/link creation remains unavailable in cloudless mode. If the bounded reminder file is full or
-unreadable, unlink refuses to discard the saved link rather than lose the cleanup reference.
+Managed login/link creation remains unavailable in cloudless mode; CLI linking rejects before
+relay-client acquisition, download prompts or authentication. A reminder cannot bypass a surviving
+foreign link binding, even if the saved relay URL is missing. If the bounded reminder file is full,
+corrupt or unreadable, unlink still disables the desired link and stops the local connector, but
+retains link credentials and reports an unresolved cleanup error. Review the public reminder file
+before retrying; logout also retains authorization on this failure. A local disable marker keeps
+the retained link inactive across restart, including connectors, publishing and relay proofs.
+Full explicit cleanup or a deliberate valid same-service relink clears that marker; background
+reconciliation cannot reactivate it.
 
 These server guards do not authorize automatic cross-realm rollback to older source that lacks
 binding checks. Historical release/recovery authority enforcement remains **NEXT Task4D**; native

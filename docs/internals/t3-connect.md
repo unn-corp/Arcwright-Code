@@ -266,13 +266,23 @@ issuer before persistence, and carry a public OAuth binding; existing cryptograp
 are unchanged.
 
 Local unlink keeps a bounded public pending-cleanup reference using the server's atomic public
-state writer, before removing Connect secrets and intent. It never retains the old key or bearer
+state writer, before removing Connect secrets. Desired-off and connector stop complete first,
+including when reminder persistence fails; that failure retains authorization material and binding
+and reports unresolved cleanup. The noncredential `cloud-local-disabled` marker in the existing
+Connect store blocks all managed admission after restart while retained keys remain. Link state
+exposes optional `locallyDisabled` plus neutral `authorityStatus: unavailable`, retaining older wire
+status compatibility and showing the local cleanup message. The marker clears only after full
+explicit cleanup or deliberate realm-valid configuration with all local credentials persisted;
+autonomous reconcile cannot clear it. The authority binding is removed last after other authorization
+material succeeds. A reminder-only target is admitted only when no incompatible saved remnants
+survive. Cloudless CLI linking rejects before relay acquisition or OAuth. It never retains the old key or bearer
 credential for autonomous cleanup. A safe origin is derived only from saved URL/issuer/binding evidence; missing or malformed URL
 state can be cleared locally and becomes a null-origin unresolved reminder when no origin is
 known. Explicit CLI cleanup under the deliberately selected original profile can delete its matching
 reminder after remote success. Web deletion confirms only its matching selected origin/environment
 through `/api/connect/remote-cleanup-confirmation`, an authenticated `AuthRelayWriteScope` route
-calling CloudLink. Unknown and mismatched references remain. This adds no RPC and does not proxy
+calling CloudLink. This is an authorized writer's attestation of remote success, with no server-side
+remote receipt. Unknown and mismatched references remain. This adds no RPC and does not proxy
 remote authentication. Cloudless paired sessions can still read status and unlink locally; frontend
 managed sign-in and link creation are gated separately. Older source without these checks
 is outside this admission guarantee; cross-realm historical rollback remains NEXT Task4D.

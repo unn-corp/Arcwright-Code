@@ -8,11 +8,13 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { wakeHeldHooks } from "./HeldHooksWaker.ts";
 
-it.effect.each(["compatible", "foreign", "cloudless", "legacy"] as const)(
+it.effect.each(["compatible", "foreign", "cloudless", "legacy", "locally-disabled"] as const)(
   "wakes held webhooks only when %s authority admits saved credentials",
   (admission) => {
     const url =
-      admission === "compatible" ? "https://selected.example.test" : "https://old.example.test";
+      admission === "compatible" || admission === "locally-disabled"
+        ? "https://selected.example.test"
+        : "https://old.example.test";
     const values = new Map<string, Uint8Array>([
       ["cloud-relay-url", new TextEncoder().encode(url)],
       ["cloud-relay-issuer", new TextEncoder().encode(url)],
@@ -23,6 +25,8 @@ it.effect.each(["compatible", "foreign", "cloudless", "legacy"] as const)(
       ],
       ["cloud-hold-webhooks-while-offline", new TextEncoder().encode("true")],
     ]);
+    if (admission === "locally-disabled")
+      values.set("cloud-local-disabled", new TextEncoder().encode("true"));
     let calls = 0;
     const fetch: typeof globalThis.fetch = Object.assign(
       async (input: Parameters<typeof globalThis.fetch>[0]) => {

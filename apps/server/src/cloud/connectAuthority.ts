@@ -29,16 +29,23 @@ export type SelectedConnectAuthority =
   | { readonly mode: "cloudless" }
   | { readonly mode: "unavailable" }
   | { readonly mode: "owned"; readonly relayOrigin: string; readonly cli: CliPublicAuthority };
-export type ConnectAuthorityStatus = "active" | "cloudless" | "incompatible" | "unavailable";
+export type ConnectAuthorityStatus =
+  | "active"
+  | "cloudless"
+  | "incompatible"
+  | "unavailable"
+  | "locally-disabled";
 
 export const authorityMessage = (status: ConnectAuthorityStatus): string | null =>
   status === "active"
     ? null
-    : status === "cloudless"
-      ? "Arcwright Connect is disabled in cloudless mode. Direct connections remain available."
-      : status === "unavailable"
-        ? "The selected Arcwright Connect public profile is unavailable."
-        : "This Connect link belongs to another account service; unlink and reconnect.";
+    : status === "locally-disabled"
+      ? "Connect is disabled locally. Cleanup needs review; unlink again after resolving the cleanup reminder."
+      : status === "cloudless"
+        ? "Arcwright Connect is disabled in cloudless mode. Direct connections remain available."
+        : status === "unavailable"
+          ? "The selected Arcwright Connect public profile is unavailable."
+          : "This Connect link belongs to another account service; unlink and reconnect.";
 
 /** Stamp only at a successful exchange using the metadata that actually handled it. */
 export function cliAuthorityFromMetadata(

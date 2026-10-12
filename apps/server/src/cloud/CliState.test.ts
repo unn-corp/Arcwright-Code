@@ -9,6 +9,7 @@ import * as ServerConfig from "../config.ts";
 import * as CliState from "./CliState.ts";
 import {
   CLOUD_PUBLIC_AUTHORITY_SECRET,
+  CLOUD_LOCAL_DISABLED_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
@@ -22,6 +23,7 @@ import {
 
 const persistedCloudLinkSecrets = [
   CLOUD_PUBLIC_AUTHORITY_SECRET,
+  CLOUD_LOCAL_DISABLED_SECRET,
   CLOUD_LINKED_USER_ID,
   RELAY_URL_SECRET,
   RELAY_ISSUER_SECRET,
@@ -89,6 +91,7 @@ it.layer(NodeServices.layer)("CliState", (it) => {
     Effect.gen(function* () {
       const values = new Map<string, Uint8Array>([
         [CLOUD_PUBLIC_AUTHORITY_SECRET, new TextEncoder().encode("known-authority")],
+        [CLOUD_LOCAL_DISABLED_SECRET, new TextEncoder().encode("true")],
         [CLOUD_MINT_PUBLIC_KEY, new TextEncoder().encode("old-mint-key")],
       ]);
       const store = ServerSecretStore.ServerSecretStore.of({
@@ -114,6 +117,7 @@ it.layer(NodeServices.layer)("CliState", (it) => {
         ),
       );
       assert.isTrue(values.has(CLOUD_PUBLIC_AUTHORITY_SECRET));
+      assert.isTrue(values.has(CLOUD_LOCAL_DISABLED_SECRET));
       assert.isTrue(values.has(CLOUD_MINT_PUBLIC_KEY));
     }),
   );

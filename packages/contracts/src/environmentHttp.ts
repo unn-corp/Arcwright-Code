@@ -417,6 +417,7 @@ export const EnvironmentCloudLinkStateResult = Schema.Struct({
   authorityStatus: Schema.optional(
     Schema.Literals(["active", "cloudless", "incompatible", "unavailable"]),
   ),
+  locallyDisabled: Schema.optional(Schema.Boolean),
   authorityMessage: Schema.optional(Schema.NullOr(Schema.String)),
   linked: Schema.Boolean,
   cloudUserId: Schema.NullOr(Schema.String),

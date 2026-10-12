@@ -259,7 +259,7 @@ describe("useCloudLinkController", () => {
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.unlink).not.toHaveBeenCalled();
   });
-  it.each(["cloudless", "partial"])(
+  it.each(["cloudless", "partial", "locally-disabled"])(
     "allows paired local cleanup of %s state without managed sign-in or replacement",
     async (shape) => {
       testState.configured = shape !== "cloudless";
@@ -268,7 +268,13 @@ describe("useCloudLinkController", () => {
         ...linkedState,
         linked: false,
         persistedLinkPresent: true,
-        authorityStatus: shape === "cloudless" ? "cloudless" : "incompatible",
+        authorityStatus:
+          shape === "cloudless"
+            ? "cloudless"
+            : shape === "locally-disabled"
+              ? "unavailable"
+              : "incompatible",
+        locallyDisabled: shape === "locally-disabled",
         managedTunnelActive: false,
       };
       testState.renderedSnapshot = testState.snapshot;

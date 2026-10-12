@@ -22,7 +22,7 @@ import {
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   decodeRuntimeConfig,
 } from "./config.ts";
-import { selectedConnectAuthority } from "./connectAuthority.ts";
+import { selectedConnectAuthority, authorityMessage } from "./connectAuthority.ts";
 
 export type CloudManagedEndpointRuntimeStatus =
   | {
@@ -345,7 +345,9 @@ export const make = Effect.gen(function* () {
         status: "failed",
         providerKind: "cloudflare_tunnel",
         failure: "authority-unavailable",
-        reason: "The stored Connect tunnel does not belong to the selected account service.",
+        reason:
+          authorityMessage(yield* readPersistedRelayAuthorityStatus(secrets, authority)) ??
+          "The stored Connect tunnel does not belong to the selected account service.",
       };
     }
     const nextConfigKey = runtimeConfigKey(config);

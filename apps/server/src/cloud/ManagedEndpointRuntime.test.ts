@@ -122,6 +122,8 @@ describe("CloudManagedEndpointRuntime", () => {
     "missing-user",
     "missing-credential",
     "legacy-foreign-stamp",
+    "locally-disabled",
+    "legacy-locally-disabled",
     "cloudless",
   ] as const)("admits connector and recovery only for %s authority", (admission) =>
     Effect.gen(function* () {
@@ -177,6 +179,8 @@ describe("CloudManagedEndpointRuntime", () => {
           ),
         );
       if (admission === "missing-url") values.delete("cloud-relay-url");
+      if (admission === "locally-disabled" || admission === "legacy-locally-disabled")
+        values.set("cloud-local-disabled", new TextEncoder().encode("true"));
       if (admission === "missing-user") values.delete("cloud-linked-user-id");
       if (admission === "missing-credential") values.delete("cloud-relay-environment-credential");
       let spawns = 0;
@@ -221,7 +225,7 @@ describe("CloudManagedEndpointRuntime", () => {
               T3CODE_CONNECT_MODE:
                 admission === "cloudless"
                   ? "cloudless"
-                  : admission === "legacy-foreign-stamp"
+                  : admission === "legacy-foreign-stamp" || admission === "legacy-locally-disabled"
                     ? "legacy"
                     : "owned",
               T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",

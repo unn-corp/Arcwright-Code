@@ -34,6 +34,7 @@ import * as CliTokenManager from "../cloud/CliTokenManager.ts";
 import { filterRelayResponse } from "../cloud/relayResponse.ts";
 import {
   CLOUD_LINKED_USER_ID,
+  CLOUD_LOCAL_DISABLED_SECRET,
   isAgentActivityPublishingEnabledValue,
   PUBLISH_AGENT_ACTIVITY_SECRET,
   RELAY_URL_SECRET,
@@ -429,12 +430,31 @@ export const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (opti
   const savedStatus = yield* readPersistedRelayAuthorityStatus(secrets);
   const savedIssuer = yield* secrets.get(RELAY_ISSUER_SECRET);
   const savedRelay = yield* secrets.get(RELAY_URL_SECRET);
-  if (yield* readPersistedCloudLinkPresent(secrets)) {
+  const savedLinkPresent = yield* readPersistedCloudLinkPresent(secrets, {
+    ignoreLocalDisabled: true,
+  });
+  const savedCleanupOrigin = yield* readStoredCleanupRelayOrigin(secrets);
+  const disabled = yield* Effect.exit(
+    secrets.set(CLOUD_LOCAL_DISABLED_SECRET, stringToBytes("true")),
+  );
+  // Stop the live connector even if preserving the cleanup reminder subsequently fails.
+  const liveResult = yield* runLiveCloudUnlink();
+  if (Exit.isFailure(disabled)) return yield* Effect.failCause(disabled.cause);
+  if (savedLinkPresent) {
     const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
     yield* rememberPendingRemoteCleanup({
-      relayUrl: yield* readStoredCleanupRelayOrigin(secrets),
+      relayUrl: savedCleanupOrigin,
       environmentId: yield* environment.getEnvironmentId,
-    });
+    }).pipe(
+      Effect.tapError(() =>
+        Console.warn(
+          (liveResult.status === "failed"
+            ? "The desired Connect link is disabled, but the running server could not complete unlink. Restart it to ensure its connector is stopped. "
+            : "Arcwright Connect is disabled locally. ") +
+            "Cleanup could not preserve its reminder; credentials remain stored. Review the cleanup reminders before retrying.",
+        ),
+      ),
+    );
   }
   const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const environmentId = yield* environment.getEnvironmentId;
@@ -462,9 +482,8 @@ export const disconnectCloud = Effect.fn("cloud.cli.disconnect")(function* (opti
     : candidate && candidate.relayOrigin !== null
       ? { relayUrl: candidate.relayOrigin }
       : null;
-  const liveResult = yield* runLiveCloudUnlink();
   const relayResult =
-    target !== null && (Option.isNone(savedRelay) || savedStatus === "active")
+    target !== null && (!savedLinkPresent || savedStatus === "active")
       ? yield* Effect.exit(unlinkRelayEnvironment(target))
       : Exit.succeed({ status: "authority-blocked" } as const);
   yield* CliState.clearPersistedCloudLink;
@@ -539,6 +558,9 @@ const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(functi
   readonly headless: boolean;
   readonly publishOnly?: boolean;
 }) {
+  const authority = yield* selectedConnectAuthority;
+  if (authority.mode === "cloudless" || authority.mode === "unavailable")
+    return yield* new CliTokenManager.CloudCliAuthorizationError({ cause: authority.mode });
   const publishOnly = options.publishOnly ?? false;
   if (!publishOnly) {
     const relayClient = yield* RelayClient.RelayClient;

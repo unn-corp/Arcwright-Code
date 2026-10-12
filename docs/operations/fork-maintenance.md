@@ -759,7 +759,15 @@ success or protected web acknowledgement after successful deletion clears only i
 origin/environment reminder. Unknown-origin reminders stay unresolved for manual review;
 malformed/missing saved URLs never force retention of local Connect secrets. Local paired status
 and cleanup remain visible in cloudless and partial-record states without managed sign-in.
-The acknowledgement uses authenticated HTTP plus `AuthRelayWriteScope`, with no new RPC. Keep provider/direct credentials, data and automation choices.
+The acknowledgement uses authenticated HTTP plus `AuthRelayWriteScope`, with no new RPC, and
+trusts the authorized writer's remote-success attestation. A full/corrupt reminder file must still
+allow desired-off and local connector stop while retaining credentials/binding and reporting failure.
+Preserve `cloud-local-disabled` admission across restart; optional `locallyDisabled` uses the existing
+neutral wire status instead of adding a closed-enum value. Only successful explicit cleanup or
+deliberate realm-valid configuration completion clears it; autonomous reconcile stays inactive.
+Reminder-only CLI cleanup must not bypass surviving incompatible state, including missing saved URLs.
+Cloudless terminal link commands reject before runtime acquisition or OAuth. Keep provider/direct
+credentials, data and automation choices.
 
 Run the focused cloud lifecycle/token/runtime, relay publisher, webhook proof and web link-controller
 regressions when changing this boundary. [Connect setup](./connect-setup.md#changing-the-account-service)

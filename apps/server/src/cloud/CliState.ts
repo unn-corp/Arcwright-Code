@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
   CLOUD_PUBLIC_AUTHORITY_SECRET,
+  CLOUD_LOCAL_DISABLED_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
@@ -78,4 +79,5 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
   );
   // A failed removal must not turn a known foreign binding into an unbound legacy record.
   yield* secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET);
+  yield* secrets.remove(CLOUD_LOCAL_DISABLED_SECRET);
 });

@@ -24,10 +24,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-it.each(["cloudless", "incompatible"] as const)(
+it.each(["cloudless", "incompatible", "unavailable"] as const)(
   "cleans partial %s saved state through its paired action and keeps pending feedback visible",
   async (authorityStatus) => {
-    let state = { ...base, authorityStatus };
+    let state = { ...base, authorityStatus, locallyDisabled: authorityStatus === "unavailable" };
     const unlink = vi.fn(async () => {
       state = { ...state, persistedLinkPresent: false, remoteCleanupPending: true };
       return true;

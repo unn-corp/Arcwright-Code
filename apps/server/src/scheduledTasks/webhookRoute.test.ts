@@ -145,7 +145,7 @@ describe("webhook route", () => {
     }
   });
 
-  it.live.each(["owned", "cloudless"] as const)(
+  it.live.each(["owned", "cloudless", "locally-disabled"] as const)(
     "treats a valid old-realm scheduled delivery proof as direct in %s mode",
     (mode) =>
       Effect.gen(function* () {
@@ -158,8 +158,13 @@ describe("webhook route", () => {
             ServerSecretStore.ServerSecretStore.of({
               get: (name) =>
                 Effect.succeed(
-                  Option.map(Option.fromUndefinedOr(linkedSecrets.get(name)), (value) =>
-                    new TextEncoder().encode(value),
+                  Option.map(
+                    Option.fromUndefinedOr(
+                      name === "cloud-local-disabled" && mode === "locally-disabled"
+                        ? "true"
+                        : linkedSecrets.get(name),
+                    ),
+                    (value) => new TextEncoder().encode(value),
                   ),
                 ),
               set: () => Effect.die("unused"),
@@ -193,7 +198,7 @@ describe("webhook route", () => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                T3CODE_CONNECT_MODE: mode,
+                T3CODE_CONNECT_MODE: mode === "locally-disabled" ? "legacy" : mode,
                 T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
                 T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
                 T3CODE_CLERK_JWT_TEMPLATE: "connect",

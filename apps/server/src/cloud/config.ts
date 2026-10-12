@@ -16,6 +16,8 @@ import {
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
 export const CLOUD_PUBLIC_AUTHORITY_SECRET = "cloud-public-authority";
+/** Noncredential local intent: an explicit disconnect must survive failed cleanup and restart. */
+export const CLOUD_LOCAL_DISABLED_SECRET = "cloud-local-disabled";
 export const CLOUD_MINT_PUBLIC_KEY = "cloud-mint-ed25519-public-key";
 export const CLOUD_ENDPOINT_RUNTIME_CONFIG = "cloud-endpoint-runtime-config";
 export const CLOUD_ENDPOINT_CONFIRMED_ORIGIN = "cloud-endpoint-confirmed-origin";
@@ -29,12 +31,14 @@ export const HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET = "cloud-hold-webhooks-while-off
 /** Raw saved presence includes partial records; it is never an enrollment invitation. */
 export const readPersistedCloudLinkPresent = (
   secrets: ServerSecretStore.ServerSecretStore["Service"],
+  options?: { readonly ignoreLocalDisabled?: boolean },
 ) =>
   Effect.all(
     [
       RELAY_URL_SECRET,
       RELAY_ISSUER_SECRET,
       CLOUD_PUBLIC_AUTHORITY_SECRET,
+      ...(options?.ignoreLocalDisabled ? [] : [CLOUD_LOCAL_DISABLED_SECRET]),
       CLOUD_LINKED_USER_ID,
       CLOUD_ENDPOINT_RUNTIME_CONFIG,
       CLOUD_MINT_PUBLIC_KEY,
@@ -50,9 +54,15 @@ const decodeLinkPublicAuthority = Schema.decodeUnknownOption(
 export const readPersistedRelayAuthorityStatus = (
   secrets: ServerSecretStore.ServerSecretStore["Service"],
   selected?: SelectedConnectAuthority,
+  options?: { readonly ignoreLocalDisabled?: boolean },
 ) =>
   Effect.gen(function* () {
     const authority = selected ?? (yield* selectedConnectAuthority);
+    if (
+      !options?.ignoreLocalDisabled &&
+      Option.isSome(yield* secrets.get(CLOUD_LOCAL_DISABLED_SECRET))
+    )
+      return "locally-disabled";
     if (authority.mode === "cloudless" || authority.mode === "unavailable") return authority.mode;
     const stamp = yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET);
     const publicAuthority = Option.isSome(stamp)

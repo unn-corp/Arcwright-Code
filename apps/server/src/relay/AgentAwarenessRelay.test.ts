@@ -31,6 +31,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
   PUBLISH_AGENT_ACTIVITY_SECRET,
+  CLOUD_LOCAL_DISABLED_SECRET,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
   RELAY_URL_SECRET,
@@ -426,6 +427,19 @@ describe("AgentAwarenessRelay", () => {
       yield* relay.publishThread(THREAD_ID);
       assert.equal(publications.length, 2);
     }),
+  );
+  it.effect(
+    "retained compatible credentials cannot publish after an explicit local disconnect",
+    () =>
+      Effect.gen(function* () {
+        const { relay, secrets, publications, shellReads } = yield* makeTestRelay();
+        yield* secrets.set(CLOUD_LOCAL_DISABLED_SECRET, new TextEncoder().encode("true"));
+        yield* relay.publishThread(THREAD_ID);
+        yield* relay.requestCatchUp();
+        yield* relay.drain;
+        assert.equal(publications.length, 0);
+        assert.equal(shellReads.length, 0);
+      }),
   );
 
   it.effect("republishes unchanged state with fresh credentials after relinking", () =>

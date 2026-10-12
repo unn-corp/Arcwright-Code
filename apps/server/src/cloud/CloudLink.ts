@@ -53,6 +53,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -85,6 +86,7 @@ import {
 import * as CliTokenManager from "./CliTokenManager.ts";
 import {
   CLOUD_PUBLIC_AUTHORITY_SECRET,
+  CLOUD_LOCAL_DISABLED_SECRET,
   CLOUD_ENDPOINT_CONFIRMED_ORIGIN,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINKED_USER_ID,
@@ -192,7 +194,7 @@ export class CloudLinkOriginInvalidError extends Schema.TaggedError<CloudLinkOri
 
 export class CloudLinkAuthorityUnavailableError extends Schema.TaggedError<CloudLinkAuthorityUnavailableError>()(
   "CloudLinkAuthorityUnavailableError",
-  { status: Schema.Literals(["cloudless", "incompatible", "unavailable"]) },
+  { status: Schema.Literals(["cloudless", "incompatible", "unavailable", "locally-disabled"]) },
 ) {
   override get message(): string {
     return authorityMessage(this.status)!;
@@ -292,6 +294,8 @@ const INTERNAL_OPERATION_MESSAGES = {
   "persist-recovered-tunnel": "Could not persist the recovered managed tunnel configuration.",
   "read-relay-config": "Could not read environment relay configuration.",
   "remove-relay-config": "Could not remove environment relay configuration.",
+  "preserve-cleanup-reminder":
+    "Connect is disabled locally, but its cleanup reminder could not be preserved. Credentials remain stored; review the cleanup reminders before retrying.",
   "update-webhook-settings": "Could not update Arcwright Connect webhook settings.",
   "read-preferences": "Could not read environment cloud preferences.",
   "persist-preferences": "Could not persist environment cloud preferences.",
@@ -687,11 +691,12 @@ const make = Effect.gen(function* () {
     requestUrl: string,
   ) {
     yield* requireRelayAuthority(request.relayIssuer);
-    if (
-      Option.isSome(yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET)) ||
-      (authority.mode !== "legacy" && (yield* hasPersistedLink))
-    )
-      yield* requirePersistedAuthority;
+    if ((yield* hasPersistedLink) || authority.mode !== "owned") {
+      const status = yield* readPersistedRelayAuthorityStatus(secrets, authority, {
+        ignoreLocalDisabled: true,
+      });
+      if (status !== "active") return yield* new CloudLinkAuthorityUnavailableError({ status });
+    }
     const keyPair = yield* getOrCreateEnvironmentKeyPairFromSecretStore(secrets);
     if (
       !isSupportedLinkProviderKind(request) ||
@@ -860,16 +865,18 @@ const make = Effect.gen(function* () {
     options?: {
       readonly lockHeld?: boolean;
       readonly confirmedOrigin?: RelayManagedEndpointOrigin;
+      readonly reactivateLocallyDisabled?: boolean;
     },
   ) {
     const apply = Effect.gen(function* () {
       yield* validateRelayConfigPayload(payload);
       yield* requireRelayAuthority(payload.relayUrl, payload.relayIssuer);
-      if (
-        Option.isSome(yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET)) ||
-        (authority.mode !== "legacy" && (yield* hasPersistedLink))
-      )
-        yield* requirePersistedAuthority;
+      if ((yield* hasPersistedLink) || authority.mode !== "owned") {
+        const status = yield* readPersistedRelayAuthorityStatus(secrets, authority, {
+          ignoreLocalDisabled: options?.reactivateLocallyDisabled === true,
+        });
+        if (status !== "active") return yield* new CloudLinkAuthorityUnavailableError({ status });
+      }
       yield* validateLinkedCloudUser(payload.cloudUserId);
       yield* validateCloudMintPublicKey(payload.cloudMintPublicKey);
       // Reject unsupported runtimes before touching the connector so a bad
@@ -908,13 +915,15 @@ const make = Effect.gen(function* () {
         stringToBytes(payload.environmentCredential),
       );
       yield* secrets.set(CLOUD_MINT_PUBLIC_KEY, stringToBytes(payload.cloudMintPublicKey));
-      yield* awarenessRelay.requestCatchUp();
       if (payload.endpointRuntime) {
         const endpointRuntimeJson = yield* encodeEndpointRuntimeConfigJson(payload.endpointRuntime);
         yield* secrets.set(CLOUD_ENDPOINT_RUNTIME_CONFIG, stringToBytes(endpointRuntimeJson));
       } else {
         yield* secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG);
       }
+      // Only deliberate validated configuration with all local credentials persisted can reactivate.
+      if (options?.reactivateLocallyDisabled) yield* secrets.remove(CLOUD_LOCAL_DISABLED_SECRET);
+      yield* awarenessRelay.requestCatchUp();
       if (payload.endpointRuntime === null || options?.confirmedOrigin === undefined) {
         return {
           ok: true,
@@ -958,13 +967,7 @@ const make = Effect.gen(function* () {
 
   const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesiredLinkWith")(
     function* (localOrigin: string) {
-      if (
-        authority.mode !== "legacy" ||
-        Option.isSome(yield* secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET))
-      ) {
-        if ((yield* hasPersistedLink) || authority.mode !== "owned")
-          yield* requirePersistedAuthority;
-      }
+      if ((yield* hasPersistedLink) || authority.mode !== "owned") yield* requirePersistedAuthority;
       const parsedOrigin = yield* Effect.try({
         try: () => parseManagedEndpointLocalOrigin(localOrigin),
         catch: () => new CloudLinkOriginInvalidError({ origin: "local" }),
@@ -1263,7 +1266,7 @@ const make = Effect.gen(function* () {
 
   const applyRelayConfig = Effect.fn("environment.cloud.relayConfig")(
     function* (payload: RelayEnvironmentConfigRequest) {
-      const result = yield* applyCloudRelayConfig(payload);
+      const result = yield* applyCloudRelayConfig(payload, { reactivateLocallyDisabled: true });
       if (payload.endpointRuntime?.providerKind === "cloudflare_tunnel") {
         const address = httpServer.address;
         if (typeof address === "string" || !("port" in address)) {
@@ -1414,14 +1417,14 @@ const make = Effect.gen(function* () {
         : yield* persistedAuthorityStatus;
     return {
       persistedLinkPresent: yield* hasPersistedLink,
-      remoteCleanupPending:
-        (yield* readPendingRemoteCleanup.pipe(
-          withRuntimeFiles,
-          Effect.mapError(
-            (cause) => new CloudLinkInternalError({ operation: "read-relay-config", cause }),
-          ),
-        )).length > 0,
-      authorityStatus: status,
+      remoteCleanupPending: yield* readPendingRemoteCleanup.pipe(
+        withRuntimeFiles,
+        Effect.map((references) => references.length > 0),
+        // Unreadable reminders need review; local status and cleanup must remain available.
+        Effect.orElseSucceed(() => true),
+      ),
+      authorityStatus: status === "locally-disabled" ? "unavailable" : status,
+      locallyDisabled: status === "locally-disabled",
       authorityMessage: authorityMessage(status),
       linked: Option.isSome(cloudUserId),
       cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
@@ -1456,9 +1459,21 @@ const make = Effect.gen(function* () {
     function* () {
       return yield* endpointRuntime.withLinkStateLock(
         Effect.gen(function* () {
-          const savedLinkPresent = yield* hasPersistedLink;
-          const savedRelayOrigin = yield* readStoredCleanupRelayOrigin(secrets);
+          const savedLinkPresent = yield* readPersistedCloudLinkPresent(secrets, {
+            ignoreLocalDisabled: true,
+          });
           const status = yield* persistedAuthorityStatus;
+          // Both reversible disable actions must finish before reminder admission or deletion.
+          const [disabled, desiredOff, stopped] = yield* Effect.all([
+            Effect.exit(secrets.set(CLOUD_LOCAL_DISABLED_SECRET, stringToBytes("true"))),
+            Effect.exit(setCliDesiredCloudLink(false).pipe(withSecrets)),
+            Effect.exit(endpointRuntime.applyConfig(null)),
+          ]);
+          if (Exit.isFailure(disabled)) return yield* Effect.failCause(disabled.cause);
+          if (Exit.isFailure(desiredOff)) return yield* Effect.failCause(desiredOff.cause);
+          if (Exit.isFailure(stopped)) return yield* Effect.failCause(stopped.cause);
+          const endpointRuntimeStatus = stopped.value;
+          const savedRelayOrigin = yield* readStoredCleanupRelayOrigin(secrets);
           if (savedLinkPresent)
             yield* rememberPendingRemoteCleanup({
               relayUrl: savedRelayOrigin,
@@ -1466,10 +1481,10 @@ const make = Effect.gen(function* () {
             }).pipe(
               withRuntimeFiles,
               Effect.mapError(
-                (cause) => new CloudLinkInternalError({ operation: "remove-relay-config", cause }),
+                (cause) =>
+                  new CloudLinkInternalError({ operation: "preserve-cleanup-reminder", cause }),
               ),
             );
-          const endpointRuntimeStatus = yield* endpointRuntime.applyConfig(null);
           yield* Effect.all(
             [
               secrets.remove(CLOUD_LINKED_USER_ID),
@@ -1486,7 +1501,7 @@ const make = Effect.gen(function* () {
           );
           // Retain the binding until all authorization material is gone, including on partial removal failure.
           yield* secrets.remove(CLOUD_PUBLIC_AUTHORITY_SECRET);
-          yield* setCliDesiredCloudLink(false).pipe(withSecrets);
+          yield* secrets.remove(CLOUD_LOCAL_DISABLED_SECRET);
           return {
             ok: true,
             endpointRuntimeStatus,
