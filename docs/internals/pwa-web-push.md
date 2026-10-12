@@ -68,6 +68,19 @@ quarantine before clearing only that slot. Preservation failure leaves the origi
 and keeps Reset reachable; a later separate Enable can create fresh owned credentials.
 Quarantined values never authorize requests and are never sent to a relay.
 
+Local cleanup releases its busy state when the browser operation finishes, independently
+of remote removal. Repeated local retries share one removal request per active authority;
+new remote enrollment waits for its actual completion. Removal captures the exact local
+record and generation, so a late response cannot clear a changed same-ID registration.
+A removal's client lifetime is ten seconds (the relay API deadline is nine), with an abort
+and a persistent opaque uncertainty marker if no reliable completion arrives. Time alone
+never permits reenrollment. In owned mode, a separate explicit Reset preserves the old
+current authority in the same private quarantine and prepares fresh installation credentials
+for the next Enable tap. The old removal's installation ID and secret cannot authorize a
+delete of the replacement. Normal same-service identity remains stable. Legacy global keys
+stay preserved; uncertain legacy cleanup needs confirmation at the original service before
+renewal and has no automatic credential rotation. Local controls remain available.
+
 These are source behavior and fixture checks. The owned public service is not commissioned
 by this change. Its private-environment deployment must disable every anonymous PWA API
 path; the client reports an unavailable capability when the service returns unavailable.

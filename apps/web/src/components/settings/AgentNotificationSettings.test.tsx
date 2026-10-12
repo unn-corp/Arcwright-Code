@@ -187,6 +187,7 @@ beforeEach(() => {
   owned();
 });
 afterEach(() => {
+  vi.useRealTimers();
   act(() => renderer?.unmount());
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -502,4 +503,123 @@ it("full local storage cannot hide a failed browser cleanup retry or erase old a
   storageFailure.mockRestore();
   await act(async () => button("Disable").props.onClick());
   expect(existing).toBeNull();
+});
+it.each(["reject", "false"])(
+  "local cleanup retries stay available with %s unsubscribe and a hung deduplicated remote removal",
+  async (failure) => {
+    await seedBoundSubscription();
+    let resolveRemove: (value: object) => void = () => {};
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST")
+        return new Promise((resolve) => {
+          resolveRemove = resolve;
+        });
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          init?.method === "PUT"
+            ? { subscriptionId: "remote-1" }
+            : { applicationServerKey: pushKey },
+      };
+    });
+    if (failure === "reject") unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+    else unsubscribe.mockResolvedValueOnce(false);
+    await act(async () => button("Disable").props.onClick());
+    expect(existing).not.toBeNull();
+    expect(fixture.settings.agentNotifications.enabled).toBe(false);
+    expect(button("Reset browser push").props.disabled).toBe(false);
+    expect(button("Disable").props.disabled).toBe(false);
+    await act(async () => button("Reset browser push").props.onClick());
+    expect(existing).toBeNull();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    const beforeEnable = [...values];
+    await act(async () => enable());
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(0);
+    expect([...values]).toEqual(beforeEnable);
+    expect(JSON.stringify(fixture.toast.mock.calls)).toContain("Remote cleanup is pending");
+    await act(async () =>
+      resolveRemove({ ok: true, status: 200, json: async () => ({ ok: true }) }),
+    );
+    expect(getPwaPushSubscriptionId()).toBeNull();
+    operations.length = 0;
+    await act(async () => {
+      enable();
+      expect(operations[0]).toBe("subscribe");
+    });
+    expect(fixture.settings.agentNotifications.enabled).toBe(true);
+    expect(getPwaPushSubscriptionId()).toBe("remote-1");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  },
+);
+it("late removal completion cannot mutate unmounted settings or hide a remounted local retry", async () => {
+  await seedBoundSubscription();
+  let resolveRemove: (value: object) => void = () => {};
+  fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST")
+      return new Promise((resolve) => {
+        resolveRemove = resolve;
+      });
+    return { ok: true, status: 200, json: async () => ({ applicationServerKey: pushKey }) };
+  });
+  unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+  await act(async () => button("Disable").props.onClick());
+  act(() => renderer.unmount());
+  const updates = fixture.update.mock.calls.length;
+  const toasts = fixture.toast.mock.calls.length;
+  await act(async () => resolveRemove({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+  expect(fixture.update).toHaveBeenCalledTimes(updates);
+  expect(fixture.toast).toHaveBeenCalledTimes(toasts);
+  expect(existing).not.toBeNull();
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  await mount();
+  expect(button("Reset browser push").props.disabled).toBe(false);
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(existing).toBeNull();
+});
+it("timed out remote cleanup releases local controls and explicit owned Reset safely prepares fresh enrollment", async () => {
+  await seedBoundSubscription();
+  const originalRecord = values.get("t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test")!;
+  let resolveLateRemoval: (value: object) => void = () => {};
+  vi.useFakeTimers();
+  fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST")
+      return new Promise((resolve) => {
+        resolveLateRemoval = resolve;
+      });
+    return {
+      ok: true,
+      status: 200,
+      json: async () =>
+        init?.method === "PUT" ? { subscriptionId: "remote-1" } : { applicationServerKey: pushKey },
+    };
+  });
+  unsubscribe.mockRejectedValueOnce(new Error("browser unavailable"));
+  await act(async () => button("Disable").props.onClick());
+  expect(button("Reset browser push").props.disabled).toBe(false);
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(button("Reset browser push").props.disabled).toBe(false);
+  await act(async () => enable());
+  expect(fixture.settings.agentNotifications.enabled).toBe(false);
+  expect(subscribe).not.toHaveBeenCalled();
+  await act(async () => button("Reset browser push").props.onClick());
+  expect(existing).toBeNull();
+  expect([...values.values()]).toContain(originalRecord);
+  operations.length = 0;
+  await act(async () => {
+    enable();
+    expect(operations[0]).toBe("subscribe");
+  });
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  const replacement = values.get("t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test");
+  await act(async () =>
+    resolveLateRemoval({ ok: true, status: 200, json: async () => ({ ok: true }) }),
+  );
+  expect(values.get("t3code.pwaPushAuthority.v1:https%3A%2F%2Frelay.example.test")).toBe(
+    replacement,
+  );
+  expect(fixture.settings.agentNotifications.enabled).toBe(true);
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  vi.useRealTimers();
 });

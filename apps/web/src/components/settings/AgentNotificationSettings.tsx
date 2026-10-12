@@ -24,7 +24,10 @@ import {
   getPwaPushSubscriptionId,
   getPwaPushRelayProfile,
   isPwaPushAuthorityResetRequired,
-  resetMalformedPwaPushAuthority,
+  isPwaPushRemovalPending,
+  getPwaPushRemovalState,
+  PwaPushRemovalPendingError,
+  resetPwaPushAuthority,
   hasPendingPwaPushCleanup,
   markPendingPwaPushCleanup,
   registerPwaPushSubscription,
@@ -66,6 +69,9 @@ export function PwaNotificationSettings() {
   } = usePwaNotificationSetup();
   const [isSaving, setIsSaving] = useState(false);
   const actionRef = useRef(0);
+  const mountedRef = useRef(false);
+  const remoteRemovalRef = useRef<Promise<void> | null>(null);
+  const [remoteCleanupState, setRemoteCleanupState] = useState(getPwaPushRemovalState);
   const enableControllerRef = useRef<AbortController | null>(null);
   const [localCleanupRequired, setLocalCleanupRequired] = useState(false);
   const [bindingMismatch, setBindingMismatch] = useState(false);
@@ -77,16 +83,19 @@ export function PwaNotificationSettings() {
     localCleanupNeeded ||
     bindingMismatch ||
     setupState === "reset-required" ||
-    isPwaPushAuthorityResetRequired();
+    isPwaPushAuthorityResetRequired() ||
+    remoteCleanupState === "uncertain";
 
   const refreshStatus = useCallback(() => {
     setStatus(getBrowserNotificationStatus());
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     window.addEventListener("focus", refreshStatus);
     document.addEventListener("visibilitychange", refreshStatus);
     return () => {
+      mountedRef.current = false;
       ++actionRef.current;
       enableControllerRef.current?.abort();
       window.removeEventListener("focus", refreshStatus);
@@ -126,6 +135,17 @@ export function PwaNotificationSettings() {
   );
 
   const enableNotifications = useCallback(async () => {
+    if (isPwaPushRemovalPending()) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Remote cleanup is pending",
+          description: new PwaPushRemovalPendingError(getPwaPushRemovalState() === "uncertain")
+            .message,
+        }),
+      );
+      return;
+    }
     if (needsReset || setupState === "unavailable") {
       toastManager.add(
         stackedThreadToast({
@@ -233,24 +253,42 @@ export function PwaNotificationSettings() {
     enableControllerRef.current?.abort();
     updatePreferences({ enabled: false });
     setIsSaving(true);
-    // Browser and current-realm cleanup are independent: a local API failure must not
-    // prevent safe remote removal, nor make the surviving browser endpoint look removed.
-    const [localResult, remoteResult] = await Promise.allSettled([
-      unsubscribeBrowserPush(),
-      subscriptionId ? removePwaPushSubscription(subscriptionId) : Promise.resolve(),
-    ]);
-    if (action !== actionRef.current) return;
-    setLocalCleanupRequired(localResult.status === "rejected");
-    if (remoteResult.status === "rejected" || !subscriptionId) {
+    // Remote completion never owns the local busy state. Repeated local retries share
+    // one module-bound removal; pending enrollment is fenced until that request settles.
+    if (subscriptionId) {
+      const pending = removePwaPushSubscription(subscriptionId);
+      if (remoteRemovalRef.current !== pending) {
+        remoteRemovalRef.current = pending;
+        setRemoteCleanupState(getPwaPushRemovalState());
+        markPendingPwaPushCleanup();
+        setCleanupPending(true);
+        void pending
+          .catch(() => {
+            // The persistent advisory and saved record retain unresolved cleanup.
+          })
+          .finally(() => {
+            if (remoteRemovalRef.current !== pending) return;
+            remoteRemovalRef.current = null;
+            if (mountedRef.current) setRemoteCleanupState(getPwaPushRemovalState());
+          });
+      }
+    } else {
       markPendingPwaPushCleanup();
       setCleanupPending(true);
     }
+    const localResult = await unsubscribeBrowserPush().then(
+      () => ({ status: "fulfilled" as const }),
+      () => ({ status: "rejected" as const }),
+    );
+    if (action !== actionRef.current) return;
+    setLocalCleanupRequired(localResult.status === "rejected");
     try {
       if (localResult.status === "rejected")
         throw new Error(
           "Your notification preference is off, but browser push cleanup is incomplete. Retry Disable or Reset browser push.",
         );
-      resetMalformedPwaPushAuthority(profile);
+      resetPwaPushAuthority(profile);
+      setRemoteCleanupState(getPwaPushRemovalState());
       setBindingMismatch(false);
     } catch (error) {
       toastManager.add(
@@ -409,6 +447,7 @@ export function PwaNotificationSettings() {
       {!canManagePreferences &&
       (notificationPreferences.enabled ||
         needsReset ||
+        cleanupPending ||
         setupState === "unavailable" ||
         setupState === "offline") ? (
         <SettingsRow
@@ -425,6 +464,13 @@ export function PwaNotificationSettings() {
             </Button>
           }
         />
+      ) : null}
+      {remoteCleanupState !== "none" ? (
+        <p className="px-4 pb-2 text-xs text-muted-foreground">
+          {remoteCleanupState === "uncertain"
+            ? "Remote cleanup has an uncertain outcome. Local Disable and Reset remain available. In owned mode, Reset preserves the old authority and prepares fresh enrollment; legacy credentials cannot be safely renewed until old service cleanup is confirmed."
+            : "Remote cleanup is pending. Local Disable and Reset remain available. Enable notifications again after remote cleanup finishes."}
+        </p>
       ) : null}
       {cleanupPending ? (
         <p className="px-4 pb-2 text-xs text-muted-foreground">

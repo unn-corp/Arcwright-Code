@@ -74,7 +74,11 @@ services or notification keys, use **Reset browser push**, then enable notificat
 separate tap. Old registrations remain saved; disabling unsubscribes this browser locally,
 while cleanup at the previous service may remain pending. If browser cleanup fails, the
 preference stays off but **Disable** or **Reset browser push** remains available to retry,
-including after reopening Settings. Cloudless mode and services that
+including after reopening Settings. Remote cleanup does not hold those local controls busy.
+If cleanup has an uncertain outcome in owned mode, **Reset browser push** preserves the old
+registration and prepares a fresh installation for a separate Enable tap. Legacy service
+credentials remain saved and need confirmation of cleanup at that service before renewal.
+Cloudless mode and services that
 do not offer anonymous PWA push still support local notification previews.
 
 Native credential authority migration, historical rollback, and private live commissioning

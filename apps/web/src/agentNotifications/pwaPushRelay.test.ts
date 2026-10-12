@@ -4,7 +4,9 @@ import {
   getPwaPushConfig,
   getPwaPushRelayProfile,
   isPwaPushAuthorityResetRequired,
-  resetMalformedPwaPushAuthority,
+  isPwaPushRemovalPending,
+  getPwaPushRemovalState,
+  resetPwaPushAuthority,
   getPwaPushSubscriptionId,
   pwaPushInstallation,
   registerPwaPushSubscription,
@@ -73,6 +75,7 @@ beforeEach(() => {
   owned();
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -183,7 +186,8 @@ describe("PWA push relay authority", () => {
     await expect(removePwaPushSubscription("subscription-1")).rejects.toThrow(
       "The notification service is temporarily unavailable. Try again when connected.",
     );
-    expect([...values]).toEqual(before);
+    for (const [key, value] of before) expect(values.get(key)).toBe(value);
+    expect(getPwaPushRemovalState()).toBe("uncertain");
   });
   it.each([404, 503])(
     "reports a disabled anonymous push capability (%s) without creating credentials",
@@ -284,7 +288,7 @@ it("never changes an occupied invalid authority slot during inspection, then exp
   await expect(register()).rejects.toThrow(/Reset/);
   expect([...values]).toEqual(before);
   expect(fetchMock).not.toHaveBeenCalled();
-  resetMalformedPwaPushAuthority(getPwaPushRelayProfile());
+  resetPwaPushAuthority(getPwaPushRelayProfile());
   expect(values.has(currentSlot)).toBe(false);
   expect(values.get(`${currentSlot}:quarantine:0`)).toBe(raw);
   expect(isPwaPushAuthorityResetRequired()).toBe(false);
@@ -307,7 +311,7 @@ it.each(["throw", "silently-refused"])(
         }
         setItem(key, value);
       });
-    expect(() => resetMalformedPwaPushAuthority(getPwaPushRelayProfile())).toThrow(
+    expect(() => resetPwaPushAuthority(getPwaPushRelayProfile())).toThrow(
       "Could not preserve or reset this device's previous notification record. Retry Reset browser push when local storage is available.",
     );
     expect(values.get(currentSlot)).toBe(raw);
@@ -321,9 +325,7 @@ it("refuses a full bounded quarantine without overwriting any old private record
   for (let index = 0; index < 16; index += 1)
     values.set(`${currentSlot}:quarantine:${index}`, `private-archive-${index}`);
   const before = [...values];
-  expect(() => resetMalformedPwaPushAuthority(getPwaPushRelayProfile())).toThrow(
-    /Could not preserve/,
-  );
+  expect(() => resetPwaPushAuthority(getPwaPushRelayProfile())).toThrow(/Could not preserve/);
   expect([...values]).toEqual(before);
   expect(fetchMock).not.toHaveBeenCalled();
 });
@@ -334,7 +336,7 @@ it("reuses an identical durable quarantine copy and preserves other occupied slo
   values.set(`${currentSlot}:quarantine:1`, raw);
   const foreignKey = "t3code.pwaPushAuthority.v1:https%3A%2F%2Fother.example.test";
   values.set(foreignKey, "foreign-private-record");
-  resetMalformedPwaPushAuthority(getPwaPushRelayProfile());
+  resetPwaPushAuthority(getPwaPushRelayProfile());
   expect(values.has(currentSlot)).toBe(false);
   expect(values.get(`${currentSlot}:quarantine:0`)).toBe("previous-private-record");
   expect(values.get(`${currentSlot}:quarantine:1`)).toBe(raw);
@@ -346,7 +348,7 @@ it("leaves valid current authority intact during explicit malformed-slot reset",
   const before = [...values];
   fetchMock.mockClear();
   expect(isPwaPushAuthorityResetRequired()).toBe(false);
-  resetMalformedPwaPushAuthority(getPwaPushRelayProfile());
+  resetPwaPushAuthority(getPwaPushRelayProfile());
   expect([...values]).toEqual(before);
   expect(fetchMock).not.toHaveBeenCalled();
 });
@@ -356,7 +358,170 @@ it("a delayed reset cannot quarantine a newly selected profile's slot", () => {
   owned("https://other.example.test");
   values.set("t3code.pwaPushAuthority.v1:https%3A%2F%2Fother.example.test", "new-invalid");
   const before = [...values];
-  expect(() => resetMalformedPwaPushAuthority(oldProfile)).toThrow(/Reset/);
+  expect(() => resetPwaPushAuthority(oldProfile)).toThrow(/Reset/);
   expect([...values]).toEqual(before);
   expect(fetchMock).not.toHaveBeenCalled();
+});
+it("coalesces current-authority removals and blocks replacement enrollment until actual completion", async () => {
+  await register();
+  let resolveRemove: (value: object) => void = () => {};
+  fetchMock.mockClear().mockReturnValue(
+    new Promise((resolve) => {
+      resolveRemove = resolve;
+    }),
+  );
+  const first = removePwaPushSubscription("subscription-1");
+  const second = removePwaPushSubscription("subscription-1");
+  expect(second).toBe(first);
+  expect(isPwaPushRemovalPending()).toBe(true);
+  await expect(register()).rejects.toThrow(/cleanup is still pending/);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  resolveRemove({ ok: true, status: 200, json: async () => ({ ok: true }) });
+  await first;
+  expect(isPwaPushRemovalPending()).toBe(false);
+  expect(getPwaPushSubscriptionId()).toBeNull();
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ subscriptionId: "subscription-1" }),
+  });
+  await register();
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+});
+it("a late removal does not erase a changed same-ID authority record", async () => {
+  await register();
+  let resolveRemove: (value: object) => void = () => {};
+  fetchMock.mockReturnValue(
+    new Promise((resolve) => {
+      resolveRemove = resolve;
+    }),
+  );
+  const pending = removePwaPushSubscription("subscription-1");
+  const newer = JSON.parse(values.get(currentSlot)!);
+  newer.subscription.endpoint = "https://push.example.test/replacement";
+  const replacement = JSON.stringify(newer);
+  values.set(currentSlot, replacement);
+  resolveRemove({ ok: true, status: 200, json: async () => ({ ok: true }) });
+  await pending;
+  expect(values.get(currentSlot)).toBe(replacement);
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+});
+it("a same-ID registration already in flight cannot be deleted by a stale cleanup intent", async () => {
+  await register();
+  let resolveRegister: (value: object) => void = () => {};
+  fetchMock.mockClear().mockReturnValue(
+    new Promise((resolve) => {
+      resolveRegister = resolve;
+    }),
+  );
+  const registering = register();
+  const removing = removePwaPushSubscription("subscription-1");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  resolveRegister({
+    ok: true,
+    status: 200,
+    json: async () => ({ subscriptionId: "subscription-1" }),
+  });
+  await registering;
+  await expect(removing).rejects.toThrow(/Reset/);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+  expect(isPwaPushRemovalPending()).toBe(false);
+});
+it("timeout keeps uncertain deletion authority until explicit owned Reset preserves and rotates it", async () => {
+  vi.useFakeTimers();
+  await register();
+  const oldInstallation = pwaPushInstallation();
+  const oldRecord = values.get(currentSlot)!;
+  let resolveLateRemoval: (value: object) => void = () => {};
+  fetchMock.mockReturnValue(
+    new Promise((resolve) => {
+      resolveLateRemoval = resolve;
+    }),
+  );
+  const removal = removePwaPushSubscription("subscription-1");
+  const failure = expect(removal).rejects.toThrow(/uncertain outcome/);
+  await vi.advanceTimersByTimeAsync(10_000);
+  await failure;
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  expect(values.get(currentSlot)).toBe(oldRecord);
+  const requestCount = fetchMock.mock.calls.length;
+  await expect(register()).rejects.toThrow(/uncertain outcome/);
+  await expect(removePwaPushSubscription("subscription-1")).rejects.toThrow(/uncertain outcome/);
+  expect(fetchMock).toHaveBeenCalledTimes(requestCount);
+  resetPwaPushAuthority(getPwaPushRelayProfile());
+  expect([...values.values()]).toContain(oldRecord);
+  expect(getPwaPushRemovalState()).toBe("none");
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ subscriptionId: "subscription-1" }),
+  });
+  await register();
+  expect(pwaPushInstallation()).not.toEqual(oldInstallation);
+  const replacement = values.get(currentSlot);
+  resolveLateRemoval({ ok: true, status: 200, json: async () => ({ ok: true }) });
+  await Promise.resolve();
+  expect(values.get(currentSlot)).toBe(replacement);
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+  vi.useRealTimers();
+});
+it("persisted uncertain owned removal requires explicit recovery across a runtime reload", async () => {
+  await register();
+  const installation = pwaPushInstallation();
+  const raw = values.get(currentSlot)!;
+  values.set(
+    "t3code.pwaPushRemovalPending.v1:owned%3Ahttps%3A%2F%2Frelay.example.test",
+    JSON.stringify({
+      installationId: installation.installationId,
+      operationId: "previous-runtime",
+    }),
+  );
+  fetchMock.mockClear();
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  await expect(register()).rejects.toThrow(/uncertain outcome/);
+  await expect(removePwaPushSubscription("subscription-1")).rejects.toThrow(/uncertain outcome/);
+  expect(fetchMock).not.toHaveBeenCalled();
+  resetPwaPushAuthority(getPwaPushRelayProfile());
+  expect([...values.values()]).toContain(raw);
+  await register();
+  expect(pwaPushInstallation()).not.toEqual(installation);
+});
+it("legacy uncertain removal preserves old global keys and never silently rotates credentials", async () => {
+  vi.stubEnv("VITE_CONNECT_MODE", "legacy");
+  await register();
+  const old = pwaPushInstallation();
+  values.set(
+    "t3code.pwaPushRemovalPending.v1:legacy%3Ahttps%3A%2F%2Frelay.example.test",
+    "previous-runtime-uncertainty",
+  );
+  const before = [...values];
+  fetchMock.mockClear();
+  resetPwaPushAuthority(getPwaPushRelayProfile());
+  await expect(register()).rejects.toThrow(/Legacy credentials are preserved/);
+  expect([...values]).toEqual(before);
+  expect(pwaPushInstallation()).toEqual(old);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+it("uncertainty recovery cannot discard active authority when preserving the old record fails", async () => {
+  await register();
+  values.set(
+    "t3code.pwaPushRemovalPending.v1:owned%3Ahttps%3A%2F%2Frelay.example.test",
+    "unconfirmed-cleanup",
+  );
+  const before = [...values];
+  const setItem = window.localStorage.setItem.bind(window.localStorage);
+  const storageFailure = vi
+    .spyOn(window.localStorage, "setItem")
+    .mockImplementation((key, value) => {
+      if (key.startsWith(`${currentSlot}:quarantine:`)) throw new Error("storage full");
+      setItem(key, value);
+    });
+  expect(() => resetPwaPushAuthority(getPwaPushRelayProfile())).toThrow(/Could not preserve/);
+  expect([...values]).toEqual(before);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  const count = fetchMock.mock.calls.length;
+  await expect(register()).rejects.toThrow(/uncertain outcome/);
+  expect(fetchMock).toHaveBeenCalledTimes(count);
+  storageFailure.mockRestore();
 });
