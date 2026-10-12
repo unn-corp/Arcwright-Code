@@ -218,10 +218,16 @@ export function ForkUpdateControls({
           />
         }
       />
+      {status.storageMigrationPending ? (
+        <SettingsRow
+          title="Database cleanup queued"
+          description="Your older database will be compressed and repacked once this device is idle. Chats and history are preserved. This runs once and keeps your installed build."
+        />
+      ) : null}
       {status.countdown ? (
         <SettingsRow
-          title={`Installation in ${Math.max(0, Math.ceil((status.countdown.installsAt - now) / 1000))} seconds`}
-          description="Installation will begin after the cancellable 15-second countdown. New activity defers installation."
+          title={`${status.storageMigrationPending && status.countdown.targetArtifactSha256 === status.currentBuild.artifactSha256 ? "Database cleanup" : "Installation"} in ${Math.max(0, Math.ceil((status.countdown.installsAt - now) / 1000))} seconds`}
+          description="The app will restart after the cancellable 15-second countdown. New activity defers maintenance."
           control={
             <Button
               size="sm"

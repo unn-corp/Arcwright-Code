@@ -1,5 +1,5 @@
 /* oxlint-disable t3code/no-global-process-runtime -- native maintenance configures the actual child process on this OS */
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off preferSchemaOverJson:off
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off processEnv:off preferSchemaOverJson:off
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
@@ -17,6 +17,7 @@ import {
   type ArchiveProgress,
 } from "./forkStorageArchive.ts";
 import { deduplicateEvidence } from "./forkEvidenceDedup.ts";
+import { STORAGE_MIGRATION_VERSION } from "./forkStorageMigration.ts";
 
 export interface StorageOptimizationInput {
   readonly home: string;
@@ -33,12 +34,19 @@ async function assertStorageAdmission(input: StorageOptimizationInput): Promise<
   const home = await NodeFSP.realpath(input.home);
   const status = await input.store.status(Date.now());
   const journal = await input.store.readJournal(input.transactionId);
+  const journalHome =
+    journal?.homes.includes(home) === true
+      ? home
+      : process.env.WSL_DISTRO_NAME === undefined
+        ? undefined
+        : `wsl:${process.env.WSL_DISTRO_NAME}:${home}`;
   if (
     status.fence?.transactionId !== input.transactionId ||
     journal?.kind !== "update" ||
     journal.phase !== "trial" ||
     journal.storageOptimization !== true ||
-    !journal.homes.includes(home)
+    journalHome === undefined ||
+    !journal.homes.includes(journalHome)
   )
     throw new Error("Storage optimization requires the exact authorized, fenced update trial.");
   const callerId = input.parentParticipantId ?? input.participantId;
@@ -68,7 +76,7 @@ async function assertStorageAdmission(input: StorageOptimizationInput): Promise<
     throw new Error(
       "A runtime or its agents still owns this data home; storage optimization is blocked.",
     );
-  const snapshot = journal.snapshots[home];
+  const snapshot = journal.snapshots[journalHome];
   if (snapshot === undefined)
     throw new Error("Storage optimization has no recorded restore point.");
   return snapshot;
@@ -122,6 +130,10 @@ export async function optimizeStorageHome(
     db.prepare(
       "INSERT INTO arcwright_storage_runs(transaction_id,started_at) VALUES(?,?) ON CONFLICT(transaction_id) DO NOTHING",
     ).run(input.transactionId, startedAt);
+    // Dropping large B-trees can take seconds on older homes. Keep it out of the startup schema migration.
+    db.exec(
+      "DROP INDEX IF EXISTS idx_orch_events_correlation_id; DROP INDEX IF EXISTS idx_orch_command_receipts_aggregate; DROP INDEX IF EXISTS idx_orch_command_receipts_sequence",
+    );
     const pause = async (progress: ArchiveProgress) => {
       input.progress?.(progress);
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -159,9 +171,14 @@ export async function optimizeStorageHome(
       evidence,
       snapshotId,
     };
+    db.exec("BEGIN IMMEDIATE");
     db.prepare(
       "UPDATE arcwright_storage_runs SET completed_at=?,report_json=? WHERE transaction_id=?",
     ).run(new Date().toISOString(), JSON.stringify(report), input.transactionId);
+    db.prepare(
+      "UPDATE arcwright_storage_migrations SET state='complete',completed_at=?,before_bytes=?,after_bytes=? WHERE version=?",
+    ).run(new Date().toISOString(), beforeBytes, report.afterBytes, STORAGE_MIGRATION_VERSION);
+    db.exec("COMMIT");
     return report;
   } finally {
     db.close();

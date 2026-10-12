@@ -206,6 +206,8 @@ async function harness(options: { channel?: "stable" | "nightly"; autoInstall?: 
     capacityFails: false,
     stageDigest: null as string | null,
     runtimesAcknowledge: true,
+    storagePending: false,
+    storageUnavailable: null as string | null,
   };
   const points = new Map<
     string,
@@ -225,6 +227,8 @@ async function harness(options: { channel?: "stable" | "nightly"; autoInstall?: 
     authorizationRequired: () =>
       behaviour.authorization ? "Installing the Debian package needs your authorization." : null,
     currentBuild: CURRENT,
+    storageMigrationNeeded: async () => behaviour.storagePending,
+    storageOptimizationUnavailable: async () => behaviour.storageUnavailable,
     stage: async (selection) => {
       events.push("stage");
       return {
@@ -369,6 +373,92 @@ async function harness(options: { channel?: "stable" | "nightly"; autoInstall?: 
 }
 
 describe("fork maintenance controller", () => {
+  it("automatically shrinks an older database once idle, even with binary updates disabled and a version pin", async () => {
+    const h = await harness();
+    const record = releaseRecord("1.0.0", { id: 1, digest: sha("1") });
+    h.setReleases([
+      { ...record, manifest: { ...record.manifest!, storageOptimizationProtocol: 1 } },
+    ]);
+    h.behaviour.storagePending = true;
+    await h.controller.updatePolicy({ pinnedBuild: CURRENT.artifactSha256 });
+    await h.idleRuntimes([
+      { participantId: "chat", reason: "active-agents", label: "Chat is running" },
+    ]);
+    expect((await h.controller.tick()).countdown).toBeNull();
+    expect(h.events).not.toContain("startTrial");
+    await h.idleRuntimes();
+    h.clock.value += 600_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).countdown).not.toBeNull();
+    h.clock.value += 15_000;
+    await h.idleRuntimes();
+    const done = await h.controller.tick();
+    expect(done.phase).toBe("completed");
+    expect(done.policy.pinnedBuild).toBe(CURRENT.artifactSha256);
+    const journal = (await h.controllerStore.listJournals()).find(
+      (j) => j.storageOptimization === true,
+    )!;
+    expect(journal.phase).toBe("committed");
+    expect(Object.keys(journal.snapshots)).toHaveLength(2);
+    expect(Object.keys(journal.receipts)).toHaveLength(2);
+    h.behaviour.storagePending = false;
+    await h.controller.tick();
+    expect(h.events.filter((e) => e === "startTrial")).toHaveLength(1);
+    await h.admitting();
+  });
+
+  it("does not surprise users with an OS prompt or ignore cancellation during automatic shrink", async () => {
+    const h = await harness();
+    h.behaviour.storagePending = true;
+    h.behaviour.authorization = true;
+    expect((await h.controller.tick()).blockers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: "authorization" })]),
+    );
+    expect(h.events).not.toContain("stage");
+    h.behaviour.authorization = false;
+    expect((await h.controller.tick()).countdown).not.toBeNull();
+    await h.controller.cancelCountdown();
+    h.clock.value += 60_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).countdown).toBeNull();
+    expect(h.events).not.toContain("startTrial");
+  });
+
+  it("backs off after an aborted shrink instead of repeating large snapshot attempts every tick", async () => {
+    const h = await harness();
+    const record = releaseRecord("1.0.0", { id: 1, digest: sha("1") });
+    h.setReleases([
+      { ...record, manifest: { ...record.manifest!, storageOptimizationProtocol: 1 } },
+    ]);
+    h.behaviour.storagePending = true;
+    h.behaviour.snapshotFails = true;
+    await h.controller.tick();
+    h.clock.value += 15_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).phase).toBe("failed");
+    const attempts = h.reserves.length;
+    h.clock.value += 60_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).countdown).toBeNull();
+    expect(h.reserves).toHaveLength(attempts);
+    expect(h.events).not.toContain("startTrial");
+    await h.admitting();
+  });
+
+  it("does not let a launcher missing storage support prevent a normal newer build update", async () => {
+    const h = await harness({ autoInstall: true });
+    h.behaviour.storagePending = true;
+    h.behaviour.storageUnavailable = "Refresh the older launcher.";
+    await h.ready();
+    expect((await h.controller.tick()).countdown).not.toBeNull();
+    h.clock.value += 15_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).phase).toBe("completed");
+    expect(
+      (await h.controllerStore.listJournals()).some((j) => j.storageOptimization === true),
+    ).toBe(false);
+  });
+
   it("rejects storage optimization on an older target before taking admission", async () => {
     const h = await harness();
     await h.ready();

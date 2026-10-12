@@ -10,6 +10,7 @@ import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 import { HISTORY_SOURCES, readArchivedRow, type HistorySource } from "./forkStorageArchive.ts";
 import { optimizeStorageHome } from "./forkStorageMaintenance.ts";
+import { readStorageMigrationStatus } from "./forkStorageMigration.ts";
 import {
   assertCapacity,
   createSnapshot,
@@ -33,6 +34,7 @@ export type HomeOperation =
   | { readonly op: "restore"; readonly snapshotId: string; readonly transactionId: string }
   | { readonly op: "discard"; readonly snapshotId: string }
   | { readonly op: "list" }
+  | { readonly op: "storage-status" }
   | {
       readonly op: "optimize-storage";
       readonly transactionId: string;
@@ -62,6 +64,8 @@ export async function runHomeOperation(
 ): Promise<HomeOperationResult> {
   try {
     switch (operation.op) {
+      case "storage-status":
+        return { ok: true, value: readStorageMigrationStatus(home) };
       case "optimize-storage":
         if (options.store === undefined)
           throw new Error("Storage optimization requires the native coordinator.");
@@ -229,6 +233,7 @@ export function parseHomeOperation(
     }
     case "requirement":
     case "list":
+    case "storage-status":
     case "canonical":
       return { home, operation: { op } };
     case "capacity": {

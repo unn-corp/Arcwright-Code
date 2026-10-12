@@ -119,6 +119,8 @@ export const ForkUpdateStatus = Schema.Struct({
   installable: Schema.optionalKey(Schema.Boolean),
   /** Explicit storage optimization support; older controllers omit this capability. */
   storageOptimization: Schema.optionalKey(Schema.Boolean),
+  /** Durable historical conversion requested by the database upgrade, independent of binary auto-update policy. */
+  storageMigrationPending: Schema.optionalKey(Schema.Boolean),
   /** Homes (Windows and each WSL distribution, or this host's home) that installation snapshots and replaces. */
   affectedHomes: Schema.optionalKey(Schema.Array(ForkAffectedHome)),
 });

@@ -77,8 +77,10 @@ launch. Menu updates must never trigger another database copy.
 ## Implemented storage policy
 
 Migration 101 adds the archive, content-addressed payload, legacy baseline and maintenance-run
-schemas. It removes the unused correlation-id and receipt aggregate/sequence indexes; the
-command-ID uniqueness and event stream/sequence indexes remain. Startup does not scan or
+schemas. Admitted maintenance removes the unused correlation-id and receipt
+aggregate/sequence indexes; the command-ID uniqueness and event stream/sequence
+indexes remain. Removing large index trees can take tens of seconds on old databases,
+so it happens in the maintenance worker, not the startup schema migration. Startup does not scan or
 rewrite historical bodies. New compressible payloads of 4 KiB through 64 MiB use SHA-256
 addressed gzip storage. Larger or incompressible bodies stay inline. Events and current tool
 projections share identical bodies, and every application reader expands and verifies them
@@ -86,7 +88,12 @@ before decoding or sending ordinary JSON to clients. Replay budgets count origin
 bytes without inflating bodies. Existing web, desktop, mobile and Android wire payloads remain
 compatible.
 
-An explicitly requested optimization:
+Migration 102 records a one-time shrink request for populated databases from earlier builds.
+Fresh empty homes start complete because their new writes already use the storage format.
+The request stays pending until native maintenance succeeds; normal startup does only
+small indexed lookups. Completed migrations are not repeated on subsequent launches.
+
+The admitted optimization:
 
 1. Records legacy boundaries only for completed imports whose user/assistant message counts
    match and whose original message IDs exist in V2. Incomplete imports remain untouched.
@@ -109,12 +116,19 @@ An explicitly requested optimization:
    Symlinks/special files stay untouched; unsupported filesystems skip sharing. This does not
    delete screenshots, recordings, cited files, copied source trees or active work.
 6. Rechecks admission, repacks with SQLite `VACUUM`, checks database and foreign-key integrity,
-   and records actual before/after file bytes. A completed transaction is not rerun on startup.
+   and records actual before/after file bytes. Completion of the run and one-time migration marker is recorded atomically. A completed migration is not rerun on startup.
 
 The full archive and payload store live inside `statev2.sqlite`, so online backups, native
 restore points and existing rescue/restore paths capture them together. Non-database state
 snapshots use copy-on-write copies when supported, with a normal verified-copy fallback.
 Recovery-point retention and every journal/asset pin remain unchanged.
+
+The startup-only migration on an independent copy of the audited 26.49 GiB recovery
+database measured **274 ms**, with all three large removable indexes still present and
+its one-time shrink request pending. The earlier draft dropped indexes during schema
+setup and recorded a 51-second blocking SQLite operation on the same data; that work
+now belongs to fenced maintenance. This measures database setup, not full app launch
+or production storage savings. The original restore point and running home were untouched.
 
 ## Requesting optimization
 
@@ -132,15 +146,23 @@ exact staged digest, then request:
 t3 maintenance install --digest <reviewed-artifact-sha256> --optimize-storage
 ```
 
-Bulk optimization currently supports **local desktop homes**. Managed-service launchers and
-mixed WSL cohorts reject this option because their existing trial-start deadlines cannot
-accommodate the bulk rewrite. Payload compression, compatible readers and the light schema
-migration still apply to those servers. The controller and target must advertise storage
-optimization support; release manifests use
-`storageOptimizationProtocol: 1`. Older controllers reject this option instead of silently
-ignoring it. Update them through the normal admitted path before requesting this option.
-After upgrading an older controller normally, run this same-build maintenance command with
-the reviewed **installed** digest:
+Older database formats are handled by the same one-time upgrade on supported desktop
+and managed-service installations, including registered WSL homes. The controller waits
+for real device admission, quiet input/uploads, restored-automation review and a cancellable
+15-second countdown. This data migration is independent of binary automatic-update choices
+and keeps the installed version pin. A newer staged automatic update can include cleanup
+in the same trial when its manifest advertises `storageOptimizationProtocol: 1`.
+
+Older controllers upgrade normally first. The new build records pending work and its native
+controller schedules cleanup; opening the app does not synchronously scan or vacuum history.
+Managed services must advertise the extended `storage-migration` launcher capability.
+If their long-lived launcher predates it, refresh it with `t3 service install` during the
+normal admitted maintenance window. Cleanup stays queued with that explanation until
+the launcher is supported; a normal newer binary update remains possible. Standalone/development
+runtimes are not automatic replacement targets and keep cleanup pending until operated through
+a supported native installer. Operating-system authorization is never requested automatically.
+
+For a manually admitted retry, use the reviewed **installed** digest:
 
 ```bash
 t3 maintenance optimize-storage --digest <installed-artifact-sha256>

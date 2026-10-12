@@ -20,7 +20,11 @@ it.effect("upgrades existing provider histories once without rewriting their pay
         ('malformed', 'thread:malformed', 'codex', 'idle', '2026-01-01', '{broken')`;
     const before =
       yield* sql`SELECT * FROM orchestration_v2_projection_provider_threads ORDER BY provider_thread_id`;
-    assert.deepEqual(yield* runMigrations(), [[100, "ProviderThreadRecoveryIndex"]]);
+    const applied = yield* runMigrations();
+    assert.deepEqual(
+      applied.filter(([id]) => id === 100),
+      [[100, "ProviderThreadRecoveryIndex"]],
+    );
     assert.deepEqual(yield* runMigrations(), []);
     assert.deepEqual(
       yield* sql`SELECT * FROM orchestration_v2_projection_provider_threads ORDER BY provider_thread_id`,

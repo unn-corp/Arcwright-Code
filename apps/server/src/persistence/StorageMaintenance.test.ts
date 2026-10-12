@@ -17,6 +17,7 @@ import { optimizeStorageHome } from "@t3tools/shared/forkStorageMaintenance";
 import { archiveRow, readArchivedRow } from "@t3tools/shared/forkStorageArchive";
 import { registerStorageFunctions } from "@t3tools/shared/forkStorageCodec";
 import { runStorageWorker } from "../maintenance/storageWorker.ts";
+import { readStorageMigrationStatus } from "@t3tools/shared/forkStorageMigration";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -85,6 +86,7 @@ function fixture() {
       }
       db.prepare(`INSERT INTO projection_thread_messages(message_id,thread_id,role,text,is_streaming,created_at,updated_at)
     VALUES('reasoning','complete','reasoning','preserved reasoning',0,'2026-01-01','2026-01-01')`).run();
+      db.exec("UPDATE arcwright_storage_migrations SET state='pending' WHERE version=1");
       db.close();
       const store = await CoordinatorStore.open(NodePath.join(root, "coordinator"));
       await store.register(
@@ -191,8 +193,20 @@ describe("admitted lossless storage optimization", () => {
         projection_thread_messages: 1,
       });
       expect(Number(report.afterBytes)).toBeLessThan(Number(report.beforeBytes));
+      expect(readStorageMigrationStatus(f.home)).toMatchObject({
+        state: "complete",
+        beforeBytes: report.beforeBytes,
+        afterBytes: report.afterBytes,
+      });
       const db = new NodeSqlite.DatabaseSync(f.database);
       registerStorageFunctions(db);
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_orch_events_correlation_id','idx_orch_command_receipts_aggregate','idx_orch_command_receipts_sequence')",
+          )
+          .all(),
+      ).toEqual([]);
       expect(readArchivedRow(db, "projection_thread_messages", "reasoning")?.text).toBe(
         "preserved reasoning",
       );
@@ -224,6 +238,7 @@ describe("admitted lossless storage optimization", () => {
       expect(
         restored.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
       ).toMatchObject({ count: 2 });
+      expect(readStorageMigrationStatus(f.home).state).toBe("pending");
       expect(
         restored
           .prepare("SELECT text FROM projection_thread_messages WHERE message_id='reasoning'")
@@ -273,7 +288,39 @@ describe("admitted lossless storage optimization", () => {
       expect(
         db.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
       ).toMatchObject({ count: 2 });
+      expect(readStorageMigrationStatus(f.home).state).toBe("pending");
       db.close();
+    },
+  );
+
+  storageTest(
+    "binds a WSL rewrite to the exact distribution home and its native restore point",
+    async (f) => {
+      const journalHome = `wsl:StorageFixture:${f.home}`;
+      await f.store.writeJournal({
+        ...f.journal,
+        phase: "trial",
+        homes: [journalHome],
+        snapshots: { [journalHome]: f.snapshot },
+      });
+      const savedDistro = process.env.WSL_DISTRO_NAME;
+      try {
+        process.env.WSL_DISTRO_NAME = "WrongFixture";
+        await expect(
+          optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
+        ).rejects.toThrow("exact authorized");
+        process.env.WSL_DISTRO_NAME = "StorageFixture";
+        const report = await optimizeStorageHome({
+          home: f.home,
+          transactionId: f.journal.id,
+          store: f.store,
+        });
+        expect(Number(report.afterBytes)).toBeLessThan(Number(report.beforeBytes));
+        expect(readStorageMigrationStatus(f.home).state).toBe("complete");
+      } finally {
+        if (savedDistro === undefined) delete process.env.WSL_DISTRO_NAME;
+        else process.env.WSL_DISTRO_NAME = savedDistro;
+      }
     },
   );
 

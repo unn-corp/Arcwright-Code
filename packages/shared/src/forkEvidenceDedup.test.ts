@@ -15,11 +15,12 @@ it("preserves independent source-tree edits and references when evidence support
     const bytes = "source evidence\n".repeat(1000);
     await NodeFSP.writeFile(first, bytes, { mode: 0o600 });
     await NodeFSP.writeFile(second, bytes, { mode: 0o640 });
+    const originalMode = (await NodeFSP.lstat(second)).mode & 0o777;
     await NodeFSP.symlink(first, NodePath.join(root, "external-link"));
     const report = await deduplicateEvidence(root, db, async () => {});
     expect(report.shared + report.unsupported).toBe(1);
     expect(await NodeFSP.readFile(second, "utf8")).toBe(bytes);
-    expect((await NodeFSP.lstat(second)).mode & 0o777).toBe(0o640);
+    expect((await NodeFSP.lstat(second)).mode & 0o777).toBe(originalMode);
     expect((await NodeFSP.lstat(first)).ino).not.toBe((await NodeFSP.lstat(second)).ino);
     await NodeFSP.writeFile(first, "changed independently");
     expect(await NodeFSP.readFile(second, "utf8")).toBe(bytes);

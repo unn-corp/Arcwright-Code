@@ -294,14 +294,18 @@ to enable that channel. Native recovery offers the same route when the bundled i
 ## Storage maintenance
 
 Large output bodies are stored once in compressed form while chats and their original
-replay history stay available. Historical cleanup is an explicit native maintenance
-operation for local desktop installations. It waits for device admission, verifies a
-restore point, preserves old reasoning/tool history and command retries, deduplicates
-evidence without changing paths, and repacks the database in a background worker.
+replay history stay available. Upgrading a populated database from an older build queues
+a one-time shrink. It waits for idle maintenance admission and a cancellable countdown,
+then verifies a restore point and repacks the database in a background worker. Running
+chats continue and hold cleanup until they finish. Later launches do not repeat completed cleanup.
 
-After upgrading to a supported numbered nightly, `t3 maintenance optimize-storage
---digest <installed-artifact-sha256>` restarts that exact verified build for cleanup.
-An update can also request `--optimize-storage` when both controller and target support
-it. Keep running chats active while admission waits. Read the
+This data upgrade keeps your installed version and pin, independently of the automatic
+binary-update setting. If a managed server reports an older service launcher, refresh it
+with `t3 service install` during its maintenance window so the queued cleanup can run.
+An installation needing operating-system authorization waits for a manual request.
+
+For a manual retry on a supported numbered nightly, use `t3 maintenance optimize-storage
+--digest <installed-artifact-sha256>`. An update can also request `--optimize-storage`
+when both controller and target support it. Read the
 [storage runbook](../operations/database-storage.md) for exact commands, limits and
-old-history access. Root-space savings are measured only after the admitted run.
+old-history access. Savings are measured after the admitted run.

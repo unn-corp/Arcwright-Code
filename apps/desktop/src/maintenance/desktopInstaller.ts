@@ -15,6 +15,7 @@ import { awaitReceipt, type ForkInstallerPorts } from "@t3tools/shared/forkMaint
 import type { MaintenanceJournal } from "@t3tools/shared/forkMaintenanceJournal";
 import { stateDirectory } from "@t3tools/shared/forkMaintenanceSnapshot";
 import type { ReceiptSlot } from "@t3tools/shared/forkMaintenanceStore";
+import { createStorageMigrationCheck } from "@t3tools/shared/forkStorageMigration";
 import {
   createCohortFence,
   createCohortStorage,
@@ -133,6 +134,10 @@ const NEVER = new Promise<never>(() => undefined);
 export function createDesktopInstaller(input: DesktopInstallerInput) {
   const { paths } = input;
   let previousInstaller: CachedArtifact | null = null;
+  const storageMigrationNeeded = createStorageMigrationCheck(
+    async () => (await storage()).storageMigrationNeeded(),
+    input.now,
+  );
 
   const freeBytes =
     input.freeBytes ??
@@ -319,6 +324,7 @@ export function createDesktopInstaller(input: DesktopInstallerInput) {
       });
     },
     restorePoints: async (home) => (await storage()).restorePoints(home),
+    storageMigrationNeeded,
     homeLabel: (home) => {
       const wsl = parseWslHomeId(home);
       return wsl === null

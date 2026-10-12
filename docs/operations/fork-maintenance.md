@@ -43,7 +43,9 @@ Migration 101 adds content-addressed compressed event/tool bodies, checksummed c
 legacy history and durable legacy stream baselines. The server expands references
 before its existing contracts and JSON projection queries, preserving paired-client
 compatibility and original replay byte budgets. Normal startup performs light schema
-work; historical rewriting is an explicit native update option for local desktop homes.
+work; migration 102 queues one-time historical shrink for populated older databases.
+Supported desktop, WSL and managed-service launchers perform it during native maintenance;
+older service launchers hold it pending until refreshed. Completed migrations are not rerun.
 The exact journal, native snapshots, worker parent/child identities, fencing, capacity
 checks and final health receipts govern the entire operation. Worker ownership survives
 an unexpected parent exit; recovery must not race a recorded storage worker.
@@ -53,7 +55,9 @@ The implementation is owned by [payload storage](../../apps/server/src/persisten
 [legacy archives](../../packages/shared/src/forkStorageArchive.ts),
 [maintenance admission](../../packages/shared/src/forkStorageMaintenance.ts), and
 [the CLI worker](../../apps/server/src/maintenance/storageWorker.ts). Preserve the
-storage compatibility and maintenance regression suites when merging upstream. Read
+storage compatibility and maintenance regression suites when merging upstream. Populated databases from older builds queue a durable one-time shrink; it uses the same
+coordinator snapshots and receipts, preserves version pins, and waits for launcher support.
+Read
 [the storage runbook](database-storage.md) for retention boundaries, old-history access,
 supported installation paths and production verification. GitHub build retention is
 owned separately by [the release retention policy](fork-releases.md#github-build-storage-retention).

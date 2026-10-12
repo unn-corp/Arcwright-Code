@@ -8,6 +8,7 @@ import { parseFenceOperation, runFenceOperation } from "./forkMaintenanceFenceOp
 import { parseHomeOperation, runHomeOperation } from "./forkMaintenanceHomeOperations.ts";
 import { newJournal } from "./forkMaintenanceJournal.ts";
 import { CoordinatorStore } from "./forkMaintenanceStore.ts";
+import { createStorageMigrationCheck } from "./forkStorageMigration.ts";
 import {
   createCohortFence,
   createRunnerFenceControl,
@@ -294,6 +295,43 @@ describe("explicit Windows/WSL membership", () => {
     await expect(storage.assertCapacity(["wsl:Gone:/nowhere"])).rejects.toThrow(
       "There is no distribution",
     );
+  });
+
+  it("finds an older pending database in a WSL member through the home protocol", async () => {
+    const c = await cohort();
+    for (const [home, state] of [
+      [c.windowsHome, "complete"],
+      [c.ubuntu.home, "pending"],
+    ] as const) {
+      const db = new NodeSqlite.DatabaseSync(NodePath.join(home, "userdata", "statev2.sqlite"));
+      db.exec(
+        `CREATE TABLE arcwright_storage_migrations(version INTEGER PRIMARY KEY,state TEXT,before_bytes INTEGER,after_bytes INTEGER); INSERT INTO arcwright_storage_migrations VALUES(1,'${state}',NULL,NULL)`,
+      );
+      db.close();
+    }
+    const storage = createCohortStorage([
+      { id: c.windowsHome, label: "Windows", control: createLocalHomeControl(c.windowsHome) },
+      {
+        id: wslHomeId(memberOf("Ubuntu", c.ubuntu.home)),
+        label: "Ubuntu",
+        control: createWslHomeControl(memberOf("Ubuntu", c.ubuntu.home), c.exec),
+      },
+    ]);
+    let now = 0;
+    const check = createStorageMigrationCheck(
+      () => storage.storageMigrationNeeded(),
+      () => now,
+    );
+    expect(await Promise.all([check(), check(), check()])).toEqual([true, true, true]);
+    expect(c.calls.filter((call) => call === "Ubuntu:home:storage-status")).toHaveLength(1);
+    const db = new NodeSqlite.DatabaseSync(
+      NodePath.join(c.ubuntu.home, "userdata", "statev2.sqlite"),
+    );
+    db.exec("UPDATE arcwright_storage_migrations SET state='complete'");
+    db.close();
+    now += 60_000;
+    expect(await check()).toBe(false);
+    expect(c.calls.filter((call) => call === "Ubuntu:home:storage-status")).toHaveLength(2);
   });
 
   it("blocks a cohort whose homes fit separately but exceed their shared filesystem together", async () => {

@@ -11,6 +11,7 @@ import {
   decodeServiceLauncherParentMessage,
   SERVICE_LAUNCHER_CONTEXT_ENV,
   SERVICE_LAUNCHER_MAINTENANCE_TRIAL,
+  SERVICE_LAUNCHER_STORAGE_MIGRATION,
   type ServiceLauncherChildMessage,
   type ServiceMaintenanceTrial,
   type ServiceLauncherParentMessage,
@@ -104,6 +105,7 @@ export class ServiceLauncherClient extends Context.Service<
     readonly managed: boolean;
     /** True when this launcher can hand a one-use maintenance capability to the trial child. Older launchers cannot. */
     readonly supportsMaintenanceTrial: boolean;
+    readonly supportsStorageOptimization?: boolean;
     readonly requestUpdate: (input: {
       readonly targetVersion: string;
       readonly dbPath: string;
@@ -258,6 +260,8 @@ export const make = Effect.fn("cloud.service_launcher_client.make")(function* (o
 
   return ServiceLauncherClient.of({
     managed,
+    supportsStorageOptimization:
+      context?.capabilities?.includes(SERVICE_LAUNCHER_STORAGE_MIGRATION) === true,
     supportsMaintenanceTrial:
       context?.capabilities?.includes(SERVICE_LAUNCHER_MAINTENANCE_TRIAL) === true,
     requestUpdate,

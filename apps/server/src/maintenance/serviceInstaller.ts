@@ -18,6 +18,10 @@ import {
 import type { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 import { installRecoveryHelper, recoveryReady } from "@t3tools/shared/forkRecoveryCache";
 import type { ServiceMaintenanceTrial } from "../cloud/serviceProtocol.ts";
+import {
+  readStorageMigrationStatus,
+  createStorageMigrationCheck,
+} from "@t3tools/shared/forkStorageMigration";
 
 export interface ServiceInstallerInput {
   /** The canonical data home: the directory that contains `userdata`. */
@@ -27,6 +31,7 @@ export interface ServiceInstallerInput {
   readonly currentBuild: ForkBuildIdentity;
   readonly launcher: {
     readonly supportsMaintenanceTrial: boolean;
+    readonly supportsStorageOptimization?: boolean;
     readonly requestUpdate: (input: {
       readonly targetVersion: string;
       readonly dbPath: string;
@@ -60,6 +65,14 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
     platform: input.platform,
     packaging: input.platform === null ? null : "service",
     currentBuild: input.currentBuild,
+    storageMigrationNeeded: createStorageMigrationCheck(
+      async () => readStorageMigrationStatus(home).state === "pending",
+      input.now,
+    ),
+    storageOptimizationUnavailable: async () =>
+      input.launcher.supportsStorageOptimization === true
+        ? null
+        : "The service launcher must be upgraded before the automatic database storage migration can run safely. Run `t3 service install` to refresh it; the database upgrade remains queued.",
     unavailableReason: async () => {
       if (input.platform === null) return "Fork builds are not published for this platform.";
       if (!input.launcher.supportsMaintenanceTrial) {
@@ -139,7 +152,10 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
       await input.launcher.requestUpdate({
         targetVersion: journal.target.version,
         dbPath: input.dbPath,
-        trial: capability,
+        trial:
+          journal.storageOptimization === true
+            ? { ...capability, storageOptimization: true }
+            : capability,
       });
     },
     // This process is stopped by the launcher moments after it accepts; the successor verifies.

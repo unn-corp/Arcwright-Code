@@ -25,6 +25,7 @@ import {
   parseServiceState,
   SERVICE_LAUNCHER_CONTEXT_ENV,
   SERVICE_LAUNCHER_MAINTENANCE_TRIAL,
+  SERVICE_LAUNCHER_STORAGE_MIGRATION,
   SERVICE_LAUNCHER_PROTOCOL,
   type ServiceMaintenanceTrial,
   SERVICE_STATE_FILE,
@@ -303,6 +304,7 @@ function terminalUpdate<S extends TerminalStatus>(input: {
     fromVersion: input.pending.fromVersion,
     targetVersion: input.pending.targetVersion,
     status: input.status,
+    ...(input.pending.storageOptimization === true ? { storageOptimization: true } : {}),
     ...(input.reason === undefined ? {} : { reason: input.reason }),
   };
 }
@@ -516,7 +518,7 @@ export class Launcher {
     const context: ServiceLauncherContext = {
       protocol: SERVICE_LAUNCHER_PROTOCOL,
       childVersion: version,
-      capabilities: [SERVICE_LAUNCHER_MAINTENANCE_TRIAL],
+      capabilities: [SERVICE_LAUNCHER_MAINTENANCE_TRIAL, SERVICE_LAUNCHER_STORAGE_MIGRATION],
       ...(update === undefined ? {} : { update }),
     };
     const spawnArguments = this.#runtimeSpawn(paths);
@@ -570,7 +572,7 @@ export class Launcher {
     if (role === "trial") {
       this.#timer = setTimeout(
         () => this.#enqueue(() => this.#handlePreparedTimeout(managed)),
-        PREPARED_TIMEOUT_MS,
+        trial?.storageOptimization === true ? 2 * 60 * 60_000 : PREPARED_TIMEOUT_MS,
       );
     }
   }
@@ -606,7 +608,8 @@ export class Launcher {
       await reject("The requested target is not an exact version.");
       return;
     }
-    if (compareExactServiceVersions(message.targetVersion, child.version) <= 0) {
+    const comparison = compareExactServiceVersions(message.targetVersion, child.version);
+    if (comparison < 0 || (comparison === 0 && message.trial?.storageOptimization !== true)) {
       await reject("Remote updates must select a newer server version.");
       return;
     }
@@ -625,6 +628,7 @@ export class Launcher {
       targetVersion: message.targetVersion,
       dbPath: message.dbPath,
       status: "pending",
+      ...(message.trial?.storageOptimization === true ? { storageOptimization: true } : {}),
     };
     const next: ServiceState = { ...this.#state, update: pending };
     await writeServiceState(this.#statePath, next);

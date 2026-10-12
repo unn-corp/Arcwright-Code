@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./forkStorageMigration": {
+      "types": "./src/forkStorageMigration.ts",
+      "import": "./src/forkStorageMigration.ts"
+    },
     "./forkStorageCodec": {
       "types": "./src/forkStorageCodec.ts",
       "import": "./src/forkStorageCodec.ts"

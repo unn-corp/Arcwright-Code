@@ -112,6 +112,9 @@ export interface ForkInstallerPorts extends Omit<
   readonly platform: ForkPlatformKey | null;
   /** Which payload this installation takes. Null fails closed: no payload is ever guessed. */
   readonly packaging: ForkPackaging | null;
+  readonly storageMigrationNeeded?: () => Promise<boolean>;
+  /** Missing native launcher support holds the migration; it never falls back to an unsafe rewrite. */
+  readonly storageOptimizationUnavailable?: () => Promise<string | null>;
   /**
    * Set when installing needs an operating-system authorization prompt (a Debian package). Automatic
    * installation then waits and shows why; only a person-initiated install proceeds, and the prompt is theirs to approve.
@@ -195,6 +198,8 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   let feedRateLimit: ForkFeedRateLimitError | null = null;
   let nextCheckAt: number | null = null;
   let countdown: ForkUpdateCountdown | null = null;
+  let storageCountdown: ForkUpdateCountdown | null = null;
+  let nextStorageAttemptAt = 0;
   /** Why automatic installation is waiting (input, uploads, review). Distinct from device blockers: manual installs ignore these. */
   let waitingBlockers: ReadonlyArray<ForkActivityBlocker> = [];
   let activeTransactionId: string | null = null;
@@ -362,8 +367,9 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     const result: ForkUpdateStatus = {
       storageOptimization:
         installer.packaging !== null &&
-        installer.packaging !== "service" &&
-        affectedHomes.every((home) => !home.id.startsWith("wsl:")),
+        ((await installer.storageOptimizationUnavailable?.()) ?? null) === null,
+      storageMigrationPending:
+        (await installer.storageMigrationNeeded?.().catch(() => false)) ?? false,
       coordinatorId: coordinator.id,
       ...(affectedHomes.length === 0
         ? {}
@@ -385,7 +391,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       transactionId: activeTransactionId,
       automationReviewRequired: policy.automationReviewRequired,
       nextCheckAt,
-      countdown,
+      countdown: storageCountdown ?? countdown,
       lastError,
       affectedHomes,
       installable:
@@ -590,7 +596,13 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
           // The old data is back, but automation that ran while the trial held its homes needs a person's review.
           await savePolicy({
             ...policy,
-            failedArtifactSha256: [...new Set([...policy.failedArtifactSha256, failedDigest])],
+            failedArtifactSha256: [
+              ...new Set([
+                ...policy.failedArtifactSha256,
+                failedDigest,
+                ...(journal.storageOptimization === true ? [journal.previous.artifactSha256] : []),
+              ]),
+            ],
             automationReviewRequired: true,
           });
         }
@@ -685,13 +697,10 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     if (!(await installer.recoveryReady(fresh))) throw fail("Recovery assets are not cached.");
     const homes = await installer.affectedHomes();
     if (homes.length === 0) throw fail("No data home is registered for this update.");
-    if (
-      optimizeStorage &&
-      (installer.packaging === "service" || homes.some((home) => home.startsWith("wsl:")))
-    )
-      throw fail(
-        "Bulk storage optimization currently supports local desktop homes. Managed-service and WSL launchers require a separate supported maintenance window.",
-      );
+    if (optimizeStorage) {
+      const reason = await installer.storageOptimizationUnavailable?.();
+      if (reason) throw fail(reason);
+    }
     await installer.assertCapacity(homes, { rescue: false }).catch((cause: unknown) => {
       throw fail(messageOf(cause));
     });
@@ -700,6 +709,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     activeTransactionId = transactionId;
     phase = "installing";
     countdown = null;
+    storageCountdown = null;
     await publish();
     let journal: MaintenanceJournal;
     try {
@@ -737,45 +747,115 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   const install = (expectedSha256: string, optimizeStorage = false) =>
     serialized(() => runInstall(expectedSha256, false, optimizeStorage));
 
+  const runStorageOptimization = async (expectedSha256: string, automatic = false) => {
+    await loadPolicy();
+    if ((await status()).storageOptimization !== true)
+      throw fail("The launcher cannot safely run the database storage upgrade yet.");
+    if (activeTransactionId !== null) throw fail("An update is already in progress.");
+    if (expectedSha256 !== installer.currentBuild.artifactSha256)
+      throw fail("Storage maintenance must name the exact installed artifact.");
+    const releases = await readFeed();
+    const record = releases.find(
+      (candidate) =>
+        candidate.manifest?.version === installer.currentBuild.version &&
+        candidate.manifest.commit === installer.currentBuild.commit &&
+        (installer.packaging === "service" ||
+          artifactDigest(candidate.manifest) === expectedSha256) &&
+        classifyForkRelease(candidate, releases).eligible,
+    );
+    if (record?.manifest?.storageOptimizationProtocol !== 1)
+      throw fail("The installed build is not a verified storage-capable fork release.");
+    const selection = { record, manifest: record.manifest };
+    const savedTarget = target,
+      savedStaged = stagedSha256;
+    const staged = await installer.stage(selection);
+    const reviewedDigest = artifactDigest(record.manifest);
+    if (staged.artifactSha256 !== reviewedDigest)
+      throw fail("The retained installed binary digest differs from the reviewed artifact.");
+    target = selection;
+    stagedSha256 = staged.artifactSha256;
+    try {
+      return await runInstall(staged.artifactSha256, automatic, true, true);
+    } finally {
+      target = savedTarget;
+      stagedSha256 = savedStaged;
+    }
+  };
   const optimizeStorage = (expectedSha256: string) =>
-    serialized(async () => {
-      await loadPolicy();
-      if ((await status()).storageOptimization !== true)
-        throw fail("Bulk storage optimization currently supports local desktop homes.");
-      if (activeTransactionId !== null) throw fail("An update is already in progress.");
-      if (expectedSha256 !== installer.currentBuild.artifactSha256)
-        throw fail("Storage maintenance must name the exact installed artifact.");
-      const releases = await readFeed();
-      const record = releases.find(
-        (candidate) =>
-          candidate.manifest?.version === installer.currentBuild.version &&
-          candidate.manifest.commit === installer.currentBuild.commit &&
-          artifactDigest(candidate.manifest) === expectedSha256 &&
-          classifyForkRelease(candidate, releases).eligible,
-      );
-      if (record?.manifest?.storageOptimizationProtocol !== 1)
-        throw fail("The installed build is not a verified storage-capable fork release.");
-      const selection = { record, manifest: record.manifest };
-      const savedTarget = target,
-        savedStaged = stagedSha256;
-      const staged = await installer.stage(selection);
-      if (staged.artifactSha256 !== expectedSha256)
-        throw fail("The retained installed binary digest differs from the reviewed artifact.");
-      target = selection;
-      stagedSha256 = expectedSha256;
-      try {
-        return await runInstall(expectedSha256, false, true, true);
-      } finally {
-        target = savedTarget;
-        stagedSha256 = savedStaged;
-      }
-    });
+    serialized(() => runStorageOptimization(expectedSha256));
 
   const tick = () =>
     serialized(async () => {
       await loadPolicy();
-      if (activeTransactionId !== null || target === null || stagedSha256 === null)
+      const storagePending =
+        (await installer.storageMigrationNeeded?.().catch(() => false)) ?? false;
+      const storageUnavailable = storagePending
+        ? ((await installer.storageOptimizationUnavailable?.()) ?? null)
+        : null;
+      const authorization = installer.authorizationRequired?.() ?? null;
+      const newerAutomaticUpdate =
+        target !== null &&
+        stagedSha256 !== null &&
+        policy.automaticInstallation &&
+        policy.pinnedBuild === null;
+      if (
+        activeTransactionId === null &&
+        ports.now() >= nextStorageAttemptAt &&
+        storagePending &&
+        storageUnavailable === null &&
+        !newerAutomaticUpdate
+      ) {
+        const gate = evaluateAutomaticInstall({
+          now: ports.now(),
+          blockers: await coordinatorBlockers(),
+          automaticInstallation: !policy.failedArtifactSha256.includes(
+            installer.currentBuild.artifactSha256,
+          ),
+          targetArtifactSha256: installer.currentBuild.artifactSha256,
+          interaction: ports.interaction(),
+          countdown: storageCountdown,
+          automationReviewRequired: policy.automationReviewRequired,
+          cancelledTargetSha256: policy.cancelledTargetSha256,
+        });
+        if (authorization !== null && (gate.state === "countdown" || gate.state === "install")) {
+          storageCountdown = null;
+          waitingBlockers = [
+            { participantId: "storage-migration", reason: "authorization", label: authorization },
+          ];
+          return publish();
+        }
+        storageCountdown = gate.state === "countdown" ? gate.countdown : null;
+        if (gate.state === "install") {
+          try {
+            const result = await runStorageOptimization(
+              installer.currentBuild.artifactSha256,
+              true,
+            );
+            if (result.phase !== "completed") nextStorageAttemptAt = ports.now() + 4 * 60 * 60_000;
+            return result;
+          } catch (cause) {
+            lastError = messageOf(cause);
+            nextStorageAttemptAt = ports.now() + 4 * 60 * 60_000;
+          }
+        }
+        waitingBlockers = gate.state === "waiting" ? gate.blockers : [];
         return publish();
+      }
+      storageCountdown = null;
+      const storageBlockers: ForkActivityBlocker[] =
+        storageUnavailable === null
+          ? []
+          : [
+              {
+                participantId: "storage-migration",
+                reason: "launcher",
+                label: storageUnavailable,
+              },
+            ];
+      if (activeTransactionId !== null || target === null || stagedSha256 === null) {
+        waitingBlockers = storageBlockers;
+        return publish();
+      }
       const gate = evaluateAutomaticInstall({
         now: ports.now(),
         blockers: [...(await coordinatorBlockers()), ...feedBlockers()],
@@ -786,7 +866,6 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
         automationReviewRequired: policy.automationReviewRequired,
         cancelledTargetSha256: policy.cancelledTargetSha256,
       });
-      const authorization = installer.authorizationRequired?.() ?? null;
       // An authorization prompt cannot be answered by nobody: automatic installs wait and say so.
       if (authorization !== null && (gate.state === "countdown" || gate.state === "install")) {
         waitingBlockers = [
@@ -795,12 +874,18 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
         countdown = null;
         return publish();
       }
-      waitingBlockers = gate.state === "waiting" ? gate.blockers : [];
+      waitingBlockers = [...(gate.state === "waiting" ? gate.blockers : []), ...storageBlockers];
       if (gate.state === "countdown") countdown = gate.countdown;
       else countdown = null;
       if (gate.state === "install") {
         try {
-          return await runInstall(stagedSha256, true);
+          return await runInstall(
+            stagedSha256,
+            true,
+            storagePending &&
+              storageUnavailable === null &&
+              target.manifest.storageOptimizationProtocol === 1,
+          );
         } catch (cause) {
           lastError = messageOf(cause);
           countdown = null;
@@ -812,9 +897,13 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   const cancelCountdown = () =>
     serialized(async () => {
       await loadPolicy();
-      if (countdown !== null) {
-        await savePolicy({ ...policy, cancelledTargetSha256: countdown.targetArtifactSha256 });
+      if (countdown !== null || storageCountdown !== null) {
+        await savePolicy({
+          ...policy,
+          cancelledTargetSha256: (storageCountdown ?? countdown)!.targetArtifactSha256,
+        });
         countdown = null;
+        storageCountdown = null;
       }
       return publish();
     });

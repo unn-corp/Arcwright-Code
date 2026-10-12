@@ -208,6 +208,7 @@ const make = Effect.gen(function* () {
     currentBuild,
     launcher: {
       supportsMaintenanceTrial: launcher.supportsMaintenanceTrial,
+      supportsStorageOptimization: launcher.supportsStorageOptimization ?? false,
       requestUpdate: (input) => Effect.runPromiseWith(context)(launcher.requestUpdate(input)),
     },
     dbPath: config.dbPath,
