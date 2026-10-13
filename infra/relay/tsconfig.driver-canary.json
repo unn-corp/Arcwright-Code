@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "alchemy.driver-canary.run.ts",
+    "src/ownedConnectDriverCanary.ts",
+    "scripts/owned-connect-driver-canary-*.ts"
+  ]
+}

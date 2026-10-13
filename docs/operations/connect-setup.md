@@ -64,6 +64,43 @@ cannot mask an owned or cloudless predecessor. This refusal does not establish o
 provenance. Native/server owned releases still require that release/recovery work and live
 commissioning. The independent hosted preparation artifact does not commission those clients.
 
+## Isolated database driver canary
+
+[alchemy.driver-canary.run.ts](../../infra/relay/alchemy.driver-canary.run.ts) defines only
+`ArcwrightConnectDriverCanary`, stage `devotek-driver-canary`, Worker
+`arcwright-connect-driver-canary`. It binds existing Hyperdrive
+`12d94be566e04becba00585b67444d28` in account `e0fa69f64063aa2670ad354549a34dd6`.
+The required absolute `ARCWRIGHT_CONNECT_DRIVER_CANARY_CONFIG` JSON has exactly
+`accountId`, `hyperdriveId`, `workerName`, `stage`, and `privateStateRoot`; it contains no secrets.
+The distinct external state root ends in `driver-canary/alchemy`, is operator-owned mode 0700
+with no symlink components, and must be the CLI cwd. The entry requires explicit account/stage,
+`CI=true`, API token, and a privately injected canonical base64url probe secret of 32–64 random
+bytes; it reads only the process secret provider. Never select the legacy relay entry.
+
+The workers.dev endpoint is internet-routable and protected by `X-Arcwright-Canary-Key`.
+Authenticated `GET /metadata` does not access the database; only authenticated `POST /probe`
+runs fixed parameterized SELECTs and read-only transaction commit/rollback controls using the
+installed Alchemy Drizzle/Postgres driver with `prepare:false`. Scope cleanup completes before
+a success receipt; database failures produce fixed 503 responses. Read-only rollback control
+does not establish durable DML rollback or application schema readiness.
+
+Offline validation uses the public actual source provider and every unchanged emitted file in
+installed workerd, with a private Unix HTTP socket and all outbound address classes denied.
+Run the two `infra/relay/scripts/owned-connect-driver-canary*.test.ts` suites with one worker,
+then `node infra/relay/node_modules/typescript/bin/tsc --noEmit -p infra/relay/tsconfig.driver-canary.json`.
+[The offline builder](../../infra/relay/scripts/owned-connect-driver-canary-offline.ts) also accepts
+`--output /absolute/private/fixture-directory`; the existing directory must be mode 0700 and no
+cloud token or actual probe secret may be present. It retains all bundle files/maps and hashes.
+Pinned date `2026-09-18` enables Node compatibility implicitly; Alchemy contributes
+`new_module_registry` to runtime metadata, requiring workerd's local `--experimental` switch.
+Its source provider materializes a Node flag for tooling only. Offline denial proves no
+successful egress; separate accessor tests prove auth/metadata laziness.
+
+This source slice is uncommissioned. After independent source reviews, separately review the
+private plan for exactly this one Worker and its two bindings, then perform bounded real
+Hyperdrive probes. Remove only the canary through its separate state. Offline checks do not
+prove live Hyperdrive transport, repeated/concurrent connection cleanup, or relay readiness.
+
 ## Independent owned hosted web
 
 [build-owned-connect-web.ts](../../scripts/build-owned-connect-web.ts) builds only the hosted web
