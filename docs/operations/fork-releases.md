@@ -18,6 +18,42 @@ next launch. This name takes precedence over the legacy `T3CODE_DISABLE_AUTO_UPD
 alias, including when explicitly enabling updates. Automatic installation remains a
 separate saved preference in App updates and retains coordinator admission checks.
 
+## Default agent delivery
+
+When a user asks any AI agent in this codebase to build, package, install, or update
+**Arcwright Code**, deliver a numbered nightly by default:
+
+1. Check the fork's published releases and active release runs. If the latest eligible,
+   verified nightly contains the requested changes and supports the target device,
+   use that release through the normal installation flow. Verify its manifest, source,
+   artifact size/digest, and release checks; a version label alone is insufficient.
+2. If the requested changes need a new build, complete focused validation, commit and
+   push the required changes, and pin the full tested commit on `main`. Reuse an active
+   run already commissioned for that source; otherwise dispatch the fork release
+   workflow with `channel=nightly`, the exact `commit`, and `publish=true`. While
+   scheduled publishing remains disabled, use `commission=true` as described under
+   [Operating](#operating). Preserve required Android recovery coverage and every
+   build, update, and recovery gate. Only the pipeline allocates the new nightly identity.
+3. Publication satisfies a build/publication request; perform installation when that
+   is the selected delivery path or the user requested it. Keep the current app and
+   chats running until the native maintenance coordinator admits replacement. Preserve
+   pins, saved update preferences, and required recovery assets. After installation,
+   verify startup and saved connections, then complete and document the
+   [canonical menu replacement](#local-desktop-builds-and-menu-replacement).
+4. Report the actual nightly name/version, source, release/run link, and verified
+   publication or installation state. If a gate fails, access is unavailable, or
+   admission is pending, report the concrete blocker. A dispatched build is still
+   pending; do not substitute a preview or claim installation before verification.
+
+An explicit user choice takes precedence: source-only work, a development/test build,
+local-only packaging, a stable channel, or a pinned version. Locally built nightlies
+still follow the allocated identity and installation rules. Documentation or review
+work, and building an unrelated application, do not themselves commission an Arcwright
+release. This delivery default does not change workflow input defaults, enable
+scheduled publication, change device update preferences, or bypass maintenance checks.
+Keep the [five-nightly/five-stable retention policy](#github-build-storage-retention)
+in force; avoid duplicate runs and unnecessary retained build copies.
+
 ## What a release is
 
 | Item               | Rule                                                                                                                                                         |
