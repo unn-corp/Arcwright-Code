@@ -11,6 +11,11 @@ import { ChildProcessSpawner } from "effect/process/ChildProcessSpawner";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Undici from "@effect/platform-node/Undici";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as Clock from "effect/Clock";
+import { resolveSource, makeSourceContext } from "alchemy/Cloudflare/Workers";
+import * as Artifacts from "alchemy/Artifacts";
+import { AlchemyContext } from "alchemy/AlchemyContext";
+import { deadlineFixtureProps } from "./owned-connect-driver-canary-deadline-fixture.ts";
 import { buildDriverCanaryOffline } from "./owned-connect-driver-canary-offline.ts";
 import {
   CANARY_HEADER,
@@ -43,6 +48,202 @@ const request = Effect.fnUntraced(
   Effect.scoped,
   Effect.timeout("20 seconds"),
   Effect.catchCause(() => Effect.fail(new WorkerdFixtureFailed())),
+);
+
+it.live(
+  "returns deadline failures while the actual workerd bridge owns stalled coordinator cleanup",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const spawner = yield* ChildProcessSpawner;
+      const root = yield* fs.makeTempDirectory({
+        directory: "/tmp",
+        prefix: "arcwright-deadline-",
+      });
+      yield* fs.chmod(root, 0o700);
+      yield* Effect.gen(function* () {
+        const built = yield* Effect.gen(function* () {
+          const source = yield* resolveSource(deadlineFixtureProps);
+          return yield* source.build(
+            makeSourceContext({
+              dotAlchemy: root,
+              id: "OwnedConnectDriverDeadlineFixture",
+              fqn: "OwnedConnectDriverDeadlineFixture",
+              workerName: deadlineFixtureProps.name,
+              props: deadlineFixtureProps,
+              compatibility: deadlineFixtureProps.compatibility,
+              stack: {
+                name: "ArcwrightConnectDriverDeadlineFixture",
+                stage: "devotek-driver-canary",
+              },
+            }),
+          );
+        }).pipe(
+          Effect.provideService(
+            Artifacts.Artifacts,
+            Artifacts.makeScopedArtifacts(
+              Artifacts.createArtifactStore(),
+              "OwnedConnectDriverDeadlineFixture",
+            ),
+          ),
+          Effect.provideService(AlchemyContext, {
+            dotAlchemy: root,
+            dev: false,
+            adopt: false,
+            updateStateStore: false,
+          }),
+          Effect.scoped,
+        );
+        if (!built.bundle || built.assets !== undefined) return yield* new WorkerdFixtureFailed();
+        for (const file of built.bundle.files) {
+          const filename = path.join(root, file.path);
+          yield* fs.makeDirectory(path.dirname(filename), { recursive: true, mode: 0o700 });
+          yield* fs.writeFile(
+            filename,
+            typeof file.content === "string"
+              ? new TextEncoder().encode(file.content)
+              : file.content,
+            { mode: 0o600 },
+          );
+        }
+        const modules = built.bundle.files
+          .map(
+            (file) =>
+              `(name=${JSON.stringify(file.path)}, ${file.path.endsWith(".js") ? "esModule" : "text"}=embed ${JSON.stringify(file.path)})`,
+          )
+          .join(",\n");
+        const config = path.join(root, "deadline.capnp");
+        yield* fs.writeFileString(
+          config,
+          `using Workerd = import "/workerd/workerd.capnp";
+const config :Workerd.Config = (services = [
+(name="fixture", worker=(modules=[${modules}], compatibilityDate="2026-09-18", compatibilityFlags=["new_module_registry"], globalOutbound="deny-all", bindings=[
+(name="ALCHEMY_PHASE",text="runtime"),(name="ALCHEMY_WORKER_NAME",text="arcwright-offline-driver-deadline"),
+(name="ALCHEMY_STACK_NAME",text="ArcwrightConnectDriverDeadlineFixture"),(name="ALCHEMY_STAGE",text="devotek-driver-canary"),
+(name="ALCHEMY_CLOUDFLARE_ACCOUNT_ID",text="00000000000000000000000000000000")
+])),(name="deny-all",network=(allow=[],deny=["0.0.0.0/0","::/0","unix","unix-abstract"]))],
+sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
+          { mode: 0o600 },
+        );
+        const socket = path.join(root, "http.sock");
+        const binary = path.resolve(
+          "node_modules/.pnpm/@cloudflare+workerd-linux-64@1.20260918.1/node_modules/@cloudflare/workerd-linux-64/bin/workerd",
+        );
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const child = yield* spawner.spawn(
+              ChildProcess.make(
+                binary,
+                [
+                  "serve",
+                  "--experimental",
+                  config,
+                  "config",
+                  "--socket-addr",
+                  `http=unix:${socket}`,
+                ],
+                {
+                  env: {},
+                  cwd: root,
+                  detached: false,
+                  killSignal: "SIGTERM",
+                  forceKillAfter: "2 seconds",
+                },
+              ),
+            );
+            const logs: string[] = [];
+            const stderr = yield* child.stderr.pipe(
+              Stream.runForEach((bytes) =>
+                Effect.sync(() => {
+                  logs.push(new TextDecoder().decode(bytes));
+                }),
+              ),
+              Effect.forkScoped,
+            );
+            yield* child.stdout.pipe(Stream.runDrain, Effect.forkScoped);
+            let elapsedMs = 0;
+            let completed = false;
+            yield* Effect.gen(function* () {
+              yield* Effect.gen(function* () {
+                while (!(yield* fs.exists(socket))) {
+                  if (!(yield* child.isRunning)) return yield* new WorkerdFixtureFailed();
+                  yield* Effect.sleep("20 millis");
+                }
+              }).pipe(Effect.timeout("10 seconds"));
+              expect(JSON.parse((yield* request(socket, "GET", "/status")).body)).toEqual({
+                completed: [],
+                finalized: [],
+              });
+              const phases = ["begin", "commit", "rollback", "scope-finalizer"];
+              const start = yield* Clock.currentTimeMillis;
+              const results = yield* Effect.all(
+                phases.map((phase) => request(socket, "POST", `/${phase}`)),
+                { concurrency: 4 },
+              );
+              elapsedMs = (yield* Clock.currentTimeMillis) - start;
+              expect(results).toEqual(
+                phases.map(() => ({ status: 503, body: '{"error":"probe_failed"}' })),
+              );
+              expect(elapsedMs).toBeGreaterThanOrEqual(14500);
+              expect(elapsedMs).toBeLessThan(16500);
+              expect(JSON.parse((yield* request(socket, "GET", "/status")).body)).toEqual({
+                completed: [],
+                finalized: [],
+              });
+              yield* Effect.sleep("2500 millis");
+              const status: unknown = JSON.parse((yield* request(socket, "GET", "/status")).body);
+              if (
+                typeof status !== "object" ||
+                status === null ||
+                !("completed" in status) ||
+                !("finalized" in status) ||
+                !Array.isArray(status.completed) ||
+                !Array.isArray(status.finalized)
+              )
+                return yield* new WorkerdFixtureFailed();
+              expect(status.completed.sort()).toEqual(phases.sort());
+              expect(status.finalized.sort()).toEqual(phases);
+              completed = true;
+            }).pipe(
+              Effect.ensuring(
+                Effect.gen(function* () {
+                  if (yield* child.isRunning) yield* child.kill();
+                  yield* child.exitCode.pipe(Effect.timeout("5 seconds"), Effect.ignore);
+                  yield* Fiber.join(stderr).pipe(Effect.timeout("2 seconds"), Effect.orDie);
+                  expect(yield* child.isRunning).toBe(false);
+                  expect(logs.join("")).not.toMatch(/unhandled|uncaught/i);
+                  const evidence = process.env.ARCWRIGHT_DRIVER_CANARY_TEST_EVIDENCE;
+                  if (evidence) {
+                    yield* fs.writeFileString(
+                      path.join(evidence, `deadline-workerd-${child.pid}.log`),
+                      logs.join(""),
+                      { mode: 0o600 },
+                    );
+                    yield* fs.writeFileString(
+                      path.join(evidence, `deadline-workerd-${child.pid}.receipt.json`),
+                      JSON.stringify({
+                        completed,
+                        capturedNativePid: child.pid,
+                        exited: true,
+                        elapsedMs,
+                        bundleHash: built.bundle?.hash,
+                        phases: ["begin", "commit", "rollback", "scope-finalizer"],
+                        deadlineStatuses: [503, 503, 503, 503],
+                        cleanupPendingAtResponse: completed,
+                        allFourFinalizedLater: completed,
+                      }),
+                      { mode: 0o600 },
+                    );
+                  }
+                }).pipe(Effect.orDie),
+              ),
+            );
+          }),
+        );
+      }).pipe(Effect.ensuring(fs.remove(root, { recursive: true }).pipe(Effect.orDie)));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  60000,
 );
 
 it.live(

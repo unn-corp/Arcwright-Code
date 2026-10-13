@@ -13,6 +13,12 @@ import type { SqlError } from "effect/sql/SqlError";
 import * as Config from "effect/Config";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
+import * as Clock from "effect/Clock";
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
@@ -64,15 +70,46 @@ export const recoverCanaryRollback = <A, E, R>(transaction: Effect.Effect<A, E, 
     }),
   );
 
-/** Close the probe scope before producing either response, including failed close. */
+const probeFailed = () => HttpServerResponse.jsonUnsafe({ error: "probe_failed" }, { status: 503 });
+
+/** Success awaits scope close. A deadline hands pending cleanup to this event's waitUntil owner. */
 export const canaryProbeResponse = <A, E, R>(probe: Effect.Effect<A, E, R>) =>
-  probe.pipe(
-    Effect.scoped,
-    Effect.timeout("15 seconds"),
-    Effect.map((receipt) => HttpServerResponse.jsonUnsafe(receipt)),
-    Effect.catchCause(() =>
-      Effect.succeed(HttpServerResponse.jsonUnsafe({ error: "probe_failed" }, { status: 503 })),
-    ),
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const deadline = (yield* Clock.currentTimeMillis) + 15000;
+      const execution = yield* Worker.WorkerExecutionContext;
+      const admitted = yield* Deferred.make<void>();
+      const started = yield* Deferred.make<Fiber.Fiber<unknown, unknown>>();
+      const response = yield* Deferred.make<HttpServerResponse.HttpServerResponse>();
+      // The admission gate prevents database work until waitUntil has registered
+      // the sole probe lifetime. Its scope never belongs to the returning handler.
+      yield* execution.waitUntil(
+        Effect.gen(function* () {
+          yield* Deferred.await(admitted);
+          const work = yield* Effect.forkChild(Effect.scoped(probe));
+          yield* Deferred.succeed<Fiber.Fiber<unknown, unknown>, never>(started, work);
+          const exit = yield* Fiber.await(work);
+          yield* Deferred.succeed(
+            response,
+            Exit.isSuccess(exit) ? HttpServerResponse.jsonUnsafe(exit.value) : probeFailed(),
+          );
+        }).pipe(
+          Effect.catchCause(() => Deferred.succeed(response, probeFailed()).pipe(Effect.asVoid)),
+        ),
+      );
+      yield* Deferred.succeed(admitted, undefined);
+      const lifetime = yield* Deferred.await(started);
+      // Register cancellation's completion with the same event; do not join it
+      // in the HTTP path or use a detached/daemon fiber to evade masked controls.
+      const cancel = execution.waitUntil(Fiber.interrupt(lifetime));
+      const remaining = Math.max(0, deadline - (yield* Clock.currentTimeMillis));
+      const result = yield* restore(
+        Deferred.await(response).pipe(Effect.timeoutOption(remaining)),
+      ).pipe(Effect.onInterrupt(() => cancel));
+      if (Option.isSome(result)) return result.value;
+      yield* cancel;
+      return probeFailed();
+    }),
   );
 
 /** Accept canonical unpadded base64url carrying 32–64 random bytes. */
@@ -232,7 +269,11 @@ export const makeCanaryHandler = Effect.fnUntraced(function* (secret: Redacted.R
 export class OwnedConnectDriverCanary extends Worker.Worker<
   OwnedConnectDriverCanary,
   {
-    fetch: Effect.Effect<HttpServerResponse.HttpServerResponse, never, Request>;
+    fetch: Effect.Effect<
+      HttpServerResponse.HttpServerResponse,
+      never,
+      Request | Worker.WorkerExecutionContext | RuntimeContext
+    >;
   }
 >()("OwnedConnectDriverCanary") {}
 

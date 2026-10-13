@@ -7,6 +7,11 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Provider from "alchemy/Provider";
 import * as Output from "alchemy/Output";
 import * as Context from "effect/Context";
+import { RuntimeContext } from "alchemy/RuntimeContext";
+import * as TestClock from "effect/testing/TestClock";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import { makeWithTransaction } from "effect/sql/SqlClient";
 import { State } from "alchemy/State";
 import { inMemoryState } from "alchemy/State";
 import { ProfileStore } from "alchemy/Auth/Profile";
@@ -46,6 +51,124 @@ class CanaryFixtureFailure extends Schema.TaggedError<CanaryFixtureFailure>()(
   {},
 ) {}
 
+function executionOwner() {
+  const pending: Promise<unknown>[] = [];
+  let rejected = 0;
+  const execution = Workers.fromExecutionContext({
+    props: {},
+    passThroughOnException: () => {},
+    waitUntil: (promise: Promise<unknown>) => {
+      pending.push(promise);
+      void promise.catch(() => {
+        rejected++;
+      });
+    },
+  });
+  const runtime = RuntimeContext.of({
+    Type: "CanaryTest",
+    id: "CanaryTest",
+    env: {},
+    get: () => Effect.succeed(undefined),
+    set: () => Effect.die(new CanaryFixtureFailure()),
+  });
+  return { pending, execution, runtime, rejected: () => rejected };
+}
+const provideOwner =
+  (owner: ReturnType<typeof executionOwner>) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.provideService(Workers.WorkerExecutionContext, owner.execution),
+      Effect.provideService(RuntimeContext, owner.runtime),
+    );
+
+it.effect(
+  "hands masked BEGIN/COMMIT/ROLLBACK and stalled finalizers to the registered event owner",
+  () =>
+    Effect.gen(function* () {
+      for (const phase of ["begin", "commit", "rollback", "scope-finalizer"]) {
+        const owner = executionOwner();
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        let completed = false;
+        const stall = Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.andThen(
+            Effect.sync(() => {
+              completed = true;
+            }),
+          ),
+        );
+        const transaction = makeWithTransaction({
+          transactionService: Context.Service<readonly [{ readonly fixture: true }, number]>(
+            `canary-control-${phase}`,
+          ),
+          spanAttributes: [],
+          acquireConnection: Effect.succeed([undefined, { fixture: true }]),
+          begin: () => (phase === "begin" ? stall : Effect.void),
+          commit: () => (phase === "commit" ? stall : Effect.void),
+          rollback: () => (phase === "rollback" ? stall : Effect.void),
+          savepoint: () => Effect.void,
+          rollbackSavepoint: () => Effect.void,
+        });
+        const probe =
+          phase === "scope-finalizer"
+            ? Effect.acquireRelease(Effect.succeed({ fixture: true }), () => stall)
+            : transaction(
+                phase === "rollback"
+                  ? Effect.fail(new CanaryFixtureFailure())
+                  : Effect.succeed({ fixture: true }),
+              );
+        const response = yield* canaryProbeResponse(probe).pipe(
+          Effect.provideService(Workers.WorkerExecutionContext, owner.execution),
+          Effect.provideService(RuntimeContext, owner.runtime),
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(entered);
+        expect(owner.pending).toHaveLength(1);
+        yield* TestClock.adjust("15 seconds");
+        expect((yield* Fiber.join(response)).status).toBe(503);
+        expect(completed).toBe(false);
+        expect(owner.pending).toHaveLength(2);
+        yield* Deferred.succeed(release, undefined);
+        const endings = yield* Effect.promise(() => Promise.allSettled(owner.pending));
+        expect(endings.every((ending) => ending.status === "fulfilled")).toBe(true);
+        expect(completed).toBe(true);
+        expect(owner.rejected()).toBe(0);
+      }
+    }),
+);
+
+it.effect("keeps cleanup registered when the waiting HTTP fiber is interrupted", () =>
+  Effect.gen(function* () {
+    const owner = executionOwner();
+    const entered = yield* Deferred.make<void>();
+    const closing = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    let finalized = false;
+    const probe = Effect.acquireRelease(Effect.void, () =>
+      Deferred.succeed(closing, undefined).pipe(
+        Effect.andThen(Deferred.await(release)),
+        Effect.andThen(
+          Effect.sync(() => {
+            finalized = true;
+          }),
+        ),
+      ),
+    ).pipe(Effect.andThen(Deferred.succeed(entered, undefined)), Effect.andThen(Effect.never));
+    const response = yield* canaryProbeResponse(probe).pipe(provideOwner(owner), Effect.forkScoped);
+    yield* Deferred.await(entered);
+    yield* Fiber.interrupt(response);
+    yield* Deferred.await(closing);
+    expect(owner.pending).toHaveLength(2);
+    expect(finalized).toBe(false);
+    yield* Deferred.succeed(release, undefined);
+    const endings = yield* Effect.promise(() => Promise.allSettled(owner.pending));
+    expect(endings.every((ending) => ending.status === "fulfilled")).toBe(true);
+    expect(finalized).toBe(true);
+    expect(owner.rejected()).toBe(0);
+  }),
+);
+
 it.effect(
   "recovers only completed intentional rollback and rejects unexpected or mixed failures",
   () =>
@@ -61,13 +184,16 @@ it.effect(
         ),
       );
       expect(finalized).toBe(true);
-      for (const transaction of [
+      const unexpected: Array<
+        Effect.Effect<void, CanaryFixtureFailure | IntentionalCanaryRollback>
+      > = [
         Effect.void,
         Effect.fail(new CanaryFixtureFailure()),
         Effect.fail(new IntentionalCanaryRollback()).pipe(
           Effect.ensuring(Effect.die(new CanaryFixtureFailure())),
         ),
-      ])
+      ];
+      for (const transaction of unexpected)
         expect((yield* recoverCanaryRollback(transaction).pipe(Effect.exit))._tag).toBe("Failure");
     }),
 );
@@ -76,6 +202,7 @@ it.effect(
   "finishes scope finalizers before a receipt and converts failed finalizers to fixed 503",
   () =>
     Effect.gen(function* () {
+      const owner = executionOwner();
       let finalized = false;
       const successful = yield* canaryProbeResponse(
         Effect.acquireRelease(Effect.succeed({ contract: CANARY_CONTRACT }), () =>
@@ -83,14 +210,14 @@ it.effect(
             finalized = true;
           }),
         ),
-      );
+      ).pipe(provideOwner(owner));
       expect(successful.status).toBe(200);
       expect(finalized).toBe(true);
       const failed = yield* canaryProbeResponse(
         Effect.acquireRelease(Effect.succeed({ contract: CANARY_CONTRACT }), () =>
           Effect.die(new CanaryFixtureFailure()),
         ),
-      );
+      ).pipe(provideOwner(owner));
       expect(failed.status).toBe(503);
     }),
 );
@@ -106,6 +233,7 @@ it("bounds canonical token format and compares the fixed expected length", () =>
 
 it.effect("actual Drizzle construction, auth and metadata do not read the runtime binding", () =>
   Effect.gen(function* () {
+    const owner = executionOwner();
     let bindingReads = 0;
     let connectionReads = 0;
     const environment = {
@@ -135,6 +263,7 @@ it.effect("actual Drizzle construction, auth and metadata do not read the runtim
           new globalThis.Request(`https://fixture.invalid${path}`, { method, headers }),
         ),
         Effect.provideService(Workers.WorkerEnvironment, environment),
+        provideOwner(owner),
         Effect.scoped,
       );
       expect(response.status).toBe(expected);
@@ -150,6 +279,7 @@ it.effect("actual Drizzle construction, auth and metadata do not read the runtim
         }),
       ),
       Effect.provideService(Workers.WorkerEnvironment, environment),
+      provideOwner(owner),
       Effect.scoped,
     );
     expect(failed.status).toBe(503);
@@ -264,7 +394,24 @@ it.effect(
       const providers = Layer.effect(
         Cloudflare.Providers,
         Provider.collection([Workers.Worker]),
-      ).pipe(Layer.provide(Workers.LiveWorkerProvider()), Layer.orDie);
+      ).pipe(
+        Layer.provide(Workers.LiveWorkerProvider()),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(
+              Cloudflare.CloudflareEnvironment,
+              Effect.succeed({
+                type: "apiToken",
+                apiToken: Redacted.make("synthetic-offline-not-a-credential"),
+                accountId: "0".repeat(32),
+                source: { type: "env" },
+              }),
+            ),
+            Layer.succeed(Cloudflare.Credentials, forbiddenAuthIo),
+          ),
+        ),
+        Layer.orDie,
+      );
       const stack = Alchemy.Stack(
         CANARY_STACK,
         { providers, state: inMemoryState() },

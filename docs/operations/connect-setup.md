@@ -84,6 +84,14 @@ installed Alchemy Drizzle/Postgres driver with `prepare:false`. Scope cleanup co
 a success receipt; database failures produce fixed 503 responses. Read-only rollback control
 does not establish durable DML rollback or application schema readiness.
 
+The response deadline is 15 seconds, including stalled transaction controls or scope finalizers.
+On deadline or request cancellation, interruption is requested and pending cleanup remains owned
+by the event's native `waitUntil`; a 503 does not claim cleanup finished. Successful responses
+await all finalization, and pools are scoped to each probe. Cloudflare limits pending HTTP
+`waitUntil` work to [30 seconds after response or disconnect](https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil),
+then cancels unfinished work. Offline tests exercise the installed transaction coordinator's
+stalled BEGIN, COMMIT, ROLLBACK and finalizer through the actual emitted Worker bridge.
+
 Offline validation uses the public actual source provider and every unchanged emitted file in
 installed workerd, with a private Unix HTTP socket and all outbound address classes denied.
 Run the two `infra/relay/scripts/owned-connect-driver-canary*.test.ts` suites with one worker,
