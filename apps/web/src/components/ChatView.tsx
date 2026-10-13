@@ -1,3 +1,4 @@
+import { ActiveSubagentChips, subagentActivityMembers } from "./chat/SubagentActivity";
 import { authorContext, currentHuman } from "@t3tools/client-runtime/participants";
 import { replyContext } from "@t3tools/shared/messageReplies";
 import { ComposerMessageReply } from "./chat/MessageReplies";
@@ -3058,6 +3059,10 @@ export default function ChatView(props: ChatViewProps) {
     ? (activeEnvironment?.serverConfig ?? null)
     : (primaryEnvironment?.serverConfig ?? null);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const subagentMembers = useMemo(
+    () => subagentActivityMembers(serverProjection?.subagents ?? [], providerStatuses),
+    [serverProjection?.subagents, providerStatuses],
+  );
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.instanceId ??
@@ -11491,6 +11496,7 @@ export default function ChatView(props: ChatViewProps) {
                 }
                 loadReplyChain={paintOnlyDisplayedTimeline ? undefined : loadMessageReplyChain}
                 timelineEntries={displayedTimeline.entries}
+                subagentMembers={paintOnlyDisplayedTimeline ? [] : subagentMembers}
                 providerStatuses={
                   environmentById.get(
                     displayedThreadRef?.environmentId ?? activeThread.environmentId,
@@ -11635,6 +11641,10 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell
                       contextStrip={showComposerContextStrip || showComposerModelStrip}
                     >
+                      <ActiveSubagentChips
+                        members={subagentMembers}
+                        onOpenThread={onOpenRelatedThread}
+                      />
                       {composerReplyTo && (
                         <ComposerMessageReply
                           target={composerReplyTo}

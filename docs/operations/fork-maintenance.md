@@ -292,7 +292,8 @@ Provider credentials must never initialize human profiles. Author metadata is di
 not proof of authorization. Replies must canonicalize their author snapshots from the target.
 Web timelines place chips outside bubbles, show one per consecutive sender group, and pin that
 identity while its group scrolls past. Preserve this through row recycling and disclosure changes;
-agent reply controls belong beside their messages. `TimelineParticipants.test.tsx` and the timeline
+agent reply controls belong beside their messages. Active subagent chips stay above the
+composer across parent turns and scrolling; recorded starts and finishes remain in the timeline. `TimelineParticipants.test.tsx` and the timeline
 component tests cover these boundaries.
 
 Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,

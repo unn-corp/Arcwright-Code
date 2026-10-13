@@ -1,3 +1,8 @@
+import {
+  SubagentMilestone,
+  withSubagentMilestones,
+  type SubagentActivityMember,
+} from "./SubagentActivity";
 import { PinnedTimelineParticipant, timelineParticipantGroups } from "./TimelineParticipants";
 import { ParticipantChip } from "./ParticipantChip";
 import { agentInstanceId, resolveMessageParticipant } from "@t3tools/client-runtime/participants";
@@ -488,6 +493,7 @@ interface MessagesTimelineProps {
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
+  subagentMembers?: ReadonlyArray<SubagentActivityMember>;
   latestRun: TimelineLatestRun | null;
   runningRunId?: RunId | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
@@ -601,6 +607,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   awaitingUser = false,
   listRef,
   timelineEntries,
+  subagentMembers,
   findExpanded = false,
   findQuery = "",
   activeFindMatch = null,
@@ -945,12 +952,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
         : null,
     );
     rowsProjectionRef.current = { threadKey: listIdentityKey, workspaceRoot, projection };
-    return projection.rows;
+    return withSubagentMilestones(projection.rows, subagentMembers ?? []);
   }, [
     rowsProjectionRef,
     listIdentityKey,
     workspaceRoot,
     timelineEntries,
+    subagentMembers,
     latestRun,
     runningRunId,
     visibleExpandedRunIds,
@@ -2249,6 +2257,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
+      {row.kind === "subagent-milestone" ? (
+        <SubagentMilestone row={row} onOpenThread={replyContext.onOpenThread} />
+      ) : null}
     </div>
   );
 });
@@ -3652,7 +3663,7 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
             ) : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold">{label}</span>
+            <span className="block text-xs font-semibold">Started {label}</span>
             <span
               className={cn(
                 "block truncate text-3xs text-muted-foreground",

@@ -1,3 +1,4 @@
+import type { SubagentActivityMember } from "./SubagentActivity";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 export { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { isLiveSubagentTurnItem } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -517,6 +518,13 @@ export type MessagesTimelineRow = MessagesTimelineRowContent & {
 };
 
 type MessagesTimelineRowContent =
+  | {
+      kind: "subagent-milestone";
+      id: string;
+      createdAt: string;
+      phase: "started" | "finished";
+      agent: SubagentActivityMember;
+    }
   | {
       kind: "worktree-setup";
       id: string;
@@ -2229,6 +2237,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
+    case "subagent-milestone":
+      return Equal.equals(a.agent, (b as typeof a).agent) && a.phase === (b as typeof a).phase;
     case "working":
       return a.createdAt === (b as typeof a).createdAt;
     case "thinking": {
