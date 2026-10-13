@@ -324,14 +324,7 @@ export const layer = Api.make(
                   .pipe(Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext)),
             }),
           ),
-          Layer.provideMerge(
-            FcmClient.layer.pipe(
-              Layer.provide(FcmAssertionSigner.layer),
-              Layer.provide(
-                Layer.succeed(WebCrypto.WebCrypto, { subtle: globalThis.crypto.subtle }),
-              ),
-            ),
-          ),
+          Layer.provideMerge(FcmClient.layer.pipe(Layer.provide(FcmAssertionSigner.layer))),
         ),
       ),
       Layer.provideMerge(ApnsClient.layer.pipe(Layer.provideMerge(ApnsProviderTokens.layer))),
@@ -355,7 +348,12 @@ export const layer = Api.make(
         ),
       ),
       Layer.provideMerge(Layer.effect(RelayConfiguration.RelayConfiguration, loadSettings)),
-      Layer.provideMerge(layerWebcrypto),
+      Layer.provideMerge(
+        Layer.merge(
+          layerWebcrypto,
+          Layer.succeed(WebCrypto.WebCrypto, { subtle: globalThis.crypto.subtle }),
+        ),
+      ),
     );
 
     // Fails open: a limiter outage must not drop webhooks the environment would accept.

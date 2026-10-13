@@ -25,7 +25,14 @@ import {
   relayWebPushSubscriptionStates,
 } from "../persistence/schema.ts";
 
+import type { WebPushNotificationKind, WebPushActivityPayloadV2 } from "./webPushDeliveryJobs.ts";
+
 export type WebPushNotification = {
+  readonly notificationKind: WebPushNotificationKind;
+  readonly source: Omit<
+    WebPushActivityPayloadV2["provenance"],
+    "environmentPublicKey" | "linkIncarnationId"
+  >;
   readonly eventId: string;
   readonly deepLink: string;
   readonly showProjectAndThreadNames: boolean;
@@ -123,7 +130,7 @@ function wantsNotification(preferences: RelayWebPushPreferences, kind: string): 
 function notificationKind(
   previous: { readonly phase: string; readonly hasActionableProposedPlan: boolean },
   next: RelayAgentActivityState,
-): string | null {
+): WebPushNotificationKind | null {
   if (!previous.hasActionableProposedPlan && next.hasActionableProposedPlan) return "plan_ready";
   if (
     (next.phase === "waiting_for_approval" || next.phase === "waiting_for_input") &&
@@ -504,6 +511,17 @@ export const make = Effect.gen(function* () {
               names: subscription.preferencesJson.showProjectAndThreadNames,
             });
             return {
+              notificationKind: kind,
+              source: {
+                environmentId: state.environmentId,
+                threadId: state.threadId,
+                notificationKind: kind,
+                stateVersion: {
+                  updatedAt: state.updatedAt,
+                  phase: state.phase,
+                  hasActionableProposedPlan: state.hasActionableProposedPlan ?? false,
+                },
+              },
               eventId: `web:${subscription.id}:${state.environmentId}:${state.threadId}:${kind}:${state.updatedAt}`,
               deepLink: state.deepLink,
               showProjectAndThreadNames: subscription.preferencesJson.showProjectAndThreadNames,
@@ -513,7 +531,7 @@ export const make = Effect.gen(function* () {
             } satisfies WebPushNotification;
           }),
         );
-        return items.filter((item): item is WebPushNotification => item !== null);
+        return items.filter((item) => item !== null);
       }).pipe(
         db.$client.withTransaction,
         mapPersistenceError,
@@ -584,6 +602,17 @@ export const make = Effect.gen(function* () {
               names: subscription.preferencesJson.showProjectAndThreadNames,
             });
             return {
+              notificationKind: kind,
+              source: {
+                environmentId: state.environmentId,
+                threadId: state.threadId,
+                notificationKind: kind,
+                stateVersion: {
+                  updatedAt: state.updatedAt,
+                  phase: state.phase,
+                  hasActionableProposedPlan: state.hasActionableProposedPlan ?? false,
+                },
+              },
               eventId: `web:${subscription.id}:${state.environmentId}:${state.threadId}:${kind}:${state.updatedAt}`,
               deepLink: state.deepLink,
               showProjectAndThreadNames: subscription.preferencesJson.showProjectAndThreadNames,
@@ -593,7 +622,7 @@ export const make = Effect.gen(function* () {
             } satisfies WebPushNotification;
           }),
         );
-        return items.filter((item): item is WebPushNotification => item !== null);
+        return items.filter((item) => item !== null);
       }).pipe(
         (effect) => (anonymousAllowed ? db.$client.withTransaction(effect) : effect),
         mapPersistenceError,

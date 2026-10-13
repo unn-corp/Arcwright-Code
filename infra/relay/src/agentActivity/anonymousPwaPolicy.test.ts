@@ -10,6 +10,8 @@ import { vi } from "vite-plus/test";
 
 import { RelayConfiguration } from "../Config.ts";
 import * as RelayDb from "../db.ts";
+import * as WebCrypto from "../WebCrypto.ts";
+const webCryptoLayer = Layer.succeed(WebCrypto.WebCrypto, { subtle: globalThis.crypto.subtle });
 import * as DeliveryAttempts from "./DeliveryAttempts.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
 import * as WebPushDeliveries from "./WebPushDeliveries.ts";
@@ -117,6 +119,7 @@ function guardedRuntime(
   });
   const deps = Layer.mergeAll(
     crypto,
+    webCryptoLayer,
     attempts,
     Layer.succeed(RelayDb.RelayDb, db),
     Layer.succeed(RelayConfiguration, configuration),
@@ -177,7 +180,7 @@ describe("owned Worker Web Push assembly", () => {
         }),
       ).toEqual([]);
       const deliveries = yield* WebPushDeliveries.WebPushDeliveries;
-      const job = signWebPushDeliveryJob({
+      const job = yield* signWebPushDeliveryJob({
         secret: configuration.apnsDeliveryJobSigningSecret,
         payload: {
           version: 1,
@@ -189,18 +192,18 @@ describe("owned Worker Web Push assembly", () => {
           expiresAt: "1970-01-01T00:05:00.000Z",
         },
       });
-      expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe(
-        "anonymous_pwa_unavailable",
-      );
+      expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe("v1_unavailable");
       // Even a bad signature must be short-circuited before verification and reads.
       expect(
         (yield* deliveries.processSignedJob({ ...job, signature: "invalid" })).webPushReason,
-      ).toBe("anonymous_pwa_unavailable");
+      ).toBe("v1_unavailable");
       expect(
         (yield* deliveries.send({ subscription: anonymousSubscription, payload })).webPushReason,
       ).toBe("anonymous_pwa_unavailable");
       expect(calls).toEqual({ db: 0, crypto: 0, claims: 0, sends: 0 });
-    }).pipe(Effect.provide(WebPushRuntime.layer.pipe(Layer.provide(deps))));
+    }).pipe(
+      Effect.provide(Layer.merge(WebPushRuntime.layer.pipe(Layer.provide(deps)), webCryptoLayer)),
+    );
   });
 
   it.effect(
@@ -211,7 +214,8 @@ describe("owned Worker Web Push assembly", () => {
         const queue = yield* WebPushDeliveryQueue.WebPushDeliveryQueue;
         expect(
           (yield* queue.enqueue({
-            ...payload,
+            kind: "test",
+            subscriptionIncarnationId: anonymousSubscription.incarnationId,
             userId: "pwa:fixture-installation",
             subscriptionId: "fixture-subscription",
           })).queued,
@@ -220,7 +224,8 @@ describe("owned Worker Web Push assembly", () => {
         expect(calls.sends).toBe(0);
         expect(
           (yield* queue.enqueue({
-            ...payload,
+            kind: "test",
+            subscriptionIncarnationId: anonymousSubscription.incarnationId,
             userId: "user_fixture",
             subscriptionId: "fixture-subscription",
           })).queued,
@@ -262,7 +267,7 @@ describe("owned Worker Web Push assembly", () => {
       return Effect.gen(function* () {
         const deliveries = yield* WebPushDeliveries.WebPushDeliveries;
         expect((yield* deliveries.send({ subscription: contaminated, payload })).ok).toBe(false);
-        const job = signWebPushDeliveryJob({
+        const job = yield* signWebPushDeliveryJob({
           secret: config.apnsDeliveryJobSigningSecret,
           payload: {
             version: 1,
@@ -279,20 +284,24 @@ describe("owned Worker Web Push assembly", () => {
         expect(transport).not.toHaveBeenCalled();
       }).pipe(
         Effect.provide(
-          WebPushDeliveries.layer.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(RelayConfiguration, config),
-                Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
-                  get: () => Effect.succeed(contaminated),
-                }),
-                Layer.mock(DeliveryAttempts.DeliveryAttempts, {
-                  claimSourceJob: () =>
-                    Effect.sync(() => {
-                      claims++;
-                      return "claimed" as const;
-                    }),
-                }),
+          Layer.merge(
+            webCryptoLayer,
+            WebPushDeliveries.layer.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  webCryptoLayer,
+                  Layer.succeed(RelayConfiguration, config),
+                  Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+                    get: () => Effect.succeed(contaminated),
+                  }),
+                  Layer.mock(DeliveryAttempts.DeliveryAttempts, {
+                    claimSourceJob: () =>
+                      Effect.sync(() => {
+                        claims++;
+                        return "claimed" as const;
+                      }),
+                  }),
+                ),
               ),
             ),
           ),
@@ -333,6 +342,7 @@ describe("owned Worker Web Push assembly", () => {
         const deliveries = yield* WebPushDeliveries.make.pipe(
           Effect.provide(
             Layer.mergeAll(
+              webCryptoLayer,
               Layer.succeed(RelayConfiguration, config),
               Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
               Layer.mock(DeliveryAttempts.DeliveryAttempts, {}),
@@ -342,70 +352,235 @@ describe("owned Worker Web Push assembly", () => {
         expect((yield* deliveries.send({ subscription, payload })).ok).toBe(true);
       }
       expect(transport).toHaveBeenCalledTimes(3);
-    }).pipe(Effect.ensuring(Effect.sync(() => transport.mockRestore())));
+    }).pipe(
+      Effect.provide(webCryptoLayer),
+      Effect.ensuring(Effect.sync(() => transport.mockRestore())),
+    );
   });
 });
 
-it.effect(
-  "consumes valid legacy anonymous and owned account jobs through attempt claim and transport",
-  () => {
-    const transport = vi
-      .spyOn(webpush, "sendNotification")
-      .mockResolvedValue({ statusCode: 201, body: "", headers: {} });
+it.effect("consumes valid legacy V1 and permanently rejects owned account V1 before claims", () => {
+  const transport = vi
+    .spyOn(webpush, "sendNotification")
+    .mockResolvedValue({ statusCode: 201, body: "", headers: {} });
+  return Effect.gen(function* () {
+    for (const [config, subscription] of [
+      [{ ...ownedConfig, clerkAuthPolicy: { mode: "legacy" as const } }, anonymousSubscription],
+      [
+        ownedConfig,
+        {
+          ...anonymousSubscription,
+          userId: "user_fixture",
+          environmentId: null,
+          installationId: null,
+          installationSecretHash: null,
+        },
+      ],
+    ] as const) {
+      let claims = 0;
+      let completions = 0;
+      const deliveries = yield* WebPushDeliveries.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            webCryptoLayer,
+            Layer.succeed(RelayConfiguration, config),
+            Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+              get: () => Effect.succeed(subscription),
+            }),
+            Layer.mock(DeliveryAttempts.DeliveryAttempts, {
+              claimSourceJob: () =>
+                Effect.sync(() => {
+                  claims++;
+                  return "claimed" as const;
+                }),
+              completeSourceJob: () =>
+                Effect.sync(() => {
+                  completions++;
+                }),
+            }),
+          ),
+        ),
+      );
+      const job = yield* signWebPushDeliveryJob({
+        secret: config.apnsDeliveryJobSigningSecret,
+        payload: {
+          version: 1,
+          jobId: "fixture-job",
+          userId: subscription.userId,
+          subscriptionId: subscription.id,
+          ...payload,
+          createdAt: "1970-01-01T00:00:00.000Z",
+          expiresAt: "1970-01-01T00:05:00.000Z",
+        },
+      });
+      expect((yield* deliveries.processSignedJob(job)).ok).toBe(
+        config.clerkAuthPolicy?.mode === "legacy",
+      );
+      expect(claims).toBe(config.clerkAuthPolicy?.mode === "legacy" ? 1 : 0);
+      expect(completions).toBe(config.clerkAuthPolicy?.mode === "legacy" ? 1 : 0);
+    }
+    expect(transport).toHaveBeenCalledTimes(1);
+  }).pipe(
+    Effect.provide(webCryptoLayer),
+    Effect.ensuring(Effect.sync(() => transport.mockRestore())),
+  );
+});
+
+it.effect.each(["owned", "legacy"] as const)(
+  "%s permanently drops every V2 kind before subscription/baseline/claim/transport effects",
+  (mode) => {
+    const config =
+      mode === "owned"
+        ? ownedConfig
+        : { ...ownedConfig, clerkAuthPolicy: { mode: "legacy" as const } };
+    const { deps, calls } = guardedRuntime(config);
+    let lookups = 0;
+    vi.mocked(webpush.sendNotification).mockClear();
     return Effect.gen(function* () {
-      for (const [config, subscription] of [
-        [{ ...ownedConfig, clerkAuthPolicy: { mode: "legacy" as const } }, anonymousSubscription],
-        [
-          ownedConfig,
-          {
-            ...anonymousSubscription,
-            userId: "user_fixture",
-            environmentId: null,
-            installationId: null,
-            installationSecretHash: null,
+      const deliveries = yield* WebPushDeliveries.WebPushDeliveries;
+      const common = {
+        version: 2,
+        jobId: "fixture-job",
+        userId: "user_fixture",
+        subscriptionId: "fixture-subscription",
+        subscriptionIncarnationId: "00000000-0000-4000-8000-000000000001",
+        createdAt: "1970-01-01T00:00:00.000Z",
+        expiresAt: "1970-01-01T00:10:00.000Z",
+      } as const;
+      for (const payload of [
+        { ...common, kind: "test" } as const,
+        {
+          ...common,
+          kind: "activity",
+          eventId: "test-looking:opaque",
+          showProjectAndThreadNames: true,
+          provenance: {
+            environmentId: "verified-env",
+            environmentPublicKey: "verified-key",
+            threadId: "thread",
+            linkIncarnationId: "00000000-0000-4000-8000-000000000002",
+            notificationKind: "plan_ready",
+            stateVersion: {
+              updatedAt: common.createdAt,
+              phase: "running",
+              hasActionableProposedPlan: true,
+            },
           },
-        ],
-      ] as const) {
-        let claims = 0;
-        let completions = 0;
-        const deliveries = yield* WebPushDeliveries.make.pipe(
-          Effect.provide(
+        } as const,
+      ]) {
+        const job = yield* signWebPushDeliveryJob({
+          secret: config.apnsDeliveryJobSigningSecret,
+          payload,
+        });
+        expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe("v2_unavailable");
+        expect(
+          (yield* deliveries.processSignedJob({ ...job, signature: "malformed" })).webPushReason,
+        ).toBe("invalid_job");
+      }
+      if (mode === "owned") {
+        for (const eventId of [
+          "web-push-test:fixture-subscription",
+          "pwa-web-push-test:fixture-subscription",
+          "opaque",
+        ]) {
+          const job = yield* signWebPushDeliveryJob({
+            secret: config.apnsDeliveryJobSigningSecret,
+            payload: {
+              ...common,
+              version: 1,
+              eventId,
+              title: "Untrusted",
+              body: "Untrusted",
+              deepLink: "/",
+              showProjectAndThreadNames: true,
+            },
+          });
+          expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe("v1_unavailable");
+        }
+      }
+      expect(webpush.sendNotification).not.toHaveBeenCalled();
+      expect(lookups).toBe(0);
+      expect(calls).toEqual({ db: 0, crypto: 0, claims: 0, sends: 0 });
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          webCryptoLayer,
+          WebPushDeliveries.layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                deps,
+                Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+                  get: () =>
+                    Effect.sync(() => {
+                      lookups++;
+                      return anonymousSubscription;
+                    }),
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  },
+);
+
+it.effect("keeps consumer crypto provider failures retryable without lookup or claims", () => {
+  const config = { ...ownedConfig, clerkAuthPolicy: { mode: "legacy" as const } };
+  const { deps, calls } = guardedRuntime(config);
+  let lookups = 0;
+  return Effect.gen(function* () {
+    const deliveries = yield* WebPushDeliveries.WebPushDeliveries;
+    const job = yield* signWebPushDeliveryJob({
+      secret: config.apnsDeliveryJobSigningSecret,
+      payload: {
+        version: 2,
+        kind: "test",
+        jobId: "fixture-job",
+        userId: "user_fixture",
+        subscriptionId: "fixture-subscription",
+        subscriptionIncarnationId: "00000000-0000-4000-8000-000000000001",
+        createdAt: "1970-01-01T00:00:00.000Z",
+        expiresAt: "1970-01-01T00:10:00.000Z",
+      },
+    });
+    yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        vi
+          .spyOn(globalThis.crypto.subtle, "verify")
+          .mockRejectedValue(new Error("provider failure")),
+      ),
+      (spy) => Effect.sync(() => spy.mockRestore()),
+    );
+    const result = yield* Effect.result(deliveries.processSignedJob(job));
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure")
+      expect(result.failure).toMatchObject({
+        _tag: "WebPushDeliveryTransportError",
+        cause: { _tag: "WebPushJobCryptoError", operation: "verify" },
+      });
+    expect(lookups).toBe(0);
+    expect(calls.claims).toBe(0);
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        webCryptoLayer,
+        WebPushDeliveries.layer.pipe(
+          Layer.provide(
             Layer.mergeAll(
-              Layer.succeed(RelayConfiguration, config),
+              deps,
               Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
-                get: () => Effect.succeed(subscription),
-              }),
-              Layer.mock(DeliveryAttempts.DeliveryAttempts, {
-                claimSourceJob: () =>
+                get: () =>
                   Effect.sync(() => {
-                    claims++;
-                    return "claimed" as const;
-                  }),
-                completeSourceJob: () =>
-                  Effect.sync(() => {
-                    completions++;
+                    lookups++;
+                    return anonymousSubscription;
                   }),
               }),
             ),
           ),
-        );
-        const job = signWebPushDeliveryJob({
-          secret: config.apnsDeliveryJobSigningSecret,
-          payload: {
-            version: 1,
-            jobId: "fixture-job",
-            userId: subscription.userId,
-            subscriptionId: subscription.id,
-            ...payload,
-            createdAt: "1970-01-01T00:00:00.000Z",
-            expiresAt: "1970-01-01T00:05:00.000Z",
-          },
-        });
-        expect((yield* deliveries.processSignedJob(job)).ok).toBe(true);
-        expect(claims).toBe(1);
-        expect(completions).toBe(1);
-      }
-      expect(transport).toHaveBeenCalledTimes(2);
-    }).pipe(Effect.ensuring(Effect.sync(() => transport.mockRestore())));
-  },
-);
+        ),
+      ),
+    ),
+    Effect.scoped,
+  );
+});

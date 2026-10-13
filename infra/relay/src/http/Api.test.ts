@@ -1805,6 +1805,8 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
     "%s policy guards config, register, publish and test while removal remains available",
     (mode) => {
       const calls = { register: 0, verify: 0, transition: 0, get: 0, queue: 0, remove: 0 };
+      const queued: Array<WebPushDeliveryQueue.WebPushQueueInput> = [];
+      let verified = false;
       const config: RelayConfiguration.RelayConfiguration["Service"] = {
         ...relaySettings,
         webPush: {
@@ -1860,10 +1862,33 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
                   calls.register++;
                   return { subscriptionId: subscription.id };
                 }),
-              transitionEnvironment: () =>
+              transitionEnvironment: ({ environmentId, state }) =>
                 Effect.sync(() => {
+                  expect(verified).toBe(true);
+                  expect(environmentId).toBe("fixture-environment");
+                  expect(state?.threadId).toBe("fixture-thread");
                   calls.transition++;
-                  return [];
+                  return [
+                    {
+                      notificationKind: "input_required",
+                      source: {
+                        environmentId: "fixture-environment",
+                        threadId: "fixture-thread",
+                        notificationKind: "input_required",
+                        stateVersion: {
+                          updatedAt: "1970-01-01T00:00:00.000Z",
+                          phase: "waiting_for_input",
+                          hasActionableProposedPlan: false,
+                        },
+                      },
+                      eventId: "opaque-with-no-kind",
+                      deepLink: "/",
+                      showProjectAndThreadNames: false,
+                      title: "private title",
+                      body: "private body",
+                      subscription,
+                    },
+                  ];
                 }),
               getPwa: () =>
                 Effect.sync(() => {
@@ -1877,9 +1902,10 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
                 }),
             }),
             Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {
-              enqueue: () =>
+              enqueue: (input) =>
                 Effect.sync(() => {
                   calls.queue++;
+                  queued.push(input);
                   return {
                     deviceId: subscription.id,
                     kind: "web_push_notification" as const,
@@ -1895,6 +1921,7 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
               verify: () =>
                 Effect.sync(() => {
                   calls.verify++;
+                  verified = true;
                 }),
             }),
           ),
@@ -1929,7 +1956,21 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
           [
             "POST",
             "/v1/pwa/environments/fixture-environment/threads/fixture-thread/agent-activity",
-            { environmentPublicKey: "fixture-public-key", state: null, proof: "fixture-proof" },
+            {
+              environmentPublicKey: "fixture-public-key",
+              state: {
+                environmentId: "fixture-environment",
+                threadId: "fixture-thread",
+                projectTitle: "Private",
+                threadTitle: "Private",
+                modelTitle: "Codex",
+                phase: "waiting_for_input",
+                headline: "Input",
+                updatedAt: "1970-01-01T00:00:00.000Z",
+                deepLink: "/",
+              },
+              proof: "fixture-proof",
+            },
           ],
           ["POST", "/v1/pwa/web-push/subscriptions/fixture-subscription/test", { installation }],
         ] as const) {
@@ -1955,9 +1996,37 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
         }
         expect(calls).toEqual(
           mode === "legacy"
-            ? { register: 1, verify: 1, transition: 1, get: 1, queue: 1, remove: 0 }
+            ? { register: 1, verify: 1, transition: 1, get: 1, queue: 2, remove: 0 }
             : { register: 0, verify: 0, transition: 0, get: 0, queue: 0, remove: 0 },
         );
+        if (mode === "legacy") {
+          expect(queued[0]).toEqual({
+            kind: "activity",
+            userId: subscription.userId,
+            subscriptionId: subscription.id,
+            subscriptionIncarnationId: subscription.incarnationId,
+            eventId: "opaque-with-no-kind",
+            showProjectAndThreadNames: false,
+            provenance: {
+              environmentId: "fixture-environment",
+              environmentPublicKey: "fixture-public-key",
+              threadId: "fixture-thread",
+              notificationKind: "input_required",
+              linkIncarnationId: null,
+              stateVersion: {
+                updatedAt: "1970-01-01T00:00:00.000Z",
+                phase: "waiting_for_input",
+                hasActionableProposedPlan: false,
+              },
+            },
+          });
+          expect(queued[1]).toEqual({
+            kind: "test",
+            userId: subscription.userId,
+            subscriptionId: subscription.id,
+            subscriptionIncarnationId: subscription.incarnationId,
+          });
+        } else expect(queued).toEqual([]);
         const removed = yield* Effect.promise(() =>
           app.handler(
             new Request(
@@ -1973,6 +2042,160 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
         expect(removed.status).toBe(200);
         expect(yield* Effect.promise(() => removed.json())).toEqual({ ok: true });
         expect(calls.remove).toBe(1);
+      }).pipe(Effect.scoped);
+    },
+  );
+});
+
+describe("test Web Push authority and queue acceptance through exported handlers", () => {
+  it.effect.each([
+    { path: "account", acceptance: "accepted" },
+    { path: "account", acceptance: "denied" },
+    { path: "account", acceptance: "missing" },
+    { path: "account", acceptance: "failed" },
+    { path: "anonymous", acceptance: "accepted" },
+    { path: "anonymous", acceptance: "denied" },
+    { path: "anonymous", acceptance: "missing" },
+    { path: "anonymous", acceptance: "failed" },
+  ] as const)(
+    "$path test uses current selected subscription and reports $acceptance",
+    ({ path, acceptance }) => {
+      const jobs: Array<WebPushDeliveryQueue.WebPushQueueInput> = [];
+      const subscription: WebPushSubscriptions.WebPushNotification["subscription"] = {
+        id: "selected-subscription",
+        incarnationId: "00000000-0000-4000-8000-000000000005",
+        userId: path === "account" ? "user-1" : "pwa:fixture-installation",
+        environmentId: path === "account" ? null : "fixture-environment",
+        installationId: path === "account" ? null : "fixture-installation",
+        installationSecretHash: path === "account" ? null : "fixture-hash",
+        endpoint: "https://push.example.test",
+        p256dh: "fixture",
+        auth: "fixture",
+        preferencesJson: {
+          enabled: true,
+          notifyOnCompletion: true,
+          notifyOnPlanReady: true,
+          notifyOnInput: true,
+          notifyOnFailure: true,
+          showProjectAndThreadNames: true,
+        },
+        createdAt: "1970-01-01T00:00:00.000Z",
+        updatedAt: "1970-01-01T00:00:00.000Z",
+      };
+      const installation = {
+        installationId: "fixture-installation",
+        installationSecret: "verified-secret",
+      };
+      const deps = Layer.mergeAll(
+        Layer.succeed(RelayConfiguration.RelayConfiguration, relaySettings),
+        NodeCryptoLayer.layer,
+        Layer.mock(RelayTokens.RelayTokens, { resolveDpopAccessTokenScopes: () => null }),
+        Layer.mock(EnvironmentLinker.EnvironmentLinker, {}),
+        Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+        Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
+        Layer.mock(Devices.Devices, {}),
+        Layer.mock(EnvironmentPublishSignatures.EnvironmentPublishSignatures, {}),
+        Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+          get: (input) => {
+            expect(input).toEqual({ userId: "user-1", subscriptionId: subscription.id });
+            return Effect.succeed(acceptance === "missing" ? null : subscription);
+          },
+          getPwa: (input) => {
+            expect(input).toEqual({ ...installation, subscriptionId: subscription.id });
+            return Effect.succeed(acceptance === "missing" ? null : subscription);
+          },
+        }),
+        Layer.succeed(WebPushDeliveryQueue.WebPushDeliveryQueue, {
+          enqueue: (input) => {
+            jobs.push(input);
+            if (acceptance === "failed")
+              return Effect.fail(
+                new WebPushDeliveryQueue.WebPushDeliveryQueueError({
+                  cause: new Error("queue unavailable"),
+                }),
+              );
+            return Effect.succeed({
+              deviceId: subscription.id,
+              kind: "web_push_notification" as const,
+              ok: acceptance === "accepted",
+              queued: acceptance === "accepted",
+              apnsStatus: null,
+              apnsReason: null,
+              apnsId: null,
+            });
+          },
+        }),
+      );
+      const auth = Layer.succeed(RelayClientAuth, {
+        clientBearer: (effect) =>
+          Effect.provideService(effect, RelayClientPrincipal, {
+            userId: "user-1",
+            token: "fixture-token",
+          }),
+      });
+      const clientHandlers = RelayHttpApi.layerClientApi.pipe(
+        HttpRouter.provideRequest(
+          Layer.mergeAll(
+            Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),
+            Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+            Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
+            Layer.mock(RelayDb.RelayTransactions, {}),
+            Layer.mock(HookInbox.HookInbox, {}),
+          ),
+        ),
+        Layer.provide(deps),
+        Layer.provideMerge(auth),
+      );
+      const apiLayer =
+        path === "account"
+          ? HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.client)).pipe(
+              Layer.provide(clientHandlers),
+            )
+          : HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.pwa)).pipe(
+              Layer.provide(RelayHttpApi.pwaApi.pipe(Layer.provide(deps))),
+            );
+      return Effect.gen(function* () {
+        const app = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(apiLayer.pipe(Layer.provide(HttpServer.layerServices)), {
+              disableLogger: true,
+            }),
+          ),
+          (app) => Effect.promise(() => app.dispose()),
+        );
+        const urlPath = path === "account" ? "client" : "pwa";
+        const response = yield* Effect.promise(() =>
+          app.handler(
+            new Request(
+              `https://relay.example.test/v1/${urlPath}/web-push/subscriptions/${subscription.id}/test`,
+              {
+                method: "POST",
+                headers: {
+                  authorization: "Bearer fixture-token",
+                  "content-type": "application/json",
+                },
+                ...(path === "anonymous" ? { body: JSON.stringify({ installation }) } : {}),
+              },
+            ),
+          ),
+        );
+        expect(response.status).toBe(acceptance === "failed" ? 500 : 200);
+        if (acceptance !== "failed")
+          expect(yield* Effect.promise(() => response.json())).toEqual({
+            ok: acceptance === "accepted",
+          });
+        expect(jobs).toEqual(
+          acceptance === "missing"
+            ? []
+            : [
+                {
+                  kind: "test",
+                  userId: subscription.userId,
+                  subscriptionId: subscription.id,
+                  subscriptionIncarnationId: subscription.incarnationId,
+                },
+              ],
+        );
       }).pipe(Effect.scoped);
     },
   );

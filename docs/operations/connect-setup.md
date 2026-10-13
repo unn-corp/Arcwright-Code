@@ -308,8 +308,13 @@ separate. Link `linkedAt` now records the current activation while the original 
 is preserved; internal link and subscription incarnation UUIDs rotate on authority or push-target
 replacement. Preferences-only registration retains the UUID and alert baseline. The ordered
 `20261013030258_delivery_incarnations` database migration is tested only on a disposable fixture
-and remains pending in production. These source and fixture checks do not deploy or commission the owned relay; signed
-account-job binding and current link reauthorization still require the subsequent runtime work.
+and remains pending in production. These source and fixture checks do not deploy or
+commission the owned relay. V2 activity/test jobs now bind freshly selected subscription incarnations and
+verified source provenance with WebCrypto HMAC. All V2 deliveries remain explicitly
+unavailable in the intermediate consumer; owned mode also rejects every V1 job.
+Current subscription/link/state reauthorization and copy reconstruction must be completed
+before deployment can admit V2 traffic. Queue acceptance proves enqueue only, including
+API test acceptance; it does not prove transport delivery.
 Native installation authority and historical recovery remain separate pending work.
 
 ## CLI OAuth application

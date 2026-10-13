@@ -906,18 +906,15 @@ export const layerClientApi = HttpApiBuilder.group(
             })
             .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
           if (subscription === null) return { ok: false };
-          yield* webPushDeliveryQueue
+          const result = yield* webPushDeliveryQueue
             .enqueue({
               userId,
               subscriptionId: subscription.id,
-              eventId: `web-push-test:${subscription.id}`,
-              deepLink: "/",
-              showProjectAndThreadNames: false,
-              title: "Arcwright Code",
-              body: "Your PWA push notifications are working.",
+              kind: "test",
+              subscriptionIncarnationId: subscription.incarnationId,
             })
-            .pipe(Effect.orDie);
-          return { ok: true };
+            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+          return { ok: result.ok && result.queued === true };
         }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
@@ -1529,13 +1526,18 @@ export const pwaApi = HttpApiBuilder.group(
               (notification) =>
                 queue
                   .enqueue({
+                    kind: "activity",
                     userId: notification.subscription.userId,
                     subscriptionId: notification.subscription.id,
+                    subscriptionIncarnationId: notification.subscription.incarnationId,
+                    provenance: {
+                      ...notification.source,
+                      environmentId: params.environmentId,
+                      environmentPublicKey: payload.environmentPublicKey,
+                      linkIncarnationId: null,
+                    },
                     eventId: notification.eventId,
-                    deepLink: notification.deepLink,
                     showProjectAndThreadNames: notification.showProjectAndThreadNames,
-                    title: notification.title,
-                    body: notification.body,
                   })
                   .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error"))),
               { concurrency: 4 },
@@ -1604,18 +1606,15 @@ export const pwaApi = HttpApiBuilder.group(
             })
             .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
           if (!subscription) return { ok: false };
-          yield* queue
+          const result = yield* queue
             .enqueue({
               userId: subscription.userId,
               subscriptionId: subscription.id,
-              eventId: `pwa-web-push-test:${subscription.id}`,
-              deepLink: "/",
-              showProjectAndThreadNames: false,
-              title: "Arcwright Code",
-              body: "Your PWA push notifications are working.",
+              kind: "test",
+              subscriptionIncarnationId: subscription.incarnationId,
             })
-            .pipe(Effect.orDie);
-          return { ok: true };
+            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+          return { ok: result.ok && result.queued === true };
         }),
       );
   }),

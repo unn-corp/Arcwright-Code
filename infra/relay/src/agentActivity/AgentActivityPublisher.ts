@@ -69,6 +69,8 @@ export const make = Effect.gen(function* () {
 
   const publishForDeliveryUser = Effect.fnUntraced(function* (input: {
     readonly deliveryUser: EnvironmentLinks.AgentAwarenessDeliveryUserRecord;
+    readonly environmentId: string;
+    readonly environmentPublicKey: string;
     readonly state: RelayAgentActivityState | null;
     readonly nowMs: number;
   }) {
@@ -120,28 +122,29 @@ export const make = Effect.gen(function* () {
     );
     const webPushNotifications =
       input.deliveryUser.notificationsEnabled && Option.isSome(webPushSubscriptions)
-        ? yield* webPushSubscriptions.value
-            .transition({
-              userId: input.deliveryUser.userId,
-              state: input.state,
-            })
-            .pipe(Effect.orDie)
+        ? yield* webPushSubscriptions.value.transition({
+            userId: input.deliveryUser.userId,
+            state: input.state,
+          })
         : [];
     const webPushResults = Option.isSome(webPushDeliveryQueue)
       ? yield* Effect.forEach(
           webPushNotifications,
           (notification) =>
-            webPushDeliveryQueue.value
-              .enqueue({
-                userId: input.deliveryUser.userId,
-                subscriptionId: notification.subscription.id,
-                eventId: notification.eventId,
-                deepLink: notification.deepLink,
-                showProjectAndThreadNames: notification.showProjectAndThreadNames,
-                title: notification.title,
-                body: notification.body,
-              })
-              .pipe(Effect.orDie),
+            webPushDeliveryQueue.value.enqueue({
+              kind: "activity",
+              userId: input.deliveryUser.userId,
+              subscriptionId: notification.subscription.id,
+              subscriptionIncarnationId: notification.subscription.incarnationId,
+              provenance: {
+                ...notification.source,
+                environmentId: input.environmentId,
+                environmentPublicKey: input.environmentPublicKey,
+                linkIncarnationId: input.deliveryUser.linkIncarnationId,
+              },
+              eventId: notification.eventId,
+              showProjectAndThreadNames: notification.showProjectAndThreadNames,
+            }),
           { concurrency: 4 },
         )
       : [];
@@ -216,6 +219,8 @@ export const make = Effect.gen(function* () {
         (deliveryUser) =>
           publishForDeliveryUser({
             deliveryUser,
+            environmentId: input.environmentId,
+            environmentPublicKey: input.environmentPublicKey,
             state: input.state,
             nowMs: now.epochMilliseconds,
           }),
@@ -226,25 +231,29 @@ export const make = Effect.gen(function* () {
       // the linked-user fan-out above.
       const pwaNotifications =
         anonymousAllowed && Option.isSome(webPushSubscriptions)
-          ? yield* webPushSubscriptions.value
-              .transitionEnvironment({ environmentId: input.environmentId, state: input.state })
-              .pipe(Effect.orDie)
+          ? yield* webPushSubscriptions.value.transitionEnvironment({
+              environmentId: input.environmentId,
+              state: input.state,
+            })
           : [];
       const pwaDeliveries = Option.isSome(webPushDeliveryQueue)
         ? yield* Effect.forEach(
             pwaNotifications,
             (notification) =>
-              webPushDeliveryQueue.value
-                .enqueue({
-                  userId: notification.subscription.userId,
-                  subscriptionId: notification.subscription.id,
-                  eventId: notification.eventId,
-                  deepLink: notification.deepLink,
-                  showProjectAndThreadNames: notification.showProjectAndThreadNames,
-                  title: notification.title,
-                  body: notification.body,
-                })
-                .pipe(Effect.orDie),
+              webPushDeliveryQueue.value.enqueue({
+                kind: "activity",
+                userId: notification.subscription.userId,
+                subscriptionId: notification.subscription.id,
+                subscriptionIncarnationId: notification.subscription.incarnationId,
+                provenance: {
+                  ...notification.source,
+                  environmentId: input.environmentId,
+                  environmentPublicKey: input.environmentPublicKey,
+                  linkIncarnationId: null,
+                },
+                eventId: notification.eventId,
+                showProjectAndThreadNames: notification.showProjectAndThreadNames,
+              }),
             { concurrency: 4 },
           )
         : [];

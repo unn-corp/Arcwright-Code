@@ -884,10 +884,16 @@ describe("makeAggregateState", () => {
 });
 
 describe("authenticated publisher anonymous shutdown", () => {
-  it.effect.each(["owned", "legacy"] as const)(
-    "%s keeps account Web Push and native fanout",
-    (mode) => {
+  it.effect.each([
+    { mode: "owned", liveActivitiesEnabled: true },
+    { mode: "owned", liveActivitiesEnabled: false },
+    { mode: "legacy", liveActivitiesEnabled: true },
+    { mode: "legacy", liveActivitiesEnabled: false },
+  ] as const)(
+    "$mode keeps account Web Push and native fanout with live activity enabled=$liveActivitiesEnabled",
+    ({ mode, liveActivitiesEnabled }) => {
       const calls = { account: 0, anonymous: 0, queuedUsers: [] as string[], apns: 0, fcm: 0 };
+      const jobs: Array<WebPushDeliveryQueue.WebPushQueueInput> = [];
       const preferences = {
         enabled: true,
         notifyOnCompletion: true,
@@ -897,6 +903,17 @@ describe("authenticated publisher anonymous shutdown", () => {
         showProjectAndThreadNames: false,
       };
       const notification = (userId: string): WebPushSubscriptions.WebPushNotification => ({
+        notificationKind: "agent_completed",
+        source: {
+          environmentId: state.environmentId,
+          threadId: state.threadId,
+          notificationKind: "agent_completed",
+          stateVersion: {
+            updatedAt: state.updatedAt,
+            phase: state.phase,
+            hasActionableProposedPlan: false,
+          },
+        },
         eventId: "fixture-event",
         deepLink: "/",
         showProjectAndThreadNames: false,
@@ -951,6 +968,36 @@ describe("authenticated publisher anonymous shutdown", () => {
         expect(calls.queuedUsers).toEqual(
           mode === "owned" ? ["dev:julius"] : ["dev:julius", "pwa:fixture-installation"],
         );
+        expect(jobs[0]).toMatchObject({
+          kind: "activity",
+          userId: "dev:julius",
+          subscriptionIncarnationId: "00000000-0000-4000-8000-000000000001",
+          provenance: {
+            environmentId: "env",
+            environmentPublicKey: "fixture-public",
+            linkIncarnationId: "00000000-0000-4000-8000-000000000001",
+            notificationKind: "agent_completed",
+            stateVersion: {
+              updatedAt: state.updatedAt,
+              phase: state.phase,
+              hasActionableProposedPlan: false,
+            },
+          },
+        });
+        if (mode === "legacy")
+          expect(jobs[1]).toMatchObject({
+            kind: "activity",
+            userId: "pwa:fixture-installation",
+            subscriptionIncarnationId: "00000000-0000-4000-8000-000000000001",
+            provenance: {
+              environmentId: "env",
+              environmentPublicKey: "fixture-public",
+              linkIncarnationId: null,
+            },
+          });
+        expect(
+          jobs.every((job) => !("title" in job) && !("body" in job) && !("deepLink" in job)),
+        ).toBe(true);
         expect(calls.apns).toBe(1);
         expect(calls.fcm).toBe(1);
         expect(result.deliveries).toHaveLength(mode === "owned" ? 1 : 2);
@@ -961,7 +1008,20 @@ describe("authenticated publisher anonymous shutdown", () => {
               Layer.mergeAll(
                 Layer.succeed(RelayConfiguration, config),
                 Layer.succeed(AgentActivityRows.AgentActivityRows, makeAgentActivityRows()),
-                Layer.succeed(EnvironmentLinks.EnvironmentLinks, makeEnvironmentLinks()),
+                Layer.succeed(
+                  EnvironmentLinks.EnvironmentLinks,
+                  makeEnvironmentLinks({
+                    listDeliveryUsersForEnvironment: () =>
+                      Effect.succeed([
+                        {
+                          userId: "dev:julius",
+                          linkIncarnationId: "00000000-0000-4000-8000-000000000001",
+                          notificationsEnabled: true,
+                          liveActivitiesEnabled,
+                        },
+                      ]),
+                  }),
+                ),
                 Layer.succeed(
                   LiveActivities.LiveActivities,
                   makeLiveActivities({
@@ -1005,6 +1065,7 @@ describe("authenticated publisher anonymous shutdown", () => {
                   enqueue: (input) =>
                     Effect.sync(() => {
                       calls.queuedUsers.push(input.userId);
+                      jobs.push(input);
                       return {
                         deviceId: input.subscriptionId,
                         kind: "web_push_notification" as const,
@@ -1024,3 +1085,102 @@ describe("authenticated publisher anonymous shutdown", () => {
     },
   );
 });
+
+it.effect.each(["subscription", "queue"] as const)(
+  "propagates Web Push %s failures through the typed publisher channel",
+  (failure) => {
+    const notification: WebPushSubscriptions.WebPushNotification = {
+      eventId: "opaque",
+      notificationKind: "input_required",
+      source: {
+        environmentId: state.environmentId,
+        threadId: state.threadId,
+        notificationKind: "input_required",
+        stateVersion: {
+          updatedAt: state.updatedAt,
+          phase: state.phase,
+          hasActionableProposedPlan: false,
+        },
+      },
+      deepLink: state.deepLink,
+      showProjectAndThreadNames: false,
+      title: "Fixture",
+      body: "Fixture",
+      subscription: {
+        id: "subscription",
+        incarnationId: "00000000-0000-4000-8000-000000000001",
+        userId: "dev:julius",
+        environmentId: null,
+        installationId: null,
+        installationSecretHash: null,
+        endpoint: "https://push.example.test",
+        p256dh: "fixture",
+        auth: "fixture",
+        createdAt: state.updatedAt,
+        updatedAt: state.updatedAt,
+        preferencesJson: {
+          enabled: true,
+          notifyOnPlanReady: true,
+          notifyOnCompletion: true,
+          notifyOnInput: true,
+          notifyOnFailure: true,
+          showProjectAndThreadNames: false,
+        },
+      },
+    };
+    return Effect.gen(function* () {
+      const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
+      const result = yield* Effect.result(
+        publisher.publish({
+          environmentId: "env",
+          environmentPublicKey: "key",
+          threadId: "thread",
+          state,
+        }),
+      );
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure")
+        expect(result.failure._tag).toBe(
+          failure === "subscription"
+            ? "WebPushSubscriptionPersistenceError"
+            : "WebPushDeliveryQueueError",
+        );
+    }).pipe(
+      Effect.provide(
+        AgentActivityPublisher.layer.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(AgentActivityRows.AgentActivityRows, makeAgentActivityRows()),
+              Layer.succeed(EnvironmentLinks.EnvironmentLinks, makeEnvironmentLinks()),
+              Layer.succeed(
+                LiveActivities.LiveActivities,
+                makeLiveActivities({ listTargets: () => Effect.succeed([]) }),
+              ),
+              Layer.succeed(ApnsDeliveries.ApnsDeliveries, makeApnsDeliveries()),
+              Layer.mock(FcmDeliveries.FcmDeliveries, {}),
+              Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+                transition: () =>
+                  failure === "subscription"
+                    ? Effect.fail(
+                        new WebPushSubscriptions.WebPushSubscriptionPersistenceError({
+                          cause: new Error("fixture persistence error"),
+                        }),
+                      )
+                    : Effect.succeed([notification]),
+                transitionEnvironment: () => Effect.succeed([]),
+              }),
+              Layer.succeed(WebPushDeliveryQueue.WebPushDeliveryQueue, {
+                enqueue: () =>
+                  Effect.fail(
+                    new WebPushDeliveryQueue.WebPushDeliveryQueueError({
+                      cause: new Error("fixture queue error"),
+                    }),
+                  ),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  },
+);

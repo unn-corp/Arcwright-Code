@@ -887,6 +887,11 @@ public link activation time advances without rewriting original creation provena
 and same-owner credential replacement preserve the alert baseline. The ordered incarnation migration
 is fixture-verified and pending in production. Focused handler/service tests
 and explicitly opted-in disposable PostgreSQL conversion/rollback/concurrency fixtures cover this
-source boundary. Signed authenticated job binding and current-link authorization remain pending. Native installation credentials and historical release/recovery
+source boundary. V2 producer binding uses WebCrypto and explicit activity/test contracts;
+all five producers select the subscription incarnation, and activity includes the verified
+environment key and account link incarnation (explicit null only for legacy anonymous jobs).
+The intermediate consumer permanently drops all V2 before subscription/claim/transport
+work and owned mode rejects all V1. Current-authority delivery remains pending; no
+production deployment may admit this intermediate V2-unavailable source. Native installation credentials and historical release/recovery
 rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its
 own live validation.

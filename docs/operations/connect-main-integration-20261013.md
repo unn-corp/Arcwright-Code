@@ -87,15 +87,18 @@ Actual installed `tsc-rs 0.4.0` and the prepared
 `TypeScript 7.0.2+effect-tsgo.0.51.1` retain the repository's diagnostics.
 Scoped checks pass for server, web, mobile, contracts, shared, client runtime,
 Connect build/profile helpers, relay persistence and driver canary. Full relay scope
-retains exactly **14 pre-existing errors**: two assembly context errors, eleven
-Worker API/layer errors and one Node HMAC import diagnostic. No assertion, service
+retained exactly **14 pre-existing errors** at integration: two assembly context errors,
+eleven Worker API/layer errors and one Node HMAC import diagnostic. The bounded V2 queue
+producer slice removes the Node HMAC diagnostic with the existing WebCrypto service;
+actual full relay diagnostics now retain the same **13** assembly/Worker errors with
+no new errors. No assertion, service
 requirement or compiler rule was weakened to remove them. The ten-guide documentation
 checker, focused lint, conflict-marker scan and whitespace check against pinned main
 pass. Incoming dependency patches retain their original upstream whitespace.
 
 Independent spec/quality and server/recovery/UI/Android source reviews remain separate
-controller gates. Production assembly/HMAC repair, owned relay commissioning, actual
-PostgreSQL delivery/migrations, device signup/renewal/logout, notification delivery and
+controller gates. Production assembly repair, current-authority V2 Web Push delivery, owned relay commissioning, actual
+production PostgreSQL delivery/migrations, device signup/renewal/logout, notification delivery and
 release/update/recovery verification remain pending. The old frozen artifact at the
 pre-merge source is not production proof for this merge or Effect 4.0.2. Canary deadline
 fixtures establish response/interruption/finalization behavior, not a guaranteed clean

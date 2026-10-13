@@ -95,7 +95,9 @@ Owned Arcwright Connect relays disable anonymous browser push. **Notifications o
 reports remote push unavailable there; local notification previews, browser unsubscription, and
 cleanup of an existing installation remain available. Account-authenticated notifications use
 separate Connect authorization. Cloudless mode also supports local notification previews.
-These source safeguards do not mean the owned public relay is commissioned.
+Remote account Web Push delivery is not commissioned yet. A test accepted by the relay
+means it was queued; it does not confirm that a notification reached the browser.
+Local previews remain available.
 
 Native credential authority migration, historical rollback, and private live commissioning
 remain separate validation work.

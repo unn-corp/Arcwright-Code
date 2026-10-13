@@ -9,6 +9,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as RelayConfiguration from "../Config.ts";
+import * as WebCrypto from "../WebCrypto.ts";
 import { anonymousPwaAllowed, blocksWebPushDelivery } from "./anonymousPwaPolicy.ts";
 import * as DeliveryAttempts from "./DeliveryAttempts.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
@@ -58,7 +59,10 @@ export class WebPushDeliveries extends Context.Service<
   }
 >()("t3code-relay/agentActivity/WebPushDeliveries") {}
 
-function unavailableDelivery(subscriptionId: string): RelayDeliveryResult {
+function unavailableDelivery(
+  subscriptionId: string,
+  reason = "anonymous_pwa_unavailable",
+): RelayDeliveryResult {
   return {
     deviceId: subscriptionId,
     kind: "web_push_notification",
@@ -67,13 +71,16 @@ function unavailableDelivery(subscriptionId: string): RelayDeliveryResult {
     apnsStatus: null,
     apnsReason: null,
     apnsId: null,
-    webPushReason: "anonymous_pwa_unavailable",
+    webPushReason: reason,
   };
 }
+
+const decodeSignedJob = Schema.decodeUnknownEffect(SignedWebPushDeliveryJob);
 
 export const make = Effect.gen(function* () {
   const anonymousAllowed = yield* anonymousPwaAllowed;
   const config = yield* RelayConfiguration.RelayConfiguration;
+  const webCrypto = yield* WebCrypto.WebCrypto;
   const subscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
   const attempts = yield* DeliveryAttempts.DeliveryAttempts;
   if (!config.webPush) {
@@ -144,20 +151,29 @@ export const make = Effect.gen(function* () {
   return WebPushDeliveries.of({
     send,
     processSignedJob: Effect.fn("relay.web_push_deliveries.process_signed_job")(function* (body) {
-      const job = yield* Schema.decodeUnknownEffect(SignedWebPushDeliveryJob)(body).pipe(
-        Effect.mapError((cause) => new WebPushDeliveryTransportError({ cause })),
-      );
+      const decoded = yield* Effect.result(decodeSignedJob(body));
+      if (Result.isFailure(decoded)) return unavailableDelivery("", "invalid_job");
+      const job = decoded.success;
+      // Owned deployments reject every V1, including test-looking event IDs.
+      if (job.payload.version === 1 && !anonymousAllowed) {
+        return unavailableDelivery(job.payload.subscriptionId, "v1_unavailable");
+      }
       if (!anonymousAllowed && job.payload.userId.startsWith("pwa:")) {
         return unavailableDelivery(job.payload.subscriptionId);
       }
-      const verified = verifyWebPushDeliveryJob({
+      const verified = yield* verifyWebPushDeliveryJob({
         secret: config.webPushDeliveryJobSigningSecret ?? config.apnsDeliveryJobSigningSecret,
         job,
         nowMs: (yield* DateTime.now).epochMilliseconds,
-      });
-      if (verified === null) {
-        return yield* Effect.die("Invalid or expired Web Push delivery job.");
-      }
+      }).pipe(
+        Effect.provideService(WebCrypto.WebCrypto, webCrypto),
+        Effect.mapError((cause) => new WebPushDeliveryTransportError({ cause })),
+      );
+      if (verified === null) return unavailableDelivery(job.payload.subscriptionId, "invalid_job");
+      // V2 current-authority delivery is a separate required slice. Never admit
+      // these jobs to V1 queued-copy lookup, claims, baselines or transport.
+      if (verified.version === 2)
+        return unavailableDelivery(verified.subscriptionId, "v2_unavailable");
       const subscription = yield* subscriptions
         .get({ userId: verified.userId, subscriptionId: verified.subscriptionId })
         .pipe(Effect.mapError((cause) => new WebPushDeliveryTransportError({ cause })));

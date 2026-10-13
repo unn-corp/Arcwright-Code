@@ -11,10 +11,13 @@ import type { RelayDeliveryResult } from "@t3tools/contracts/relay";
 
 import { anonymousPwaAllowed } from "./anonymousPwaPolicy.ts";
 import * as RelayConfiguration from "../Config.ts";
+import * as WebCrypto from "../WebCrypto.ts";
 import {
   expiresAtForWebPushJob,
   signWebPushDeliveryJob,
   type SignedWebPushDeliveryJob,
+  type WebPushActivityPayloadV2,
+  type WebPushTestPayloadV2,
 } from "./webPushDeliveryJobs.ts";
 
 export class WebPushDeliveryQueueError extends Schema.TaggedError<WebPushDeliveryQueueError>()(
@@ -31,24 +34,24 @@ export class WebPushDeliveryQueueSender extends Context.Service<
   }
 >()("t3code-relay/agentActivity/WebPushDeliveryQueue/WebPushDeliveryQueueSender") {}
 
+type QueueInput<Payload> = Payload extends WebPushActivityPayloadV2 | WebPushTestPayloadV2
+  ? Omit<Payload, "version" | "jobId" | "createdAt" | "expiresAt">
+  : never;
+export type WebPushQueueInput = QueueInput<WebPushActivityPayloadV2 | WebPushTestPayloadV2>;
+
 export class WebPushDeliveryQueue extends Context.Service<
   WebPushDeliveryQueue,
   {
-    readonly enqueue: (input: {
-      readonly userId: string;
-      readonly subscriptionId: string;
-      readonly eventId: string;
-      readonly deepLink: string;
-      readonly showProjectAndThreadNames: boolean;
-      readonly title: string;
-      readonly body: string;
-    }) => Effect.Effect<RelayDeliveryResult, WebPushDeliveryQueueError>;
+    readonly enqueue: (
+      input: WebPushQueueInput,
+    ) => Effect.Effect<RelayDeliveryResult, WebPushDeliveryQueueError>;
   }
 >()("t3code-relay/agentActivity/WebPushDeliveryQueue") {}
 
 export const make = Effect.gen(function* () {
   const anonymousAllowed = yield* anonymousPwaAllowed;
   const sender = yield* WebPushDeliveryQueueSender;
+  const webCrypto = yield* WebCrypto.WebCrypto;
   const crypto = yield* Crypto.Crypto;
   const config = yield* RelayConfiguration.RelayConfiguration;
   return WebPushDeliveryQueue.of({
@@ -70,16 +73,19 @@ export const make = Effect.gen(function* () {
         Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })),
       );
       const payload = {
-        version: 1 as const,
+        version: 2 as const,
         jobId,
         ...input,
         createdAt: DateTime.formatIso(now),
         expiresAt: expiresAtForWebPushJob(now.epochMilliseconds),
       };
-      const signed = signWebPushDeliveryJob({
+      const signed = yield* signWebPushDeliveryJob({
         secret: config.webPushDeliveryJobSigningSecret ?? config.apnsDeliveryJobSigningSecret,
         payload,
-      });
+      }).pipe(
+        Effect.provideService(WebCrypto.WebCrypto, webCrypto),
+        Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })),
+      );
       yield* sender
         .send(signed)
         .pipe(Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })));

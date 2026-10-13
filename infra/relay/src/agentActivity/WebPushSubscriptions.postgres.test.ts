@@ -108,6 +108,71 @@ describe.runIf(fixtureFile !== undefined)(
         ),
     );
 
+    it.effect.each(["account", "anonymous"] as const)(
+      "%s transitions emit typed source/state/kind with the freshly selected incarnation and preserve copy",
+      (owner) =>
+        fixture(
+          Effect.gen(function* () {
+            const subscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
+            const registration =
+              owner === "account"
+                ? yield* subscriptions.register({ userId: "user_task4c", payload })
+                : yield* subscriptions.registerPwa({
+                    payload: { ...payload, installation, environmentId: running.environmentId },
+                  });
+            const transition = (
+              state:
+                | typeof running
+                | (Omit<typeof running, "phase"> & {
+                    phase: "completed" | "waiting_for_input" | "failed";
+                    hasActionableProposedPlan?: boolean;
+                  }),
+            ) =>
+              owner === "account"
+                ? subscriptions.transition({ userId: "user_task4c", state })
+                : subscriptions.transitionEnvironment({
+                    environmentId: running.environmentId,
+                    state,
+                  });
+            expect(yield* transition(running)).toEqual([]);
+            for (const [index, phase, actionable, kind] of [
+              [1, "running", true, "plan_ready"],
+              [2, "waiting_for_input", false, "input_required"],
+              [3, "completed", false, "agent_completed"],
+              [4, "failed", false, "agent_failed"],
+            ] as const) {
+              const state = {
+                ...running,
+                phase,
+                updatedAt: `1970-01-01T00:00:0${index}.000Z`,
+                hasActionableProposedPlan: actionable,
+              };
+              const notifications = yield* transition(state);
+              expect(notifications).toHaveLength(1);
+              const notification = notifications[0]!;
+              expect(notification).toMatchObject({
+                notificationKind: kind,
+                source: {
+                  environmentId: running.environmentId,
+                  threadId: running.threadId,
+                  notificationKind: kind,
+                  stateVersion: {
+                    updatedAt: state.updatedAt,
+                    phase,
+                    hasActionableProposedPlan: actionable,
+                  },
+                },
+                title: "Arcwright Code",
+                body: "Agent activity needs your attention.",
+                subscription: { id: registration.subscriptionId },
+              });
+              expect(notification.subscription.incarnationId).toMatch(/^[0-9a-f-]{36}$/);
+              expect(yield* transition(state)).toEqual([]);
+            }
+          }),
+        ),
+    );
+
     it.effect(
       "converts anonymous ownership and clears its baseline; stale installation cannot get or remove the account row",
       () =>

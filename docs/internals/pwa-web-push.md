@@ -95,7 +95,24 @@ and tests; omitted or explicit `legacy` retains existing behavior. Invalid injec
 policy is unavailable too. Installation-authenticated removal remains available for
 cleanup, without enabling enrollment or delivery. The client reports unavailable
 capability and keeps local controls reachable.
-Authenticated account notifications remain a separate supported path. Native credential
+Authenticated account notification enrollment remains separate. Queue producers now emit
+explicit V2 activity or test jobs signed with Workers WebCrypto HMAC-SHA256. Activity
+binds the verified environment key, selected link/subscription incarnations and typed
+notification state; queued copy never grants delivery authority. Test jobs contain no
+activity, copy or deep link. Only legacy anonymous activity may carry an explicit null
+link incarnation; owned policy blocks that producer before transitions or fanout.
+
+The intermediate consumer deliberately drops every V2 job as unavailable before any
+subscription lookup, claim, baseline or transport effect. Owned mode also drops every
+V1 job, including test-looking IDs; legacy V1 retains historical canonical bytes and
+expiry semantics. Malformed, invalid-MAC and expired jobs are permanent drops, while
+WebCrypto provider failures remain typed failures for queue retry. Do not deploy this
+intermediate source to admit V2 traffic. Current-authority delivery must first freshly
+verify the owner, subscription incarnation/target/preferences, exact-key active link
+incarnation and notification permission, current activity state, expiry and job kind;
+rebuild copy using both queued and current name permission before claims and each retry;
+and bind 404/410 removal to the admitted incarnation. Revocation cannot recall a
+transport request already admitted. That consumer and owned commissioning remain pending. Native credential
 migration, release/recovery authority, and real device delivery still require separate work
 and verification.
 
@@ -155,10 +172,10 @@ adds `environment_id`, `installation_id`, and `installation_secret_hash` to
 `pwa:<installationId>` solely to preserve the shared table's existing
 non-null `user_id` column; it is not a user account.
 
-`RelayWebPushDeliveryQueue` signs each queued job. The consumer uses VAPID and
-the standard `web-push` package. Transient push-service errors retry through
-Cloudflare Queues; a permanent `404` or `410` removes the subscription. The
-queue also records idempotent delivery attempts.
+`WebPushDeliveryQueue` signs explicit V2 jobs. The intermediate consumer permanently
+returns unavailable for them. Only existing legacy V1 jobs reach the historical VAPID
+transport, push-service retry, subscription removal and idempotent attempt path.
+Current-authority V2 transport and incarnation-bound removal remain unimplemented.
 
 ## 2. Account/Arcwright Connect relay path
 
@@ -204,8 +221,9 @@ registration retry, and an observation can predate a later ownership change; per
 alone does not recall a push already in flight.
 
 This source guard is a prerequisite for owned public exposure, not proof of relay
-commissioning. Signed authenticated job binding and current environment-link
-reauthorization remain separate pending work; the existing v1 job protocol is retained.
+commissioning. Signed V2 producer binding is implemented; current environment-link,
+subscription and activity reauthorization before delivery remains pending. V1 is
+retained for legacy consumption only, and owned consumption rejects all V1.
 
 The shared queue identifies the delivery kind as `web_push_notification`; the
 APNs fields remain present for API compatibility, while Web Push status/reason
@@ -248,8 +266,9 @@ explicitly reset browser push and then enable it with a separate tap.
    permission. Safari's ordinary browser tab is not the iOS installed-PWA
    target.
 3. On a legacy deployment, use **Remote test** from Notifications on this device. Owned
-   deployments report anonymous remote push unavailable; local preview and cleanup remain reachable. Remote test queues a generic
-   test for the local installation only.
+   deployments report anonymous remote push unavailable; local preview and cleanup remain reachable.
+   Remote test queues only a test for the selected installation. The intermediate V2 consumer
+   does not deliver it; resume transport checks only after current-authority delivery is implemented.
 4. Check the relay Web Push queue/dead-letter queue and delivery attempts for
    transient failures or `404`/`410` cleanup.
 5. When testing a production change on iPhone/iPad, remove any old malformed
