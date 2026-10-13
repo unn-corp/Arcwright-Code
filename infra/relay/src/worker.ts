@@ -21,11 +21,6 @@ import * as HttpApiScalar from "effect/http-api/HttpApiScalar";
 import { RelayApi } from "@t3tools/contracts/relay";
 
 import {
-  clientApi,
-  dpopClientApi,
-  healthApi,
-  metadataApi,
-  mobileApi,
   pwaApi,
   RELAY_HTTP_ROUTER_CONFIG,
   traceRelayHttpRequestWith,
@@ -286,7 +281,7 @@ export const layer = Api.make(
         hookInboxes.getByName(endpointKey).clear().pipe(inboxCall("clear", endpointKey)),
     });
 
-    const layerRuntime = Layer.empty.pipe(
+    const layerRuntimeBase = Layer.empty.pipe(
       Layer.provideMerge(MobileRegistrations.layer),
       Layer.provideMerge(WebPushRuntime.layer),
       Layer.provideMerge(
@@ -327,6 +322,8 @@ export const layer = Api.make(
           Layer.provideMerge(FcmClient.layer.pipe(Layer.provide(FcmAssertionSigner.layer))),
         ),
       ),
+    );
+    const layerRuntime = layerRuntimeBase.pipe(
       Layer.provideMerge(ApnsClient.layer.pipe(Layer.provideMerge(ApnsProviderTokens.layer))),
       Layer.provideMerge(
         ApnsDeliveryQueue.layerCloudflareQueues(apnsDeliveryQueueSender, alchemyRuntimeContext),

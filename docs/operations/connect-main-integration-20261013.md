@@ -96,6 +96,12 @@ requirement or compiler rule was weakened to remove them. The ten-guide document
 checker, focused lint, conflict-marker scan and whitespace check against pinned main
 pass. Incoming dependency patches retain their original upstream whitespace.
 
+The local legacy relay source compilation repair removes five unused stale API imports
+and preserves the complete Worker runtime layer composition across two supported pipe
+groups. The actual full relay compiler, including the legacy `alchemy.run.ts` entry,
+now exits with zero errors and retains 15 suggestions. This records source compilation
+only; it does not establish stack provisioning, build output or live runtime behavior.
+
 Independent spec/quality and server/recovery/UI/Android source reviews remain separate
 controller gates. The bounded current-authority V2 Web Push consumer is now implemented and locally tested:
 HMAC/TTL precede policy/reads; every retry validates current subscription authority/target,
@@ -107,8 +113,9 @@ source-key/state projection; those changes can remain invisible until TTL/phase 
 Conditional transactional 404/410 cleanup preserves replacement incarnations/baselines.
 Fresh database observations admit each external request; later changes can race it and
 future retries reauthorize. Counted transport payloads do not establish browser rendering
-or device arrival. Production assembly repair, owned relay commissioning, actual
-production PostgreSQL delivery/migrations, device signup/renewal/logout, notification delivery and
+or device arrival. Shared owned-runtime extraction, owned stack/build/live-driver
+integration, owned relay commissioning, production migrations and delivery, public
+admission/deletion, device signup/renewal/logout, notification delivery and
 release/update/recovery verification remain pending. The old frozen artifact at the
 pre-merge source is not production proof for this merge or Effect 4.0.2. Canary deadline
 fixtures establish response/interruption/finalization behavior, not a guaranteed clean
