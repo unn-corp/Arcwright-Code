@@ -1,5 +1,3 @@
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- Independent historical HMAC oracle in tests only.
-import * as NodeCrypto from "node:crypto";
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import { stableStringify } from "@t3tools/shared/relaySigning";
@@ -8,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as WebCrypto from "../WebCrypto.ts";
+import { nodeHmacSha256Base64Url } from "./webPushNodeHmac.test-oracle.mjs";
 import {
   SignedWebPushDeliveryJob,
   WebPushDeliveryPayload,
@@ -90,11 +89,7 @@ describe("Web Push versioned HMAC", () => {
         expect(stableStringify(payload)).toBe(canonical);
         const signed = yield* signWebPushDeliveryJob({ secret, payload });
         expect(signed.signature).toBe(mac);
-        expect(
-          NodeCrypto.createHmac("sha256", Redacted.value(secret))
-            .update(canonical)
-            .digest("base64url"),
-        ).toBe(mac);
+        expect(nodeHmacSha256Base64Url(Redacted.value(secret), canonical)).toBe(mac);
         const decoded = decodeJson(encodeJson(signed));
         expect(stableStringify(decoded.payload)).toBe(canonical);
         expect(yield* verifyWebPushDeliveryJob({ secret, job: decoded, nowMs: 0 })).toEqual(
