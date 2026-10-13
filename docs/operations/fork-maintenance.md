@@ -290,6 +290,10 @@ account initialization, per-principal local profiles, manual photo choices, boun
 thumbnails, broken-photo initials, and instance colors through timeline and auth refactors.
 Provider credentials must never initialize human profiles. Author metadata is display information,
 not proof of authorization. Replies must canonicalize their author snapshots from the target.
+Web timelines place chips outside bubbles, show one per consecutive sender group, and pin that
+identity while its group scrolls past. Preserve this through row recycling and disclosure changes;
+agent reply controls belong beside their messages. `TimelineParticipants.test.tsx` and the timeline
+component tests cover these boundaries.
 
 Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,
 `ParticipantProfileSync.test.tsx`, and `MessageReplies.integration.test.ts`. Keep plain and bubble

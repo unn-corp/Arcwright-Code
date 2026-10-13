@@ -1,3 +1,4 @@
+import { PinnedTimelineParticipant, timelineParticipantGroups } from "./TimelineParticipants";
 import { ParticipantChip } from "./ParticipantChip";
 import { agentInstanceId, resolveMessageParticipant } from "@t3tools/client-runtime/participants";
 import {
@@ -320,6 +321,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  participantGroupStarts: ReadonlySet<string>;
   onOpenReplyChain: (id: MessageId) => void;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
@@ -965,6 +967,30 @@ const ConversationTimeline = memo(function ConversationTimeline({
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
+  const participantGroups = useMemo(
+    () =>
+      timelineParticipantGroups(
+        rows,
+        citationThreadRef?.threadId ?? routeThreadKey,
+        runs,
+        providerStatuses,
+      ),
+    [rows, citationThreadRef, routeThreadKey, runs, providerStatuses],
+  );
+  const participantGroupStartsRef = useRef<ReadonlySet<string>>(new Set());
+  const participantGroupStarts = useMemo(() => {
+    const previous = participantGroupStartsRef.current;
+    if (
+      previous.size === participantGroups.length &&
+      participantGroups.every((group) => previous.has(group.rowId))
+    ) {
+      return previous;
+    }
+    return (participantGroupStartsRef.current = new Set(
+      participantGroups.map((group) => group.rowId),
+    ));
+  }, [participantGroups]);
+  const participantHeaderRefresh = useRef<() => void>(() => {});
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
@@ -1209,6 +1235,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     });
   }, [measureContentOverflow, onContentOverflowChange]);
   const handleItemSizeChanged = useCallback(() => {
+    participantHeaderRefresh.current();
     if (disclosurePinsEndRef.current) {
       queueMicrotask(pinDisclosureToEnd);
       scheduleDisclosureSettle();
@@ -1227,6 +1254,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   }, [cancelContentOverflowFrame, measureContentOverflow, onContentOverflowChange, rows.length]);
 
   const handleScroll = useCallback(() => {
+    participantHeaderRefresh.current();
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
     const isAtEnd = resolveTimelineIsAtEnd(state);
@@ -1376,6 +1404,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      participantGroupStarts,
       onReplyToMessage,
       onOpenReplyChain: openReplyChain,
       citationRequest: readyCitationRequest,
@@ -1417,6 +1446,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       workGroupViewState,
     }),
     [
+      participantGroupStarts,
       onReplyToMessage,
       openReplyChain,
       readyCitationRequest,
@@ -1725,6 +1755,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
               )}
               ListHeaderComponent={listHeader}
               ListFooterComponent={timelineListFooter}
+            />
+            <PinnedTimelineParticipant
+              key={listIdentityKey}
+              groups={participantGroups}
+              listRef={listRef}
+              refreshRef={participantHeaderRefresh}
             />
             <TimelineMinimap
               items={minimapItems}
@@ -2167,9 +2203,15 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
       {row.kind === "message" && (
+        <MessageAuthorHeading
+          message={row.message}
+          showChip={replyContext.participantGroupStarts.has(row.id)}
+        />
+      )}
+      {row.kind === "message" && (
         <MessageReplyActions
           message={row.message}
-          onReply={replyContext.onReplyToMessage}
+          onReply={row.message.role === "assistant" ? undefined : replyContext.onReplyToMessage}
           onOpenChain={replyContext.onOpenReplyChain}
         />
       )}
@@ -2202,7 +2244,19 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
-        <AssistantTimelineRow row={row} />
+        <div className="flex min-w-0 items-start gap-1">
+          <div className="min-w-0 flex-1">
+            <AssistantTimelineRow row={row} />
+          </div>
+          <div className="shrink-0 pt-1">
+            <MessageReplyActions
+              message={row.message}
+              showChain={false}
+              onReply={replyContext.onReplyToMessage}
+              onOpenChain={replyContext.onOpenReplyChain}
+            />
+          </div>
+        </div>
       ) : null}
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
@@ -2226,10 +2280,11 @@ function renderReplyThreadMessage(message: ChatMessage) {
     showAssistantCopyButton: false,
     assistantCopyStreaming: false,
   };
-  return message.role === "user" ? (
-    <UserTimelineRow row={row} />
-  ) : (
-    <AssistantTimelineRow row={row} />
+  return (
+    <>
+      <MessageAuthorHeading message={message} />
+      {message.role === "user" ? <UserTimelineRow row={row} /> : <AssistantTimelineRow row={row} />}
+    </>
   );
 }
 
@@ -2337,11 +2392,17 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 
 // Screen readers skim a transcript by heading, so every message announces its
 // author as one. The thread title in ChatHeader is an <h2>; headings written
-// inside a message are exposed below this level. Visually hidden and excluded
-// from selection so sighted users and copied text are unaffected.
+// inside a message are exposed below this level. Only the first heading in a
+// sender group is visible; every message retains its accessible author heading.
 const MESSAGE_HEADING_LEVEL = 3;
 
-function MessageAuthorHeading({ message }: { message: ChatMessage }) {
+function MessageAuthorHeading({
+  message,
+  showChip = true,
+}: {
+  message: ChatMessage;
+  showChip?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
   const participant = resolveMessageParticipant(
     message,
@@ -2350,8 +2411,14 @@ function MessageAuthorHeading({ message }: { message: ChatMessage }) {
     ctx.providerStatuses,
   );
   return (
-    <h3 className="mb-2 min-w-0 select-none">
-      <ParticipantChip participant={participant} />
+    <h3
+      className={
+        showChip
+          ? cn("mb-2 flex min-w-0 select-none", message.role === "user" && "justify-end")
+          : "sr-only"
+      }
+    >
+      {showChip ? <ParticipantChip participant={participant} /> : participant.name}
     </h3>
   );
 }
@@ -2570,7 +2637,6 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading message={row.message} />
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -2933,7 +2999,6 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             : "px-1 py-0.5",
         )}
       >
-        <MessageAuthorHeading message={row.message} />
         <div data-thread-find-text="true">
           <AssistantCitationSource
             messageId={row.message.id}

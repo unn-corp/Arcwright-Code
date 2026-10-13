@@ -38,8 +38,10 @@ export function MessageReplyActions({
   message,
   onReply,
   onOpenChain,
+  showChain = true,
 }: {
   message: ChatMessage;
+  showChain?: boolean;
   onReply?: ((message: ChatMessage) => void) | undefined;
   onOpenChain: (id: MessageId) => void;
 }) {
@@ -48,7 +50,7 @@ export function MessageReplyActions({
     <div
       className={`flex min-w-0 items-center gap-1 ${message.role === "user" ? "justify-end" : ""}`}
     >
-      {target && (
+      {showChain && target && (
         <Button
           variant="ghost-muted"
           size="compact"
