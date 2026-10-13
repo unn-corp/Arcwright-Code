@@ -1798,3 +1798,180 @@ const sendRelayRequest = Effect.fnUntraced(function* <E, R>(
   );
   return yield* Deferred.await(sent);
 });
+
+describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
+  it.effect.each(["owned", "malformed", "legacy"] as const)(
+    "%s policy guards config, register, publish and test while removal remains available",
+    (mode) => {
+      const calls = { register: 0, verify: 0, transition: 0, get: 0, queue: 0, remove: 0 };
+      const config: RelayConfiguration.RelayConfiguration["Service"] = {
+        ...relaySettings,
+        webPush: {
+          subject: "mailto:fixture@example.test",
+          publicKey: "fixture-vapid",
+          privateKey: Redacted.make("fixture-private"),
+        },
+        ...(mode === "legacy"
+          ? {}
+          : {
+              clerkAuthPolicy: {
+                mode: "owned",
+                issuer: "https://clerk.arcwright.space",
+                cliClientId: "fixture_cli",
+              },
+              clerkPublishableKey:
+                mode === "malformed" ? "malformed" : `pk_test_${btoa("clerk.arcwright.space$")}`,
+            }),
+      };
+      const installation = {
+        installationId: "fixture-installation",
+        installationSecret: "fixture-secret",
+      };
+      const preferences = {
+        enabled: true,
+        notifyOnCompletion: true,
+        notifyOnPlanReady: true,
+        notifyOnInput: true,
+        notifyOnFailure: true,
+        showProjectAndThreadNames: false,
+      };
+      const subscription: WebPushSubscriptions.WebPushNotification["subscription"] = {
+        id: "fixture-subscription",
+        userId: "pwa:fixture-installation",
+        environmentId: "fixture-environment",
+        installationId: installation.installationId,
+        installationSecretHash: "fixture-hash",
+        endpoint: "https://push.example.test/fixture",
+        p256dh: "key",
+        auth: "auth",
+        preferencesJson: preferences,
+        createdAt: "1970-01-01T00:00:00.000Z",
+        updatedAt: "1970-01-01T00:00:00.000Z",
+      };
+      const layerHandlers = RelayHttpApi.pwaApi.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(RelayConfiguration.RelayConfiguration, config),
+            Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+              registerPwa: () =>
+                Effect.sync(() => {
+                  calls.register++;
+                  return { subscriptionId: subscription.id };
+                }),
+              transitionEnvironment: () =>
+                Effect.sync(() => {
+                  calls.transition++;
+                  return [];
+                }),
+              getPwa: () =>
+                Effect.sync(() => {
+                  calls.get++;
+                  return subscription;
+                }),
+              removePwa: () =>
+                Effect.sync(() => {
+                  calls.remove++;
+                  return true;
+                }),
+            }),
+            Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {
+              enqueue: () =>
+                Effect.sync(() => {
+                  calls.queue++;
+                  return {
+                    deviceId: subscription.id,
+                    kind: "web_push_notification" as const,
+                    ok: true,
+                    queued: true,
+                    apnsStatus: null,
+                    apnsReason: null,
+                    apnsId: null,
+                  };
+                }),
+            }),
+            Layer.mock(EnvironmentPublishSignatures.EnvironmentPublishSignatures, {
+              verify: () =>
+                Effect.sync(() => {
+                  calls.verify++;
+                }),
+            }),
+          ),
+        ),
+      );
+      return Effect.gen(function* () {
+        const app = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.pwa)).pipe(
+                Layer.provide(layerHandlers),
+                Layer.provide(HttpServer.layerServices),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (app) => Effect.promise(() => app.dispose()),
+        );
+        for (const [method, path, body] of [
+          ["GET", "/v1/pwa/web-push/config", undefined],
+          [
+            "PUT",
+            "/v1/pwa/web-push/subscriptions",
+            {
+              endpoint: subscription.endpoint,
+              keys: { p256dh: "key", auth: "auth" },
+              environmentId: "fixture-environment",
+              installation,
+              preferences,
+            },
+          ],
+          [
+            "POST",
+            "/v1/pwa/environments/fixture-environment/threads/fixture-thread/agent-activity",
+            { environmentPublicKey: "fixture-public-key", state: null, proof: "fixture-proof" },
+          ],
+          ["POST", "/v1/pwa/web-push/subscriptions/fixture-subscription/test", { installation }],
+        ] as const) {
+          const response = yield* Effect.promise(() =>
+            app.handler(
+              new Request(`https://relay.example.test${path}`, {
+                method,
+                ...(body === undefined
+                  ? {}
+                  : {
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify(body),
+                    }),
+              }),
+            ),
+          );
+          const json = yield* Effect.promise(() => response.json());
+          if (mode === "legacy") expect(response.status).toBe(200);
+          else {
+            expect(response.status).toBe(500);
+            expect(json).toMatchObject({ code: "internal_error", reason: "upstream_unavailable" });
+          }
+        }
+        expect(calls).toEqual(
+          mode === "legacy"
+            ? { register: 1, verify: 1, transition: 1, get: 1, queue: 1, remove: 0 }
+            : { register: 0, verify: 0, transition: 0, get: 0, queue: 0, remove: 0 },
+        );
+        const removed = yield* Effect.promise(() =>
+          app.handler(
+            new Request(
+              "https://relay.example.test/v1/pwa/web-push/subscriptions/fixture-subscription/remove",
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ installation }),
+              },
+            ),
+          ),
+        );
+        expect(removed.status).toBe(200);
+        expect(yield* Effect.promise(() => removed.json())).toEqual({ ok: true });
+        expect(calls.remove).toBe(1);
+      }).pipe(Effect.scoped);
+    },
+  );
+});

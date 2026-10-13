@@ -246,14 +246,21 @@ deployment settings. This does not configure the owned Dokploy database/tunnel o
 public relay. Deploy `prod` before personal stages because it owns the retained database that their branches
 depend on. The stack's `PublishClientConfig` action writes the resulting relay URL back to the root `.env`.
 
-Browser PWA push uses the same selected relay destination without account authentication.
+Legacy browser PWA push uses the selected relay destination without account authentication.
 Owned credentials and subscription IDs are origin-bound; global legacy records remain saved
 and inactive in owned mode. A service or VAPID key change requires **Reset browser push**,
 then a separate **Enable notifications** tap. Disable unsubscribes locally even in cloudless
 mode; old remote cleanup can remain pending and does not send old credentials to a new relay.
-Local service-worker previews remain available. A private-environment owned deployment must
-disable all anonymous PWA endpoints and report push unavailable; authenticated account
-notifications are separate. This source change does not commission or deploy that policy.
+Local service-worker previews remain available. The relay source derives anonymous shutdown
+from the validated Clerk policy: `owned` disables config, registration, publishing and test
+before side effects; malformed injected policy also fails closed. Installation-authorized removal
+stays available only for cleanup. Publisher fanout, subscription transitions, queue production,
+old signed anonymous jobs and direct Web Push sends enforce the same boundary. Omitted or
+explicit `legacy` policy preserves existing anonymous clients; there is no owned enable override.
+Authenticated registration atomically clears installation authority and obsolete transition
+baselines when transferring an endpoint to an account. Authenticated account notifications remain
+separate. These source and fixture checks do not deploy or commission the owned relay; signed
+account-job binding and current link reauthorization still require the subsequent runtime work.
 Native installation authority and historical recovery remain separate pending work.
 
 ## CLI OAuth application

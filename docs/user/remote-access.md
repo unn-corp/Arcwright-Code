@@ -91,8 +91,11 @@ If remote setup or cleanup has an uncertain outcome in owned mode, **Reset brows
 preserves the old registration and prepares a fresh installation for a separate Enable tap. Legacy service
 credentials remain saved and need confirmation of setup and cleanup at that service before renewal.
 Cancelling setup or successfully removing a registration does not resolve earlier uncertain setup.
-Cloudless mode and services that
-do not offer anonymous PWA push still support local notification previews.
+Owned Arcwright Connect relays disable anonymous browser push. **Notifications on this device**
+reports remote push unavailable there; local notification previews, browser unsubscription, and
+cleanup of an existing installation remain available. Account-authenticated notifications use
+separate Connect authorization. Cloudless mode also supports local notification previews.
+These source safeguards do not mean the owned public relay is commissioned.
 
 Native credential authority migration, historical rollback, and private live commissioning
 remain separate validation work.

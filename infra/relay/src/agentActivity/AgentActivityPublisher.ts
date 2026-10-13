@@ -23,6 +23,7 @@ import * as LiveActivities from "./LiveActivities.ts";
 import * as ApnsDeliveries from "./ApnsDeliveries.ts";
 import * as WebPushDeliveryQueue from "./WebPushDeliveryQueue.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
+import { anonymousPwaAllowed } from "./anonymousPwaPolicy.ts";
 import * as FcmDeliveries from "./FcmDeliveries.ts";
 
 export type AgentActivityPublishError =
@@ -53,6 +54,7 @@ export class AgentActivityPublisher extends Context.Service<
 >()("t3code-relay/agentActivity/AgentActivityPublisher") {}
 
 export const make = Effect.gen(function* () {
+  const anonymousAllowed = yield* anonymousPwaAllowed;
   const rows = yield* AgentActivityRows.AgentActivityRows;
   const links = yield* EnvironmentLinks.EnvironmentLinks;
   const liveActivities = yield* LiveActivities.LiveActivities;
@@ -222,11 +224,12 @@ export const make = Effect.gen(function* () {
       // Anonymous installed PWAs are scoped directly to an environment, not
       // to an Arcwright Connect user. Their delivery must therefore happen outside
       // the linked-user fan-out above.
-      const pwaNotifications = Option.isSome(webPushSubscriptions)
-        ? yield* webPushSubscriptions.value
-            .transitionEnvironment({ environmentId: input.environmentId, state: input.state })
-            .pipe(Effect.orDie)
-        : [];
+      const pwaNotifications =
+        anonymousAllowed && Option.isSome(webPushSubscriptions)
+          ? yield* webPushSubscriptions.value
+              .transitionEnvironment({ environmentId: input.environmentId, state: input.state })
+              .pipe(Effect.orDie)
+          : [];
       const pwaDeliveries = Option.isSome(webPushDeliveryQueue)
         ? yield* Effect.forEach(
             pwaNotifications,

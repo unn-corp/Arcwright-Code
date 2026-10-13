@@ -806,6 +806,14 @@ to normalized relay origins, automatic sync requires the saved endpoint and comp
 and owned/cloudless never use an implicit upstream fallback. Preserve separate Reset/Enable
 taps for iOS activation, local preview/disable, and pending remote cleanup. See
 [PWA Web Push](../internals/pwa-web-push.md) for anonymous versus authenticated notification
-boundaries and uncommissioned owned delivery. Native installation credentials and historical release/recovery
+boundaries and uncommissioned owned delivery. Relay ownership lives in
+[anonymousPwaPolicy.ts](../../infra/relay/src/agentActivity/anonymousPwaPolicy.ts): validated owned
+policy disables anonymous routes, publisher fanout, transitions, queue production and transport,
+including old anonymous jobs; credential-authenticated installation removal remains cleanup-only.
+[webPushRuntime.ts](../../infra/relay/src/agentActivity/webPushRuntime.ts) captures the Worker configuration.
+Authenticated endpoint conversion locks the actual row and clears installation authority and old
+ownership baselines atomically, retaining a clean same-owner baseline. Focused handler/service tests
+and explicitly opted-in disposable PostgreSQL conversion/rollback/concurrency fixtures cover this
+source boundary. Signed authenticated job binding and current-link authorization remain pending. Native installation credentials and historical release/recovery
 rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its
 own live validation.

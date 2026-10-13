@@ -1,12 +1,13 @@
 # PWA Web Push
 
 > For maintainers. This document describes the two relay delivery paths. The
-> installed-PWA authentication is independent of Arcwright Connect accounts; its remote destination follows the selected public Connect profile.
+> legacy installed-PWA authentication is independent of Arcwright Connect accounts. Owned relay deployments disable anonymous delivery and retain credential-authorized cleanup.
 
 Arcwright Code has two distinct ways to deliver Web Push. They share the relay's
 delivery queue and the `relay_web_push_subscriptions` table, but their identity,
 authorization, and lifecycle rules are deliberately different. Do not collapse
-them into one path or make an installed PWA require a Clerk account.
+them into one path. Anonymous enrollment remains available on legacy deployments; an
+owned deployment exposes only the authenticated account delivery path.
 
 | Path                    | Audience                                      | Identity                                        | Relay API group |
 | ----------------------- | --------------------------------------------- | ----------------------------------------------- | --------------- |
@@ -15,7 +16,7 @@ them into one path or make an installed PWA require a Clerk account.
 
 ## 1. Anonymous installed-PWA path
 
-This is the path used by **Notifications on this device** in the hosted web
+On legacy deployments, this is the path used by **Notifications on this device** in the hosted web
 app. It is for iOS/iPadOS Home Screen installs (iOS/iPadOS 16.4 or later) and
 other standards-based installed PWAs. It does not read a Clerk token, does not
 create an Arcwright Connect link, and must not be affected by Arcwright Connect sign-out.
@@ -88,8 +89,12 @@ stay preserved; uncertain legacy setup or cleanup needs confirmation at the orig
 renewal and has no automatic credential rotation. Local controls remain available.
 
 These are source behavior and fixture checks. The owned public service is not commissioned
-by this change. Its private-environment deployment must disable every anonymous PWA API
-path; the client reports an unavailable capability when the service returns unavailable.
+by this change. The relay source now derives anonymous availability from its validated
+Clerk deployment policy: `owned` disables anonymous config, registration, publishing,
+and tests; omitted or explicit `legacy` retains existing behavior. Invalid injected
+policy is unavailable too. Installation-authenticated removal remains available for
+cleanup, without enabling enrollment or delivery. The client reports unavailable
+capability and keeps local controls reachable.
 Authenticated account notifications remain a separate supported path. Native credential
 migration, release/recovery authority, and real device delivery still require separate work
 and verification.
@@ -110,7 +115,16 @@ handled by `infra/relay/src/http/Api.ts`:
 - `POST /v1/pwa/web-push/subscriptions/:subscriptionId/test`
 - `POST /v1/pwa/environments/:environmentId/threads/:threadId/agent-activity`
 
-For a server that has no Arcwright Connect environment credential,
+The exported HTTP handlers enforce owned shutdown before signature verification or
+service calls. `WebPushSubscriptions.registerPwa`/`getPwa`, anonymous environment
+transitions, the authenticated publisher's installation fanout, queue production,
+and delivery all enforce the same policy. The Worker Web Push assembly captures its
+authoritative configuration. Old signed anonymous jobs are rejected before signature
+verification, subscription lookup, attempt claims, and transport. Direct transport
+also rejects anonymous rows in owned mode and contaminated account rows in either
+mode. Partial installation metadata cannot authorize delivery.
+
+For a legacy server that has no Arcwright Connect environment credential,
 `apps/server/src/relay/AgentAwarenessRelay.ts` uses the last endpoint. It signs
 each activity state with its environment key. The PWA endpoint verifies the
 signature, advances only the subscribed installations' per-thread baseline,
@@ -157,8 +171,20 @@ These calls require the existing Clerk-backed relay client authentication. The
 subscription is associated with `userId`, and the normal
 `AgentActivityPublisher` fans out only through Arcwright Connect environment links and
 their account-level notification preferences. Native APNs, Live Activities,
-and Android behavior remain on this path and must not be changed while editing
-the PWA flow.
+and Android behavior remain on this path.
+
+Authenticated registration transfers a reused endpoint in a database transaction:
+an insert establishes any concurrent first row, a locked read observes the actual
+owner, and the conflict update explicitly nulls `environmentId`, `installationId`,
+and `installationSecretHash`. Ownership changes or residual anonymous metadata clear
+the old transition baseline in that same transaction. A clean same-owner update
+preserves its baseline. Transition writers hold the subscription row lock, so an old
+owner cannot recreate a baseline across conversion. The old installation credential
+cannot get, test, or remove the account row.
+
+This source guard is a prerequisite for owned public exposure, not proof of relay
+commissioning. Signed authenticated job binding and current environment-link
+reauthorization remain separate pending work; the existing v1 job protocol is retained.
 
 The shared queue identifies the delivery kind as `web_push_notification`; the
 APNs fields remain present for API compatibility, while Web Push status/reason
@@ -200,7 +226,8 @@ explicitly reset browser push and then enable it with a separate tap.
 2. Check that the PWA is installed, served over HTTPS, and has notification
    permission. Safari's ordinary browser tab is not the iOS installed-PWA
    target.
-3. Use **Remote test** from Notifications on this device. It queues a generic
+3. On a legacy deployment, use **Remote test** from Notifications on this device. Owned
+   deployments report anonymous remote push unavailable; local preview and cleanup remain reachable. Remote test queues a generic
    test for the local installation only.
 4. Check the relay Web Push queue/dead-letter queue and delivery attempts for
    transient failures or `404`/`410` cleanup.

@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 
 import type { RelayDeliveryResult } from "@t3tools/contracts/relay";
 
+import { anonymousPwaAllowed } from "./anonymousPwaPolicy.ts";
 import * as RelayConfiguration from "../Config.ts";
 import {
   expiresAtForWebPushJob,
@@ -46,11 +47,24 @@ export class WebPushDeliveryQueue extends Context.Service<
 >()("t3code-relay/agentActivity/WebPushDeliveryQueue") {}
 
 export const make = Effect.gen(function* () {
+  const anonymousAllowed = yield* anonymousPwaAllowed;
   const sender = yield* WebPushDeliveryQueueSender;
   const crypto = yield* Crypto.Crypto;
   const config = yield* RelayConfiguration.RelayConfiguration;
   return WebPushDeliveryQueue.of({
     enqueue: Effect.fn("relay.web_push_delivery_queue.enqueue")(function* (input) {
+      if (!anonymousAllowed && input.userId.startsWith("pwa:")) {
+        return {
+          deviceId: input.subscriptionId,
+          kind: "web_push_notification" as const,
+          ok: false,
+          queued: false,
+          apnsStatus: null,
+          apnsReason: null,
+          apnsId: null,
+          webPushReason: "anonymous_pwa_unavailable",
+        };
+      }
       const now = yield* DateTime.now;
       const jobId = yield* crypto.randomUUIDv4.pipe(
         Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })),

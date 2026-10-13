@@ -9,6 +9,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as RelayConfiguration from "../Config.ts";
+import { anonymousPwaAllowed, blocksWebPushDelivery } from "./anonymousPwaPolicy.ts";
 import * as DeliveryAttempts from "./DeliveryAttempts.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
 import { SignedWebPushDeliveryJob, verifyWebPushDeliveryJob } from "./webPushDeliveryJobs.ts";
@@ -57,7 +58,21 @@ export class WebPushDeliveries extends Context.Service<
   }
 >()("t3code-relay/agentActivity/WebPushDeliveries") {}
 
+function unavailableDelivery(subscriptionId: string): RelayDeliveryResult {
+  return {
+    deviceId: subscriptionId,
+    kind: "web_push_notification",
+    ok: false,
+    queued: false,
+    apnsStatus: null,
+    apnsReason: null,
+    apnsId: null,
+    webPushReason: "anonymous_pwa_unavailable",
+  };
+}
+
 export const make = Effect.gen(function* () {
+  const anonymousAllowed = yield* anonymousPwaAllowed;
   const config = yield* RelayConfiguration.RelayConfiguration;
   const subscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
   const attempts = yield* DeliveryAttempts.DeliveryAttempts;
@@ -74,6 +89,9 @@ export const make = Effect.gen(function* () {
     readonly subscription: WebPushSubscriptions.WebPushNotification["subscription"];
     readonly payload: WebPushPayload;
   }) {
+    if (blocksWebPushDelivery(input.subscription, anonymousAllowed)) {
+      return unavailableDelivery(input.subscription.id);
+    }
     const result = yield* Effect.result(
       Effect.tryPromise({
         try: () =>
@@ -129,6 +147,9 @@ export const make = Effect.gen(function* () {
       const job = yield* Schema.decodeUnknownEffect(SignedWebPushDeliveryJob)(body).pipe(
         Effect.mapError((cause) => new WebPushDeliveryTransportError({ cause })),
       );
+      if (!anonymousAllowed && job.payload.userId.startsWith("pwa:")) {
+        return unavailableDelivery(job.payload.subscriptionId);
+      }
       const verified = verifyWebPushDeliveryJob({
         secret: config.webPushDeliveryJobSigningSecret ?? config.apnsDeliveryJobSigningSecret,
         job,
@@ -151,6 +172,9 @@ export const make = Effect.gen(function* () {
           apnsId: null,
           webPushReason: "subscription_missing",
         };
+      }
+      if (blocksWebPushDelivery(subscription, anonymousAllowed)) {
+        return unavailableDelivery(subscription.id);
       }
       const claim = yield* attempts
         .claimSourceJob({
@@ -192,7 +216,7 @@ export const make = Effect.gen(function* () {
       yield* attempts
         .completeSourceJob({
           sourceJobId: verified.jobId,
-          ...(result.webPushStatus !== undefined ? { apnsStatus: result.webPushStatus } : {}),
+          ...(typeof result.webPushStatus === "number" ? { apnsStatus: result.webPushStatus } : {}),
           ...(result.webPushReason ? { apnsReason: result.webPushReason } : {}),
         })
         .pipe(Effect.mapError((cause) => new WebPushDeliveryTransportError({ cause })));

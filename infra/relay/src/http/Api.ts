@@ -1,3 +1,4 @@
+import { anonymousPwaAllowed } from "../agentActivity/anonymousPwaPolicy.ts";
 import { sql as drizzleSql } from "drizzle-orm";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
@@ -1491,6 +1492,7 @@ export const pwaApi = HttpApiBuilder.group(
   RelayApi,
   "pwa",
   Effect.fnUntraced(function* (handlers) {
+    const anonymousAllowed = yield* anonymousPwaAllowed;
     const config = yield* RelayConfiguration.RelayConfiguration;
     const subscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
     const queue = yield* WebPushDeliveryQueue.WebPushDeliveryQueue;
@@ -1499,6 +1501,7 @@ export const pwaApi = HttpApiBuilder.group(
       .handle(
         "getPwaWebPushConfig",
         Effect.fn("relay.api.pwa.get_web_push_config")(function* () {
+          if (!anonymousAllowed) return yield* relayInternalErrorResponse("upstream_unavailable");
           if (!config.webPush) return yield* relayInternalErrorResponse("upstream_unavailable");
           return { applicationServerKey: config.webPush.publicKey };
         }),
@@ -1507,6 +1510,7 @@ export const pwaApi = HttpApiBuilder.group(
         "publishPwaAgentActivity",
         Effect.fn("relay.api.pwa.publish_agent_activity")(
           function* (args) {
+            if (!anonymousAllowed) return yield* relayInternalErrorResponse("upstream_unavailable");
             const { params, payload } = args;
             yield* publishSignatures.verify({
               environmentId: params.environmentId,
@@ -1568,6 +1572,7 @@ export const pwaApi = HttpApiBuilder.group(
       .handle(
         "registerPwaWebPushSubscription",
         Effect.fn("relay.api.pwa.register_web_push_subscription")(function* (args) {
+          if (!anonymousAllowed) return yield* relayInternalErrorResponse("upstream_unavailable");
           return yield* subscriptions
             .registerPwa({ payload: args.payload })
             .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
@@ -1590,6 +1595,7 @@ export const pwaApi = HttpApiBuilder.group(
       .handle(
         "testPwaWebPushSubscription",
         Effect.fn("relay.api.pwa.test_web_push_subscription")(function* (args) {
+          if (!anonymousAllowed) return yield* relayInternalErrorResponse("upstream_unavailable");
           const subscription = yield* subscriptions
             .getPwa({
               subscriptionId: args.params.subscriptionId,

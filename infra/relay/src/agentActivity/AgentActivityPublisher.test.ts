@@ -2,6 +2,10 @@ import type { RelayAgentActivityState, RelayDeliveryResult } from "@t3tools/cont
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
+import { RelayConfiguration } from "../Config.ts";
+import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
+import * as WebPushDeliveryQueue from "./WebPushDeliveryQueue.ts";
 
 import * as AgentActivityRows from "./AgentActivityRows.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
@@ -873,4 +877,145 @@ describe("makeAggregateState", () => {
       { threadId: "a-5" },
     ]);
   });
+});
+
+describe("authenticated publisher anonymous shutdown", () => {
+  it.effect.each(["owned", "legacy"] as const)(
+    "%s keeps account Web Push and native fanout",
+    (mode) => {
+      const calls = { account: 0, anonymous: 0, queuedUsers: [] as string[], apns: 0, fcm: 0 };
+      const preferences = {
+        enabled: true,
+        notifyOnCompletion: true,
+        notifyOnPlanReady: true,
+        notifyOnInput: true,
+        notifyOnFailure: true,
+        showProjectAndThreadNames: false,
+      };
+      const notification = (userId: string): WebPushSubscriptions.WebPushNotification => ({
+        eventId: "fixture-event",
+        deepLink: "/",
+        showProjectAndThreadNames: false,
+        title: "Fixture",
+        body: "Fixture",
+        subscription: {
+          id: `subscription-${userId}`,
+          userId,
+          environmentId: null,
+          installationId: null,
+          installationSecretHash: null,
+          endpoint: "https://push.example.test/fixture",
+          p256dh: "key",
+          auth: "auth",
+          preferencesJson: preferences,
+          createdAt: state.updatedAt,
+          updatedAt: state.updatedAt,
+        },
+      });
+      const config: RelayConfiguration["Service"] = {
+        relayIssuer: "https://relay.arcwright.space",
+        apns: null,
+        clerkSecretKey: Redacted.make("fixture-secret"),
+        clerkPublishableKey: `pk_test_${btoa("clerk.arcwright.space$")}`,
+        clerkJwtAudience: "arcwright-code-relay",
+        ...(mode === "owned"
+          ? {
+              clerkAuthPolicy: {
+                mode: "owned",
+                issuer: "https://clerk.arcwright.space",
+                cliClientId: "fixture_cli",
+              },
+            }
+          : {}),
+        apnsDeliveryJobSigningSecret: Redacted.make("fixture-secret"),
+        cloudMintPrivateKey: Redacted.make("fixture-private"),
+        cloudMintPublicKey: "fixture-public",
+        managedEndpointBaseDomain: undefined,
+        managedEndpointNamespace: undefined,
+      };
+      return Effect.gen(function* () {
+        const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
+        const result = yield* publisher.publish({
+          environmentId: "env",
+          environmentPublicKey: "fixture-public",
+          threadId: "thread",
+          state,
+        });
+        expect(calls.account).toBe(1);
+        expect(calls.anonymous).toBe(mode === "owned" ? 0 : 1);
+        expect(calls.queuedUsers).toEqual(
+          mode === "owned" ? ["dev:julius"] : ["dev:julius", "pwa:fixture-installation"],
+        );
+        expect(calls.apns).toBe(1);
+        expect(calls.fcm).toBe(1);
+        expect(result.deliveries).toHaveLength(mode === "owned" ? 1 : 2);
+      }).pipe(
+        Effect.provide(
+          AgentActivityPublisher.layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(RelayConfiguration, config),
+                Layer.succeed(AgentActivityRows.AgentActivityRows, makeAgentActivityRows()),
+                Layer.succeed(EnvironmentLinks.EnvironmentLinks, makeEnvironmentLinks()),
+                Layer.succeed(
+                  LiveActivities.LiveActivities,
+                  makeLiveActivities({
+                    listTargets: () =>
+                      Effect.succeed([
+                        target("ios"),
+                        { ...target("android"), platform: "android" },
+                      ]),
+                  }),
+                ),
+                Layer.succeed(
+                  ApnsDeliveries.ApnsDeliveries,
+                  makeApnsDeliveries({
+                    sendForTarget: () =>
+                      Effect.sync(() => {
+                        calls.apns++;
+                        return null;
+                      }),
+                  }),
+                ),
+                Layer.mock(FcmDeliveries.FcmDeliveries, {
+                  enqueue: () =>
+                    Effect.sync(() => {
+                      calls.fcm++;
+                      return null;
+                    }),
+                }),
+                Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
+                  transition: () =>
+                    Effect.sync(() => {
+                      calls.account++;
+                      return [notification("dev:julius")];
+                    }),
+                  transitionEnvironment: () =>
+                    Effect.sync(() => {
+                      calls.anonymous++;
+                      return [notification("pwa:fixture-installation")];
+                    }),
+                }),
+                Layer.succeed(WebPushDeliveryQueue.WebPushDeliveryQueue, {
+                  enqueue: (input) =>
+                    Effect.sync(() => {
+                      calls.queuedUsers.push(input.userId);
+                      return {
+                        deviceId: input.subscriptionId,
+                        kind: "web_push_notification" as const,
+                        ok: true,
+                        queued: true,
+                        apnsStatus: null,
+                        apnsReason: null,
+                        apnsId: null,
+                      };
+                    }),
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 });

@@ -73,7 +73,7 @@ import * as ManagedEndpointProvider from "./environments/ManagedEndpointProvider
 import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts";
 import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
 import * as MobileRegistrations from "./agentActivity/MobileRegistrations.ts";
-import * as WebPushSubscriptions from "./agentActivity/WebPushSubscriptions.ts";
+import * as WebPushRuntime from "./agentActivity/webPushRuntime.ts";
 import * as WebPushDeliveries from "./agentActivity/WebPushDeliveries.ts";
 import * as WebPushDeliveryQueue from "./agentActivity/WebPushDeliveryQueue.ts";
 import * as HookForwarder from "./hooks/HookForwarder.ts";
@@ -288,12 +288,7 @@ export const layer = Api.make(
 
     const layerRuntime = Layer.empty.pipe(
       Layer.provideMerge(MobileRegistrations.layer),
-      Layer.provideMerge(
-        Layer.merge(
-          WebPushSubscriptions.layer,
-          WebPushDeliveries.layer.pipe(Layer.provide(WebPushSubscriptions.layer)),
-        ),
-      ),
+      Layer.provideMerge(WebPushRuntime.layer),
       Layer.provideMerge(
         WebPushDeliveryQueue.layerCloudflareQueues(
           webPushDeliveryQueueSender,
@@ -438,7 +433,7 @@ export const layer = Api.make(
               Effect.withSpan("relay.web_push_delivery_queue.process_message"),
             ),
           ),
-          Effect.provide(runtimeLayer),
+          Effect.provide(layerRuntime),
         ),
     );
 

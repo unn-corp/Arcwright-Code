@@ -15,6 +15,12 @@ import { and, eq, lt } from "drizzle-orm";
 
 import * as RelayDb from "../db.ts";
 import {
+  AnonymousPwaUnavailable,
+  anonymousPwaAllowed,
+  hasAnonymousOwnership,
+  blocksWebPushDelivery,
+} from "./anonymousPwaPolicy.ts";
+import {
   relayWebPushSubscriptions,
   relayWebPushSubscriptionStates,
 } from "../persistence/schema.ts";
@@ -33,9 +39,23 @@ export class WebPushSubscriptionPersistenceError extends Schema.TaggedError<WebP
   { cause: Schema.Defect() },
 ) {}
 
+export type WebPushSubscriptionError =
+  | WebPushSubscriptionPersistenceError
+  | AnonymousPwaUnavailable;
+
 function mapPersistenceError<A, E>(effect: Effect.Effect<A, E>) {
   return effect.pipe(
     Effect.mapError((cause) => new WebPushSubscriptionPersistenceError({ cause })),
+  );
+}
+
+const isAnonymousPwaUnavailable = Schema.is(AnonymousPwaUnavailable);
+
+function mapPwaAccessError<A, E>(effect: Effect.Effect<A, E>) {
+  return effect.pipe(
+    Effect.mapError((cause) =>
+      isAnonymousPwaUnavailable(cause) ? cause : new WebPushSubscriptionPersistenceError({ cause }),
+    ),
   );
 }
 
@@ -63,7 +83,7 @@ export class WebPushSubscriptions extends Context.Service<
     }) => Effect.Effect<ReadonlyArray<WebPushNotification>, WebPushSubscriptionPersistenceError>;
     readonly registerPwa: (input: {
       readonly payload: RelayPwaWebPushSubscriptionRegistrationRequest;
-    }) => Effect.Effect<{ readonly subscriptionId: string }, WebPushSubscriptionPersistenceError>;
+    }) => Effect.Effect<{ readonly subscriptionId: string }, WebPushSubscriptionError>;
     readonly removePwa: (input: {
       readonly installationId: string;
       readonly installationSecret: string;
@@ -75,7 +95,7 @@ export class WebPushSubscriptions extends Context.Service<
       readonly subscriptionId: string;
     }) => Effect.Effect<
       typeof relayWebPushSubscriptions.$inferSelect | null,
-      WebPushSubscriptionPersistenceError
+      WebPushSubscriptionError
     >;
     readonly transitionEnvironment: (input: {
       readonly environmentId: string;
@@ -152,9 +172,11 @@ function hashInstallationSecret(crypto: Crypto.Crypto, secret: string) {
 export const make = Effect.gen(function* () {
   const db = yield* RelayDb.RelayDb;
   const crypto = yield* Crypto.Crypto;
+  const anonymousAllowed = yield* anonymousPwaAllowed;
   return WebPushSubscriptions.of({
     registerPwa: (input) =>
       Effect.gen(function* () {
+        if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
         const now = DateTime.formatIso(yield* DateTime.now);
         const id = yield* crypto.randomUUIDv4;
         const installation = input.payload.installation;
@@ -224,7 +246,7 @@ export const make = Effect.gen(function* () {
         const row = rows[0];
         if (!row) return yield* Effect.die("PWA registration returned no subscription id.");
         return { subscriptionId: row.id };
-      }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.register_pwa")),
+      }).pipe(mapPwaAccessError, Effect.withSpan("relay.web_push_subscriptions.register_pwa")),
     removePwa: (input) =>
       Effect.gen(function* () {
         const installationSecretHash = yield* hashInstallationSecret(
@@ -237,6 +259,7 @@ export const make = Effect.gen(function* () {
             and(
               eq(relayWebPushSubscriptions.id, input.subscriptionId),
               eq(relayWebPushSubscriptions.installationId, input.installationId),
+              eq(relayWebPushSubscriptions.userId, `pwa:${input.installationId}`),
               eq(relayWebPushSubscriptions.installationSecretHash, installationSecretHash),
             ),
           )
@@ -249,6 +272,7 @@ export const make = Effect.gen(function* () {
       }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.remove_pwa")),
     getPwa: (input) =>
       Effect.gen(function* () {
+        if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
         const installationSecretHash = yield* hashInstallationSecret(
           crypto,
           input.installationSecret,
@@ -260,56 +284,81 @@ export const make = Effect.gen(function* () {
             and(
               eq(relayWebPushSubscriptions.id, input.subscriptionId),
               eq(relayWebPushSubscriptions.installationId, input.installationId),
+              eq(relayWebPushSubscriptions.userId, `pwa:${input.installationId}`),
               eq(relayWebPushSubscriptions.installationSecretHash, installationSecretHash),
             ),
           )
           .limit(1);
         return rows[0] ?? null;
-      }).pipe(mapPersistenceError),
+      }).pipe(mapPwaAccessError),
     register: (input) =>
       Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);
         const id = yield* crypto.randomUUIDv4;
-        const existingRows = yield* db
-          .select({ id: relayWebPushSubscriptions.id, userId: relayWebPushSubscriptions.userId })
-          .from(relayWebPushSubscriptions)
-          .where(eq(relayWebPushSubscriptions.endpoint, input.payload.endpoint))
-          .limit(1);
-        const existing = existingRows[0] ?? null;
-        const rows = yield* db
-          .insert(relayWebPushSubscriptions)
-          .values({
-            id,
-            userId: input.userId,
-            endpoint: input.payload.endpoint,
-            p256dh: input.payload.keys.p256dh,
-            auth: input.payload.keys.auth,
-            preferencesJson: input.payload.preferences,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoUpdate({
-            target: relayWebPushSubscriptions.endpoint,
-            set: {
-              userId: input.userId,
-              p256dh: input.payload.keys.p256dh,
-              auth: input.payload.keys.auth,
-              preferencesJson: input.payload.preferences,
-              updatedAt: now,
-            },
-          })
-          .returning({ id: relayWebPushSubscriptions.id });
-        const row = rows[0];
-        if (!row) return yield* Effect.die("Web Push registration returned no subscription id.");
-        // A browser endpoint is installation-scoped and may be reused after an
-        // account change. Its old account's transition baseline must never
-        // influence the new owner's first delivery.
-        if (existing !== null && existing.userId !== input.userId) {
-          yield* db
-            .delete(relayWebPushSubscriptionStates)
-            .where(eq(relayWebPushSubscriptionStates.subscriptionId, row.id));
-        }
-        return { subscriptionId: row.id };
+        const values = {
+          id,
+          userId: input.userId,
+          environmentId: null,
+          installationId: null,
+          installationSecretHash: null,
+          endpoint: input.payload.endpoint,
+          p256dh: input.payload.keys.p256dh,
+          auth: input.payload.keys.auth,
+          preferencesJson: input.payload.preferences,
+          createdAt: now,
+          updatedAt: now,
+        };
+        return yield* db.$client.withTransaction(
+          Effect.gen(function* () {
+            // Establish a row even for concurrent first registration. Conflict
+            // insertion waits for the actual winner; the locked read then sees
+            // that owner, rather than an ownership snapshot from before the race.
+            yield* db
+              .insert(relayWebPushSubscriptions)
+              .values(values)
+              .onConflictDoNothing({ target: relayWebPushSubscriptions.endpoint });
+            const existingRows = yield* db
+              .select()
+              .from(relayWebPushSubscriptions)
+              .where(eq(relayWebPushSubscriptions.endpoint, input.payload.endpoint))
+              .for("update");
+            const existing = existingRows[0];
+            if (!existing)
+              return yield* new WebPushSubscriptionPersistenceError({
+                cause: "subscription_missing_during_registration",
+              });
+            const resetBaseline =
+              existing.userId !== input.userId || hasAnonymousOwnership(existing);
+            const rows = yield* db
+              .insert(relayWebPushSubscriptions)
+              .values(values)
+              .onConflictDoUpdate({
+                target: relayWebPushSubscriptions.endpoint,
+                set: {
+                  userId: input.userId,
+                  environmentId: null,
+                  installationId: null,
+                  installationSecretHash: null,
+                  p256dh: input.payload.keys.p256dh,
+                  auth: input.payload.keys.auth,
+                  preferencesJson: input.payload.preferences,
+                  updatedAt: now,
+                },
+              })
+              .returning({ id: relayWebPushSubscriptions.id });
+            const row = rows[0];
+            if (!row)
+              return yield* new WebPushSubscriptionPersistenceError({
+                cause: "subscription_missing_after_registration",
+              });
+            if (resetBaseline) {
+              yield* db
+                .delete(relayWebPushSubscriptionStates)
+                .where(eq(relayWebPushSubscriptionStates.subscriptionId, row.id));
+            }
+            return { subscriptionId: row.id };
+          }),
+        );
       }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.register")),
     remove: (input) =>
       Effect.gen(function* () {
@@ -340,7 +389,8 @@ export const make = Effect.gen(function* () {
             ),
           )
           .limit(1);
-        return rows[0] ?? null;
+        const row = rows[0];
+        return row && !blocksWebPushDelivery(row, anonymousAllowed) ? row : null;
       }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.get")),
     transition: (input) =>
       Effect.gen(function* () {
@@ -349,9 +399,11 @@ export const make = Effect.gen(function* () {
         const subscriptions = yield* db
           .select()
           .from(relayWebPushSubscriptions)
-          .where(eq(relayWebPushSubscriptions.userId, input.userId));
+          .where(eq(relayWebPushSubscriptions.userId, input.userId))
+          .for("update");
         const items = yield* Effect.forEach(subscriptions, (subscription) =>
           Effect.gen(function* () {
+            if (blocksWebPushDelivery(subscription, anonymousAllowed)) return null;
             const previousRows = yield* db
               .select()
               .from(relayWebPushSubscriptionStates)
@@ -417,17 +469,24 @@ export const make = Effect.gen(function* () {
           }),
         );
         return items.filter((item): item is WebPushNotification => item !== null);
-      }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.transition")),
+      }).pipe(
+        db.$client.withTransaction,
+        mapPersistenceError,
+        Effect.withSpan("relay.web_push_subscriptions.transition"),
+      ),
     transitionEnvironment: (input) =>
       Effect.gen(function* () {
+        if (!anonymousAllowed) return [];
         const state = input.state;
         if (state === null) return [];
         const subscriptions = yield* db
           .select()
           .from(relayWebPushSubscriptions)
-          .where(eq(relayWebPushSubscriptions.environmentId, input.environmentId));
+          .where(eq(relayWebPushSubscriptions.environmentId, input.environmentId))
+          .for("update");
         const items = yield* Effect.forEach(subscriptions, (subscription) =>
           Effect.gen(function* () {
+            if (blocksWebPushDelivery(subscription, anonymousAllowed)) return null;
             const previousRows = yield* db
               .select()
               .from(relayWebPushSubscriptionStates)
@@ -491,6 +550,7 @@ export const make = Effect.gen(function* () {
         );
         return items.filter((item): item is WebPushNotification => item !== null);
       }).pipe(
+        (effect) => (anonymousAllowed ? db.$client.withTransaction(effect) : effect),
         mapPersistenceError,
         Effect.withSpan("relay.web_push_subscriptions.transition_environment"),
       ),
