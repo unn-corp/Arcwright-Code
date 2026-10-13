@@ -276,6 +276,21 @@ The APK native container zeroes handled bars/cutout/IME insets before forwarding
 see [shell inset maintenance](./android-pwa.md#shell-insets-and-folded-layouts). Verify native header
 alignment and keyboard hide after live fold changes as well as browser viewport tests.
 
+## Chat participant identity
+
+The shared participant contracts and client-runtime resolver retain message-time author photos
+and model attribution. Web, desktop and fork Android use the same chip and profile settings;
+upstream native mobile renders the shared attribution with its own chip. Preserve first personal
+account initialization, per-principal local profiles, manual photo choices, bounded raster
+thumbnails, broken-photo initials, and instance colors through timeline and auth refactors.
+Provider credentials must never initialize human profiles. Author metadata is display information,
+not proof of authorization. Replies must canonicalize their author snapshots from the target.
+
+Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,
+`ParticipantProfileSync.test.tsx`, and `MessageReplies.integration.test.ts`. Keep plain and bubble
+messages, reply chains and related-agent lists using the same identity rules. See
+[chat profiles](../user/appearance.md#chat-participants-and-your-profile).
+
 ## Direct message replies
 
 **Behavior and ownership.** Web/desktop and the fork Android web bundle expose

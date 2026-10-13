@@ -1,3 +1,4 @@
+import { authorContext, currentHuman } from "@t3tools/client-runtime/participants";
 import { replyContext } from "@t3tools/shared/messageReplies";
 import { ComposerMessageReply } from "./chat/MessageReplies";
 import { registerPreviewAnnotationSender } from "../previewAnnotationEditorStore";
@@ -1817,10 +1818,11 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.getComposerDraft(composerDraftTarget)?.replyTo ?? null,
   );
   const setComposerReplyTo = useComposerDraftStore((store) => store.setReplyTo);
+  const humanParticipant = useClientSettings(currentHuman);
   const buildReplyMessageContext = useCallback(
     (input: Parameters<typeof buildMessageContext>[0]) =>
-      replyContext(buildMessageContext(input), composerReplyTo),
-    [composerReplyTo],
+      authorContext(replyContext(buildMessageContext(input), composerReplyTo), humanParticipant),
+    [composerReplyTo, humanParticipant],
   );
   const loadMessageReplyChain = useCallback(
     async (messageId: MessageId, offset: number) => {
@@ -4668,6 +4670,8 @@ export default function ChatView(props: ChatViewProps) {
         messageId: message.id,
         role: message.role,
         text: message.text.slice(0, 4000),
+        ...(message.context?.author ? { author: message.context.author } : {}),
+        ...(message.context?.agent ? { agent: message.context.agent } : {}),
       });
       scheduleComposerFocus();
     },
@@ -11582,11 +11586,12 @@ export default function ChatView(props: ChatViewProps) {
             <div
               ref={setComposerOverlayElement}
               data-chat-composer-overlay="true"
-              className={
+              className={cn(
+                "scrollbar-gutter-both",
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-start overflow-y-auto"
-                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
-              }
+                  : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2",
+              )}
             >
               <div
                 ref={draftHeroTransition.transitionGroupRef}

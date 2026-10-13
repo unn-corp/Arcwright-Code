@@ -1,3 +1,5 @@
+import { ParticipantChip } from "./ParticipantChip";
+import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -27,7 +29,6 @@ import {
 } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
-  BotIcon,
   ChevronRightIcon,
   ArrowRightLeftIcon,
   ArrowRightIcon,
@@ -289,11 +290,17 @@ export function SubagentElapsed({ agent }: { agent: Parameters<typeof AgentElaps
 
 /** Round provider tile with the agents panel's status dot; rings let a header stack overlap. */
 export function SubagentAvatar({
+  instanceId,
+  name,
+  model,
   driver,
   provider,
   status,
   className,
 }: {
+  instanceId: string;
+  name?: string | undefined;
+  model?: string | undefined;
   driver?: ProviderDriverKind | undefined;
   provider?: ServerProvider | undefined;
   /** Omitted inside an overlapped stack, where a covered dot would only add noise. */
@@ -302,23 +309,22 @@ export function SubagentAvatar({
 }) {
   return (
     <span
-      aria-hidden
       className={cn(
-        "relative inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted ring-2 ring-background",
+        "relative inline-flex size-6 shrink-0 items-center justify-center rounded-full ring-2 ring-background",
         className,
       )}
     >
-      {driver ? (
-        <ProviderInstanceIcon
-          driverKind={driver}
-          displayName={provider?.displayName ?? driver}
-          acpRegistryIconUrl={provider?.iconUrl}
-          className="z-auto"
-          iconClassName="size-3.5"
-        />
-      ) : (
-        <BotIcon className="size-3.5 text-muted-foreground" />
-      )}
+      <ParticipantChip
+        variant="avatar"
+        participant={{
+          kind: "agent",
+          id: instanceId,
+          name: name ?? provider?.displayName ?? "Agent",
+          model,
+          driver,
+          iconUrl: provider?.iconUrl,
+        }}
+      />
       {status ? (
         <span
           className={cn(
@@ -443,6 +449,12 @@ function SubagentTimelineLink(props: {
   const content = (
     <>
       <SubagentAvatar
+        instanceId={agentInstanceId(
+          props.threadId ?? `${props.parentRef.threadId}:${props.subagentId}`,
+          props.providerInstanceId,
+        )}
+        name={props.title}
+        model={agent?.modelSelection?.model ?? agent?.model ?? undefined}
         driver={props.driver}
         provider={props.provider}
         status={status ?? undefined}

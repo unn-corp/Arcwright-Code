@@ -8070,6 +8070,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         messageId: target.id,
         role: target.role,
         text: target.text.slice(0, 4000),
+        ...(target.context?.author ? { author: target.context.author } : {}),
+        ...(target.context?.agent ? { agent: target.context.agent } : {}),
       };
     });
 

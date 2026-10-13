@@ -1,6 +1,7 @@
 import { act, cloneElement, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import {
+  DEFAULT_CLIENT_SETTINGS,
   EnvironmentId,
   ThreadId,
   type ModelSelection,
@@ -8,7 +9,7 @@ import {
   type OrchestrationV2ContextTransfer,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
   projection: null as unknown,
@@ -59,6 +60,8 @@ vi.mock("../ui/tooltip", () => ({
 }));
 
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { __setClientSettingsForTests } from "../../hooks/useSettings";
+beforeEach(() => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS));
 
 let renderer: ReactTestRenderer;
 

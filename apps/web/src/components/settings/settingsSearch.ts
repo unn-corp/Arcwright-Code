@@ -167,6 +167,13 @@ const SOURCE_CONTROL_HOST_SEARCH_ITEMS = sourceControlClients.definitions.flatMa
  */
 export const SETTINGS_SEARCH_ITEMS = [
   {
+    id: "participant-profile",
+    title: "Profile",
+    to: "/settings/general",
+    targetId: "profile",
+    searchTerms: ["avatar", "photo", "display name", "user chip", "account"],
+  },
+  {
     id: "storage-worktree-keep-when",
     targetId: "storage-worktrees",
     title: "Keep worktrees with local changes",

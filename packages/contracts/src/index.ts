@@ -178,3 +178,5 @@ export {
 export * from "./threadExport.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+
+export * from "./participants.ts";

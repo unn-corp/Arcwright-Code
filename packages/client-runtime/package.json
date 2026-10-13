@@ -418,6 +418,10 @@
     "./pull-request-markdown": {
       "types": "./src/pullRequestMarkdown.ts",
       "default": "./src/pullRequestMarkdown.ts"
+    },
+    "./participants": {
+      "types": "./src/participants.ts",
+      "default": "./src/participants.ts"
     }
   },
   "scripts": {

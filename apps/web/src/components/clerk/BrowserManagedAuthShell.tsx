@@ -1,3 +1,4 @@
+import { ParticipantProfileSync } from "./ParticipantProfileSync";
 import { ClerkProvider } from "@clerk/react";
 import type { ReactNode } from "react";
 
@@ -19,6 +20,7 @@ export default function BrowserManagedAuthShell({
 }) {
   return (
     <ClerkProvider appearance={clerkAppearance} publishableKey={publishableKey}>
+      <ParticipantProfileSync />
       <ManagedRelayAuthProvider>{children}</ManagedRelayAuthProvider>
     </ClerkProvider>
   );

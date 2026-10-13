@@ -1,3 +1,4 @@
+import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import type {
   SubagentWorkflowGroup,
   RuntimeSubagent,
@@ -87,7 +88,18 @@ function WorkflowMemberRow({
             />
           }
         >
-          <ThreadRelationshipIcon driver={driver} provider={provider} status={member.status} />
+          <ThreadRelationshipIcon
+            participant={{
+              kind: "agent",
+              id: agentInstanceId(threadId ?? member.id, providerInstanceId),
+              name: member.title ?? "Agent",
+              model: member.model ?? undefined,
+              driver,
+            }}
+            driver={driver}
+            provider={provider}
+            status={member.status}
+          />
           <span className="min-w-0 flex-1 truncate">{member.title}</span>
           <span className="sr-only">{member.status}</span>
           {member.startedAt ? (

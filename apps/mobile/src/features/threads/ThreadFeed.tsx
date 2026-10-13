@@ -1,3 +1,5 @@
+import { ParticipantChip } from "../../components/ParticipantChip";
+import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { ThreadMarkdownVideo, ThreadMediaVisibleContext } from "./ThreadMarkdownVideo";
 import { useMarkdownImageSource } from "../../native/useMarkdownImageSource";
@@ -1222,6 +1224,39 @@ function renderFeedEntry(
                   : null),
             }}
           >
+            <ParticipantChip
+              participant={
+                message.senderThreadId
+                  ? {
+                      kind: "agent",
+                      id: agentInstanceId(message.senderThreadId, "unknown"),
+                      name: "Agent",
+                    }
+                  : presentation.attribution === "agent"
+                    ? {
+                        kind: "agent",
+                        id: agentInstanceId(props.threadId, "unknown-sender"),
+                        name: "Agent",
+                      }
+                    : presentation.attribution !== null
+                      ? {
+                          kind: "system",
+                          id: "system",
+                          name:
+                            presentation.attribution === "automation"
+                              ? "Automation"
+                              : "Arcwright Code",
+                        }
+                      : {
+                          kind: "human",
+                          ...(message.context?.author ?? {
+                            id: "legacy-user",
+                            name: "You",
+                            photo: null,
+                          }),
+                        }
+              }
+            />
             {entry.pendingMessage?.attachments.map((attachment) =>
               attachment.type === "image" && attachment.uploadedAttachmentId ? (
                 <MessageAttachmentImage
@@ -1394,6 +1429,17 @@ function renderFeedEntry(
         )}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
+        <ParticipantChip
+          participant={{
+            kind: "agent",
+            id: agentInstanceId(
+              props.threadId,
+              message.context?.agent?.providerInstanceId ?? "unknown",
+            ),
+            name: "Agent",
+            model: message.context?.agent?.model,
+          }}
+        />
         {renderedText.trim().length > 0 ? (
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent

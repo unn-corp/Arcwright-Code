@@ -1,3 +1,4 @@
+import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import { useAtomValue } from "@effect/atom-react";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
@@ -526,6 +527,17 @@ export function ThreadRelationshipsPanel(props: {
               const relationshipContent = (
                 <>
                   <ThreadRelationshipIcon
+                    participant={
+                      isSubagent && !isParent && agent
+                        ? {
+                            kind: "agent",
+                            id: agentInstanceId(threadId, agent.providerInstanceId),
+                            name: threadTitle,
+                            model: agent.modelSelection?.model ?? agent.model ?? undefined,
+                            driver: providerDriver,
+                          }
+                        : undefined
+                    }
                     driver={isSubagent && !isParent ? providerDriver : undefined}
                     provider={provider}
                     fallbackIcon={RelationshipIcon}

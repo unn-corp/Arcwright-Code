@@ -1,3 +1,4 @@
+import { ParticipantProfiles, AgentColorOverrides } from "./participants.ts";
 import { SshDeviceHostConfigs } from "./device.ts";
 import {
   AuthOrchestrationOperateScope,
@@ -324,6 +325,9 @@ export type ModelPreferences = {
 };
 
 export const ClientSettingsSchema = Schema.Struct({
+  participantProfiles: ParticipantProfiles.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  activeParticipantProfile: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed("local"))),
+  agentColorOverrides: AgentColorOverrides.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agentNotifications: AgentNotificationPreferences.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_NOTIFICATION_PREFERENCES)),
   ),
@@ -2443,6 +2447,9 @@ export function requiredScopesForProjectMutation(
 }
 
 export const ClientSettingsPatch = Schema.Struct({
+  participantProfiles: Schema.optionalKey(ParticipantProfiles),
+  activeParticipantProfile: Schema.optionalKey(Schema.String),
+  agentColorOverrides: Schema.optionalKey(AgentColorOverrides),
   agentNotifications: Schema.optionalKey(AgentNotificationPreferences),
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   notificationMode: Schema.optionalKey(NotificationMode),

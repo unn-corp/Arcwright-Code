@@ -1,3 +1,5 @@
+import { ParticipantChip } from "./ParticipantChip";
+import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import type { MessageId, MessageReplyTarget } from "@t3tools/contracts";
 import type { ChatMessage } from "../../types";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
@@ -55,9 +57,25 @@ export function MessageReplyActions({
           aria-label="Open reply thread"
         >
           <ReplyIcon />
-          <span className="max-w-72 truncate">
-            {target.role === "user" ? "You" : "Agent"}: {target.text || "Attachment"}
-          </span>
+          <ParticipantChip
+            variant="compact"
+            participant={
+              target.agent
+                ? {
+                    kind: "agent",
+                    id: agentInstanceId(target.agent.threadId, target.agent.providerInstanceId),
+                    name: "Agent",
+                    model: target.agent.model,
+                  }
+                : target.role === "user"
+                  ? {
+                      kind: "human",
+                      ...(target.author ?? { id: "legacy-user", name: "You", photo: null }),
+                    }
+                  : { kind: "agent", id: `unknown:${target.threadId}`, name: "Agent" }
+            }
+          />
+          <span className="max-w-72 truncate">{target.text || "Attachment"}</span>
         </Button>
       )}
       {onReply && (
@@ -89,7 +107,8 @@ export function ComposerMessageReply({
       <ReplyIcon className="size-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground">
-          Replying to {target.role === "user" ? "you" : "agent"}
+          Replying to{" "}
+          {target.author?.name ?? target.agent?.model ?? (target.role === "user" ? "you" : "agent")}
         </p>
         <p className="truncate text-sm">{target.text || "Attachment"}</p>
       </div>

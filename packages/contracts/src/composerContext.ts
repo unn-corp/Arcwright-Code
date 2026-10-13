@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { HumanParticipant, AgentMessageAuthor } from "./participants.ts";
 
 import {
   EnvironmentId,
@@ -289,6 +290,8 @@ export const MessageReplyTarget = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   role: Schema.Literals(["user", "assistant"]),
+  author: Schema.optional(HumanParticipant),
+  agent: Schema.optional(AgentMessageAuthor),
   text: Schema.String.check(Schema.isMaxLength(4000)),
 });
 export type MessageReplyTarget = typeof MessageReplyTarget.Type;
@@ -297,6 +300,9 @@ export type MessageReplyTarget = typeof MessageReplyTarget.Type;
 export const OrchestrationMessageContext = Schema.Struct({
   version: Schema.Literal(1),
   replyTo: Schema.optional(MessageReplyTarget),
+  /** Display attribution, never an authorization credential. */
+  author: Schema.optional(HumanParticipant),
+  agent: Schema.optional(AgentMessageAuthor),
   records: Schema.Array(Schema.Unknown)
     .check(
       Schema.isMaxLength(COMPOSER_CONTEXT_MAX_RECORDS),

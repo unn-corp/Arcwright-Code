@@ -1,3 +1,5 @@
+import { ParticipantChip } from "./ParticipantChip";
+import { agentInstanceId, resolveMessageParticipant } from "@t3tools/client-runtime/participants";
 import {
   MessageReplyActions,
   MessageReplyThreadDialog,
@@ -2339,8 +2341,19 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 // from selection so sighted users and copied text are unaffected.
 const MESSAGE_HEADING_LEVEL = 3;
 
-function MessageAuthorHeading({ children }: { children: string }) {
-  return <h3 className="sr-only select-none">{children}</h3>;
+function MessageAuthorHeading({ message }: { message: ChatMessage }) {
+  const ctx = use(TimelineRowCtx);
+  const participant = resolveMessageParticipant(
+    message,
+    ctx.threadRef?.threadId ?? ctx.routeThreadKey,
+    ctx.runs,
+    ctx.providerStatuses,
+  );
+  return (
+    <h3 className="mb-2 min-w-0 select-none">
+      <ParticipantChip participant={participant} />
+    </h3>
+  );
 }
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
@@ -2557,7 +2570,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading>You</MessageAuthorHeading>
+        <MessageAuthorHeading message={row.message} />
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -2920,7 +2933,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             : "px-1 py-0.5",
         )}
       >
-        <MessageAuthorHeading>Arcwright Code</MessageAuthorHeading>
+        <MessageAuthorHeading message={row.message} />
         <div data-thread-find-text="true">
           <AssistantCitationSource
             messageId={row.message.id}
@@ -3495,6 +3508,7 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
     const live = liveAgents?.find((agent) => agent.id === item.subagentId);
     return {
       item,
+      model: live?.modelSelection?.model ?? live?.model ?? undefined,
       status: live?.status ?? item.status,
       startedAt: live?.startedAt ?? item.startedAt,
       completedAt: live?.completedAt ?? item.completedAt,
@@ -3522,10 +3536,16 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
               : "text-muted-foreground opacity-55",
           )}
         >
-          <span className="flex shrink-0 items-center -space-x-1.5" aria-hidden>
-            {agents.slice(0, 3).map(({ item, status }) => (
+          <span className="flex shrink-0 items-center -space-x-1.5">
+            {agents.slice(0, 3).map(({ item, status, model }) => (
               <SubagentAvatar
                 key={item.id}
+                instanceId={agentInstanceId(
+                  item.childThreadId ?? `${ctx.threadRef?.threadId}:${item.subagentId}`,
+                  item.providerInstanceId,
+                )}
+                name={item.title ?? "Agent"}
+                model={model}
                 driver={item.driver}
                 provider={ctx.providerStatuses.find(
                   (provider) => provider.instanceId === item.providerInstanceId,

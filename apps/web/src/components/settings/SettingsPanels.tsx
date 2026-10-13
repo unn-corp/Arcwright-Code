@@ -1,3 +1,4 @@
+import { ParticipantProfileSettings } from "./ParticipantProfileSettings";
 import { ClientBuildIdentity } from "./ClientBuildIdentity";
 import { AppUpdateSettings } from "./AppUpdateSettings";
 import { PwaAppUpdateSettings } from "./PwaAppUpdateSettings";
@@ -3569,6 +3570,7 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <ParticipantProfileSettings />
       <ProjectDefaultsSettings category="general" />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow

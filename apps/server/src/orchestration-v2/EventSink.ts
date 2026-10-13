@@ -352,21 +352,28 @@ const layerBase: Layer.Layer<
               );
               target = projection.messages[0];
             }
-            if (!target || target.role === "system") return event;
-            replyTo = {
-              threadId: event.threadId,
-              messageId: target.id,
-              role: target.role,
-              text: target.text.slice(0, 4000),
-            };
+            if (target && target.role !== "system")
+              replyTo = {
+                threadId: event.threadId,
+                messageId: target.id,
+                role: target.role,
+                text: target.text.slice(0, 4000),
+                ...(target.context?.author ? { author: target.context.author } : {}),
+                ...(target.context?.agent ? { agent: target.context.agent } : {}),
+              };
           }
-          replies.set(run.id, replyTo);
+          if (replyTo) replies.set(run.id, replyTo);
           const context = {
             ...(("context" in message ? message.context : undefined) ?? {
               version: 1 as const,
               records: [],
             }),
-            replyTo,
+            ...(replyTo ? { replyTo } : {}),
+            agent: {
+              threadId: event.threadId,
+              providerInstanceId: run.providerInstanceId,
+              model: run.modelSelection.model,
+            },
           };
           if (event.type === "message.updated")
             return { ...event, payload: { ...event.payload, context } };
