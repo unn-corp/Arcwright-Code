@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { eq } from "drizzle-orm";
 import * as Context from "effect/Context";
@@ -14,6 +15,8 @@ import {
   relayEnvironmentLinks,
   relayManagedEndpointAllocations as table,
 } from "../persistence/schema.ts";
+import * as EnvironmentLinks from "./EnvironmentLinks.ts";
+import * as EnvironmentCredentials from "./EnvironmentCredentials.ts";
 import * as Lifecycle from "./ManagedEndpointLifecycle.ts";
 import * as Limits from "./ManagedTunnelLimits.ts";
 import {
@@ -24,7 +27,11 @@ import {
 } from "./managedEndpointLifecycleContracts.ts";
 import { connectDatabase, fixtureFile, layerDb } from "./managedEndpointPostgresFixture.ts";
 
-const layer = Layer.merge(Lifecycle.layer, Limits.layer).pipe(Layer.provideMerge(layerDb));
+const layer = Layer.merge(Lifecycle.layer, Limits.layer).pipe(
+  Layer.provideMerge(Layer.merge(EnvironmentLinks.layer, EnvironmentCredentials.layer)),
+  Layer.provide(NodeCrypto.layer),
+  Layer.provideMerge(layerDb),
+);
 const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(Layer.fresh(layer)));
 const key = { userId: "lifecycle-user", environmentId: "lifecycle-env" };

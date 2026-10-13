@@ -1,3 +1,9 @@
+import type {
+  RelayEnvironmentLinkProofPayload,
+  RelayEnvironmentLinkRequest,
+  RelayManagedEndpoint,
+  RelayManagedEndpointOrigin,
+} from "@t3tools/contracts/relay";
 import { and, eq, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -12,6 +18,10 @@ import {
   relayEnvironmentLinks,
   relayManagedEndpointAllocations as table,
 } from "../persistence/schema.ts";
+import * as EnvironmentLinks from "./EnvironmentLinks.ts";
+import * as EnvironmentCredentials from "./EnvironmentCredentials.ts";
+import { managedEndpointForHostname } from "../deploymentConfig.ts";
+import { acquireEnvironmentLinkWriteLocks } from "./environmentLinkWriteLocks.ts";
 import type { ManagedEndpointAllocation } from "./ManagedEndpointAllocations.ts";
 import { allocationSelection } from "./managedEndpointAllocationSelection.ts";
 import {
@@ -19,6 +29,12 @@ import {
   MutationOutcome,
   Observation,
   PendingMutation,
+  targetFor,
+  type AcquisitionPurpose,
+  type ExpectedManagedLink,
+  type ProvisionPublication,
+  type ProvisionPublicationResult,
+  type CapturedCleanup,
   type AllocationKey,
   type Claim,
   type LifecycleState,
@@ -49,7 +65,12 @@ export type BeginResult =
   | { readonly status: "Cancelled" | "Stale" };
 
 class LifecycleTransitionRejected extends Data.TaggedError("LifecycleTransitionRejected")<{
-  readonly reason: "ambient-transaction" | "missing-step-uuid";
+  readonly reason:
+    | "ambient-transaction"
+    | "missing-step-uuid"
+    | "invalid-publication"
+    | "owner-update-lost"
+    | "cleanup-update-lost";
 }> {}
 
 export class LifecyclePersistenceError extends Schema.TaggedError<LifecyclePersistenceError>()(
@@ -66,6 +87,10 @@ export class LifecyclePersistenceError extends Schema.TaggedError<LifecyclePersi
       "finish-released",
       "remove",
       "cleanup-intent",
+      "publish-provision",
+      "complete-reconcile",
+      "revoke-cleanup",
+      "publish-without-tunnel",
     ]),
     userId: Schema.String,
     environmentId: Schema.String,
@@ -90,7 +115,30 @@ export class ManagedEndpointLifecycle extends Context.Service<
       readonly key: AllocationKey;
       readonly kind: OperationKind;
       readonly expectedTarget: Target;
+      readonly purpose?: AcquisitionPurpose;
     }) => Effect.Effect<AcquireResult, LifecyclePersistenceError>;
+    readonly publishProvision: (input: {
+      readonly claim: Claim;
+      readonly origin: RelayManagedEndpointOrigin;
+      readonly publication: ProvisionPublication;
+    }) => Effect.Effect<ProvisionPublicationResult, LifecyclePersistenceError>;
+    readonly completeReconcile: (input: {
+      readonly claim: Claim;
+      readonly origin: RelayManagedEndpointOrigin;
+      readonly expectedLink: ExpectedManagedLink;
+    }) => Effect.Effect<TransitionResult, LifecyclePersistenceError>;
+    readonly revokeAndRequestCleanup: (
+      key: AllocationKey,
+    ) => Effect.Effect<CapturedCleanup & { readonly revoked: boolean }, LifecyclePersistenceError>;
+    readonly publishWithoutTunnel: (input: {
+      readonly userId: string;
+      readonly request: RelayEnvironmentLinkRequest;
+      readonly verifiedProof: RelayEnvironmentLinkProofPayload;
+      readonly endpoint: RelayManagedEndpoint;
+    }) => Effect.Effect<
+      CapturedCleanup & { readonly environmentCredential: string },
+      LifecyclePersistenceError
+    >;
     /** Validates the action and mints a fresh step UUID in the intent transaction. */
     readonly beginMutation: (input: {
       readonly claim: Claim;
@@ -217,6 +265,8 @@ const validAction = (row: LifecycleAllocation, action: MutationAction) => {
 
 const make = Effect.gen(function* () {
   const db = yield* RelayDb.RelayDb;
+  const links = yield* EnvironmentLinks.EnvironmentLinks;
+  const credentials = yield* EnvironmentCredentials.EnvironmentCredentials;
   const persist = <A, E, R>(
     operation: LifecyclePersistenceError["operation"],
     key: AllocationKey,
@@ -262,6 +312,11 @@ const make = Effect.gen(function* () {
       .select({
         providerKind: relayEnvironmentLinks.endpointProviderKind,
         revokedAt: relayEnvironmentLinks.revokedAt,
+        environmentPublicKey: relayEnvironmentLinks.environmentPublicKey,
+        incarnationId: relayEnvironmentLinks.incarnationId,
+        managedTunnelsEnabled: relayEnvironmentLinks.managedTunnelsEnabled,
+        httpBaseUrl: relayEnvironmentLinks.endpointHttpBaseUrl,
+        wsBaseUrl: relayEnvironmentLinks.endpointWsBaseUrl,
       })
       .from(relayEnvironmentLinks)
       .where(
@@ -273,6 +328,75 @@ const make = Effect.gen(function* () {
       .limit(1)
       .for("update")
       .pipe(Effect.map((rows) => rows[0] ?? null));
+  // Called only after the user lock, before either row lock. Every coordinated
+  // ordinary writer must use this order; the legacy runtime is still unwired.
+  const lockPublicationLink = (key: AllocationKey, requestedKey?: string) =>
+    Effect.gen(function* () {
+      const old = yield* db
+        .select({ environmentPublicKey: relayEnvironmentLinks.environmentPublicKey })
+        .from(relayEnvironmentLinks)
+        .where(
+          and(
+            eq(relayEnvironmentLinks.userId, key.userId),
+            eq(relayEnvironmentLinks.environmentId, key.environmentId),
+          ),
+        )
+        .limit(1);
+      yield* acquireEnvironmentLinkWriteLocks(db, key.environmentId, [
+        ...(old[0] ? [old[0].environmentPublicKey] : []),
+        ...(requestedKey === undefined ? [] : [requestedKey]),
+      ]);
+      return yield* lockLink(key);
+    });
+  const sameEndpoint = (a: RelayManagedEndpoint, b: RelayManagedEndpoint) =>
+    a.providerKind === b.providerKind &&
+    a.httpBaseUrl === b.httpBaseUrl &&
+    a.wsBaseUrl === b.wsBaseUrl;
+  const currentAuthority = (
+    link: Effect.Success<ReturnType<typeof lockLink>>,
+    row: LifecycleAllocation,
+    expected: ExpectedManagedLink,
+  ) =>
+    link !== null &&
+    link.revokedAt === null &&
+    link.managedTunnelsEnabled &&
+    link.providerKind === "cloudflare_tunnel" &&
+    link.environmentPublicKey === expected.environmentPublicKey &&
+    link.incarnationId === expected.expectedLinkIncarnationId &&
+    sameEndpoint(
+      {
+        providerKind: "cloudflare_tunnel",
+        httpBaseUrl: link.httpBaseUrl,
+        wsBaseUrl: link.wsBaseUrl,
+      },
+      expected.endpoint,
+    ) &&
+    sameEndpoint(expected.endpoint, managedEndpointForHostname(row.hostname));
+  const consistentProof = (
+    key: AllocationKey,
+    request: RelayEnvironmentLinkRequest,
+    proof: RelayEnvironmentLinkProofPayload,
+  ) =>
+    proof.environmentId === key.environmentId &&
+    proof.sub === key.environmentId &&
+    proof.descriptor.environmentId === key.environmentId &&
+    proof.environmentPublicKey.length > 0 &&
+    (!request.managedTunnelsEnabled || proof.scopes.includes("managed_tunnels")) &&
+    (!(request.notificationsEnabled || request.liveActivitiesEnabled) ||
+      proof.scopes.includes("agent_activity_notifications"));
+  const configuredOrigin = (row: LifecycleAllocation, origin: RelayManagedEndpointOrigin) =>
+    row.origin !== null &&
+    row.origin.localHttpHost === origin.localHttpHost &&
+    row.origin.localHttpPort === origin.localHttpPort;
+  const recordedReady = (row: LifecycleAllocation, claim: Claim) =>
+    matchesOwner(row, claim) &&
+    row.pendingMutation === null &&
+    !row.cleanupRequested &&
+    row.tunnelPresence === "recorded" &&
+    row.tunnelId !== null &&
+    row.dnsPresence === "recorded" &&
+    row.dnsRecordId !== null &&
+    row.dnsTargetTunnelId === row.tunnelId;
   const ownerWhere = (claim: Claim) =>
     and(
       whereKey(claim),
@@ -324,34 +448,120 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const completeReady = (
+    claim: Claim,
+    origin: RelayManagedEndpointOrigin,
+    publicKey: string,
+    enableRecovery: boolean,
+  ) =>
+    Effect.gen(function* () {
+      const timestamp = yield* now;
+      const updated = yield* db
+        .update(table)
+        .set({
+          ...clearOwner,
+          readyAt: timestamp,
+          origin,
+          recoveryEnabledAt: enableRecovery
+            ? timestamp
+            : sql`CASE WHEN ${table.recoveryEnvironmentPublicKey} = ${publicKey} THEN ${table.recoveryEnabledAt} ELSE NULL END`,
+          recoveryEnvironmentPublicKey: enableRecovery
+            ? publicKey
+            : sql`CASE WHEN ${table.recoveryEnvironmentPublicKey} = ${publicKey} THEN ${table.recoveryEnvironmentPublicKey} ELSE NULL END`,
+          tunnelReleasedAt: null,
+          updatedAt: timestamp,
+        })
+        .where(ownerWhere(claim))
+        .returning({ allocationId: table.allocationId });
+      // Fail the transaction so earlier authority/credential writes cannot commit.
+      if (updated.length !== 1)
+        return yield* new LifecycleTransitionRejected({ reason: "owner-update-lost" });
+    });
+  const cleanupCaptured = (row: LifecycleAllocation | null) =>
+    Effect.gen(function* () {
+      if (!row) return { target: null, tunnelName: null } satisfies CapturedCleanup;
+      const updated = yield* db
+        .update(table)
+        .set({ cleanupRequested: true, updatedAt: yield* now })
+        .where(
+          and(
+            whereKey(row),
+            eq(table.allocationId, row.allocationId),
+            eq(table.generation, row.generation),
+          ),
+        )
+        .returning({ allocationId: table.allocationId });
+      if (updated.length !== 1)
+        return yield* new LifecycleTransitionRejected({ reason: "cleanup-update-lost" });
+      return { target: targetFor(row), tunnelName: row.tunnelName } satisfies CapturedCleanup;
+    });
+  const publishLink = (
+    key: AllocationKey,
+    request: RelayEnvironmentLinkRequest,
+    proof: RelayEnvironmentLinkProofPayload,
+    endpoint: RelayManagedEndpoint,
+    oldKey: string | undefined,
+  ) =>
+    Effect.gen(function* () {
+      yield* links.upsert({ userId: key.userId, request, proof, endpoint });
+      if (oldKey !== undefined && oldKey !== proof.environmentPublicKey) {
+        yield* credentials.revokeForEnvironmentPublicKey({
+          environmentId: key.environmentId,
+          environmentPublicKey: oldKey,
+        });
+      }
+      return yield* credentials.create({
+        environmentId: key.environmentId,
+        environmentPublicKey: proof.environmentPublicKey,
+      });
+    });
+
   return ManagedEndpointLifecycle.of({
     get: (key) =>
       persist(
         "get",
         key,
-        db
-          .select(selection)
-          .from(table)
-          .where(whereKey(key))
-          .limit(1)
-          .pipe(Effect.map((rows) => rows[0] ?? null)),
+        Effect.gen(function* () {
+          if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService)))
+            return yield* new LifecycleTransitionRejected({ reason: "ambient-transaction" });
+          const rows = yield* db.select(selection).from(table).where(whereKey(key)).limit(1);
+          return rows[0] ?? null;
+        }),
       ),
     acquireOperation: (input) =>
       transaction(
         "acquire",
         input.key,
         Effect.gen(function* () {
-          const link = input.kind === "deprovision" ? yield* lockLink(input.key) : null;
+          const purpose = input.purpose;
+          const link = purpose
+            ? yield* lockPublicationLink(
+                input.key,
+                purpose.kind === "link" ? undefined : purpose.environmentPublicKey,
+              )
+            : input.kind === "deprovision"
+              ? yield* lockLink(input.key)
+              : null;
           const row = yield* load(input.key);
           if (!row) return { status: "Absent" as const };
           if (!matchesTarget(row, input.expectedTarget)) return { status: "Stale" as const };
+          if (
+            purpose &&
+            ((purpose.kind === "link" && input.kind !== "provision") ||
+              (purpose.kind === "recover" && input.kind !== "provision") ||
+              (purpose.kind === "reconcile" && input.kind !== "reconcile") ||
+              (purpose.kind !== "link" && !currentAuthority(link, row, purpose)))
+          )
+            return { status: "Stale" as const };
           if (row.lifecycleState === "legacy_unverified" || row.lifecycleState === "uncertain")
             return { status: "RepairRequired" as const };
           if (row.lifecycleState !== "idle" || row.pendingMutation !== null)
             return { status: "Busy" as const };
           if (
             (row.cleanupRequested && cancellable(input.kind)) ||
-            (link?.providerKind === "cloudflare_tunnel" && link.revokedAt === null)
+            (input.kind === "deprovision" &&
+              link?.providerKind === "cloudflare_tunnel" &&
+              link.revokedAt === null)
           )
             return { status: "Busy" as const };
           const rows = yield* db
@@ -387,6 +597,110 @@ const make = Effect.gen(function* () {
           };
         }),
       ),
+    publishProvision: ({ claim, origin, publication }) =>
+      transaction(
+        "publish-provision",
+        claim,
+        Effect.gen(function* () {
+          const publicKey =
+            publication.kind === "link"
+              ? publication.proof.environmentPublicKey
+              : publication.environmentPublicKey;
+          const link = yield* lockPublicationLink(claim, publicKey);
+          const row = yield* load(claim);
+          if (
+            !row ||
+            claim.kind !== "provision" ||
+            !recordedReady(row, claim) ||
+            !configuredOrigin(row, origin)
+          )
+            return stale;
+          const endpoint = managedEndpointForHostname(row.hostname);
+          if (publication.kind === "recover") {
+            if (!currentAuthority(link, row, publication)) return stale;
+            yield* completeReady(claim, origin, publicKey, true);
+            return { status: "Applied" as const, kind: "recover" as const, endpoint };
+          }
+          if (
+            !publication.request.managedTunnelsEnabled ||
+            !consistentProof(claim, publication.request, publication.proof) ||
+            origin.localHttpHost !== publication.proof.origin.localHttpHost ||
+            origin.localHttpPort !== publication.proof.origin.localHttpPort
+          )
+            return yield* new LifecycleTransitionRejected({ reason: "invalid-publication" });
+          const environmentCredential = yield* publishLink(
+            claim,
+            publication.request,
+            publication.proof,
+            endpoint,
+            link?.environmentPublicKey,
+          );
+          yield* completeReady(claim, origin, publicKey, false);
+          return {
+            status: "Applied" as const,
+            kind: "link" as const,
+            endpoint,
+            environmentCredential,
+          };
+        }),
+      ),
+    completeReconcile: ({ claim, origin, expectedLink }) =>
+      transaction(
+        "complete-reconcile",
+        claim,
+        Effect.gen(function* () {
+          const link = yield* lockPublicationLink(claim, expectedLink.environmentPublicKey);
+          const row = yield* load(claim);
+          if (
+            !row ||
+            claim.kind !== "reconcile" ||
+            !recordedReady(row, claim) ||
+            !configuredOrigin(row, origin) ||
+            !currentAuthority(link, row, expectedLink)
+          )
+            return stale;
+          yield* completeReady(claim, origin, expectedLink.environmentPublicKey, true);
+          return applied;
+        }),
+      ),
+    revokeAndRequestCleanup: (key) =>
+      transaction(
+        "revoke-cleanup",
+        key,
+        Effect.gen(function* () {
+          const link = yield* lockPublicationLink(key);
+          const row = yield* load(key);
+          const revoked = link?.revokedAt === null ? yield* links.revokeForUser(key) : false;
+          // Persisted authority, including revoked retries, determines the key.
+          if (link)
+            yield* credentials.revokeForEnvironmentPublicKey({
+              environmentId: key.environmentId,
+              environmentPublicKey: link.environmentPublicKey,
+            });
+          return { revoked, ...(yield* cleanupCaptured(row)) };
+        }),
+      ),
+    publishWithoutTunnel: ({ userId, request, verifiedProof, endpoint }) => {
+      const key = { userId, environmentId: verifiedProof.environmentId };
+      return transaction(
+        "publish-without-tunnel",
+        key,
+        Effect.gen(function* () {
+          if (request.managedTunnelsEnabled || !consistentProof(key, request, verifiedProof))
+            return yield* new LifecycleTransitionRejected({ reason: "invalid-publication" });
+          const link = yield* lockPublicationLink(key, verifiedProof.environmentPublicKey);
+          const row = yield* load(key);
+          const environmentCredential = yield* publishLink(
+            key,
+            request,
+            verifiedProof,
+            endpoint,
+            link?.environmentPublicKey,
+          );
+          return { environmentCredential, ...(yield* cleanupCaptured(row)) };
+        }),
+      );
+    },
     beginMutation: (input) =>
       transaction(
         "begin",
@@ -454,6 +768,7 @@ const make = Effect.gen(function* () {
             case "configure_tunnel":
               if (pending.action !== "configure_tunnel" || outcome.tunnelId !== pending.tunnelId)
                 return stale;
+              patch.origin = pending.origin;
               break;
             case "delete_tunnel":
               if (pending.action !== "delete_tunnel" || outcome.tunnelId !== pending.tunnelId)

@@ -136,7 +136,15 @@ This service remains unwired. Provider dispatch, link/credential publication and
 converted together before these constraints can provide runtime fencing. The intermediate schema
 defaults every allocation to legacy quarantine and must not be deployed with the old writers;
 fresh idle admission requires the complete protocol. There is no automatic legacy classification
-or owner reset, and publication/readiness completion remains part of that pending conversion.
+or owner reset. The unused SQL aggregates prepare atomic publication/readiness completion and
+revocation/cleanup intent for that conversion. Coordinated ordinary link and credential writers
+must acquire the user lock, read the stored key, acquire sorted actual two-integer advisory lock
+IDs for the old and new exact environment/key tuples, then lock the link before the allocation.
+The shared-key namespace is disjoint from bigint quota locks; key-scoped credential rotation and
+last-active-link revocation checks run in the same transaction. Recovery/reconcile must revalidate
+an exact active managed key, incarnation and allocation-derived endpoint before acquiring an owner
+and again at completion. Only an exact successful configuration checkpoint records the origin
+required for readiness publication. New-link publication does not certify recovery support.
 
 ## A link outlives a connector process
 

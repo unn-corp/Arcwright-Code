@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as Effect from "effect/Effect";
@@ -7,6 +8,8 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as RelayDb from "../db.ts";
+import * as EnvironmentLinks from "./EnvironmentLinks.ts";
+import * as EnvironmentCredentials from "./EnvironmentCredentials.ts";
 import * as Lifecycle from "./ManagedEndpointLifecycle.ts";
 import { targetFor, type PendingMutation } from "./managedEndpointLifecycleContracts.ts";
 import {
@@ -30,8 +33,12 @@ const decodeSnapshot = Schema.decodeEffect(
     }),
   ),
 );
+const lifecycleLayer = Lifecycle.layer.pipe(
+  Layer.provide(Layer.merge(EnvironmentLinks.layer, EnvironmentCredentials.layer)),
+  Layer.provide(NodeCrypto.layer),
+);
 const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.provide(Layer.fresh(Lifecycle.layer.pipe(Layer.provideMerge(layerDb)))));
+  effect.pipe(Effect.provide(Layer.fresh(lifecycleLayer.pipe(Layer.provideMerge(layerDb)))));
 const insert = Effect.gen(function* () {
   const db = yield* RelayDb.RelayDb;
   yield* db.$client`INSERT INTO relay_managed_endpoint_allocations(user_id, environment_id, hostname, tunnel_name, created_at, updated_at) VALUES (${key.userId}, ${key.environmentId}, 'migration.fixture.test', 'migration-tunnel', '2026-10-13T00:00:00.000Z', '2026-10-13T00:00:00.000Z')`;
@@ -95,7 +102,7 @@ describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle actual PostgreSQL DDL", 
           tunnelPresence: "unresolved",
           dnsPresence: "unresolved",
         });
-      }).pipe(Effect.provide(Layer.fresh(Lifecycle.layer.pipe(Layer.provideMerge(layerLegacyDb))))),
+      }).pipe(Effect.provide(Layer.fresh(lifecycleLayer.pipe(Layer.provideMerge(layerLegacyDb))))),
   );
 
   it.effect(

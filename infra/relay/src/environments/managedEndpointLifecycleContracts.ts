@@ -1,3 +1,8 @@
+import type {
+  RelayEnvironmentLinkProofPayload,
+  RelayEnvironmentLinkRequest,
+  RelayManagedEndpoint,
+} from "@t3tools/contracts/relay";
 import * as Schema from "effect/Schema";
 
 export type LifecycleState = "idle" | "owned" | "uncertain" | "legacy_unverified";
@@ -140,3 +145,42 @@ export const targetFor = (
   generation: allocation.generation,
   tunnelId: allocation.tunnelId,
 });
+
+/** Authority captured by the caller, revalidated in both owner and completion transactions. */
+export interface ExpectedManagedLink {
+  readonly environmentPublicKey: string;
+  readonly expectedLinkIncarnationId: string;
+  readonly endpoint: RelayManagedEndpoint;
+}
+
+export type ProvisionPublication =
+  | {
+      readonly kind: "link";
+      readonly request: RelayEnvironmentLinkRequest;
+      readonly proof: RelayEnvironmentLinkProofPayload;
+    }
+  | ({ readonly kind: "recover" } & ExpectedManagedLink);
+
+/** B2b2 provider entry points must require this purpose; the optional B1 seam is SQL-test-only. */
+export type AcquisitionPurpose =
+  | { readonly kind: "link" }
+  | ({ readonly kind: "recover" | "reconcile" } & ExpectedManagedLink);
+
+export type ProvisionPublicationResult =
+  | {
+      readonly status: "Applied";
+      readonly kind: "link";
+      readonly endpoint: RelayManagedEndpoint;
+      readonly environmentCredential: string;
+    }
+  | {
+      readonly status: "Applied";
+      readonly kind: "recover";
+      readonly endpoint: RelayManagedEndpoint;
+    }
+  | { readonly status: "Stale" };
+
+export interface CapturedCleanup {
+  readonly target: Target | null;
+  readonly tunnelName: string | null;
+}
