@@ -2209,11 +2209,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         />
       )}
       {row.kind === "message" && (
-        <MessageReplyActions
-          message={row.message}
-          onReply={row.message.role === "assistant" ? undefined : replyContext.onReplyToMessage}
-          onOpenChain={replyContext.onOpenReplyChain}
-        />
+        <MessageReplyActions message={row.message} onOpenChain={replyContext.onOpenReplyChain} />
       )}
       {isWorkLogRow ? (
         <WorkLogBlock
@@ -2244,19 +2240,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
-        <div className="flex min-w-0 items-start gap-1">
-          <div className="min-w-0 flex-1">
-            <AssistantTimelineRow row={row} />
-          </div>
-          <div className="shrink-0 pt-1">
-            <MessageReplyActions
-              message={row.message}
-              showChain={false}
-              onReply={replyContext.onReplyToMessage}
-              onOpenChain={replyContext.onOpenReplyChain}
-            />
-          </div>
-        </div>
+        <AssistantTimelineRow row={row} />
       ) : null}
       {row.kind === "assistant-meta" ? <AssistantMetaTimelineRow row={row} /> : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
@@ -2283,7 +2267,11 @@ function renderReplyThreadMessage(message: ChatMessage) {
   return (
     <>
       <MessageAuthorHeading message={message} />
-      {message.role === "user" ? <UserTimelineRow row={row} /> : <AssistantTimelineRow row={row} />}
+      {message.role === "user" ? (
+        <UserTimelineRow row={row} showReplyButton={false} />
+      ) : (
+        <AssistantTimelineRow row={row} showReplyButton={false} />
+      )}
     </>
   );
 }
@@ -2423,7 +2411,38 @@ function MessageAuthorHeading({
   );
 }
 
-function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+function MessageBubbleReply({ message }: { message: ChatMessage }) {
+  const ctx = use(TimelineRowCtx);
+  if (!ctx.onReplyToMessage) return null;
+  return (
+    <div
+      data-bubble-reply-side={message.role === "user" ? "left" : "right"}
+      style={{
+        position: "absolute",
+        top: "50%",
+        transform: "translateY(-50%)",
+        ...(message.role === "user"
+          ? { insetInlineEnd: "calc(100% + 0.25rem)" }
+          : { insetInlineStart: "calc(100% + 0.25rem)" }),
+      }}
+    >
+      <MessageReplyActions
+        message={message}
+        showChain={false}
+        onReply={ctx.onReplyToMessage}
+        onOpenChain={ctx.onOpenReplyChain}
+      />
+    </div>
+  );
+}
+
+function UserTimelineRow({
+  row,
+  showReplyButton = true,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  showReplyButton?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
@@ -2637,6 +2656,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+        {showReplyButton && <MessageBubbleReply message={row.message} />}
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -2983,7 +3003,13 @@ function AttemptFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "at
   );
 }
 
-function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+function AssistantTimelineRow({
+  row,
+  showReplyButton = true,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  showReplyButton?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
   const bubbles = useClientSettings((settings) => settings.assistantMessageBubbles);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
@@ -2995,10 +3021,11 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
         className={cn(
           "relative min-w-0",
           bubbles
-            ? "w-fit max-w-[95%] rounded-2xl rounded-ss-md border border-border/50 bg-muted/40 px-4 py-3 sm:max-w-[90%]"
-            : "px-1 py-0.5",
+            ? "w-fit max-w-[calc(100%-2rem)] rounded-2xl rounded-ss-md border border-border/50 bg-muted/40 px-4 py-3 sm:max-w-[90%]"
+            : "me-8 px-1 py-0.5",
         )}
       >
+        {showReplyButton && <MessageBubbleReply message={row.message} />}
         <div data-thread-find-text="true">
           <AssistantCitationSource
             messageId={row.message.id}

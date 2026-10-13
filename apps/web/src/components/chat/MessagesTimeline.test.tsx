@@ -3049,18 +3049,27 @@ describe("timeline sender groups", () => {
         true,
       ]);
       expect(rows[0]?.querySelector(".bg-message [data-participant-id]")).toBeNull();
-      for (const row of [rows[2]!, rows[3]!]) {
-        const bubble = row.querySelector('[data-assistant-message-style="bubble"]')!;
+      for (const [index, row] of Array.from(rows).entries()) {
+        const bubble = row.querySelector(
+          index === 2 || index === 3 ? '[data-assistant-message-style="bubble"]' : ".bg-message",
+        )!;
         expect(bubble.querySelector("[data-participant-id]")).toBeNull();
         const reply = row.querySelector<HTMLButtonElement>('[aria-label="Reply to message"]')!;
-        expect(bubble.contains(reply)).toBe(false);
-        expect(bubble.parentElement?.parentElement).toBe(
-          reply.parentElement?.parentElement?.parentElement,
+        expect(row.querySelectorAll('[aria-label="Reply to message"]')).toHaveLength(1);
+        const placement = reply.closest<HTMLElement>("[data-bubble-reply-side]")!;
+        expect(placement.parentElement).toBe(bubble);
+        const style = getComputedStyle(placement);
+        expect(style.position).toBe("absolute");
+        expect(style.top).toBe("50%");
+        expect(style.transform).toBe("translateY(-50%)");
+        const fromUser = index !== 2 && index !== 3;
+        expect(style.getPropertyValue(fromUser ? "inset-inline-end" : "inset-inline-start")).toBe(
+          "calc(100% + 4px)",
         );
         await act(async () => reply.click());
       }
-      expect(onReply).toHaveBeenCalledWith(entries[2]!.message);
-      expect(onReply).toHaveBeenCalledWith(entries[3]!.message);
+      expect(onReply).toHaveBeenCalledTimes(5);
+      for (const entry of entries) expect(onReply).toHaveBeenCalledWith(entry.message);
       expect(container.querySelectorAll("h3")).toHaveLength(5);
     } finally {
       await act(async () => root.unmount());
