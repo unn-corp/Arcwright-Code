@@ -70,6 +70,12 @@ Independent Luna source reviews cover server/recovery and client/Android integra
 confirmed findings are fixed and affected paths reviewed again. Static review and fixture
 results do not replace hardware validation or measurements on a production database.
 
+Windows host-runtime fixtures use native joined paths and rewrite Git's hidden `.git`
+file through `r+` with explicit truncation. Literal pathspec checks cover bracket names
+on every platform and colon-prefixed names on POSIX; worktree listing covers spaces and
+Unicode on Windows and embedded newlines on POSIX. These exercise supported filesystem
+names with the same preservation assertions; the release gate still rejects skipped tests.
+
 The release pipeline must build and validate the exact merged main source before
 publishing its freshly allocated nightly. Scheduled publishing remains disabled. The
 current app, chats and production database stay running and unchanged; installation,

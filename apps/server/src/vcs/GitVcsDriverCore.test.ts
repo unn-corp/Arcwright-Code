@@ -1458,13 +1458,19 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
-    it.effect("keeps untracked filenames with pathspec magic in the review", () =>
+    // Brackets exercise literal pathspec handling on every filesystem. NTFS
+    // cannot store the colon-prefixed exclude form, which POSIX also covers.
+    it.effect.each(
+      HostProcess.Platform.defaultValue() === "win32"
+        ? ["[ab].ts"]
+        : ["[ab].ts", ":(exclude)after.ts"],
+    )("keeps the untracked literal pathspec %s in the review", (literalPath) =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
-        yield* writeTextFile(cwd, ":(exclude)after.ts", "literal pathspec contents\n");
-        yield* writeTextFile(cwd, "ordinary.ts", "ordinary contents\n");
+        yield* writeTextFile(cwd, literalPath, "literal pathspec contents\n");
+        yield* writeTextFile(cwd, "a.ts", "ordinary contents\n");
         const indexBefore = yield* git(cwd, ["ls-files", "--stage"]);
 
         const preview = yield* driver.getReviewDiffPreview({ cwd, ignoreWhitespace: false });
@@ -1475,17 +1481,17 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const scoped = yield* driver.getReviewDiffPreview({
           cwd,
           file: {
-            path: ":(exclude)after.ts",
+            path: literalPath,
             previousPath: null,
             sourceKind: "working-tree",
           },
         });
         const scopedSource = scoped.sources.find((source) => source.kind === "working-tree")!;
         assert.deepStrictEqual(scopedSource.files, [
-          { path: ":(exclude)after.ts", previousPath: null, additions: 1, deletions: 0 },
+          { path: literalPath, previousPath: null, additions: 1, deletions: 0 },
         ]);
         assert.include(scopedSource.diff, "+literal pathspec contents");
-        assert.notInclude(scopedSource.diff, "ordinary.ts");
+        assert.notInclude(scopedSource.diff, "+ordinary contents");
         assert.strictEqual(yield* git(cwd, ["ls-files", "--stage"]), indexBefore);
       }),
     );
@@ -2902,33 +2908,36 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       assert.strictEqual(parseGitCheckoutProgressLine("Preparing worktree (new branch 'x')"), null);
     });
 
-    // NTFS rejects a newline in a file name, so there is nothing to preserve there.
-    it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-      "preserves newline characters in worktree paths when listing refs",
-      () =>
-        Effect.gen(function* () {
-          const cwd = yield* makeTmpDir();
-          yield* initRepoWithCommit(cwd);
-          const worktreesRoot = yield* makeTmpDir("git-vcs-driver-worktrees-");
-          const pathService = yield* Path.Path;
-          const worktreePath = pathService.join(worktreesRoot, "linked\nworktree");
-          const driver = yield* GitVcsDriver.GitVcsDriver;
+    it.effect("preserves special characters in worktree paths when listing refs", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const worktreesRoot = yield* makeTmpDir("git-vcs-driver-worktrees-");
+        const pathService = yield* Path.Path;
+        // Both exercise Git's NUL-delimited path output without skipping the
+        // Windows gate: NTFS supports spaces/Unicode, but rejects newlines.
+        const worktreeName =
+          HostProcess.Platform.defaultValue() === "win32"
+            ? "linked ü worktree"
+            : "linked\nworktree";
+        const worktreePath = pathService.join(worktreesRoot, worktreeName);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
 
-          yield* git(cwd, ["worktree", "add", "-b", "feature/newline-path", worktreePath]);
+        yield* git(cwd, ["worktree", "add", "-b", "feature/special-path", worktreePath]);
 
-          const refs = yield* driver.listRefs({ cwd, refresh: true });
-          const listedPath = refs.refs.find(
-            (ref) => ref.name === "feature/newline-path",
-          )?.worktreePath;
+        const refs = yield* driver.listRefs({ cwd, refresh: true });
+        const listedPath = refs.refs.find(
+          (ref) => ref.name === "feature/special-path",
+        )?.worktreePath;
 
-          if (typeof listedPath !== "string") {
-            return assert.fail("expected the linked branch to include its worktree path");
-          }
-          assert.equal(
-            NodeFS.realpathSync.native(listedPath),
-            NodeFS.realpathSync.native(worktreePath),
-          );
-        }),
+        if (typeof listedPath !== "string") {
+          return assert.fail("expected the linked branch to include its worktree path");
+        }
+        assert.equal(
+          NodeFS.realpathSync.native(listedPath),
+          NodeFS.realpathSync.native(worktreePath),
+        );
+      }),
     );
 
     it.effect("checks out submodules in a new worktree", () =>
