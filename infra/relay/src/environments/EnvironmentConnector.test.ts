@@ -239,6 +239,53 @@ function makeLinks(
 }
 
 describe("EnvironmentConnector", () => {
+  it.effect(
+    "a different ordinary signup user cannot connect to another user's linked environment",
+    () => {
+      let requested = false;
+      const links = makeLinks();
+      return Effect.gen(function* () {
+        const connector = yield* EnvironmentConnector.EnvironmentConnector;
+        const error = yield* Effect.flip(
+          connector.connect({
+            userId: "user_newSignupB",
+            environmentId: "env-connector-test" as never,
+            clientProofKeyThumbprint: "fixture-thumbprint",
+          }),
+        );
+        expect(error).toMatchObject({
+          _tag: "EnvironmentConnectNotAuthorized",
+          reason: "environment_link_not_found",
+        });
+        expect(requested).toBe(false);
+      }).pipe(
+        Effect.provide(
+          layerConnectorTest(
+            () => {
+              requested = true;
+              return Effect.die(
+                "Foreign account must not contact or mint credentials at the environment.",
+              );
+            },
+            {
+              links: {
+                ...links,
+                getForUser: (input) => {
+                  expect(input).toEqual({
+                    userId: "user_newSignupB",
+                    environmentId: "env-connector-test",
+                    clientProofKeyThumbprint: "fixture-thumbprint",
+                  });
+                  return Effect.succeed(null);
+                },
+              },
+            },
+          ),
+        ),
+      );
+    },
+  );
+
   it.effect("loads the environment link and managed allocation concurrently", () =>
     Effect.gen(function* () {
       const started = yield* Ref.make(0);

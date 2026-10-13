@@ -8,7 +8,7 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Base64Url from "effect/encoding/Base64Url";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { and, eq, lt } from "drizzle-orm";
@@ -145,7 +145,7 @@ function notificationCopy(input: {
 function hashInstallationSecret(crypto: Crypto.Crypto, secret: string) {
   return Effect.gen(function* () {
     const digest = yield* crypto.digest("SHA-256", new TextEncoder().encode(secret));
-    return Encoding.encodeBase64Url(digest);
+    return Base64Url.encode(digest);
   });
 }
 

@@ -50,12 +50,26 @@ The installed-PWA notification flow is intentionally independent of this
 account system. See [PWA Web Push](./pwa-web-push.md) for the anonymous
 per-installation path and the separate authenticated relay path.
 
-Arcwright Connect uses one Clerk application for web, desktop, and mobile authentication. The relay verifies
-two kinds of bearer credential: template JWTs generated from the `t3-relay` template with the shared
-`t3-code-relay` audience, and Clerk OAuth tokens issued to the CLI. `verifyRelayClientBearerToken` in
-`infra/relay/src/http/Api.ts` tries the template/session path first and falls back to OAuth
-verification (`acceptsToken: "oauth_token"`), so the CLI's OAuth credential works without a JWT
-template.
+Arcwright Connect uses one Clerk application for web, desktop, and mobile authentication. Explicit
+owned relay policy admits normal `JWT` session-template tokens only after SDK signature/time checks,
+an exact verified issuer, a genuine user subject and the explicit relay audience. Native template
+tokens need no session ID, CLI client ID or OAuth scopes. The DPoP bootstrap shares these session
+checks and never falls back to OAuth; its existing relay clients remain `t3-mobile` and `t3-web`.
+
+Owned CLI bearer access accepts only opaque `oat_` tokens, verified online by the configured
+instance's Backend API credentials. The authoritative grant must name the approved public CLI
+client and user, include `openid`, `profile` and `email`, be explicitly unrevoked and unexpired,
+and have an integer future Unix-seconds expiration within the four-digit RFC 3339 calendar.
+Scope order and harmless extras are accepted; `offline_access` enables refresh rather than granting
+relay permission. This SDK's direct BAPI mapping has no required `type`, issuer or audience field;
+it preserves expiration in seconds. OAuth JWTs are rejected because online verification did not
+make them immediately invalid after grant revocation in the owned provider checks. Native offline
+JWT acceptance remains bounded by expiry and SDK clock skew, with no universal immediate-revocation
+claim. See [ClerkClientAuth.ts](../../infra/relay/src/auth/ClerkClientAuth.ts).
+
+Untouched deployments deliberately default to legacy policy, retaining session-first OAuth fallback
+via `authenticateRequest({ acceptsToken: "oauth_token" })`. Invalid or partial owned policy never
+selects that compatibility path. Neither mode replaces environment-link ownership checks.
 Clerk, deployment, and native authentication setup live in the
 [Connect setup runbook](../operations/connect-setup.md).
 

@@ -1,12 +1,16 @@
 import * as HttpServer from "effect/http/HttpServer";
 import {
   RelayClientAuth,
+  RelayDpopClientAuth,
   RelayClientPrincipal,
   type RelayClientDeviceRecord,
 } from "@t3tools/contracts/relay";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
 import * as Devices from "../agentActivity/Devices.ts";
+import * as WebPushSubscriptions from "../agentActivity/WebPushSubscriptions.ts";
+import * as WebPushDeliveryQueue from "../agentActivity/WebPushDeliveryQueue.ts";
+import * as DpopProofs from "../auth/DpopProofs.ts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync.
 import * as NodeCrypto from "node:crypto";
 import { createClerkClient, verifyToken } from "@clerk/backend";
@@ -36,6 +40,9 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup";
+import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint";
+import * as Schema from "effect/Schema";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
   RelayEnvironmentAuth,
@@ -137,6 +144,8 @@ describe("device listing compatibility", () => {
           Layer.mock(EnvironmentLinker.EnvironmentLinker, {}),
           Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
           Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
+          Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
+          Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {}),
           Layer.mock(Devices.Devices, {
             listForUser: ({ userId }) => {
               expect(userId).toBe("user-1");
@@ -240,6 +249,249 @@ describe("relay client authentication", () => {
         }),
       ),
     ),
+  );
+});
+
+const ownedRelaySettings: RelayConfiguration.RelayConfiguration["Service"] = {
+  ...relaySettings,
+  clerkPublishableKey: "pk_live_Y2xlcmsuYXJjd3JpZ2h0LnNwYWNlJA",
+  clerkAuthPolicy: {
+    mode: "owned",
+    issuer: "https://clerk.arcwright.space",
+    cliClientId: "VS3HcN01wPJotPrs",
+  },
+};
+const nativeJwtFixture = `${Buffer.from(JSON.stringify({ typ: "JWT" })).toString("base64url")}.e30.c2ln`;
+const ownedAuthFixtureApi = HttpApi.make("OwnedAuthFixture").add(
+  HttpApiGroup.make("fixture")
+    .add(
+      HttpApiEndpoint.get("who", "/fixture", { success: Schema.Struct({ userId: Schema.String }) }),
+    )
+    .middleware(RelayClientAuth),
+);
+const ownedAuthFixtureRouter = (onPrincipal: (userId: string) => void) =>
+  HttpApiBuilder.layer(ownedAuthFixtureApi).pipe(
+    Layer.provide(
+      HttpApiBuilder.group(ownedAuthFixtureApi, "fixture", (handlers) =>
+        Effect.succeed(
+          handlers.handle("who", () =>
+            Effect.gen(function* () {
+              const principal = yield* RelayClientPrincipal;
+              onPrincipal(principal.userId);
+              return { userId: principal.userId };
+            }),
+          ),
+        ),
+      ),
+    ),
+    Layer.provide(
+      RelayHttpApi.layerClientAuth.pipe(
+        Layer.provide(RelayConfiguration.layer(ownedRelaySettings)),
+      ),
+    ),
+    Layer.provide(HttpServer.layerServices),
+  );
+const ownedFixtureRequest = (token: string) =>
+  new Request("https://relay.test/fixture", { headers: { authorization: `Bearer ${token}` } });
+
+// These are request admission tests, with deliberately isolated provider fixtures.
+describe("owned RelayClientAuth boundary", () => {
+  it.effect(
+    "the DPoP route never accepts Clerk bearer credentials or invokes Clerk verification",
+    () =>
+      Effect.gen(function* () {
+        const api = HttpApi.make("OwnedDpopFixture").add(
+          HttpApiGroup.make("fixture")
+            .add(
+              HttpApiEndpoint.get("guarded", "/fixture", {
+                success: Schema.Struct({ ok: Schema.Boolean }),
+              }),
+            )
+            .middleware(RelayDpopClientAuth),
+        );
+        let reached = false;
+        const httpEffect = yield* HttpRouter.toHttpEffect(
+          HttpApiBuilder.layer(api).pipe(
+            Layer.provide(
+              HttpApiBuilder.group(api, "fixture", (handlers) =>
+                Effect.succeed(
+                  handlers.handle("guarded", () =>
+                    Effect.sync(() => {
+                      reached = true;
+                      return { ok: true };
+                    }),
+                  ),
+                ),
+              ),
+            ),
+            Layer.provide(
+              RelayHttpApi.layerDpopClientAuth.pipe(
+                Layer.provide(
+                  RelayTokens.layer.pipe(
+                    Layer.provide(RelayConfiguration.layer(ownedRelaySettings)),
+                  ),
+                ),
+              ),
+            ),
+            Layer.provide(HttpServer.layerServices),
+          ),
+        );
+        const oauthJwt = `${Buffer.from(JSON.stringify({ typ: "at+jwt" })).toString("base64url")}.e30.c2ln`;
+        for (const token of ["oat_fixture", oauthJwt, nativeJwtFixture]) {
+          for (const scheme of ["Bearer", "DPoP"]) {
+            const request = new Request("https://relay.test/fixture", {
+              headers: { authorization: `${scheme} ${token}` },
+            });
+            expect((yield* sendRelayRequest(httpEffect, request)).status).toBe(401);
+          }
+        }
+        expect(reached).toBe(false);
+        expect(createClerkClient).not.toHaveBeenCalled();
+        expect(verifyToken).not.toHaveBeenCalled();
+      }).pipe(Effect.scoped, Effect.ensuring(Effect.sync(() => vi.clearAllMocks()))),
+  );
+
+  it.effect("publishes only the approved opaque grant's ordinary user principal", () =>
+    Effect.gen(function* () {
+      let published: string | undefined;
+      const httpEffect = yield* HttpRouter.toHttpEffect(
+        ownedAuthFixtureRouter((userId) => {
+          published = userId;
+        }),
+      );
+      for (const subject of ["user_signupA", "user_signupB"]) {
+        const verify = vi.fn().mockResolvedValue({
+          clientId: "VS3HcN01wPJotPrs",
+          subject,
+          scopes: ["profile", "email", "openid"],
+          revoked: false,
+          expired: false,
+          expiration: 3600,
+        });
+        vi.mocked(createClerkClient).mockReturnValue({ idPOAuthAccessToken: { verify } } as never);
+        const response = yield* sendRelayRequest(httpEffect, ownedFixtureRequest("oat_fixture"));
+        expect(response.status).toBe(200);
+        expect(published).toBe(subject);
+        expect(verify).toHaveBeenCalledTimes(1);
+      }
+    }).pipe(Effect.scoped, Effect.ensuring(Effect.sync(() => vi.clearAllMocks()))),
+  );
+
+  it.effect("rejects an unapproved grant before an endpoint receives a principal", () =>
+    Effect.gen(function* () {
+      vi.mocked(createClerkClient).mockReturnValue({
+        idPOAuthAccessToken: {
+          verify: vi.fn().mockResolvedValue({ clientId: "unapproved", subject: "user_signupA" }),
+        },
+      } as never);
+      let reached = false;
+      const httpEffect = yield* HttpRouter.toHttpEffect(
+        ownedAuthFixtureRouter(() => {
+          reached = true;
+        }),
+      );
+      expect((yield* sendRelayRequest(httpEffect, ownedFixtureRequest("oat_fixture"))).status).toBe(
+        401,
+      );
+      expect(reached).toBe(false);
+      expect(verifyToken).not.toHaveBeenCalled();
+    }).pipe(Effect.scoped, Effect.ensuring(Effect.sync(() => vi.clearAllMocks()))),
+  );
+
+  it.effect("deadline prevents a late BAPI success from publishing any principal", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      let finish: ((value: unknown) => void) | undefined;
+      vi.mocked(createClerkClient).mockReturnValue({
+        idPOAuthAccessToken: {
+          verify: () =>
+            new Promise((resolve) => {
+              finish = resolve;
+              Deferred.doneUnsafe(started, Effect.void);
+            }),
+        },
+      } as never);
+      let reached = false;
+      const httpEffect = yield* HttpRouter.toHttpEffect(
+        ownedAuthFixtureRouter(() => {
+          reached = true;
+        }),
+      );
+      const fiber = yield* sendRelayRequest(
+        traceRelayHttpRequestWith(httpEffect, Layer.empty),
+        ownedFixtureRequest("oat_fixture"),
+      ).pipe(Effect.forkChild);
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(Duration.millis(RELAY_REQUEST_DEADLINE_MS));
+      expect((yield* Fiber.join(fiber)).status).toBe(504);
+      finish!({
+        clientId: "VS3HcN01wPJotPrs",
+        subject: "user_signupA",
+        scopes: ["openid", "profile", "email"],
+        revoked: false,
+        expired: false,
+        expiration: 3600,
+      });
+      yield* Effect.promise(() => Promise.resolve());
+      expect(reached).toBe(false);
+    }).pipe(Effect.scoped, Effect.ensuring(Effect.sync(() => vi.clearAllMocks()))),
+  );
+
+  it.effect("the actual token exchange rejects opaque OAuth before proof verification", () =>
+    Effect.gen(function* () {
+      const proof = vi.fn(() => Effect.succeed("fixture-thumbprint"));
+      const issue = vi.fn(() => Effect.succeed("relay-token"));
+      const httpEffect = yield* HttpRouter.toHttpEffect(
+        HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.token)).pipe(
+          Layer.provide(
+            RelayHttpApi.layerTokenApi.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  RelayConfiguration.layer(ownedRelaySettings),
+                  NodeCryptoLayer.layer,
+                  Layer.mock(DpopProofs.DpopProofReplay, { verifyAndConsume: proof }),
+                  Layer.mock(RelayTokens.RelayTokens, {
+                    resolveDpopAccessTokenScopes: () => ["environment:connect"],
+                    issueDpopAccessToken: issue,
+                  }),
+                ),
+              ),
+            ),
+          ),
+          Layer.provide(HttpServer.layerServices),
+        ),
+      );
+      const request = (subjectToken: string) =>
+        new Request("https://relay.example.test/v1/client/dpop-token", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", dpop: "fixture-proof" },
+          body: new URLSearchParams({
+            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+            subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+            requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+            subject_token: subjectToken,
+            resource: relaySettings.relayIssuer,
+            client_id: "t3-mobile",
+            scope: "environment:connect",
+          }),
+        });
+      expect((yield* sendRelayRequest(httpEffect, request("oat_fixture"))).status).toBe(401);
+      expect(proof).not.toHaveBeenCalled();
+      expect(createClerkClient).not.toHaveBeenCalled();
+      vi.mocked(verifyToken).mockResolvedValue({
+        sub: "user_signupA",
+        aud: "t3-code-relay",
+        iss: "https://clerk.arcwright.space",
+      } as never);
+      expect((yield* sendRelayRequest(httpEffect, request(nativeJwtFixture))).status).toBe(200);
+      expect(issue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: "user_signupA",
+          clientId: "t3-mobile",
+          proofKeyThumbprint: "fixture-thumbprint",
+        }),
+      );
+    }).pipe(Effect.scoped, Effect.ensuring(Effect.sync(() => vi.clearAllMocks()))),
   );
 });
 

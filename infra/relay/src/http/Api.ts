@@ -1,4 +1,3 @@
-import { createClerkClient, verifyToken } from "@clerk/backend";
 import { sql as drizzleSql } from "drizzle-orm";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
@@ -80,7 +79,14 @@ import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublis
 import * as MobileRegistrations from "../agentActivity/MobileRegistrations.ts";
 import * as WebPushSubscriptions from "../agentActivity/WebPushSubscriptions.ts";
 import * as WebPushDeliveryQueue from "../agentActivity/WebPushDeliveryQueue.ts";
+import {
+  hasExpectedClerkAudience,
+  verifyRelayClientBearerToken,
+  verifyRelaySessionBearerToken,
+} from "../auth/ClerkClientAuth.ts";
 import { withSpanAttributes } from "../observability.ts";
+
+export { verifyRelayClientBearerToken } from "../auth/ClerkClientAuth.ts";
 import { isRelayHookPath, redactRelayHookUrl } from "../hooks/HookForwarder.ts";
 import * as RelayDb from "../db.ts";
 
@@ -1077,9 +1083,10 @@ export const layerTokenApi = HttpApiBuilder.group(
           return yield* new HttpApiError.Unauthorized({});
         }
 
-        const verified = yield* verifyClerkBearerToken(config, args.payload.subject_token).pipe(
-          Effect.catch(() => relayAuthInvalidError("invalid_bearer")),
-        );
+        const verified = yield* verifyRelaySessionBearerToken(
+          config,
+          args.payload.subject_token,
+        ).pipe(Effect.catch(() => relayAuthInvalidError("invalid_bearer")));
         if (!verified.sub || !hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)) {
           return yield* relayAuthInvalidError("invalid_bearer");
         }
@@ -1608,17 +1615,6 @@ export const pwaApi = HttpApiBuilder.group(
   }),
 );
 
-class ClerkTokenVerificationFailed extends Schema.TaggedError<ClerkTokenVerificationFailed>()(
-  "ClerkTokenVerificationFailed",
-  {
-    cause: Schema.Defect(),
-  },
-) {
-  override get message(): string {
-    return "Clerk token verification failed";
-  }
-}
-
 const isHttpUnauthorized = Schema.is(HttpApiError.Unauthorized);
 const isDpopProofRejected = Schema.is(DpopProofs.DpopProofRejected);
 
@@ -1826,75 +1822,6 @@ function clerkVerificationFailureReason(cause: unknown): string {
     return safeAuthFailureReason(cause.name);
   }
   return "unknown";
-}
-
-function hasExpectedClerkAudience(audience: unknown, expectedAudience: string): boolean {
-  return typeof audience === "string"
-    ? audience === expectedAudience
-    : Array.isArray(audience) &&
-        audience.some((entry) => typeof entry === "string" && entry === expectedAudience);
-}
-
-function verifyClerkBearerToken(
-  config: RelayConfiguration.RelayConfiguration["Service"],
-  token: string,
-) {
-  return Effect.tryPromise({
-    try: () =>
-      verifyToken(token, {
-        secretKey: Redacted.value(config.clerkSecretKey),
-        audience: config.clerkJwtAudience,
-      }),
-    catch: (cause) => new ClerkTokenVerificationFailed({ cause }),
-  }).pipe(
-    Effect.withSpan("verify_clerk_bearer_token", {
-      attributes: { "relay.auth.token_length": token.length },
-    }),
-  );
-}
-
-function verifyClerkOAuthBearerToken(
-  config: RelayConfiguration.RelayConfiguration["Service"],
-  token: string,
-) {
-  return Effect.tryPromise({
-    try: async () => {
-      const client = createClerkClient({
-        secretKey: Redacted.value(config.clerkSecretKey),
-        publishableKey: config.clerkPublishableKey,
-      });
-      const state = await client.authenticateRequest(
-        new Request(config.relayIssuer, {
-          headers: { authorization: `Bearer ${token}` },
-        }),
-        { acceptsToken: "oauth_token" },
-      );
-      const auth = state.toAuth();
-      if (!state.isAuthenticated || !auth.userId) {
-        throw new Error("Clerk OAuth token is not authenticated.");
-      }
-      return { sub: auth.userId };
-    },
-    catch: (cause) => new ClerkTokenVerificationFailed({ cause }),
-  });
-}
-
-export function verifyRelayClientBearerToken(
-  config: RelayConfiguration.RelayConfiguration["Service"],
-  token: string,
-) {
-  return verifyClerkBearerToken(config, token).pipe(
-    Effect.flatMap((verified) =>
-      verified.sub && hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)
-        ? Effect.succeed({ sub: verified.sub, mode: "clerk_session_bearer" as const })
-        : Effect.fail(new ClerkTokenVerificationFailed({ cause: "missing_relay_audience" })),
-    ),
-    Effect.catch(() =>
-      verifyClerkOAuthBearerToken(config, token).pipe(
-        Effect.map((verified) => ({ ...verified, mode: "clerk_oauth_bearer" as const })),
-      ),
-    ),
-  );
 }
 
 const requireDpopPrincipalScope = Effect.fn("relay.api.require_dpop_principal_scope")(function* (

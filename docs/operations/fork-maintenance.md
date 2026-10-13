@@ -81,6 +81,13 @@ Android web UI, upstream Expo mobile, and CLI output. Preserve internal `T3Conne
 `t3-connect` paths, `t3 connect` commands, `T3CODE_*` keys, JWT audiences, callbacks, and persisted
 connection formats. The [Connect architecture](../internals/t3-connect.md) and
 [setup runbook](./connect-setup.md) own its trust boundaries and deployment requirements.
+Relay bearer policy belongs to [Config.ts](../../infra/relay/src/Config.ts),
+[ClerkClientAuth.ts](../../infra/relay/src/auth/ClerkClientAuth.ts), and the request admission/DPoP
+bootstrap in [Api.ts](../../infra/relay/src/http/Api.ts). Preserve strict owned issuer/audience
+session checks, opaque-only approved CLI client/scope/Unix-seconds grant checks, and deliberate
+legacy compatibility. DPoP exchange stays session-only and environment-link guards remain separate.
+Focused auth/API and DPoP regression fixtures cover these boundaries; public relay commissioning
+and the remaining privacy, abuse, deletion and physical-device gates are not established by them.
 The example configuration selects upstream T3 services in legacy mode. Explicit owned builds
 require one complete validated public profile; cloudless builds clear managed aliases across web,
 CLI, standalone Android and Expo. [connectProfile.ts](../../packages/shared/src/connectProfile.ts)

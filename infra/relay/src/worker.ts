@@ -185,6 +185,7 @@ export const layer = Api.make(
     const clerkSecretKey = yield* Config.Redacted("CLERK_SECRET_KEY");
     const clerkPublishableKey = yield* Config.String("CLERK_PUBLISHABLE_KEY");
     const clerkJwtAudience = yield* Config.String("CLERK_JWT_AUDIENCE");
+    const clerkAuthPolicy = yield* RelayConfiguration.clerkAuthPolicyConfig;
 
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
@@ -232,7 +233,7 @@ export const layer = Api.make(
     const alchemyRuntimeContext: Alchemy.BaseRuntimeContext = yield* Cloudflare.Worker;
 
     const loadSettings = Effect.gen(function* () {
-      return RelayConfiguration.RelayConfiguration.of({
+      const settings = RelayConfiguration.RelayConfiguration.of({
         relayIssuer: relayPublicOrigin,
         ...(fcmServiceAccount ? { fcmServiceAccount } : {}),
         apns: apnsCredentials,
@@ -246,6 +247,7 @@ export const layer = Api.make(
         clerkSecretKey,
         clerkPublishableKey,
         clerkJwtAudience,
+        clerkAuthPolicy,
         cloudMintPrivateKey: yield* cloudMintPrivateKey,
         cloudMintPublicKey: yield* cloudMintPublicKey,
         managedEndpointBaseDomain: yield* managedEndpointZoneName,
@@ -254,6 +256,8 @@ export const layer = Api.make(
         legacyManagedEndpointCleanupMode,
         ...(legacyTunnelGraceMinutes === undefined ? {} : { legacyTunnelGraceMinutes }),
       });
+      yield* RelayConfiguration.resolveClerkAuthPolicy(settings);
+      return settings;
     });
 
     // Each managed endpoint's held webhook requests live in its own Durable Object.

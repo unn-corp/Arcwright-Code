@@ -135,6 +135,15 @@ policy permits Clerk/challenge UI, current inline bootstraps, blob workers/WASM,
 WSS environments. Post-deployment verification must include real assets and public pages with
 `Sec-Fetch-Mode: navigate`, valid/invalid CLI auth requests, and the unchanged loopback callback.
 
+Cloudflare injected its analytics beacon into actual hosted HTML even though the source has no
+hosted OTLP destination. The operator disabled RUM specifically for `connect.arcwright.space`
+using active Configuration Rule `fa2e08d90f77486e8c4662596419c5bc`: expression
+`(http.host eq "connect.arcwright.space")`, action `set_config`, parameters `{ "disable_rum": true }`.
+UI/readback and eight public response byte/cache/CSP checks passed. Preserve this hostname-scoped
+operator setting when changing the hosted deployment; verify the served HTML bytes again after
+changes. Do not broaden it to the apex or relax CSP to accommodate an injected beacon. Cloudflare
+documents the supported [Disable Real User Monitoring setting](https://developers.cloudflare.com/rules/configuration-rules/settings/#disable-real-user-monitoring-rum).
+
 Publishing preparation pages is independent of relay commissioning. Public account isolation,
 Google Production, quota/abuse controls, deletion operations, private recovery and physical-device
 delivery remain later gates; a hosted build or page deployment must not claim they passed.
@@ -224,6 +233,39 @@ In Clerk's OAuth applications settings:
    Clerk enables it per account on request.
 5. Set `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID` to the generated public client ID in local and release
    build environments.
+
+For the owned instance, require PKCE for the authorization-code grant and select **opaque** OAuth
+access-token format. The approved public client ID is `VS3HcN01wPJotPrs`; its `oa_` application
+resource ID is not a client ID. Code and device grant checks proved refresh rotation and rejection
+of both current and prior opaque access tokens after grant revocation. The JWT access-token
+format remained verifiable after grant revocation, so strict owned relay admission rejects it.
+No real token or account is needed for the source fixtures.
+
+The owned relay stack must explicitly select this configuration alongside its private Clerk secret:
+
+```dotenv
+RELAY_CLERK_AUTH_MODE=owned
+RELAY_CLERK_ISSUER=https://clerk.arcwright.space
+RELAY_CLERK_CLI_CLIENT_ID=VS3HcN01wPJotPrs
+CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsuYXJjd3JpZ2h0LnNwYWNlJA
+CLERK_JWT_AUDIENCE=t3-code-relay
+```
+
+The publishable key must name the configured issuer. Issuers are exact HTTPS origins without paths,
+query, fragments or credentials. Missing, partial and invalid owned policy fails closed; secrets
+and Backend API destinations are never derived from token claims. Legacy deployments with no
+policy fields retain the deliberate legacy default. This policy is implemented and fixture-tested;
+the owned relay stack is not deployed by this change. Public relay commissioning, Google Production,
+push isolation, quota/abuse, deletion and hardware checks remain separate gates.
+
+Each owned opaque request makes one supported Backend API verification call. Admission requires
+the approved client, a genuine user, the `openid`/`profile`/`email` scope subset, explicit false
+revoked/expired flags and a non-null future integer expiration in Unix seconds through year 9999.
+Outages, 404s and request deadlines fail closed. `offline_access` is refresh capability, not a
+per-request relay permission. Ordinary newly signed-up users are accepted; environment ownership
+still limits access to their own links. Native template JWTs retain SDK signature/time validation
+and five-second skew, exact issuer and explicit audience checks. Their offline verification cannot
+promise immediate revocation. The DPoP exchange remains session-only.
 
 ## JWT template
 
@@ -351,10 +393,15 @@ codesign --verify --deep --strict "/Applications/Arcwright Code (Alpha).app"
 codesign -d --entitlements :- "/Applications/Arcwright Code (Alpha).app"
 ```
 
-## Restricting sign-ups
+## Sign-up policy
 
-Use Clerk's allowlist for permitted email addresses or domains, or Restricted mode for invitation-only
-sign-up. An enabled empty allowlist blocks all new sign-ups.
+The owned public service is intended for anyone. Its relay policy checks the configured instance,
+approved CLI client and token permissions without an operator-user allowlist. Provider accounts,
+including Codex Personal, remain separate from Connect identity. Public-service commissioning is
+still pending the gates above.
+
+Separately operated restricted installations can use Clerk's email/domain allowlist or invitation-only
+Restricted mode. An enabled empty allowlist blocks all new sign-ups.
 
 Sign-up restrictions do not revoke an existing account's access. Ban the account in Clerk when
 its active sessions and future sign-ins must be disabled.

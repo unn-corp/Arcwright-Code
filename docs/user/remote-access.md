@@ -29,6 +29,9 @@ public signup is being prepared. Those pages provide contact and intended inform
 their availability does not mean managed environment access is ready. Public signup is intended
 for anyone, with each account limited to its own linked environments. Your coding provider account
 and its charges remain separate. Signing out does not revoke independent manual pairings.
+When the owned service is commissioned, CLI sign-in must use its approved Connect application;
+old or revoked CLI credentials require signing in again. The native app keeps its own account
+sign-in. Both routes give access only to environments linked to your account.
 
 Arcwright Connect makes an environment available to your other devices without setting
 up router forwarding. In the desktop app on the host, open **Settings →
