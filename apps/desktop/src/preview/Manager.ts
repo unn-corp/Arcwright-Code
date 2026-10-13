@@ -62,6 +62,7 @@ import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
+import { ANNOTATION_PAGE_FALLBACK_SCRIPT } from "./AnnotationPageFallback.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
@@ -2243,6 +2244,25 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
               return Effect.sync(() => wc.ipc.off(ANNOTATION_PAGE_CAPTURED_CHANNEL, onPage));
             }).pipe(
               Effect.timeout("8 seconds"),
+              Effect.catch(() =>
+                Effect.logWarning(
+                  "Annotation preload extraction failed; capturing bounded DOM context",
+                  { tabId, webContentsId: wc.id },
+                ).pipe(
+                  Effect.andThen(
+                    Effect.tryPromise({
+                      try: (_signal) => wc.executeJavaScript(ANNOTATION_PAGE_FALLBACK_SCRIPT),
+                      catch: (cause) =>
+                        new PreviewOperationError({
+                          operation: "captureAnnotationSnapshot.dom-fallback",
+                          tabId,
+                          webContentsId: wc.id,
+                          cause,
+                        }),
+                    }).pipe(Effect.timeout("2 seconds")),
+                  ),
+                ),
+              ),
               Effect.mapError(
                 (cause) =>
                   new PreviewOperationError({

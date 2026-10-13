@@ -4087,6 +4087,68 @@ describe("PreviewManager", () => {
       ),
   );
 
+  effectIt.effect.each([false, true])(
+    "handles a missing annotation preload reply with navigation=%s",
+    (navigates) =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          let navigation: ((event: { isMainFrame: boolean }) => void) | undefined;
+          const requested = yield* Deferred.make<void>();
+          const page = {
+            pageUrl: "https://clarity-relay.example",
+            pageTitle: "Clarity Relay",
+            createdAt: "2026-10-12T00:00:00.000Z",
+            width: 800,
+            height: 600,
+            elements: [],
+          };
+          const guest = Object.assign(
+            makeTestPreviewWebContents(
+              vi.fn(async () => ({
+                toJPEG: () => Buffer.from("snapshot"),
+                toDataURL: () => "data:image/png;base64,aW1hZ2U=",
+                getSize: () => ({ width: 800, height: 600 }),
+              })),
+              42,
+            ),
+            {
+              send: vi.fn((channel: string) => {
+                if (channel === CAPTURE_ANNOTATION_PAGE_CHANNEL)
+                  Deferred.doneUnsafe(requested, Exit.succeed(undefined));
+              }),
+              on: vi.fn((event: string, listener: (event: { isMainFrame: boolean }) => void) => {
+                if (event === "did-start-navigation") navigation = listener;
+              }),
+              executeJavaScript: vi.fn(async () => {
+                if (navigates) navigation?.({ isMainFrame: true });
+                return page;
+              }),
+              ipc: { on: vi.fn(), off: vi.fn() },
+            },
+          );
+          fromId.mockReturnValue(guest);
+          yield* manager.createTab("no-preload-reply-tab");
+          yield* manager.registerWebview("no-preload-reply-tab", 42);
+          const capture = yield* manager
+            .captureAnnotationSnapshot("no-preload-reply-tab")
+            .pipe(Effect.result, Effect.forkChild);
+          yield* Deferred.await(requested);
+          yield* TestClock.adjust("8 seconds");
+          const result = yield* Fiber.join(capture);
+          expect(result._tag).toBe(navigates ? "Failure" : "Success");
+          if (result._tag === "Success") {
+            expect(result.success.pageTitle).toBe("Clarity Relay");
+            expect(result.success.screenshot.dataUrl).toBe("data:image/png;base64,aW1hZ2U=");
+          }
+          expect(guest.executeJavaScript).toHaveBeenCalledOnce();
+          expect(guest.ipc.off).toHaveBeenCalledWith(
+            ANNOTATION_PAGE_CAPTURED_CHANNEL,
+            expect.any(Function),
+          );
+        }),
+      ),
+  );
+
   effectIt.effect("rejects snapshots spanning a page reload and removes the capture listener", () =>
     withManager((manager) =>
       Effect.gen(function* () {

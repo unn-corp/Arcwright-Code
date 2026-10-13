@@ -240,6 +240,8 @@ the existing cover/unfolded resize checks.
 [OpenWhisprVoiceInput.tsx](../../apps/web/src/components/chat/OpenWhisprVoiceInput.tsx)
 uses the shared client-operation guard; its [interaction tests](../../apps/web/src/components/chat/OpenWhisprVoiceInput.test.tsx)
 cover denied admission, cancelled permission acquisition, and pending transcription.
+When the picker preload cannot return a frozen page snapshot, desktop capture retries with bounded DOM-only extraction. Retain the screenshot/navigation consistency check, request/frame validation, and listener cleanup. React source attribution is optional in this fallback.
+
 Desktop preview annotations use the same recorder in
 [PreviewAnnotationEditor.tsx](../../apps/web/src/components/preview/PreviewAnnotationEditor.tsx).
 The app-root modal owns a frozen screenshot and extracted element metadata, independently of the
