@@ -5,11 +5,16 @@ import * as Redacted from "effect/Redacted";
 
 import * as RelayConfiguration from "../Config.ts";
 import type { RelayDb } from "../db.ts";
-import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
+import * as Lifecycle from "./ManagedEndpointLifecycle.ts";
+import * as Links from "./EnvironmentLinks.ts";
+import * as Credentials from "./EnvironmentCredentials.ts";
+import { RelayEnvironmentLinkProofPayload } from "@t3tools/contracts/relay";
+import type { ProvisionPublication } from "./managedEndpointLifecycleContracts.ts";
+import * as Schema from "effect/Schema";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
 
-const config = RelayConfiguration.RelayConfiguration.of({
+export const config = RelayConfiguration.RelayConfiguration.of({
   relayIssuer: "https://relay.example.test",
   apns: {
     environment: "sandbox",
@@ -61,8 +66,60 @@ export const deniedProviderLayer = <E, R>(
     Layer.provide(RelayConfiguration.layer(config)),
     Layer.provide(ManagedEndpointProvider.layerTunnelClient(tunnels)),
     Layer.provide(ManagedEndpointProvider.layerDnsClient(dns)),
-    Layer.provide(ManagedEndpointAllocations.layer),
+    Layer.provide(Lifecycle.layer),
+    Layer.provide(Layer.merge(Links.layer, Credentials.layer)),
+    Layer.provide(NodeServices.layer),
     Layer.provideMerge(ManagedTunnelLimits.layer),
     Layer.provideMerge(database),
   );
 };
+
+export const settledAllocationFacts = (tunnelId: string | null) => ({
+  allocationId: "00000000-0000-4000-8000-000000000001",
+  lifecycleState: "idle" as const,
+  operationId: null,
+  operationKind: null,
+  operationStartedAt: null,
+  pendingMutation: null,
+  cleanupRequested: false,
+  tunnelPresence: "recorded" as const,
+  dnsPresence: "recorded" as const,
+  dnsTargetTunnelId: tunnelId,
+  recoveryEnabledAt: null,
+  recoveryEnvironmentPublicKey: null,
+});
+const decodeFixtureProof = Schema.decodeSync(RelayEnvironmentLinkProofPayload);
+export const publicationFor = (environmentId: string): ProvisionPublication => ({
+  kind: "link",
+  request: {
+    proof: "verified-fixture",
+    managedTunnelsEnabled: true,
+    notificationsEnabled: true,
+    liveActivitiesEnabled: true,
+  },
+  proof: decodeFixtureProof({
+    iss: `t3-env:${environmentId}`,
+    aud: "https://relay.example.test",
+    sub: environmentId,
+    jti: "fixture-proof",
+    iat: 1,
+    exp: 2,
+    challenge: "verified-fixture",
+    environmentId,
+    descriptor: {
+      environmentId,
+      label: "Fixture",
+      platform: { os: "linux", arch: "x64" },
+      serverVersion: "0.0.0-test",
+      capabilities: { repositoryIdentity: true },
+    },
+    environmentPublicKey: "fixture-key",
+    endpoint: {
+      providerKind: "manual",
+      httpBaseUrl: "http://localhost:3000/",
+      wsBaseUrl: "ws://localhost:3000/ws",
+    },
+    origin: { localHttpHost: "localhost", localHttpPort: 3000 },
+    scopes: ["agent_activity_notifications", "managed_tunnels"],
+  }),
+});

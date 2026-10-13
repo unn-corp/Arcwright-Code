@@ -1,3 +1,4 @@
+import { settledAllocationFacts } from "./managedEndpointProviderTestFixture.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -48,6 +49,7 @@ function allocation(input: {
     userId: "user-1",
     environmentId: `environment-${input.tunnelId ?? "pending"}`,
     hostname: `${input.tunnelId ?? "pending"}.example.test`,
+    ...settledAllocationFacts(input.tunnelId),
     tunnelId: input.tunnelId,
     tunnelName: `${PREFIX}aaaaaaaaaaaaaaaa`,
     dnsRecordId: "dns-1",
@@ -178,22 +180,14 @@ function harness(input?: {
   const allocationService = ManagedEndpointAllocations.ManagedEndpointAllocations.of({
     getByTunnelName: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
-    recordTunnel: () => Effect.die("unused"),
-    recordDns: () => Effect.die("unused"),
-    markReady: () => Effect.die("unused"),
-    enableRecovery: () => Effect.die("unused"),
+
     listByTunnelNames: (tunnelNames) =>
       Effect.succeed(recorded.filter((entry) => tunnelNames.includes(entry.tunnelName))),
-    claimRelease: () => Effect.die("unused"),
-    withClaimedTunnel: () => Effect.die("unused"),
-    claimDeprovision: () => Effect.die("unused"),
-    remove: () => Effect.die("unused"),
-    removeClaimed: () => Effect.die("unused"),
   });
   const provider = ManagedEndpointProvider.ManagedEndpointProvider.of({
     provision: () => Effect.die("unused"),
     reconcileOrigin: () => Effect.die("unused"),
-    prepareDeprovision: () => Effect.die("unused"),
+
     deprovision: () => Effect.die("unused"),
     release: (request) =>
       Effect.gen(function* () {
@@ -1117,4 +1111,35 @@ describe("ManagedEndpointReaper", () => {
       expect(state.deleted.every((id) => !id.startsWith(`${firstStatus}-`))).toBe(true);
     }).pipe(Effect.provide(state.layer));
   });
+  it.effect.each(["owned", "uncertain", "legacy_unverified", "cleanup", "unresolved"] as const)(
+    "skips %s candidates without acquiring or deleting",
+    (state) => {
+      const row = allocation({ tunnelId: "unsafe", recoveryEnabled: true });
+      const unsafe = {
+        ...row,
+        ...(state === "owned" || state === "uncertain" || state === "legacy_unverified"
+          ? { lifecycleState: state }
+          : {}),
+        ...(state === "cleanup" ? { cleanupRequested: true } : {}),
+        ...(state === "unresolved" ? { tunnelPresence: "unresolved" as const } : {}),
+      };
+      const fixture = harness({
+        tunnels: [
+          tunnel({
+            id: "unsafe",
+            suffix: "aaaaaaaaaaaaaaaa",
+            status: "down",
+            timestamp: "2026-08-01T00:00:00.000Z",
+          }),
+        ],
+        allocations: [unsafe],
+      });
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MILLIS);
+        const reaper = yield* ManagedEndpointReaper.ManagedEndpointReaper;
+        expect((yield* reaper.sweep).attempted).toBe(0);
+        expect(fixture.releases).toEqual([]);
+      }).pipe(Effect.provide(fixture.layer));
+    },
+  );
 });

@@ -64,6 +64,7 @@ import * as ApnsDeliveries from "./agentActivity/ApnsDeliveries.ts";
 import * as EnvironmentConnector from "./environments/EnvironmentConnector.ts";
 import * as EnvironmentLinker from "./environments/EnvironmentLinker.ts";
 import * as EnvironmentPublishSignatures from "./environments/EnvironmentPublishSignatures.ts";
+import * as ManagedEndpointLifecycle from "./environments/ManagedEndpointLifecycle.ts";
 import * as ManagedEndpointProvider from "./environments/ManagedEndpointProvider.ts";
 import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts";
 import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
@@ -307,6 +308,7 @@ export const layer = Api.make(
           alchemyRuntimeContext,
         ),
       ),
+      Layer.provideMerge(ManagedEndpointLifecycle.layer),
       Layer.provideMerge(DpopProofs.layer),
       Layer.provideMerge(ApnsDeliveries.layer),
       Layer.provideMerge(

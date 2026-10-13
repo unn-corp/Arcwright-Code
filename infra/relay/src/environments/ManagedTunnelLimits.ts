@@ -157,6 +157,7 @@ export const make = Effect.gen(function* () {
                   .insert(relayManagedEndpointAllocations)
                   .values({
                     ...input,
+                    lifecycleState: "idle",
                     createdAt: now,
                     updatedAt: now,
                   })

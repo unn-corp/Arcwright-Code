@@ -1,3 +1,4 @@
+import { settledAllocationFacts } from "../environments/managedEndpointProviderTestFixture.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,6 +28,7 @@ const allocationFor = (
   userId,
   environmentId,
   hostname: `${key}.example.test`,
+  ...settledAllocationFacts(`tunnel-${key}`),
   tunnelId: `tunnel-${key}`,
   tunnelName: `t3coderelay-managedendpoint-dev-${key}`,
   dnsRecordId: "dns-record-id",
@@ -47,6 +49,7 @@ const linkFor = (userId: string, key: string, environmentPublicKey: string) => (
     providerKind: "cloudflare_tunnel" as const,
   },
   environmentPublicKey,
+  linkIncarnationId: "fixture-link",
   linkedAt: "2026-05-25T00:00:00.000Z",
   holdWebhooksWhileOffline: true,
 });

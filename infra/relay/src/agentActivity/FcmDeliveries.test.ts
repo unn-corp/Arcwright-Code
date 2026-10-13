@@ -182,6 +182,7 @@ function harness() {
             ? {
                 environmentId: EnvironmentId.make(input.environmentId),
                 label: "Desktop",
+                linkIncarnationId: "fixture-link",
                 environmentPublicKey: "key",
                 linkedAt: state.updatedAt,
                 endpoint: {

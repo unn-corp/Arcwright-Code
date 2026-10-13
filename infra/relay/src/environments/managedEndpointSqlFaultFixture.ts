@@ -34,6 +34,18 @@ export const faultDatabaseLayer = (input: {
           if (query.startsWith("insert") && !input.emptyInsert)
             return Effect.succeed([
               [
+                "00000000-0000-4000-8000-000000000001",
+                "idle",
+                null,
+                null,
+                null,
+                null,
+                false,
+                "unresolved",
+                "unresolved",
+                null,
+                null,
+                null,
                 "user",
                 "env",
                 "env.fixture.test",

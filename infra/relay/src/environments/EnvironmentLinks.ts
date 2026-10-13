@@ -16,6 +16,7 @@ import { relayEnvironmentLinks } from "../persistence/schema.ts";
 
 export interface RelayLinkedEnvironmentRecord extends RelayClientEnvironmentRecord {
   readonly environmentPublicKey: string;
+  readonly linkIncarnationId: string;
 }
 
 export interface AgentAwarenessDeliveryUserRecord {
@@ -340,6 +341,7 @@ const make = Effect.gen(function* () {
           environmentId: relayEnvironmentLinks.environmentId,
           environmentLabel: relayEnvironmentLinks.environmentLabel,
           environmentPublicKey: relayEnvironmentLinks.environmentPublicKey,
+          linkIncarnationId: relayEnvironmentLinks.incarnationId,
           endpointHttpBaseUrl: relayEnvironmentLinks.endpointHttpBaseUrl,
           endpointWsBaseUrl: relayEnvironmentLinks.endpointWsBaseUrl,
           endpointProviderKind: relayEnvironmentLinks.endpointProviderKind,
@@ -371,6 +373,7 @@ const make = Effect.gen(function* () {
                       row.endpointProviderKind as RelayClientEnvironmentRecord["endpoint"]["providerKind"],
                   },
                   environmentPublicKey: row.environmentPublicKey,
+                  linkIncarnationId: row.linkIncarnationId,
                   linkedAt: row.linkedAt,
                 }
               : null;
@@ -396,6 +399,7 @@ const make = Effect.gen(function* () {
           environmentId: relayEnvironmentLinks.environmentId,
           environmentLabel: relayEnvironmentLinks.environmentLabel,
           environmentPublicKey: relayEnvironmentLinks.environmentPublicKey,
+          linkIncarnationId: relayEnvironmentLinks.incarnationId,
           endpointHttpBaseUrl: relayEnvironmentLinks.endpointHttpBaseUrl,
           endpointWsBaseUrl: relayEnvironmentLinks.endpointWsBaseUrl,
           endpointProviderKind: relayEnvironmentLinks.endpointProviderKind,
@@ -430,6 +434,7 @@ const make = Effect.gen(function* () {
                   row.endpointProviderKind as RelayClientEnvironmentRecord["endpoint"]["providerKind"],
               },
               environmentPublicKey: row.environmentPublicKey,
+              linkIncarnationId: row.linkIncarnationId,
               linkedAt: row.linkedAt,
               holdWebhooksWhileOffline: row.holdWebhooksWhileOffline,
             })),

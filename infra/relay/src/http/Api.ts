@@ -74,6 +74,7 @@ import * as RelayConfiguration from "../Config.ts";
 import * as AgentActivityPublisher from "../agentActivity/AgentActivityPublisher.ts";
 import * as EnvironmentConnector from "../environments/EnvironmentConnector.ts";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
+import * as ManagedEndpointLifecycle from "../environments/ManagedEndpointLifecycle.ts";
 import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvider.ts";
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
 import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublishSignatures.ts";
@@ -491,24 +492,8 @@ export const revokeEnvironmentLinkRecord = Effect.fn(
   readonly environmentId: string;
   readonly environmentPublicKey: string;
 }) {
-  const transactions = yield* RelayDb.RelayTransactions;
-  const links = yield* EnvironmentLinks.EnvironmentLinks;
-  const credentials = yield* EnvironmentCredentials.EnvironmentCredentials;
-  return yield* transactions.withTransaction(
-    Effect.gen(function* () {
-      const revoked = yield* links.revokeForUser({
-        userId: input.userId,
-        environmentId: input.environmentId,
-      });
-      if (revoked) {
-        yield* credentials.revokeForEnvironmentPublicKey({
-          environmentId: input.environmentId,
-          environmentPublicKey: input.environmentPublicKey,
-        });
-      }
-      return revoked;
-    }),
-  );
+  const lifecycle = yield* ManagedEndpointLifecycle.ManagedEndpointLifecycle;
+  return (yield* lifecycle.revokeAndRequestCleanup(input)).revoked;
 });
 
 export const unlinkEnvironmentRecord = Effect.fn("relay.api.client.unlinkEnvironmentRecord")(
@@ -518,41 +503,13 @@ export const unlinkEnvironmentRecord = Effect.fn("relay.api.client.unlinkEnviron
     /** The stage's tunnel-name namespace, to find this link's held webhook requests. */
     readonly managedEndpointNamespace?: string | undefined;
   }) {
-    const links = yield* EnvironmentLinks.EnvironmentLinks;
+    const lifecycle = yield* ManagedEndpointLifecycle.ManagedEndpointLifecycle;
     const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
-    const deprovisionTarget = yield* managedEndpointProvider.prepareDeprovision({
-      userId: input.userId,
-      environmentId: input.environmentId,
-    });
-    const link = yield* links.getForUser({
-      userId: input.userId,
-      environmentId: input.environmentId,
-    });
-    const unlinked =
-      link === null
-        ? false
-        : yield* revokeEnvironmentLinkRecord({
-            userId: input.userId,
-            environmentId: link.environmentId,
-            environmentPublicKey: link.environmentPublicKey,
-          });
-    // External teardown cannot share the SQL transaction. Run it only after
-    // revocation commits so a database failure leaves a fully usable active
-    // link. Still run teardown when the link is already revoked, allowing a
-    // retry to finish cleanup after an earlier Cloudflare failure.
-    const deprovisioned = yield* managedEndpointProvider.deprovision({
-      userId: input.userId,
-      environmentId: input.environmentId,
-      target: deprovisionTarget,
-    });
-    // Requests held for this link's endpoint go with it. Best effort: the link
-    // is already gone, and its inbox drops anything left after its TTL.
+    const captured = yield* lifecycle.revokeAndRequestCleanup(input);
+    const unlinked = captured.revoked;
     const endpointKey =
-      deprovisionTarget && input.managedEndpointNamespace
-        ? HeldHooks.endpointKeyForTunnelName(
-            input.managedEndpointNamespace,
-            deprovisionTarget.tunnelName,
-          )
+      captured.tunnelName && input.managedEndpointNamespace
+        ? HeldHooks.endpointKeyForTunnelName(input.managedEndpointNamespace, captured.tunnelName)
         : null;
     if (endpointKey !== null) {
       const inbox = yield* HookInbox.HookInbox;
@@ -565,13 +522,21 @@ export const unlinkEnvironmentRecord = Effect.fn("relay.api.client.unlinkEnviron
         ),
       );
     }
-    if (!deprovisioned) {
-      const key = { userId: input.userId, environmentId: input.environmentId };
-      const retryTarget = yield* managedEndpointProvider.prepareDeprovision(key);
-      if (retryTarget !== null && (yield* links.getForUser(key)) === null) {
-        yield* managedEndpointProvider.deprovision({ ...key, target: retryTarget });
-      }
-    }
+    yield* managedEndpointProvider
+      .deprovision({
+        userId: input.userId,
+        environmentId: input.environmentId,
+        target: captured.target,
+      })
+      .pipe(
+        Effect.tapError((error) =>
+          Effect.logWarning("Managed endpoint cleanup after unlink failed", {
+            environmentId: input.environmentId,
+            errorTag: error._tag,
+          }),
+        ),
+        Effect.ignore,
+      );
     return unlinked;
   },
 );
@@ -645,7 +610,6 @@ export const registerEnvironmentTunnelRecovery = Effect.fn(
   readonly origin: RelayManagedEndpointOrigin;
 }) {
   const links = yield* EnvironmentLinks.EnvironmentLinks;
-  const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
   const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
   const link = yield* links.getForUser({
     userId: input.userId,
@@ -663,13 +627,14 @@ export const registerEnvironmentTunnelRecovery = Effect.fn(
     environmentId: input.environmentId,
     tunnelId: input.tunnelId,
     origin: input.origin,
-    endpoint: link.endpoint,
+    expectedLink: {
+      environmentPublicKey: link.environmentPublicKey,
+      expectedLinkIncarnationId: link.linkIncarnationId,
+      endpoint: link.endpoint,
+    },
   });
   if (status === "recovery_required") {
     return { status };
-  }
-  if (!(yield* allocations.enableRecovery(input))) {
-    return yield* new HttpApiError.Unauthorized({});
   }
   return { status };
 });
@@ -683,7 +648,6 @@ export const recoverEnvironmentTunnelRecord = Effect.fn(
   readonly origin: RelayManagedEndpointOrigin;
 }) {
   const links = yield* EnvironmentLinks.EnvironmentLinks;
-  const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
   const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
   const link = yield* links.getForUser({
     userId: input.userId,
@@ -701,61 +665,13 @@ export const recoverEnvironmentTunnelRecord = Effect.fn(
     userId: input.userId,
     environmentId: input.environmentId,
     origin: input.origin,
+    publication: {
+      kind: "recover",
+      environmentPublicKey: link.environmentPublicKey,
+      expectedLinkIncarnationId: link.linkIncarnationId,
+      endpoint: link.endpoint,
+    },
   });
-  const recoveredTunnelId = recovered.runtime.tunnelId;
-  if (
-    recoveredTunnelId === undefined ||
-    recovered.endpoint.httpBaseUrl !== link.endpoint.httpBaseUrl ||
-    recovered.endpoint.wsBaseUrl !== link.endpoint.wsBaseUrl
-  ) {
-    if (recoveredTunnelId !== undefined) {
-      yield* managedEndpointProvider
-        .release({
-          userId: input.userId,
-          environmentId: input.environmentId,
-          expectedTunnelId: recoveredTunnelId,
-        })
-        .pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning("Failed to clean up a tunnel with a mismatched endpoint", {
-              userId: input.userId,
-              environmentId: input.environmentId,
-              tunnelId: recoveredTunnelId,
-              cause,
-            }),
-          ),
-        );
-    }
-    return yield* new HttpApiError.Unauthorized({});
-  }
-
-  const enabled = yield* allocations.enableRecovery({
-    userId: input.userId,
-    environmentId: input.environmentId,
-    tunnelId: recoveredTunnelId,
-    environmentPublicKey: input.environmentPublicKey,
-    origin: input.origin,
-  });
-  if (!enabled) {
-    const owner = { userId: input.userId, environmentId: input.environmentId };
-    const target = yield* managedEndpointProvider.prepareDeprovision(owner);
-    const currentLink = target === null ? null : yield* links.getForUser(input);
-    if (
-      target !== null &&
-      (currentLink === null || currentLink.endpoint.providerKind !== "cloudflare_tunnel")
-    ) {
-      yield* managedEndpointProvider.deprovision({ ...owner, target }).pipe(
-        Effect.catch((cause) =>
-          Effect.logWarning("Failed to clean up a tunnel after its managed link was removed", {
-            userId: input.userId,
-            environmentId: input.environmentId,
-            cause,
-          }),
-        ),
-      );
-    }
-    return yield* new HttpApiError.Unauthorized({});
-  }
   return {
     endpoint: recovered.endpoint,
     endpointRuntime: recovered.runtime,
@@ -978,10 +894,10 @@ export const layerClientApi = HttpApiBuilder.group(
                 reason: "link_persistence_failed",
                 traceId,
               }),
-            EnvironmentCredentialCreatePersistenceError: (_error, traceId) =>
-              new RelayEnvironmentLinkFailedError({
-                code: "environment_link_failed",
-                reason: "credential_persistence_failed",
+            ManagedEndpointLifecyclePersistenceError: (_error, traceId) =>
+              new RelayEnvironmentLinkUnavailableError({
+                code: "environment_link_unavailable",
+                reason: "managed_endpoint_provisioning_failed",
                 traceId,
               }),
             DpopProofReplayPersistenceError: (_error, traceId) =>
@@ -1027,8 +943,7 @@ export const layerClientApi = HttpApiBuilder.group(
             managedEndpointNamespace: config.managedEndpointNamespace,
           }).pipe(
             Effect.catchTags({
-              SqlError: () => relayInternalErrorResponse("internal_error"),
-              ManagedEndpointDeprovisioningFailed: () =>
+              ManagedEndpointLifecyclePersistenceError: () =>
                 relayInternalErrorResponse("upstream_unavailable"),
             }),
           );
@@ -1449,8 +1364,6 @@ export const layerServerApi = HttpApiBuilder.group(
             ManagedEndpointProvisioningNotConfigured: () =>
               relayInternalErrorResponse("upstream_unavailable"),
             ManagedEndpointProvisioningFailed: () =>
-              relayInternalErrorResponse("upstream_unavailable"),
-            ManagedEndpointDeprovisioningFailed: () =>
               relayInternalErrorResponse("upstream_unavailable"),
             ManagedTunnelLimitExceeded: () => relayInternalErrorResponse("upstream_unavailable"),
           }),

@@ -15,6 +15,7 @@ import * as Schema from "effect/Schema";
 
 import * as DpopProofs from "../auth/DpopProofs.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
+import * as ManagedEndpointLifecycle from "./ManagedEndpointLifecycle.ts";
 import * as EnvironmentCredentials from "./EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "./EnvironmentLinks.ts";
 import * as RelayConfiguration from "../Config.ts";
@@ -136,19 +137,71 @@ function layerTest(input?: {
           authenticate: () => Effect.succeedNone,
           revokeForEnvironmentPublicKey: () => Effect.succeed(false),
         }),
+        Layer.mock(ManagedEndpointLifecycle.ManagedEndpointLifecycle, {
+          publishWithoutTunnel: (publication) =>
+            (input?.upsert ?? (() => Effect.void))({
+              userId: publication.userId,
+              request: publication.request,
+              proof: publication.verifiedProof,
+              endpoint: publication.endpoint,
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ManagedEndpointLifecycle.LifecyclePersistenceError({
+                    operation: "publish-without-tunnel",
+                    userId: publication.userId,
+                    environmentId: publication.verifiedProof.environmentId,
+                    cause,
+                  }),
+              ),
+              Effect.as({
+                target: null,
+                tunnelName: null,
+                environmentCredential: "t3env_credential_secret",
+              }),
+            ),
+        }),
         Layer.succeed(ManagedEndpointProvider.ManagedEndpointProvider, {
           reconcileOrigin: () => Effect.succeed("ready"),
-          prepareDeprovision: () => Effect.succeed(null),
           deprovision: input?.deprovision ?? (() => Effect.succeed(true)),
           release: () => Effect.succeed(true),
-          provision: () =>
-            Effect.succeed({
-              endpoint: {
+          provision: (publication) =>
+            Effect.gen(function* () {
+              if (publication.publication.kind !== "link")
+                return yield* Effect.die("Unexpected recovery");
+              const endpoint = {
                 httpBaseUrl: "https://managed.example.test/",
                 wsBaseUrl: "wss://managed.example.test/ws",
-                providerKind: "cloudflare_tunnel",
-              },
-              runtime: { providerKind: "cloudflare_tunnel", connectorToken: "connector-token" },
+                providerKind: "cloudflare_tunnel" as const,
+              };
+              yield* (input?.upsert ?? (() => Effect.void))({
+                userId: publication.userId,
+                request: publication.publication.request,
+                proof: publication.publication.proof,
+                endpoint,
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ManagedEndpointProvider.ManagedEndpointProvisioningFailed({
+                      ...publication,
+                      stage: "mark-allocation-ready",
+                      cause,
+                    }),
+                ),
+              );
+              return {
+                kind: "linked" as const,
+                environmentCredential: "t3env_credential_secret",
+                endpoint: {
+                  httpBaseUrl: "https://managed.example.test/",
+                  wsBaseUrl: "wss://managed.example.test/ws",
+                  providerKind: "cloudflare_tunnel",
+                },
+                runtime: {
+                  providerKind: "cloudflare_tunnel" as const,
+                  connectorToken: "connector-token",
+                },
+              };
             }),
         }),
       ),

@@ -19,7 +19,7 @@ import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
 import { connectDatabase, fixtureFile, layerDb } from "./managedEndpointPostgresFixture.ts";
-import { deniedProviderLayer } from "./managedEndpointProviderTestFixture.ts";
+import { publicationFor, deniedProviderLayer } from "./managedEndpointProviderTestFixture.ts";
 
 const isPersistenceError = Schema.is(ManagedTunnelLimits.ManagedTunnelLimitPersistenceError);
 const isSqlError = Schema.is(SqlError);
@@ -269,7 +269,8 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
         provider.provision({
           userId: "user",
           environmentId: "four",
-          origin: { localHttpHost: "127.0.0.1", localHttpPort: 3000 },
+          origin: { localHttpHost: "localhost", localHttpPort: 3000 },
+          publication: publicationFor("four"),
         }),
       );
       expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", activeTunnels: 3 });
@@ -341,6 +342,7 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
                   userId: "user",
                   environmentId: "waiter",
                   origin: { localHttpHost: "localhost", localHttpPort: 3000 },
+                  publication: publicationFor("waiter"),
                 }),
               ),
             ).toMatchObject({

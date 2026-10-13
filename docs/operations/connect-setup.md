@@ -228,11 +228,12 @@ deletion operations or native delivery. The hosted publication remains **prepari
 remaining service gates are recorded.
 
 The managed endpoint transport uses the pinned installed Cloudflare SDK with one HTTP attempt per
-mutation invocation and bounded exact DNS discovery. This is a source prerequisite, not a deployment
-gate for the durable lifecycle: legacy retry/adoption, SQL ownership and publication/unlink writers
-still require the coordinated B2b conversion and B3 fault verification. Timeout does not establish
-that a provider mutation had no effect. Keep this intermediate source uncommissioned; see the
-[lifecycle constraint](../internals/t3-connect.md) before deploying runtime writers.
+mutation invocation and bounded exact tunnel/DNS discovery. Coordinated B2b runtime writers now
+retain one durable owner through provider work and atomic publication/revocation. SQL transactions
+are short and hold no connection during network calls. Timeout does not establish that a mutation
+had no effect: unknown outcomes retain pending ownership and capacity. The complete B3 fault matrix
+and service commissioning remain pending; see the [lifecycle constraint](../internals/t3-connect.md)
+before deploying runtime writers.
 
 Managed endpoint admission now reserves capacity atomically per user before Cloudflare work.
 The default is three held reservations; an exact user override may change it. Every allocation
@@ -242,18 +243,19 @@ a fourth until full teardown is confirmed and the allocation is removed. Reusing
 existing environment allocation remains allowed at capacity and after a limit is lowered.
 Do not delete an allocation merely to make room while its external resources may remain.
 
-Atomic admission is implemented in source and tested on an isolated PostgreSQL fixture. Lifecycle
-fencing, public quota and abuse policy, deletion operations, owned runtime/build validation,
+Atomic admission and coordinated lifecycle writers are implemented in source and tested on an
+isolated PostgreSQL fixture. Complete B3 fault verification, public quota and abuse policy,
+deletion operations, owned runtime/build validation,
 application migrations, service commissioning and device validation remain pending; this change
 applies no production migration and does not make the owned relay ready.
 
-The internal durable lifecycle protocol is tested but is not wired into the provider. Its
-intermediate migration must not be deployed with the existing unfenced writers. Existing rows
-and new rows remain `legacy_unverified` with unresolved resource presence until the coordinated
-runtime conversion supplies fresh protocol history. A released marker, readiness or a null resource
-ID proves no absence. Uncertain owners retain capacity indefinitely; timestamps never authorize
-owner stealing. Legacy cutover needs operator classification and terminal provider proof, with no
-automatic reset or classification tool.
+The durable lifecycle protocol is wired through the provider and all managed runtime callers.
+Generic schema and migration defaults remain `legacy_unverified` with unresolved resource presence;
+only admission explicitly inserts a known-fresh idle protocol row. Existing allocations are never
+reset or classified automatically. A released marker, readiness or a null resource ID proves no
+absence. Uncertain owners retain capacity indefinitely; timestamps never authorize owner stealing.
+Legacy cutover needs operator classification and terminal provider proof, with no automatic reset
+or classification tool. Source activation does not authorize production DDL or deployment.
 
 ## Changing the account service
 

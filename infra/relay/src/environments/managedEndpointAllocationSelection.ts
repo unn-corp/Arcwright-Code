@@ -1,6 +1,18 @@
 import { relayManagedEndpointAllocations } from "../persistence/schema.ts";
 
 export const allocationSelection = {
+  allocationId: relayManagedEndpointAllocations.allocationId,
+  lifecycleState: relayManagedEndpointAllocations.lifecycleState,
+  operationId: relayManagedEndpointAllocations.operationId,
+  operationKind: relayManagedEndpointAllocations.operationKind,
+  operationStartedAt: relayManagedEndpointAllocations.operationStartedAt,
+  pendingMutation: relayManagedEndpointAllocations.pendingMutation,
+  cleanupRequested: relayManagedEndpointAllocations.cleanupRequested,
+  tunnelPresence: relayManagedEndpointAllocations.tunnelPresence,
+  dnsPresence: relayManagedEndpointAllocations.dnsPresence,
+  dnsTargetTunnelId: relayManagedEndpointAllocations.dnsTargetTunnelId,
+  recoveryEnabledAt: relayManagedEndpointAllocations.recoveryEnabledAt,
+  recoveryEnvironmentPublicKey: relayManagedEndpointAllocations.recoveryEnvironmentPublicKey,
   userId: relayManagedEndpointAllocations.userId,
   environmentId: relayManagedEndpointAllocations.environmentId,
   hostname: relayManagedEndpointAllocations.hostname,

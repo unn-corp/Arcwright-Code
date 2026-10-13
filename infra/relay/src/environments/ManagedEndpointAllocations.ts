@@ -1,20 +1,35 @@
 import type { RelayManagedEndpoint, RelayManagedEndpointOrigin } from "@t3tools/contracts/relay";
-import { and, eq, exists, inArray, isNull, sql } from "drizzle-orm";
-import { QueryBuilder } from "drizzle-orm/pg-core";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as SqlError from "effect/sql/SqlError";
 
 import * as RelayDb from "../db.ts";
 import { allocationSelection } from "./managedEndpointAllocationSelection.ts";
 import { isManagedEndpointHostname, managedEndpointForHostname } from "../deploymentConfig.ts";
 import { relayEnvironmentLinks, relayManagedEndpointAllocations } from "../persistence/schema.ts";
 
+import type {
+  LifecycleState,
+  OperationKind,
+  PendingMutation,
+  ResourcePresence,
+} from "./managedEndpointLifecycleContracts.ts";
+
 export interface ManagedEndpointAllocation {
+  readonly allocationId: string;
+  readonly lifecycleState: LifecycleState;
+  readonly operationId: string | null;
+  readonly operationKind: OperationKind | null;
+  readonly operationStartedAt: string | null;
+  readonly pendingMutation: PendingMutation | null;
+  readonly cleanupRequested: boolean;
+  readonly tunnelPresence: ResourcePresence;
+  readonly dnsPresence: ResourcePresence;
+  readonly dnsTargetTunnelId: string | null;
+  readonly recoveryEnabledAt: string | null;
+  readonly recoveryEnvironmentPublicKey: string | null;
   readonly userId: string;
   readonly environmentId: string;
   readonly hostname: string;
@@ -41,6 +56,14 @@ export function resolveReadyManagedEndpoint(input: {
 }): RelayManagedEndpoint | null {
   if (
     !input.baseDomain ||
+    input.allocation.lifecycleState !== "idle" ||
+    input.allocation.operationId !== null ||
+    input.allocation.pendingMutation !== null ||
+    input.allocation.cleanupRequested ||
+    !["recorded", "absent"].includes(input.allocation.tunnelPresence) ||
+    input.allocation.dnsPresence !== "recorded" ||
+    input.allocation.dnsTargetTunnelId !== input.allocation.tunnelId ||
+    input.allocation.origin === null ||
     input.allocation.readyAt === null ||
     input.allocation.tunnelId === null ||
     input.allocation.dnsRecordId === null ||
@@ -88,44 +111,6 @@ interface ManagedEndpointAllocationKey {
   readonly environmentId: string;
 }
 
-interface RecordManagedEndpointTunnelInput extends ManagedEndpointAllocationKey {
-  readonly tunnelId: string;
-  readonly generation: number;
-}
-
-interface RecordManagedEndpointDnsInput extends ManagedEndpointAllocationKey {
-  readonly dnsRecordId: string;
-  readonly tunnelId: string;
-  readonly generation: number;
-}
-
-interface MarkManagedEndpointReadyInput extends ManagedEndpointAllocationKey {
-  readonly tunnelId: string;
-  readonly generation: number;
-  readonly origin: RelayManagedEndpointOrigin;
-}
-
-interface ClaimManagedEndpointReleaseInput extends ManagedEndpointAllocationKey {
-  readonly tunnelId: string;
-  readonly generation: number;
-  /** Record that the tunnel is being deleted; set only by the claim that deletes it. */
-  readonly markReleased?: boolean;
-}
-
-interface EnableManagedEndpointRecoveryInput extends ManagedEndpointAllocationKey {
-  readonly tunnelId: string;
-  readonly environmentPublicKey: string;
-  readonly origin: RelayManagedEndpointOrigin;
-}
-
-interface ClaimManagedEndpointDeprovisionInput extends ManagedEndpointAllocationKey {
-  readonly generation: number;
-}
-
-interface RemoveClaimedManagedEndpointAllocationInput extends ManagedEndpointAllocationKey {
-  readonly generation: number;
-}
-
 export class ManagedEndpointAllocations extends Context.Service<
   ManagedEndpointAllocations,
   {
@@ -136,54 +121,12 @@ export class ManagedEndpointAllocations extends Context.Service<
     readonly getByTunnelName: (
       tunnelName: string,
     ) => Effect.Effect<ManagedEndpointAllocation | null, ManagedEndpointAllocationPersistenceError>;
-    readonly recordTunnel: (
-      input: RecordManagedEndpointTunnelInput,
-    ) => Effect.Effect<number | null, ManagedEndpointAllocationPersistenceError>;
-    readonly recordDns: (
-      input: RecordManagedEndpointDnsInput,
-    ) => Effect.Effect<number | null, ManagedEndpointAllocationPersistenceError>;
-    readonly markReady: (
-      input: MarkManagedEndpointReadyInput,
-    ) => Effect.Effect<boolean, ManagedEndpointAllocationPersistenceError>;
-    readonly enableRecovery: (
-      input: EnableManagedEndpointRecoveryInput,
-    ) => Effect.Effect<boolean, ManagedEndpointAllocationPersistenceError>;
     readonly listByTunnelNames: (
       tunnelNames: ReadonlyArray<string>,
     ) => Effect.Effect<
       ReadonlyArray<ManagedEndpointTunnelAllocation>,
       ManagedEndpointAllocationPersistenceError
     >;
-    /**
-     * Atomically claims the right to delete the allocation's tunnel: succeeds
-     * only while the recorded tunnel and generation still match what the
-     * caller loaded. A concurrent provision increments `generation` when it
-     * records its tunnel, which makes a stale claim fail and keeps the freshly
-     * issued tunnel alive.
-     */
-    readonly claimRelease: (
-      input: ClaimManagedEndpointReleaseInput,
-    ) => Effect.Effect<number | null, ManagedEndpointAllocationPersistenceError>;
-    readonly withClaimedTunnel: <A, E, R>(
-      input: ClaimManagedEndpointReleaseInput,
-      effect: Effect.Effect<A, E, R>,
-    ) => Effect.Effect<Option.Option<A>, E | ManagedEndpointAllocationPersistenceError, R>;
-    /**
-     * Claims the complete allocation for teardown only if its generation still
-     * matches the snapshot captured by the unlink operation.
-     *
-     * Returns the claim generation used by `removeClaimed`, or null when a
-     * concurrent provision has already superseded the snapshot.
-     */
-    readonly claimDeprovision: (
-      input: ClaimManagedEndpointDeprovisionInput,
-    ) => Effect.Effect<number | null, ManagedEndpointAllocationPersistenceError>;
-    readonly remove: (
-      input: ManagedEndpointAllocationKey,
-    ) => Effect.Effect<void, ManagedEndpointAllocationPersistenceError>;
-    readonly removeClaimed: (
-      input: RemoveClaimedManagedEndpointAllocationInput,
-    ) => Effect.Effect<boolean, ManagedEndpointAllocationPersistenceError>;
   }
 >()("t3code-relay/environments/ManagedEndpointAllocations") {}
 
@@ -241,155 +184,6 @@ export const make = Effect.gen(function* () {
           ),
         );
     }),
-    recordTunnel: Effect.fn("relay.managed_endpoint_allocations.record_tunnel")(function* (
-      input: RecordManagedEndpointTunnelInput,
-    ) {
-      return yield* db
-        .update(relayManagedEndpointAllocations)
-        .set({
-          tunnelId: input.tunnelId,
-          readyAt: sql`case when ${relayManagedEndpointAllocations.tunnelId} = ${input.tunnelId} then ${relayManagedEndpointAllocations.readyAt} else null end`,
-          origin: sql`case when ${relayManagedEndpointAllocations.tunnelId} = ${input.tunnelId} then ${relayManagedEndpointAllocations.origin} else null end`,
-          // Recovery registration is per tunnel: a replacement must register
-          // again before the reaper may treat it as recoverable.
-          recoveryEnabledAt: sql`case when ${relayManagedEndpointAllocations.tunnelId} = ${input.tunnelId} then ${relayManagedEndpointAllocations.recoveryEnabledAt} else null end`,
-          recoveryEnvironmentPublicKey: sql`case when ${relayManagedEndpointAllocations.tunnelId} = ${input.tunnelId} then ${relayManagedEndpointAllocations.recoveryEnvironmentPublicKey} else null end`,
-          tunnelReleasedAt: null,
-          updatedAt: DateTime.formatIso(yield* DateTime.now),
-          generation: sql`${relayManagedEndpointAllocations.generation} + 1`,
-        })
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.generation, input.generation),
-          ),
-        )
-        .returning({ generation: relayManagedEndpointAllocations.generation })
-        .pipe(
-          Effect.map((rows) => rows[0]?.generation ?? null),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "record-tunnel",
-                stage: "database-request",
-                ...input,
-                cause,
-              }),
-          ),
-        );
-    }),
-    recordDns: Effect.fn("relay.managed_endpoint_allocations.record_dns")(function* (
-      input: RecordManagedEndpointDnsInput,
-    ) {
-      return yield* db
-        .update(relayManagedEndpointAllocations)
-        .set({
-          dnsRecordId: input.dnsRecordId,
-          updatedAt: DateTime.formatIso(yield* DateTime.now),
-          generation: sql`${relayManagedEndpointAllocations.generation} + 1`,
-        })
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.tunnelId, input.tunnelId),
-            eq(relayManagedEndpointAllocations.generation, input.generation),
-          ),
-        )
-        .returning({ generation: relayManagedEndpointAllocations.generation })
-        .pipe(
-          Effect.map((rows) => rows[0]?.generation ?? null),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "record-dns",
-                stage: "database-request",
-                ...input,
-                cause,
-              }),
-          ),
-        );
-    }),
-    markReady: Effect.fn("relay.managed_endpoint_allocations.mark_ready")(function* (
-      input: MarkManagedEndpointReadyInput,
-    ) {
-      const now = DateTime.formatIso(yield* DateTime.now);
-      return yield* db
-        .update(relayManagedEndpointAllocations)
-        .set({
-          readyAt: now,
-          origin: input.origin,
-          updatedAt: now,
-          generation: sql`${relayManagedEndpointAllocations.generation} + 1`,
-        })
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.tunnelId, input.tunnelId),
-            eq(relayManagedEndpointAllocations.generation, input.generation),
-          ),
-        )
-        .returning({ environmentId: relayManagedEndpointAllocations.environmentId })
-        .pipe(
-          Effect.map((rows) => rows.length > 0),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "mark-ready",
-                stage: "database-request",
-                ...input,
-                cause,
-              }),
-          ),
-        );
-    }),
-    enableRecovery: Effect.fn("relay.managed_endpoint_allocations.enable_recovery")(function* (
-      input: EnableManagedEndpointRecoveryInput,
-    ) {
-      const now = DateTime.formatIso(yield* DateTime.now);
-      return yield* db
-        .update(relayManagedEndpointAllocations)
-        .set({
-          recoveryEnabledAt: now,
-          recoveryEnvironmentPublicKey: input.environmentPublicKey,
-          updatedAt: now,
-          generation: sql`${relayManagedEndpointAllocations.generation} + 1`,
-        })
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.tunnelId, input.tunnelId),
-            eq(relayManagedEndpointAllocations.origin, input.origin),
-            exists(
-              new QueryBuilder()
-                .select({ userId: relayEnvironmentLinks.userId })
-                .from(relayEnvironmentLinks)
-                .where(
-                  and(
-                    eq(relayEnvironmentLinks.userId, input.userId),
-                    eq(relayEnvironmentLinks.environmentId, input.environmentId),
-                    eq(relayEnvironmentLinks.environmentPublicKey, input.environmentPublicKey),
-                    eq(relayEnvironmentLinks.endpointProviderKind, "cloudflare_tunnel"),
-                    isNull(relayEnvironmentLinks.revokedAt),
-                  ),
-                )
-                .for("update"),
-            ),
-          ),
-        )
-        .returning({ environmentId: relayManagedEndpointAllocations.environmentId })
-        .pipe(
-          Effect.map((rows) => rows.length > 0),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "enable-recovery",
-                stage: "database-request",
-                ...input,
-                cause,
-              }),
-          ),
-        );
-    }),
     listByTunnelNames: Effect.fn("relay.managed_endpoint_allocations.list_by_tunnel_names")(
       function* (tunnelNames: ReadonlyArray<string>) {
         if (tunnelNames.length === 0) {
@@ -437,6 +231,8 @@ export const make = Effect.gen(function* () {
                       ...allocation
                     }) => ({
                       ...allocation,
+                      recoveryEnabledAt,
+                      recoveryEnvironmentPublicKey,
                       recoveryEnabled:
                         recoveryEnabledAt !== null &&
                         recoveryEnvironmentPublicKey !== null &&
@@ -460,156 +256,6 @@ export const make = Effect.gen(function* () {
         return results.flat();
       },
     ),
-    claimRelease: Effect.fn("relay.managed_endpoint_allocations.claim_release")(function* (
-      input: ClaimManagedEndpointReleaseInput,
-    ) {
-      const now = DateTime.formatIso(yield* DateTime.now);
-      const claimed = yield* db
-        .update(relayManagedEndpointAllocations)
-        .set({
-          updatedAt: now,
-          generation: sql`${relayManagedEndpointAllocations.generation} + 1`,
-          ...(input.markReleased === true ? { tunnelReleasedAt: now } : {}),
-        })
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.tunnelId, input.tunnelId),
-            eq(relayManagedEndpointAllocations.generation, input.generation),
-          ),
-        )
-        .returning({ generation: relayManagedEndpointAllocations.generation })
-        .pipe(
-          Effect.map((rows) => rows[0]?.generation ?? null),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "claim-release",
-                stage: "database-request",
-                userId: input.userId,
-                environmentId: input.environmentId,
-                tunnelId: input.tunnelId,
-                cause,
-              }),
-          ),
-        );
-      return claimed;
-    }),
-    withClaimedTunnel: Effect.fn("relay.managed_endpoint_allocations.with_claimed_tunnel")(
-      function* <A, E, R>(
-        input: ClaimManagedEndpointReleaseInput,
-        effect: Effect.Effect<A, E, R>,
-      ): Effect.fn.Return<Option.Option<A>, E | ManagedEndpointAllocationPersistenceError, R> {
-        const lockError = (cause: unknown) =>
-          new ManagedEndpointAllocationPersistenceError({
-            operation: "lock-tunnel",
-            stage: "database-request",
-            userId: input.userId,
-            environmentId: input.environmentId,
-            tunnelId: input.tunnelId,
-            cause,
-          });
-        return yield* db.$client
-          .withTransaction(
-            db
-              .select({ generation: relayManagedEndpointAllocations.generation })
-              .from(relayManagedEndpointAllocations)
-              .where(
-                and(
-                  whereAllocation(input),
-                  eq(relayManagedEndpointAllocations.tunnelId, input.tunnelId),
-                  eq(relayManagedEndpointAllocations.generation, input.generation),
-                ),
-              )
-              .limit(1)
-              .for("update")
-              .pipe(
-                Effect.mapError(lockError),
-                Effect.flatMap((rows) =>
-                  rows.length === 0 ? Effect.succeedNone : Effect.asSome(effect),
-                ),
-              ),
-          )
-          .pipe(
-            Effect.mapError((cause) => (SqlError.isSqlError(cause) ? lockError(cause) : cause)),
-          );
-      },
-    ),
-    claimDeprovision: Effect.fn("relay.managed_endpoint_allocations.claim_deprovision")(function* (
-      input: ClaimManagedEndpointDeprovisionInput,
-    ) {
-      const claimed = yield* db
-        .update(relayManagedEndpointAllocations)
-        .set({
-          updatedAt: DateTime.formatIso(yield* DateTime.now),
-          generation: sql`${relayManagedEndpointAllocations.generation} + 1`,
-        })
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.generation, input.generation),
-          ),
-        )
-        .returning({ generation: relayManagedEndpointAllocations.generation })
-        .pipe(
-          Effect.map((rows) => rows[0]?.generation ?? null),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "claim-deprovision",
-                stage: "database-request",
-                userId: input.userId,
-                environmentId: input.environmentId,
-                cause,
-              }),
-          ),
-        );
-      return claimed;
-    }),
-    remove: Effect.fn("relay.managed_endpoint_allocations.remove")(function* (
-      input: ManagedEndpointAllocationKey,
-    ) {
-      yield* db
-        .delete(relayManagedEndpointAllocations)
-        .where(whereAllocation(input))
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "remove",
-                stage: "database-request",
-                ...input,
-                cause,
-              }),
-          ),
-        );
-    }),
-    removeClaimed: Effect.fn("relay.managed_endpoint_allocations.remove_claimed")(function* (
-      input: RemoveClaimedManagedEndpointAllocationInput,
-    ) {
-      return yield* db
-        .delete(relayManagedEndpointAllocations)
-        .where(
-          and(
-            whereAllocation(input),
-            eq(relayManagedEndpointAllocations.generation, input.generation),
-          ),
-        )
-        .returning({ userId: relayManagedEndpointAllocations.userId })
-        .pipe(
-          Effect.map((rows) => rows.length > 0),
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "remove-claimed",
-                stage: "database-request",
-                userId: input.userId,
-                environmentId: input.environmentId,
-                cause,
-              }),
-          ),
-        );
-    }),
   });
 });
 

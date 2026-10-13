@@ -945,6 +945,7 @@ describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle owned PostgreSQL protoco
           endpointHttpBaseUrl: "https://lifecycle-env.fixture.test",
           endpointWsBaseUrl: "wss://lifecycle-env.fixture.test",
           endpointProviderKind: "cloudflare_tunnel",
+          managedTunnelsEnabled: true,
           linkedAt: "2026-10-13T00:00:00.000Z",
           createdAt: "2026-10-13T00:00:00.000Z",
           updatedAt: "2026-10-13T00:00:00.000Z",
@@ -1196,8 +1197,7 @@ describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle owned PostgreSQL protoco
         Effect.gen(function* () {
           const db = yield* RelayDb.RelayDb;
           const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
-          const limits = yield* Limits.ManagedTunnelLimits;
-          yield* limits.reserveAllocation(reservation());
+          yield* db.insert(table).values({ ...reservation(), createdAt: "now", updatedAt: "now" });
           yield* db
             .update(table)
             .set({
@@ -1220,6 +1220,80 @@ describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle owned PostgreSQL protoco
             tunnelId: "legacy-tunnel",
             dnsRecordId: "legacy-dns",
           });
+        }),
+      ),
+  );
+  it.effect.each([
+    "begin",
+    "complete",
+    "observe",
+    "idle",
+    "released",
+    "remove",
+    "cleanup",
+    "uncertain",
+  ] as const)(
+    "reports a suppressed $0 transition as Stale, preserving the actual row",
+    (transition) =>
+      fixture(
+        Effect.gen(function* () {
+          const db = yield* RelayDb.RelayDb;
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const row = yield* fresh();
+          if (transition === "remove") yield* lifecycle.requestCleanup(targetFor(row));
+          const owner = yield* acquire(
+            row,
+            transition === "remove"
+              ? "deprovision"
+              : transition === "released"
+                ? "release"
+                : "provision",
+          );
+          yield* neverCreated(owner.claim);
+          const stepId =
+            transition === "complete"
+              ? yield* begin(owner.claim, { action: "create_tunnel", tunnelName: row.tunnelName })
+              : null;
+          const before = yield* lifecycle.get(key);
+          yield* db.$client`CREATE FUNCTION task4c_managed_endpoints.suppress_lifecycle_transition() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`;
+          yield* db.$client`CREATE TRIGGER suppress_lifecycle_transition BEFORE UPDATE OR DELETE ON relay_managed_endpoint_allocations FOR EACH ROW EXECUTE FUNCTION task4c_managed_endpoints.suppress_lifecycle_transition()`;
+          const result =
+            transition === "begin"
+              ? yield* lifecycle.beginMutation({
+                  claim: owner.claim,
+                  mutation: { action: "create_tunnel", tunnelName: row.tunnelName },
+                })
+              : transition === "complete"
+                ? yield* lifecycle.completeMutation({
+                    claim: owner.claim,
+                    stepId: stepId ?? "",
+                    outcome: {
+                      action: "create_tunnel",
+                      tunnelId: "suppressed",
+                      tunnelName: row.tunnelName,
+                    },
+                  })
+                : transition === "observe"
+                  ? yield* lifecycle.recordObservation({
+                      claim: owner.claim,
+                      observation: {
+                        resource: "tunnel",
+                        presence: "recorded",
+                        tunnelId: "suppressed",
+                        tunnelName: row.tunnelName,
+                      },
+                    })
+                  : transition === "idle"
+                    ? yield* lifecycle.finishIdle(owner.claim)
+                    : transition === "released"
+                      ? yield* lifecycle.finishReleased({ claim: owner.claim, markReleased: true })
+                      : transition === "remove"
+                        ? yield* lifecycle.removeClaimed(owner.claim)
+                        : transition === "uncertain"
+                          ? yield* lifecycle.retainUncertain(owner.claim)
+                          : yield* lifecycle.requestCleanup(targetFor(owner.allocation));
+          expect(result).toEqual({ status: "Stale" });
+          expect(yield* lifecycle.get(key)).toEqual(before);
         }),
       ),
   );

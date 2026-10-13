@@ -1,3 +1,4 @@
+import { settledAllocationFacts } from "./managedEndpointProviderTestFixture.ts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync or sign.
 import * as NodeCrypto from "node:crypto";
 import * as NodeCryptoLayer from "@effect/platform-node/NodeCrypto";
@@ -185,6 +186,7 @@ function makeAllocations(
     userId: "user_123",
     environmentId: "env-connector-test",
     hostname: "env.example.test",
+    ...settledAllocationFacts("tunnel-id"),
     tunnelId: "tunnel-id",
     tunnelName: "tunnel-name",
     dnsRecordId: "dns-record-id",
@@ -198,16 +200,8 @@ function makeAllocations(
   return {
     getByTunnelName: () => Effect.die("unused getByTunnelName"),
     get: () => Effect.succeed(allocation),
-    recordTunnel: () => Effect.die("unused"),
-    recordDns: () => Effect.die("unused"),
-    markReady: () => Effect.die("unused"),
-    enableRecovery: () => Effect.die("unused"),
+
     listByTunnelNames: () => Effect.die("unused"),
-    claimRelease: () => Effect.die("unused"),
-    withClaimedTunnel: () => Effect.die("unused"),
-    claimDeprovision: () => Effect.die("unused"),
-    remove: () => Effect.die("unused"),
-    removeClaimed: () => Effect.die("unused"),
   };
 }
 
@@ -229,6 +223,7 @@ function makeLinks(
         },
         linkedAt: "2026-05-25T00:00:00.000Z",
         environmentPublicKey: environmentKeyPair.publicKey,
+        linkIncarnationId: "fixture-link",
         ...overrides,
       }),
     findActiveManagedForEnvironment: () => Effect.succeed([]),
@@ -521,6 +516,7 @@ describe("EnvironmentConnector", () => {
             userId: "user_123",
             environmentId: "env-connector-test",
             hostname: "env.example.test",
+            ...settledAllocationFacts("tunnel-id"),
             tunnelId: "tunnel-id",
             tunnelName: "tunnel-name",
             dnsRecordId: "dns-record-id",
@@ -612,6 +608,7 @@ describe("EnvironmentConnector", () => {
       userId: "user_123",
       environmentId: "env-connector-test",
       hostname: "env.example.test",
+      ...settledAllocationFacts("tunnel-id"),
       tunnelId: "tunnel-id",
       tunnelName: "tunnel-name",
       dnsRecordId: "dns-record-id",

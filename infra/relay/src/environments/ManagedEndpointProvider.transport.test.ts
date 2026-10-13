@@ -433,6 +433,87 @@ describe("Cloudflare managed endpoint transport", () => {
       });
     }),
   );
+  it.effect.each(["create", "update"] as const)(
+    "retains the full decoded DNS $0 success identity",
+    (operation) =>
+      Effect.gen(function* () {
+        const transport = clients(() =>
+          json(record("dns-id", { content: cname.content, proxied: true })),
+        );
+        const response = yield* operation === "create"
+          ? transport.dns.createRecord(cname)
+          : transport.dns.updateRecord("dns-id", cname);
+        expect(response).toEqual({
+          id: "dns-id",
+          name: hostname,
+          type: "CNAME",
+          content: cname.content,
+          proxied: true,
+        });
+        expect(transport.requests).toHaveLength(1);
+      }),
+  );
+  it.effect.each(["create", "update"] as const)(
+    "rejects incomplete DNS $0 success through the installed SDK",
+    (operation) =>
+      Effect.gen(function* () {
+        const transport = clients(() => json({ id: "dns-id" }));
+        const failure = yield* (
+          operation === "create"
+            ? transport.dns.createRecord(cname)
+            : transport.dns.updateRecord("dns-id", cname)
+        ).pipe(Effect.flip);
+        expect(failure.operation).toBe(operation === "create" ? "create-record" : "update-record");
+        expect(transport.requests).toHaveLength(1);
+      }),
+  );
+  it.effect(
+    "normalizes tunnel inventory metadata and configure/delete acknowledgement identities through public Alchemy bindings",
+    () =>
+      Effect.gen(function* () {
+        const transport = clients((request) =>
+          request.method === "GET"
+            ? json([{ id: "tunnel-id", name: "managed-tunnel" }], info(1))
+            : request.method === "PUT"
+              ? json({
+                  tunnel_id: "tunnel-id",
+                  config: { ingress: [{ service: "http_status:404" }] },
+                })
+              : json({
+                  id: "tunnel-id",
+                  name: "managed-tunnel",
+                  deleted_at: "2026-10-13T00:00:00.000Z",
+                }),
+        );
+        const inventory = yield* transport.tunnels.list({
+          isDeleted: false,
+          name: "managed-tunnel",
+          page: 1,
+          perPage: 100,
+        });
+        expect(inventory.resultInfo).toEqual({
+          page: 1,
+          perPage: 100,
+          count: 1,
+          totalCount: 1,
+          totalPages: 1,
+        });
+        expect(
+          yield* transport.tunnels.putConfiguration("tunnel-id", {
+            ingress: [{ service: "http_status:404" }],
+          }),
+        ).toMatchObject({
+          tunnelId: "tunnel-id",
+          config: { ingress: [{ service: "http_status:404" }] },
+        });
+        expect(yield* transport.tunnels.delete("tunnel-id")).toMatchObject({
+          id: "tunnel-id",
+          name: "managed-tunnel",
+          deletedAt: "2026-10-13T00:00:00.000Z",
+        });
+        expect(transport.requests).toHaveLength(3);
+      }),
+  );
 });
 
 function mutateErrorTag<A>(

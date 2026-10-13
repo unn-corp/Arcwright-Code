@@ -1,3 +1,4 @@
+import { settledAllocationFacts } from "../environments/managedEndpointProviderTestFixture.ts";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync.
@@ -64,6 +65,7 @@ const readyAllocation: ManagedEndpointAllocations.ManagedEndpointAllocation = {
   userId: "user_1",
   environmentId,
   hostname: "env.example.test",
+  ...settledAllocationFacts("tunnel-id"),
   tunnelId: "tunnel-id",
   tunnelName: `t3coderelay-managedendpoint-dev-${endpointKey}`,
   dnsRecordId: "dns-record-id",
@@ -84,6 +86,7 @@ const managedLink = {
     providerKind: "cloudflare_tunnel" as const,
   },
   environmentPublicKey: "public-key",
+  linkIncarnationId: "fixture-link",
   linkedAt: "2026-05-25T00:00:00.000Z",
   holdWebhooksWhileOffline: false,
 };

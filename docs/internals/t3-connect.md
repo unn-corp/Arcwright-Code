@@ -103,16 +103,19 @@ requests must not follow redirects. These restrictions keep endpoint discovery
 from turning into arbitrary relay egress or exposing another service on the
 environment host.
 
-The managed endpoint transport pins the installed Cloudflare SDK directly and disables its retries
-for each mutation invocation. Exact DNS reads preserve identity and require bounded, complete page
-metadata before claiming an inventory. This transport prerequisite does not fence the lifecycle:
-the legacy provider can still invoke a mutation again, adopt records after ambiguous failures, and
-hold SQL transactions around provider work. A timeout remains an unknown outcome. Full fencing
-requires the coordinated runtime-writer, publication and revocation conversion (B2b), including
-retaining and validating complete DNS create/update responses before a terminal checkpoint, followed
-by integrated fault verification (B3). The unused durable lifecycle service remains unwired and
-allocation defaults remain `legacy_unverified`/`unresolved`; this intermediate source must not be
-deployed with the old writers as a completed lifecycle conversion.
+The managed endpoint transport pins the installed Cloudflare SDK directly and disables retries
+for each mutation invocation. The coordinated provider now keeps one durable owner through exact
+identity discovery, configuration, DNS, token retrieval and atomic publication. Each mutation
+requires a committed intent and one SDK call followed by an exact checkpoint; SQL connections and
+locks are released before external work. DNS create/update responses preserve and validate their
+full identities. Timeouts, malformed successes, defects and unknown commits retain ownership and
+capacity. Generic tunnel-delete errors, including message-shaped in-use failures, remain uncertain
+because the pinned SDK declares no terminal in-use contract.
+
+This source conversion is locally verified but uncommissioned. The complete interruption,
+late-call, commit-unknown, contention and fault matrix remains B3 work. Production migrations,
+provider commissioning, deployment and device validation require separate acceptance; this source
+change does not claim completion of Task B or authorize delivery.
 
 Managed endpoint capacity belongs to held allocation rows rather than live connectors or active
 links. Admission serializes each user's check and insertion in one short PostgreSQL transaction;
@@ -132,14 +135,15 @@ and partial teardown; only guarded full removal frees capacity. Uncertain operat
 owner and pending step without age-based recovery, since an observed absence cannot fence a
 previously dispatched provider call.
 
-This service remains unwired. Provider dispatch, link/credential publication and unlink must be
-converted together before these constraints can provide runtime fencing. The intermediate schema
-defaults every allocation to legacy quarantine and must not be deployed with the old writers;
-fresh idle admission requires the complete protocol. There is no automatic legacy classification
-or owner reset. The unused SQL aggregates prepare atomic publication/readiness completion and
-revocation/cleanup intent for that conversion. Coordinated ordinary link and credential writers
-must acquire the user lock, read the stored key, acquire sorted actual two-integer advisory lock
-IDs for the old and new exact environment/key tuples, then lock the link before the allocation.
+The runtime now uses this service for publication, reconciliation, revocation and cleanup.
+Generic schema/migration insert defaults remain `legacy_unverified`/`unresolved`; only the sole
+admission insertion explicitly creates a fresh idle protocol row. Existing rows are never
+classified by age, readiness markers or observed provider absence. There is no automatic legacy
+classification, owner expiry or reset. Ordinary link and credential writers acquire the user
+lock, read the stored key, acquire sorted actual two-integer advisory lock IDs for the old and new
+exact environment/key tuples, then lock the link before the allocation. Unlink and publish-only
+commit authority changes and captured cleanup intent before best-effort external deletion; stale
+cleanup targets cannot retarget a newer publication.
 The shared-key namespace is disjoint from bigint quota locks; key-scoped credential rotation and
 last-active-link revocation checks run in the same transaction. Recovery/reconcile must revalidate
 an exact active managed key, incarnation and allocation-derived endpoint before acquiring an owner
@@ -166,11 +170,11 @@ token. An update handoff immediately starts a replacement server, and replacing
 the tunnel would add routing propagation delay to every update. These exceptions
 belong to [shutdown handling](../../apps/server/src/cloud/CloudLink.ts).
 
-The existing release and unlink paths claim allocation generations before deleting external
-resources, but those claims do not yet cover the whole provider/publication lifetime. Their
-delayed cleanup and ambiguous external outcomes remain unsafe commissioning gates. Unlink commits
-authorization revocation before external teardown, because a database failure must leave the
-active link usable. See the
+Release acquires a durable owner before exact identity and eligibility reads. Unlink captures
+revocation and cleanup intent atomically before external teardown; delayed cleanup compares the
+captured immutable identity and generation. Provider calls retain the owner without SQL locks,
+and ambiguous mutation outcomes remain blocked. Unlink failure cannot resurrect authority.
+The complete fault matrix and commissioning remain acceptance gates. See the
 [managed endpoint lifecycle](../../infra/relay/src/environments/ManagedEndpointProvider.ts).
 
 ## Idle tunnels are reclaimed and recovered
@@ -210,9 +214,11 @@ If the connector exits, or `cloudflared` reports repeated tunnel
 rejections, the host asks the relay for a replacement, at most once every two
 minutes. The relay
 provisions under the same allocation, so the hostname and DNS record survive
-and clients keep their bindings. Every mutation on an allocation bumps its
-`generation`, and deletion locks the row at the generation it claimed, so a
-host that reconnects mid-sweep wins.
+and clients keep their bindings. Acquisition and settlement advance the allocation's
+`generation`; one owner serializes mutation steps between those boundaries. The reaper
+rechecks exact tunnel status and cutoff under ownership, with short SQL transactions
+before and after provider calls. A reconnect observed before dispatch makes it ineligible;
+a competing owner prevents deletion until that operation settles.
 
 ## The relay client follows the server's pin
 

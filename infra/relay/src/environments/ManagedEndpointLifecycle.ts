@@ -102,8 +102,7 @@ export class LifecyclePersistenceError extends Schema.TaggedError<LifecyclePersi
   }
 }
 
-// No runtime layer consumes this service until the coordinated
-// provider/publication conversion. There is deliberately no legacy classifier,
+// Runtime provider calls use short committed lifecycle transactions. There is deliberately no legacy classifier,
 // owner reset, expiry, or standalone readiness/publication writer.
 export class ManagedEndpointLifecycle extends Context.Service<
   ManagedEndpointLifecycle,
@@ -329,7 +328,7 @@ const make = Effect.gen(function* () {
       .for("update")
       .pipe(Effect.map((rows) => rows[0] ?? null));
   // Called only after the user lock, before either row lock. Every coordinated
-  // ordinary writer must use this order; the legacy runtime is still unwired.
+  // ordinary writer must use this order; provider effects run after commit.
   const lockPublicationLink = (key: AllocationKey, requestedKey?: string) =>
     Effect.gen(function* () {
       const old = yield* db
@@ -436,15 +435,16 @@ const make = Effect.gen(function* () {
         // history marker for a previously recorded tunnel's confirmed absence.
         const markConfirmedTunnelReleased =
           markReleased && row.tunnelPresence === "absent" && row.tunnelId !== null;
-        yield* db
+        const updated = yield* db
           .update(table)
           .set({
             ...clearOwner,
             updatedAt: timestamp,
             ...(markConfirmedTunnelReleased ? { tunnelReleasedAt: timestamp } : {}),
           })
-          .where(ownerWhere(claim));
-        return applied;
+          .where(ownerWhere(claim))
+          .returning({ allocationId: table.allocationId });
+        return updated.length === 1 ? applied : stale;
       }),
     );
 
@@ -561,6 +561,7 @@ const make = Effect.gen(function* () {
             (row.cleanupRequested && cancellable(input.kind)) ||
             (input.kind === "deprovision" &&
               link?.providerKind === "cloudflare_tunnel" &&
+              link.managedTunnelsEnabled &&
               link.revokedAt === null)
           )
             return { status: "Busy" as const };
@@ -722,11 +723,14 @@ const make = Effect.gen(function* () {
           if (!stepId)
             return yield* new LifecycleTransitionRejected({ reason: "missing-step-uuid" });
           const pendingMutation = { ...action, stepId } satisfies PendingMutation;
-          yield* db
+          const updated = yield* db
             .update(table)
             .set({ pendingMutation, updatedAt: yield* now })
-            .where(ownerWhere(input.claim));
-          return { status: "Applied" as const, stepId };
+            .where(ownerWhere(input.claim))
+            .returning({ allocationId: table.allocationId });
+          return updated.length === 1
+            ? { status: "Applied" as const, stepId }
+            : { status: "Stale" as const };
         }),
       ),
     completeMutation: (input) =>
@@ -805,7 +809,7 @@ const make = Effect.gen(function* () {
             case "rejected_no_effect":
               break;
           }
-          yield* db
+          const updated = yield* db
             .update(table)
             .set({ ...patch, pendingMutation: null, updatedAt: yield* now })
             .where(
@@ -813,8 +817,9 @@ const make = Effect.gen(function* () {
                 ownerWhere(input.claim),
                 sql`${table.pendingMutation}->>'stepId' = ${input.stepId}`,
               ),
-            );
-          return applied;
+            )
+            .returning({ allocationId: table.allocationId });
+          return updated.length === 1 ? applied : stale;
         }),
       ),
     recordObservation: (input) =>
@@ -880,11 +885,12 @@ const make = Effect.gen(function* () {
             if (row.dnsRecordId !== null || row.dnsPresence !== "unresolved") return stale;
             patch.dnsPresence = "never_created";
           }
-          yield* db
+          const updated = yield* db
             .update(table)
             .set({ ...patch, updatedAt: yield* now })
-            .where(ownerWhere(input.claim));
-          return applied;
+            .where(ownerWhere(input.claim))
+            .returning({ allocationId: table.allocationId });
+          return updated.length === 1 ? applied : stale;
         }),
       ),
     retainUncertain: (claim) =>
@@ -905,7 +911,7 @@ const make = Effect.gen(function* () {
               ))
           )
             return stale;
-          yield* db
+          const updated = yield* db
             .update(table)
             .set({ lifecycleState: "uncertain", updatedAt: yield* now })
             .where(
@@ -916,8 +922,9 @@ const make = Effect.gen(function* () {
                 eq(table.operationId, claim.operationId),
                 eq(table.operationKind, claim.kind),
               ),
-            );
-          return applied;
+            )
+            .returning({ allocationId: table.allocationId });
+          return updated.length === 1 ? applied : stale;
         }),
       ),
     finishIdle: (claim) => settle("finish-idle", claim),
@@ -937,11 +944,16 @@ const make = Effect.gen(function* () {
             !row.cleanupRequested ||
             !absent(row.tunnelPresence) ||
             !absent(row.dnsPresence) ||
-            (link?.providerKind === "cloudflare_tunnel" && link.revokedAt === null)
+            (link?.providerKind === "cloudflare_tunnel" &&
+              link.managedTunnelsEnabled &&
+              link.revokedAt === null)
           )
             return stale;
-          yield* db.delete(table).where(ownerWhere(claim));
-          return applied;
+          const removed = yield* db
+            .delete(table)
+            .where(ownerWhere(claim))
+            .returning({ allocationId: table.allocationId });
+          return removed.length === 1 ? applied : stale;
         }),
       ),
     requestCleanup: (target) =>
@@ -952,7 +964,7 @@ const make = Effect.gen(function* () {
           yield* lockLink(target.key);
           const row = yield* load(target.key);
           if (!row || !matchesTarget(row, target)) return stale;
-          yield* db
+          const updated = yield* db
             .update(table)
             .set({ cleanupRequested: true, updatedAt: yield* now })
             .where(
@@ -961,8 +973,9 @@ const make = Effect.gen(function* () {
                 eq(table.allocationId, target.allocationId),
                 eq(table.generation, target.generation),
               ),
-            );
-          return applied;
+            )
+            .returning({ allocationId: table.allocationId });
+          return updated.length === 1 ? applied : stale;
         }),
       ),
   });

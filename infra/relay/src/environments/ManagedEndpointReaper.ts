@@ -11,6 +11,7 @@ import {
   managedEndpointTunnelNamePrefix,
 } from "../deploymentConfig.ts";
 import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
+import { targetFor } from "./managedEndpointLifecycleContracts.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
 
 export const MANAGED_ENDPOINT_GRACE_PERIOD_MINUTES = 5;
@@ -28,11 +29,8 @@ const MANAGED_ENDPOINT_LEGACY_AGE_BUCKET_DAYS = [7, 30, 90] as const;
 // returning host that has updated recovers the tunnel at the same hostname;
 // one that has not sees the client's "update T3 Code" message instead.
 const MANAGED_ENDPOINT_LEGACY_GRACE_PERIOD_DAYS = 7;
-// Deletions run a few at a time: each one is a row-locked database
-// transaction plus two Cloudflare calls, so one at a time cannot finish a
-// full attempt budget inside the cron's timeout. Each holds a Hyperdrive
-// connection while it runs; keep this well under the 20-connection origin
-// limit that request handlers share.
+// Durable ownership spans provider calls; SQL locks/connections are held only
+// during finite lifecycle transactions. Bound external work independently.
 export const MANAGED_ENDPOINT_SWEEP_DELETE_CONCURRENCY = 4;
 // Stop starting deletions this long after the sweep starts, leaving room under
 // the cron's two-minute timeout to finish in-flight ones and record the
@@ -330,6 +328,18 @@ export const make = Effect.gen(function* () {
         skippedOrphan += 1;
         continue;
       }
+      if (
+        owner.lifecycleState !== "idle" ||
+        owner.operationId !== null ||
+        owner.pendingMutation !== null ||
+        owner.cleanupRequested ||
+        owner.tunnelPresence !== "recorded" ||
+        owner.dnsPresence !== "recorded" ||
+        owner.dnsTargetTunnelId !== owner.tunnelId
+      ) {
+        skippedUnrecorded += 1;
+        continue;
+      }
       const legacy = !owner.recoveryEnabled;
       if (legacy) {
         skippedLegacy += 1;
@@ -384,6 +394,7 @@ export const make = Effect.gen(function* () {
               userId: candidate.owner.userId,
               environmentId: candidate.owner.environmentId,
               expectedTunnelId: candidate.tunnel.id,
+              expectedTarget: targetFor(candidate.owner),
               expectedInactiveBefore: candidate.inactiveBefore,
               expectedStatus: candidate.status,
               // Only a legacy host needs an update to recover; tell its user so.

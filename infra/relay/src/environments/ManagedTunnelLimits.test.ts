@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 
 import * as RelayDb from "../db.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
-import { deniedProviderLayer } from "./managedEndpointProviderTestFixture.ts";
+import { publicationFor, deniedProviderLayer } from "./managedEndpointProviderTestFixture.ts";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
 import { faultDatabaseLayer } from "./managedEndpointSqlFaultFixture.ts";
 
@@ -99,6 +99,7 @@ describe("Managed endpoint provider SQL faults", () => {
           userId: "user",
           environmentId: "env",
           origin: { localHttpHost: "localhost", localHttpPort: 3000 },
+          publication: publicationFor("env"),
         }),
       );
       expect(error).toMatchObject({
