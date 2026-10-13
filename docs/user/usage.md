@@ -41,8 +41,8 @@ sharing a history directory count once.
 When your app and server support different providers, usage totals may cover only the providers
 your app understands. Update the app to include newly supported providers.
 
-On web and desktop, use the environment dropdown to filter costs, tokens, and limits. All
-environments are selected by default. The dropdown shows which environments are still scanning;
+On web, desktop, and the fork Android APK, use the environment dropdown to filter costs and tokens.
+All environments are selected by default for these history charts. The dropdown shows which selected environments are still scanning;
 results appear as each one responds, and figures still updating are dimmed. Cursor shows its last
 saved totals first, then updates them when Cursor's API responds.
 
@@ -78,8 +78,8 @@ the dialog.
 
 ## Track subscription limits
 
-**Usage → Limits** pools every subscription account it can see per provider, so with several Codex
-or Claude accounts across your environments and hubs you read one number per window rather than a
+**Usage → Limits** pools subscription accounts per provider on the selected connection, so with several Codex
+or Claude accounts and hubs you read one number per window rather than a
 list. Each window card shows how much of the pool is left and a bar with one segment per account,
 kept in the same column across windows. Accounts are ordered by their 5-hour reset, soonest
 first, or by the first available window when no account reports a 5-hour limit. A gap means the
@@ -92,12 +92,18 @@ Claude resets are not available when the server runs on macOS, where Claude keep
 Keychain. On narrow screens, numbered rows below
 the bar show each account's quota, countdown, and credits. Tap a row to open its details.
 
-The same account signed in on more than one environment, or reported by a hub as well, counts once.
-Filter with the environment dropdown to see what a single machine has.
+Limits reads one connection at a time. Desktop uses its local device. The web client and fork
+Android APK use the current connection; choose another connection in the dropdown to view that
+host's limits. A phone reads the selected host's provider accounts, since the phone does not run
+the provider CLIs. Other devices are not checked and their read failures do not add warnings.
+Actual errors from the current connection remain visible.
 
-Opening Limits checks the selected connected environments automatically. Each client waits at
+The same account reported by both a provider and a hub on that connection counts once.
+The upstream React Native mobile client retains its separate environment-pooling view.
+
+Opening Limits checks the current connection automatically when it is connected. Each client waits at
 least five minutes between automatic checks of an environment, including after a failed check.
-If a window still looks stale, refresh Limits to re-check every provider and hub.
+If a window still looks stale, refresh Limits to re-check its providers and hubs.
 
 Pick `/usage-limits` from the composer's command menu, or send it as a message, to check the
 current model's limits without leaving the conversation. The result opens above the composer and

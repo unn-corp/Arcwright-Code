@@ -284,6 +284,19 @@ The APK native container zeroes handled bars/cutout/IME insets before forwarding
 see [shell inset maintenance](./android-pwa.md#shell-insets-and-folded-layouts). Verify native header
 alignment and keyboard hide after live fold changes as well as browser viewport tests.
 
+## Usage limits source
+
+Desktop Limits reads the local primary connection. Web and the fork Android APK read one current
+connection, with a single-choice connection picker when there is no local host. Limit refreshes,
+provider accounts, hub accounts, Cursor prompts, and failure notices use that same selection.
+Other-device failures are excluded while current-connection failures remain visible. Cost and
+token history retain their separate multi-environment filter; the upstream React Native client
+retains its own pooling view.
+
+The selected usage atom reads no sessions, history queries, or provider snapshots for unselected
+devices. Regression coverage lives in `UsagePage.refresh.test.tsx`,
+`usageEnvironmentSelection.test.ts`, and `usage.sources.test.ts`.
+
 ## Chat participant identity
 
 The shared participant contracts and client-runtime resolver retain message-time author photos

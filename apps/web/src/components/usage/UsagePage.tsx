@@ -32,6 +32,8 @@ import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { environmentPresentations } from "../../state/presentation";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useActiveEnvironmentId } from "../../state/entities";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -100,6 +102,7 @@ import {
   saveUsagePagePreferences,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
+import { currentUsageEnvironmentId } from "./usageEnvironmentSelection";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -139,8 +142,28 @@ export function UsagePage() {
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const [priceDialog, setPriceDialog] = useState<{ readonly model?: string } | null>(null);
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
-  const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
+  const [usageEnvironmentIds, setUsageEnvironmentIds] = useState<ReadonlySet<EnvironmentId> | null>(
+    null,
+  );
+  const [limitsEnvironmentIds, setLimitsEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
+  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const limitsEnvironmentId = currentUsageEnvironmentId(
+    [...presentations.keys()],
+    primaryEnvironmentId,
+    activeEnvironmentId,
+    limitsEnvironmentIds,
+  );
+  const currentLimitsEnvironmentIds = useMemo(
+    () => new Set(limitsEnvironmentId === null ? [] : [limitsEnvironmentId]),
+    [limitsEnvironmentId],
+  );
+  const selectedEnvironmentIds = showingLimits ? currentLimitsEnvironmentIds : usageEnvironmentIds;
+  const setSelectedEnvironmentIds = showingLimits
+    ? setLimitsEnvironmentIds
+    : setUsageEnvironmentIds;
   const hiddenProviders = useMemo(
     () => new Set(preferences.hiddenProviders),
     [preferences.hiddenProviders],
@@ -177,7 +200,6 @@ export function UsagePage() {
   }, [showingKept, refreshingUsage, selectedEnvironments, hiddenProviders]);
   const isProviderLoading = (provider: UsageProviderKind) =>
     loading.everyProvider || loading.providers.has(provider);
-  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const cursorAccessEnvironments = hiddenProviders.has("cursor")
     ? []
     : cursorKeychainAccessEnvironments(selectedEnvironments);
@@ -390,11 +412,16 @@ export function UsagePage() {
         <WorkspaceBreadcrumbSeparator />
         <WorkspaceBreadcrumbItem className="min-w-10 shrink">
           <UsageEnvironmentFilter
-            environments={environments}
+            environments={
+              showingLimits && primaryEnvironmentId !== null
+                ? environments.filter(({ environmentId }) => environmentId === primaryEnvironmentId)
+                : environments
+            }
             selectedEnvironments={selectedEnvironments}
             selectedEnvironmentIds={selectedEnvironmentIds}
             onSelectionChange={setSelectedEnvironmentIds}
             showUsageStatus={!showingLimits}
+            singleSelection={showingLimits}
             refreshing={refreshingUsage}
             isPartial={isPartial}
             duplicateSources={merged.duplicateSources}
@@ -1240,6 +1267,7 @@ function UsageEnvironmentFilter({
   selectedEnvironmentIds,
   onSelectionChange,
   showUsageStatus,
+  singleSelection,
   refreshing,
   isPartial,
   duplicateSources,
@@ -1251,6 +1279,7 @@ function UsageEnvironmentFilter({
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
   readonly onSelectionChange: (ids: ReadonlySet<EnvironmentId> | null) => void;
   readonly showUsageStatus: boolean;
+  readonly singleSelection: boolean;
   readonly refreshing: boolean;
   readonly isPartial: boolean;
   readonly duplicateSources: readonly string[];
@@ -1286,21 +1315,24 @@ function UsageEnvironmentFilter({
         </span>
       </MenuTrigger>
       <MenuPopup align="start">
-        <MenuCheckboxItem
-          checked={allSelected}
-          closeOnClick={false}
-          onCheckedChange={(checked) => onSelectionChange(checked ? null : new Set())}
-        >
-          All environments
-        </MenuCheckboxItem>
-        <MenuSeparator />
+        {!singleSelection ? (
+          <MenuCheckboxItem
+            checked={allSelected}
+            closeOnClick={false}
+            onCheckedChange={(checked) => onSelectionChange(checked ? null : new Set())}
+          >
+            All environments
+          </MenuCheckboxItem>
+        ) : null}
+        {!singleSelection ? <MenuSeparator /> : null}
         {environments.map((environment) => {
           const checked =
             selectedEnvironmentIds === null ||
             selectedEnvironmentIds.has(environment.environmentId);
           const progress = usageEnvironmentProgress(environment, refreshing);
-          const status =
-            environment.error !== null
+          const status = !checked
+            ? "Not selected"
+            : environment.error !== null
               ? "Unavailable"
               : environment.summary !== null &&
                   !isCompatibleUsageContractVersion(
@@ -1323,6 +1355,10 @@ function UsageEnvironmentFilter({
               checked={checked}
               closeOnClick={false}
               onCheckedChange={(nextChecked) => {
+                if (singleSelection) {
+                  if (nextChecked) onSelectionChange(new Set([environment.environmentId]));
+                  return;
+                }
                 const next = new Set(selectedEnvironments.map((entry) => entry.environmentId));
                 if (nextChecked) next.add(environment.environmentId);
                 else next.delete(environment.environmentId);
