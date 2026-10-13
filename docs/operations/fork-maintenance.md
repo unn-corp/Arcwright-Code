@@ -218,7 +218,8 @@ Tailscale Serve must be available on the host. Do not remove unrelated Serve con
 **Behavior and reason.** Touch layouts keep composer actions singular when collapsed, preserve
 drafts, reserve sidebar drag-grip space while visible, and resize across the phone's two screens.
 Appearance offers an always-compact composer preference for new and existing chats; multiline
-drafts and actionable drawers or errors still expand. The default retains automatic sizing.
+drafts and actionable drawers or errors still expand. The default retains automatic sizing. Composer attachments share one non-wrapping, horizontally
+scrolling strip, including images, videos, files, and attachments of queued messages being edited.
 The glance rail adds project scope, usage, and quick access without replacing thread controls.
 Dictation holds client installation through microphone permission, recording, decoding, and
 transcription; cancelling releases that hold only after the pending operation ends.

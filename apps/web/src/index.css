@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+.chat-composer-attachment-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+}
+.chat-composer-attachment-strip > * {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+
 /* Reply content must paint above the shell's z-index: 0 glass backdrop. */
 .chat-composer-message-reply {
   position: relative;
