@@ -168,6 +168,13 @@ private networks. Do not replace the managed application with an independently l
 stack. Keep resource identifiers, credentials, encrypted backups and recovery receipts outside the
 repository and the hosted asset tree.
 
+Keep persistent application files in `../files`, outside raw `code`; Dokploy recreates `code` on
+redeploy. Keep private bind mounts read-only and preserve their existing owners and permissions.
+Never store secrets in literal environment values, `mount.content`, or raw code. Preserve the external
+PostgreSQL volume and private/egress networks, with no public database ports or Traefik domains.
+Keep `freshVolumes: false`; normal redeployment must never use `down --volumes` or delete those
+external volumes or networks.
+
 Encrypted backup with isolated restore, TLS role checks, private-network checks and a normal managed
 redeployment have been verified. Record and recheck those gates before changing that application;
 use an isolated restore target rather than production for recovery trials. Database/tunnel
