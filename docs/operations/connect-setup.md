@@ -315,6 +315,8 @@ before policy or database access, then freshly validates exact ownership/incarna
 every retry. Account activity requires current master/category preferences, the exact active
 notification-enabled account/key/thread/link incarnation and matching current state/version/age;
 copy and deep link are reconstructed, with names requiring queued and current permission.
+Source phase age is checked with fresh time after the relevant authority read and before
+claiming; exact expiry equality is allowed.
 Explicit manual tests use fixed generic copy and `/` regardless of automated event preferences.
 Owned mode rejects verified V1 and anonymous V2. Legacy V1 keeps historical queued-copy
 compatibility. Legacy anonymous V2 requires current installation/environment/preferences and

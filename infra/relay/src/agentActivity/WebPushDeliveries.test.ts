@@ -55,7 +55,15 @@ const activity: WebPushActivityPayloadV2 = {
 };
 const testJob: WebPushTestPayloadV2 = { ...common, kind: "test" };
 
-function harness(configuration: RelayConfiguration["Service"] = config, releaseAvailable = true) {
+function harness(
+  configuration: RelayConfiguration["Service"] = config,
+  releaseAvailable = true,
+  authorityClock?: {
+    readonly clock: TestClock.TestClock;
+    readonly accountReturnedAt: number | null;
+    readonly subscriptionReturnedAt: number | null;
+  },
+) {
   const current: {
     subscription: typeof subscription;
     state: RelayAgentActivityState | null;
@@ -106,6 +114,11 @@ function harness(configuration: RelayConfiguration["Service"] = config, releaseA
       getForNotification: (input) =>
         Effect.gen(function* () {
           calls.activities++;
+          if (
+            authorityClock?.accountReturnedAt !== undefined &&
+            authorityClock.accountReturnedAt !== null
+          )
+            yield* authorityClock.clock.setTime(authorityClock.accountReturnedAt);
           if (current.fault === "activity")
             return yield* new AgentActivityRows.AgentActivityRowListPersistenceError({
               userId: input.userId,
@@ -118,6 +131,11 @@ function harness(configuration: RelayConfiguration["Service"] = config, releaseA
       get: () =>
         Effect.gen(function* () {
           calls.gets++;
+          if (
+            authorityClock?.subscriptionReturnedAt !== undefined &&
+            authorityClock.subscriptionReturnedAt !== null
+          )
+            yield* authorityClock.clock.setTime(authorityClock.subscriptionReturnedAt);
           if (current.fault === "lookup")
             return yield* new WebPushSubscriptions.WebPushSubscriptionPersistenceError({
               cause: "fixture failure",
@@ -636,5 +654,70 @@ describe("legacy anonymous V2 source limitations", () => {
         expect(h.calls.activities).toBe(0);
       }).pipe(Effect.provide(h.layer));
     },
+  );
+});
+
+describe("phase age after current authority observation", () => {
+  it.effect.each(
+    (["account", "anonymous"] as const).flatMap((ownership) =>
+      [0, 1].map((pastExpiry) => ({ ownership, pastExpiry })),
+    ),
+  )(
+    "rechecks %j source age after the getter returns with job TTL still valid",
+    ({ ownership, pastExpiry }) =>
+      Effect.gen(function* () {
+        const clock = yield* TestClock.testClockWith(Effect.succeed);
+        const returnedAt = 86_400_000 + pastExpiry;
+        const h = harness(
+          ownership === "account" ? config : { ...config, clerkAuthPolicy: { mode: "legacy" } },
+          true,
+          {
+            clock,
+            accountReturnedAt: ownership === "account" ? returnedAt : null,
+            subscriptionReturnedAt: ownership === "anonymous" ? returnedAt : null,
+          },
+        );
+        if (ownership === "anonymous")
+          h.current.subscription = {
+            ...subscription,
+            userId: "pwa:installation-A",
+            installationId: "installation-A",
+            installationSecretHash: "hash",
+            environmentId: state.environmentId,
+          };
+        const payload: WebPushActivityPayloadV2 =
+          ownership === "account"
+            ? activity
+            : {
+                ...activity,
+                userId: "pwa:installation-A",
+                provenance: { ...activity.provenance, linkIncarnationId: null },
+              };
+        yield* clock.setTime(86_399_999);
+        const result = yield* h
+          .deliver({
+            ...payload,
+            createdAt: "1970-01-01T23:59:59.000Z",
+            expiresAt: "1970-01-02T00:09:59.000Z",
+          })
+          .pipe(Effect.provide(h.layer));
+        expect(clock.currentTimeMillisUnsafe()).toBe(returnedAt);
+        expect(h.calls.gets).toBe(1);
+        expect(h.calls.activities).toBe(ownership === "account" ? 1 : 0);
+        if (pastExpiry === 0) {
+          expect(result.ok).toBe(true);
+          expect(h.calls.claims).toHaveLength(1);
+          expect(h.calls.completes).toHaveLength(1);
+          expect(h.calls.releases).toEqual([]);
+          expect(h.transport).toHaveBeenCalledOnce();
+        } else {
+          expect(result).toMatchObject({
+            ok: false,
+            queued: false,
+            webPushReason: "activity_unavailable",
+          });
+          h.noAttempt();
+        }
+      }),
   );
 });

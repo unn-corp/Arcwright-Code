@@ -114,7 +114,9 @@ Every V2 retry freshly checks the exact owner/subscription ID, incarnation, curr
 HTTPS target and keys. Account activity also decodes current preferences, checks the
 master/category switches, and selects one current activity through the exact account,
 environment key, thread and active notification-enabled link incarnation. It requires
-all normalized version fields, compatible kind and activity age to match. Live Activity
+all normalized version fields, compatible kind and activity age to match. Phase age uses
+a fresh clock observation after the relevant account activity or anonymous subscription
+authority read and before claiming; exact expiry equality remains allowed. Live Activity
 and managed-tunnel switches do not gate this notification lookup. Copy and deep link
 come from the current authorized row, with names shown only when both queued and current
 preferences permit them. Denials write no claim, completion, release, transition or

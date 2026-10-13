@@ -894,7 +894,8 @@ The source consumer verifies HMAC/TTL before policy or reads, then revalidates c
 subscription ownership/incarnation/target and activity preferences on every retry. Account activity
 uses the exact notification-enabled active account/key/thread/link incarnation and current
 state/version/age; copy comes from that authorized row and names require queued and current
-permission. Explicit manual tests use fixed generic copy and `/` despite automated preferences.
+permission. Phase age uses fresh time after the relevant authority read and before claiming,
+allowing exact expiry equality. Explicit manual tests use fixed generic copy and `/` despite automated preferences.
 Owned mode rejects verified V1 and anonymous V2; legacy V1 retains historical copy. Legacy
 anonymous V2 stays generic and checks current installation/environment/preferences plus signed
 kind/age, with no current source-key/state projection; those changes can remain invisible until

@@ -265,12 +265,13 @@ export const make = Effect.gen(function* () {
           if (ownership === "anonymous") {
             // Legacy anonymous rows have no current source-key/account-state projection.
             const expiresAt = agentActivityExpiresAt(source.stateVersion);
+            const sourceNowMs = (yield* DateTime.now).epochMilliseconds;
             if (
               source.linkIncarnationId !== null ||
               subscription.environmentId !== source.environmentId ||
               !kindFitsState(source.notificationKind, source.stateVersion) ||
               !Number.isFinite(expiresAt) ||
-              nowMs > expiresAt
+              sourceNowMs > expiresAt
             ) {
               return unavailableDelivery(verified.subscriptionId, "activity_unavailable");
             }
@@ -300,13 +301,14 @@ export const make = Effect.gen(function* () {
             )
               return unavailableDelivery(verified.subscriptionId, "activity_unavailable");
             const currentVersion = stateVersion(current);
+            const sourceNowMs = (yield* DateTime.now).epochMilliseconds;
             if (
               currentVersion.updatedAt !== source.stateVersion.updatedAt ||
               currentVersion.phase !== source.stateVersion.phase ||
               currentVersion.hasActionableProposedPlan !==
                 source.stateVersion.hasActionableProposedPlan ||
               !kindFitsState(source.notificationKind, currentVersion) ||
-              isExpiredAgentActivityState(current, nowMs)
+              isExpiredAgentActivityState(current, sourceNowMs)
             ) {
               return unavailableDelivery(verified.subscriptionId, "activity_unavailable");
             }

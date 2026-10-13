@@ -99,7 +99,8 @@ pass. Incoming dependency patches retain their original upstream whitespace.
 Independent spec/quality and server/recovery/UI/Android source reviews remain separate
 controller gates. The bounded current-authority V2 Web Push consumer is now implemented and locally tested:
 HMAC/TTL precede policy/reads; every retry validates current subscription authority/target,
-account link/key/state/preferences and reconstructs permitted copy. Explicit manual tests
+account link/key/state/preferences and reconstructs permitted copy. Phase age uses fresh
+time after the relevant authority read and before claim, with equality allowed. Explicit manual tests
 use fixed generic text and `/` despite automated preferences. Legacy anonymous activity
 checks current installation/environment/preferences and signed kind/age but has no current
 source-key/state projection; those changes can remain invisible until TTL/phase age.

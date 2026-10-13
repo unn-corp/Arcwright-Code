@@ -34,6 +34,21 @@ function observe(db: RelayDb.RelayDb["Service"]) {
       }),
     );
 }
+type TransactionIdentity = { readonly pid: number; readonly xid: string };
+function transactionIdentity(db: RelayDb.RelayDb["Service"]) {
+  return db.$client
+    .unsafe<TransactionIdentity>("SELECT pg_backend_pid() AS pid, txid_current()::text AS xid")
+    .pipe(
+      Effect.map((rows) => {
+        const identity = rows[0];
+        if (!identity) throw new Error("Missing PostgreSQL transaction identity");
+        return identity;
+      }),
+    );
+}
+
+// Prove real row-lock contention between separate transactions, then order their
+// completions. This does not claim the later cleanup DELETE was already blocked.
 function race<A, E, B, F>(
   db: RelayDb.RelayDb["Service"],
   id: string,
@@ -42,33 +57,68 @@ function race<A, E, B, F>(
 ) {
   return Effect.scoped(
     Effect.gen(function* () {
-      const locked = yield* Deferred.make<void>();
-      const release = yield* Deferred.make<void>();
-      const started = yield* Deferred.make<void>();
+      const locked = yield* Deferred.make<TransactionIdentity>();
+      const releaseFirst = yield* Deferred.make<void>();
+      const contended = yield* Deferred.make<TransactionIdentity>();
+      const releaseSecond = yield* Deferred.make<void>();
       const one = yield* Effect.forkChild(
         db.$client.withTransaction(
           Effect.gen(function* () {
-            yield* db
+            const identity = yield* transactionIdentity(db);
+            const rows = yield* db
               .select()
               .from(relayWebPushSubscriptions)
               .where(eq(relayWebPushSubscriptions.id, id))
               .for("update");
-            yield* Deferred.succeed(locked, undefined);
-            yield* Deferred.await(release);
-            return yield* first;
+            expect(rows).toHaveLength(1);
+            yield* Deferred.succeed(locked, identity);
+            yield* Deferred.await(releaseFirst);
+            const result = yield* first;
+            expect(yield* transactionIdentity(db)).toEqual(identity);
+            return result;
           }),
         ),
       );
-      yield* Deferred.await(locked);
+      const firstIdentity = yield* Deferred.await(locked);
       const two = yield* Effect.forkChild(
-        Effect.gen(function* () {
-          yield* Deferred.succeed(started, undefined);
-          return yield* second;
-        }),
+        db.$client.withTransaction(
+          Effect.gen(function* () {
+            const identity = yield* transactionIdentity(db);
+            expect(identity.pid).not.toBe(firstIdentity.pid);
+            expect(identity.xid).not.toBe(firstIdentity.xid);
+            // Nested withTransaction establishes a SAVEPOINT. Its failing NOWAIT probe
+            // rolls back only that savepoint before this outer transaction continues.
+            const probe = yield* Effect.result(
+              db.$client.withTransaction(
+                db.$client.unsafe(
+                  "SELECT id FROM relay_web_push_subscriptions WHERE id = $1 FOR UPDATE NOWAIT",
+                  [id],
+                ),
+              ),
+            );
+            expect(probe._tag).toBe("Failure");
+            if (probe._tag !== "Failure")
+              throw new Error("Expected actual PostgreSQL NOWAIT contention");
+            expect(probe.failure).toMatchObject({
+              _tag: "SqlError",
+              reason: { _tag: "LockTimeoutError", cause: { code: "55P03" } },
+            });
+            expect(yield* transactionIdentity(db)).toEqual(identity);
+            yield* Deferred.succeed(contended, identity);
+            yield* Deferred.await(releaseSecond);
+            const result = yield* second;
+            expect(yield* transactionIdentity(db)).toEqual(identity);
+            return result;
+          }),
+        ),
       );
-      yield* Deferred.await(started);
-      yield* Deferred.succeed(release, undefined);
-      return [yield* Fiber.join(one), yield* Fiber.join(two)] as const;
+      const secondIdentity = yield* Deferred.await(contended);
+      expect(secondIdentity.pid).not.toBe(firstIdentity.pid);
+      expect(secondIdentity.xid).not.toBe(firstIdentity.xid);
+      yield* Deferred.succeed(releaseFirst, undefined);
+      const firstResult = yield* Fiber.join(one);
+      yield* Deferred.succeed(releaseSecond, undefined);
+      return [firstResult, yield* Fiber.join(two)] as const;
     }),
   );
 }
@@ -142,7 +192,7 @@ describe.runIf(fixtureFile !== undefined)(
         (["replacement_first", "cleanup_first"] as const).map((order) => ({ mutation, order })),
       ),
     )(
-      "serializes overlapping %j and protects every new incarnation/baseline",
+      "proves NOWAIT contention and ordered %j completion protecting new incarnation/baseline",
       ({ mutation, order }) =>
         fixture((db, subscriptions) =>
           Effect.gen(function* () {
