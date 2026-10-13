@@ -1,15 +1,45 @@
 // oxlint-disable unicorn/prefer-add-event-listener, unicorn/require-post-message-target-origin -- Android WebMessage listener exposes onmessage/postMessage without DOM event or targetOrigin APIs.
-import { ParticipantPhoto } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+
+/** Native SDK avatars are HTTPS URLs; manual-profile raster data uses a separate contract. */
+const NativeParticipantPhoto = Schema.String.check(
+  Schema.isMaxLength(2048),
+  Schema.makeFilter((value) => {
+    if (
+      !value.startsWith("https://") ||
+      /[\s\\]/u.test(value) ||
+      Array.from(value).some((character) => {
+        const code = character.charCodeAt(0);
+        return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+      }) ||
+      /%(?![\da-f]{2})/iu.test(value)
+    )
+      return false;
+    const authority = value.slice("https://".length).split(/[/?#]/u, 1)[0];
+    // URL parsing normalizes an empty userinfo marker away; reject it in the raw authority too.
+    if (!authority || authority.includes("@")) return false;
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === "https:" &&
+        url.hostname !== "" &&
+        url.username === "" &&
+        url.password === ""
+      );
+    } catch {
+      return false;
+    }
+  }),
+);
 
 const NativeParticipantProfile = Schema.Struct({
   name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
-  photo: Schema.NullOr(ParticipantPhoto),
+  photo: Schema.NullOr(NativeParticipantPhoto),
   accounts: Schema.Array(
     Schema.Struct({
       id: Schema.String.check(Schema.isMaxLength(256)),
       label: Schema.String.check(Schema.isMaxLength(200)),
-      photo: Schema.NullOr(ParticipantPhoto),
+      photo: Schema.NullOr(NativeParticipantPhoto),
     }),
   ).check(Schema.isMaxLength(20)),
 });

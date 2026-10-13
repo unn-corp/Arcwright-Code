@@ -39,11 +39,80 @@ describe("native managed auth store", () => {
     const profile = {
       name: "Alice",
       photo: "https://example.test/alice.png",
-      accounts: [{ id: "google", label: "Google: Alice", photo: null }],
+      accounts: [
+        {
+          id: "google",
+          label: "Google: Alice",
+          photo: "https://images.example.test/google.png?size=80",
+        },
+      ],
     };
     emit({ id: request.id, result: { ...status, profile } });
     await expect(promise).resolves.toEqual(profile);
     expect(store.getSnapshot()).toEqual(status);
+  });
+  it.each([
+    { reason: "manual raster data", photo: "data:image/png;base64,aGVsbG8=" },
+    { reason: "missing hostname", photo: "https://" },
+    { reason: "userinfo credentials", photo: "https://user:password@example.test/avatar" },
+    { reason: "empty userinfo", photo: "https://@example.test/avatar" },
+    { reason: "empty user and password", photo: "https://:@example.test/avatar" },
+    { reason: "non-HTTPS scheme", photo: "http://example.test/avatar" },
+    { reason: "malformed authority", photo: "https:///example.test/avatar" },
+    { reason: "leading space", photo: " https://example.test/avatar" },
+    { reason: "embedded space", photo: "https://example.test/ava tar" },
+    { reason: "embedded newline", photo: "https://exam\nple.test/avatar" },
+    { reason: "embedded tab", photo: "https://example.test/ava\ttar" },
+    { reason: "embedded control", photo: "https://example.test/ava\u0000tar" },
+    { reason: "DEL control", photo: "https://example.test/ava\u007ftar" },
+    { reason: "C1 ISO control", photo: "https://example.test/ava\u0085tar" },
+    { reason: "backslash normalization", photo: "https://example.test\\avatar" },
+    { reason: "malformed percent escape", photo: "https://example.test/avatar%" },
+    { reason: "oversized avatar URL", photo: "https://example.test/" + "a".repeat(2048) },
+  ])(
+    "rejects $reason in primary and external-account native photos without changing auth",
+    async ({ photo }) => {
+      const { store, messages, emit, status } = fixture();
+      for (const location of ["primary", "external"] as const) {
+        const promise = store.getParticipantProfile();
+        emit({
+          id: messages.at(-1)!.id,
+          result: {
+            ...status,
+            profile: {
+              name: "Alice",
+              photo: location === "primary" ? photo : null,
+              accounts: [
+                {
+                  id: "google",
+                  label: "Google: Alice",
+                  photo: location === "external" ? photo : null,
+                },
+              ],
+            },
+          },
+        });
+        await expect(promise).resolves.toBeNull();
+        expect(store.getSnapshot()).toEqual(status);
+      }
+    },
+  );
+  it("accepts null and encoded HTTPS SDK avatars at both profile locations", async () => {
+    const { store, messages, emit, status } = fixture();
+    for (const photo of [
+      null,
+      "https://images.example.test/avatar%20name.png?size=80&token=public%2Fimage",
+    ]) {
+      const profile = {
+        name: "Alice",
+        photo,
+        accounts: [{ id: "google", label: "Google: Alice", photo }],
+      };
+      const promise = store.getParticipantProfile();
+      emit({ id: messages.at(-1)!.id, result: { ...status, profile } });
+      await expect(promise).resolves.toEqual(profile);
+      expect(store.getSnapshot()).toEqual(status);
+    }
   });
   it("drops a delayed profile from a replaced session and rejects a stale reader before dispatch", async () => {
     const { store, messages, emit, status } = fixture();

@@ -51,6 +51,10 @@ public-user snapshot, not a possibly transitioning independent user flow. Public
 name/avatar/external-account presentation is capped and fenced by user ID, session
 ID and generation before and after the read and again before local persistence.
 No credential, device token, private SDK metadata or raw SDK error crosses this action.
+Both primary and external-account avatar responses use a native-only refinement:
+at most 2,048 characters, parsed HTTPS with a hostname, no userinfo (including empty
+markers), and no raw spaces, C0/C1 controls, backslashes or invalid percent escapes.
+The shared manual-profile photo contract, including raster data thumbnails, is unchanged.
 
 The APK selects its per-user profile immediately, seeds public metadata once through
 the existing shared `seedProfile`, preserves manual edits and existing metadata on
@@ -62,7 +66,8 @@ account/session replacement, account return, malformed metadata, sign-out and fa
 
 ## Verification and limits
 
-Final focused validation passed **985 TypeScript tests across 67 files** and
+Initial merge `f6b2e266396851fb4f244e8312fa52b4b71ccbde` passed
+**985 TypeScript tests across 67 files** and
 **64 native tests across nine selected suites**, with no skipped assertions. The
 12-file profile/route group was rerun after correcting two obsolete display-label
 expectations; affected web/native profile tests were also rerun after final cleanup.
@@ -70,6 +75,13 @@ Repeated rounds are excluded from those totals. Native debug compilation against
 installed Clerk SDK and the final two affected native suites passed on existing
 JDK 17/Android SDK tools. No release APK, signing, installation or physical-phone
 acceptance was performed.
+
+A subsequent spec correction tightened native avatar response acceptance without
+changing the Kotlin SDK adapter, protocol status fields, account fences or manual
+photo contract. Its affected store/profile suites passed **29 tests across two files**;
+web typecheck, targeted lint and the documentation checker passed. This adds 18
+response-validation cases to the original coverage; it does not claim a rerun of
+the complete initial integration or native compilation.
 
 Actual installed `tsc-rs 0.4.0` and the prepared
 `TypeScript 7.0.2+effect-tsgo.0.51.1` retain the repository's diagnostics.
