@@ -340,7 +340,6 @@ describe("Cloudflare managed endpoint transport", () => {
     { name: "wrong perPage", metadata: { ...info(1), per_page: 99 } },
     { name: "wrong count", metadata: { ...info(1), count: 0 } },
     { name: "inconsistent derived pages", metadata: { ...info(1), total_pages: 2 } },
-    { name: "record and page budget exceeded", metadata: info(1001) },
     { name: "cursor pagination", metadata: { ...info(1), cursor: "next" } },
   ])("fails closed for $name metadata", ({ metadata }) =>
     Effect.gen(function* () {
@@ -351,12 +350,51 @@ describe("Cloudflare managed endpoint transport", () => {
     }),
   );
 
+  it.effect(
+    "rejects an otherwise coherent inventory beyond the record and page budgets in one read",
+    () =>
+      Effect.gen(function* () {
+        const transport = clients(() =>
+          json(
+            Array.from({ length: 100 }, (_, index) => record(`dns-${index}`)),
+            info(1001),
+          ),
+        );
+        const failure = yield* transport.dns.listExactRecords(hostname).pipe(Effect.flip);
+        expect(failure.operation).toBe("list-exact-records");
+        expect(transport.requests).toHaveLength(1);
+      }),
+  );
+
+  it.effect("allows the exact 1000-record budget in ten complete pages", () =>
+    Effect.gen(function* () {
+      const transport = clients((_request, page) =>
+        json(
+          Array.from({ length: 100 }, (_, index) => record(`dns-${(page - 1) * 100 + index}`)),
+          info(1000, page),
+        ),
+      );
+      const records = yield* transport.dns.listExactRecords(hostname);
+      expect(records).toHaveLength(1000);
+      expect(records[0]?.id).toBe("dns-0");
+      expect(records[999]?.id).toBe("dns-999");
+      expect(transport.requests).toHaveLength(10);
+    }),
+  );
+
   it.effect.each(["duplicate-id", "changed-totals", "overlong-page"] as const)(
     "rejects %s inventories",
     (scenario) =>
       Effect.gen(function* () {
         const transport = clients((_request, page) => {
-          const size = scenario === "overlong-page" ? 101 : page === 1 ? 100 : 1;
+          const size =
+            scenario === "overlong-page"
+              ? 101
+              : page === 1
+                ? 100
+                : scenario === "changed-totals"
+                  ? 2
+                  : 1;
           return json(
             Array.from({ length: size }, (_, index) =>
               record(`dns-${scenario === "duplicate-id" ? index : (page - 1) * 100 + index}`),
