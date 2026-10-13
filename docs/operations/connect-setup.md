@@ -129,7 +129,8 @@ relay nor changes the existing website, marketing/Vercel publishing or upstream 
 Cloudflare assets are served before SPA fallback, with `htmlHandling: none`; public `.html` URLs
 remain stable and `/connect` PKCE fragments never pass through redirects. `/pair`, settings and
 workspace routes use the SPA shell. Hosted-only headers revalidate shell, SW and public profile,
-cache hashed assets immutably, and apply a separate no-script policy to public pages. The shell
+detach the overlapping global cache header before caching hashed assets immutably, and apply a
+separate no-script policy to public pages. The shell
 policy permits Clerk/challenge UI, current inline bootstraps, blob workers/WASM, and direct HTTPS/
 WSS environments. Post-deployment verification must include real assets and public pages with
 `Sec-Fetch-Mode: navigate`, valid/invalid CLI auth requests, and the unchanged loopback callback.

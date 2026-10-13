@@ -163,7 +163,82 @@ function content() {
   return { config, draft, origin };
 }
 
+/** Model documented matching-rule composition: unsets, then sets; repeated custom sets append.
+ * https://developers.cloudflare.com/workers/static-assets/headers/
+ * Also checked against installed Cloudflare Assets attachCustomHeaders: every match applies in
+ * order, unsets delete first, and its setMap distinguishes default headers from custom duplicates.
+ */
+function effectiveAssetHeaders(text: string, pathname: string) {
+  const headers = new Headers({ "Cache-Control": "public, max-age=0, must-revalidate" });
+  const customSet = new Set<string>();
+  for (const block of text.trim().split(/\n\s*\n/)) {
+    const [pattern, ...lines] = block.split("\n");
+    if (
+      !pattern ||
+      !(pattern.endsWith("*") ? pathname.startsWith(pattern.slice(0, -1)) : pathname === pattern)
+    )
+      continue;
+    const unset: string[] = [];
+    const set: Array<[string, string]> = [];
+    for (const line of lines) {
+      const rule = line.trim();
+      if (rule.startsWith("! ")) unset.push(rule.slice(2));
+      else {
+        const delimiter = rule.indexOf(":");
+        if (delimiter < 1) throw new Error("Invalid fixture header rule.");
+        set.push([rule.slice(0, delimiter), rule.slice(delimiter + 1).trim()]);
+      }
+    }
+    for (const name of unset) headers.delete(name);
+    for (const [name, value] of set) {
+      if (customSet.has(name.toLowerCase())) headers.append(name, value);
+      else {
+        headers.set(name, value);
+        customSet.add(name.toLowerCase());
+      }
+    }
+  }
+  return headers;
+}
+
 describe("public hosted pages and headers", () => {
+  it("detaches the global revalidation policy for matching hashed assets without changing other paths", () => {
+    const rules = ownedHostedHeaders("https://clerk.arcwright.space");
+    for (const pathname of [
+      "/assets/index-abcdefgh.js",
+      "/assets/style-abcdefgh.css",
+      "/assets/worker-abcdefgh.js",
+      "/assets/ghostty-abcdefgh.wasm",
+      "/assets/font-abcdefgh.woff2",
+    ]) {
+      const headers = effectiveAssetHeaders(rules, pathname);
+      expect(headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+      expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+    }
+    for (const pathname of [
+      "/",
+      "/index.html",
+      "/service-worker.js",
+      "/sw.js",
+      "/manifest.webmanifest",
+      "/connect-profile.json",
+      "/about.html",
+      "/privacy.html",
+    ]) {
+      expect(effectiveAssetHeaders(rules, pathname).get("Cache-Control")).toBe(
+        "no-cache, must-revalidate",
+      );
+    }
+    expect(effectiveAssetHeaders(rules, "/privacy.html").get("Content-Security-Policy")).toContain(
+      "script-src 'none'",
+    );
+    expect(
+      effectiveAssetHeaders(
+        rules.replace("  ! Cache-Control\n", ""),
+        "/assets/index-abcdefgh.js",
+      ).get("Cache-Control"),
+    ).toBe("no-cache, must-revalidate, public, max-age=31536000, immutable");
+  });
   it("requires all reviewed policy topics instead of an invented numeric section count", () => {
     const input = content();
     expect(input.draft.privacy.sections).toHaveLength(13);
