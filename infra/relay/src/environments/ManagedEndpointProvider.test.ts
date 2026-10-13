@@ -60,6 +60,7 @@ interface Options {
   readonly dnsCreateFailure?: "duplicate" | "ambiguous";
   readonly wrongDnsResponse?: boolean;
   readonly malformedConfiguration?: boolean;
+  readonly configurationNotFound?: boolean;
   readonly malformedTunnelDeletion?: boolean;
   readonly malformedDnsDeletion?: boolean;
   readonly wrongDnsUpdateResponse?: boolean;
@@ -70,6 +71,13 @@ interface Options {
 const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
   const db = yield* RelayDb.RelayDb;
   const calls: string[] = [];
+  const tunnelGetIds: string[] = [];
+  const configurationCalls: Array<{
+    readonly tunnelId: string;
+    readonly config: {
+      readonly ingress: ReadonlyArray<{ readonly hostname?: string; readonly service: string }>;
+    };
+  }> = [];
   const tunnelRows = new Map<string, Provider.ManagedEndpointTunnel>();
   const dnsRows = new Map<string, Provider.ManagedEndpointDnsRecord>();
   let tunnelSequence = 0;
@@ -84,11 +92,12 @@ const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
     get: (id) =>
       call(
         "tunnel-get",
-        Effect.suspend(() =>
-          tunnelRows.has(id)
+        Effect.suspend(() => {
+          tunnelGetIds.push(id);
+          return tunnelRows.has(id)
             ? Effect.succeed(tunnelRows.get(id)!)
-            : Effect.fail(notFoundTunnel(id)),
-        ),
+            : Effect.fail(notFoundTunnel(id));
+        }),
       ),
     list: (input) =>
       call(
@@ -154,7 +163,21 @@ const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
     putConfiguration: (tunnelId, config) =>
       call(
         "tunnel-configure",
-        Effect.succeed(options.malformedConfiguration ? {} : { tunnelId, config }),
+        Effect.suspend(() => {
+          configurationCalls.push({ tunnelId, config });
+          return options.configurationNotFound
+            ? Effect.fail(
+                new Provider.ManagedEndpointTunnelClientError({
+                  operation: "put-configuration",
+                  tunnelId,
+                  cause: new TunnelNotFound({
+                    code: 1002,
+                    message: "Missing exact configured tunnel",
+                  }),
+                }),
+              )
+            : Effect.succeed(options.malformedConfiguration ? {} : { tunnelId, config });
+        }),
       ),
     getToken: () => call("token", Effect.succeed(options.token ?? "fixture-connector-token")),
     delete: (id) =>
@@ -246,7 +269,7 @@ const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
     Effect.provideService(Provider.ManagedEndpointDnsClient, dns),
     Effect.provideService(Config.RelayConfiguration, config),
   );
-  return { provider, calls, tunnelRows, dnsRows };
+  return { provider, calls, tunnelGetIds, configurationCalls, tunnelRows, dnsRows };
 });
 const ready = Effect.fnUntraced(function* (
   runtime: Effect.Success<ReturnType<typeof makeRuntime>>,
@@ -1059,6 +1082,320 @@ describe.skipIf(!fixtureFile)("Managed endpoint coordinated runtime PostgreSQL",
           expect(
             Option.isSome(yield* credentials.authenticate(captured.environmentCredential)),
           ).toBe(true);
+        }),
+      ),
+  );
+  it.effect.each([
+    {
+      name: "notifications scope",
+      notificationsEnabled: true,
+      liveActivitiesEnabled: false,
+      emptyKey: false,
+    },
+    {
+      name: "live activities scope",
+      notificationsEnabled: false,
+      liveActivitiesEnabled: true,
+      emptyKey: false,
+    },
+    {
+      name: "both capability scopes",
+      notificationsEnabled: true,
+      liveActivitiesEnabled: true,
+      emptyKey: false,
+    },
+    {
+      name: "empty public key",
+      notificationsEnabled: false,
+      liveActivitiesEnabled: false,
+      emptyKey: true,
+    },
+  ])("rejects inconsistent $name before admission and every provider call", (input) =>
+    fixture(
+      Effect.gen(function* () {
+        const runtime = yield* makeRuntime();
+        const publication = publicationFor(key.environmentId);
+        if (publication.kind !== "link") throw new Error("Fixture proof missing");
+        const error = yield* Effect.flip(
+          runtime.provider.provision({
+            ...key,
+            origin,
+            publication: {
+              ...publication,
+              request: {
+                ...publication.request,
+                notificationsEnabled: input.notificationsEnabled,
+                liveActivitiesEnabled: input.liveActivitiesEnabled,
+              },
+              proof: {
+                ...publication.proof,
+                scopes: ["managed_tunnels"],
+                environmentPublicKey: input.emptyKey ? "" : publication.proof.environmentPublicKey,
+              },
+            },
+          }),
+        );
+        expect(error).toMatchObject({
+          _tag: "ManagedEndpointProvisioningFailed",
+          stage: "verify-endpoint",
+        });
+        expect(runtime.calls).toEqual([]);
+        expect(runtime.tunnelRows.size).toBe(0);
+        expect(runtime.dnsRows.size).toBe(0);
+        const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+        expect(yield* lifecycle.get(key)).toBeNull();
+      }),
+    ),
+  );
+
+  it.effect("accepts a valid managed-only publication without notification scopes", () =>
+    fixture(
+      Effect.gen(function* () {
+        const runtime = yield* makeRuntime();
+        const publication = publicationFor(key.environmentId);
+        if (publication.kind !== "link") throw new Error("Fixture proof missing");
+        const result = yield* runtime.provider.provision({
+          ...key,
+          origin,
+          publication: {
+            ...publication,
+            request: {
+              ...publication.request,
+              notificationsEnabled: false,
+              liveActivitiesEnabled: false,
+            },
+            proof: { ...publication.proof, scopes: ["managed_tunnels"] },
+          },
+        });
+        expect(result.kind).toBe("linked");
+        expect(runtime.calls).toEqual([
+          "tunnel-list",
+          "tunnel-create",
+          "tunnel-configure",
+          "dns-list",
+          "dns-create",
+          "token",
+        ]);
+        const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+        expect(yield* lifecycle.get(key)).toMatchObject({ lifecycleState: "idle", origin });
+      }),
+    ),
+  );
+
+  it.effect.each(["::1", "[::1]"] as const)(
+    "provisions IPv6 loopback %s with literal bracketed ingress",
+    (host) =>
+      fixture(
+        Effect.gen(function* () {
+          const runtime = yield* makeRuntime();
+          const publication = publicationFor(key.environmentId);
+          if (publication.kind !== "link") throw new Error("Fixture proof missing");
+          const ipv6Origin = { localHttpHost: host, localHttpPort: 3773 };
+          const result = yield* runtime.provider.provision({
+            ...key,
+            origin: ipv6Origin,
+            publication: { ...publication, proof: { ...publication.proof, origin: ipv6Origin } },
+          });
+          expect(runtime.configurationCalls).toEqual([
+            {
+              tunnelId: "tunnel-1",
+              config: {
+                ingress: [
+                  {
+                    hostname: new URL(result.endpoint.httpBaseUrl).hostname,
+                    service: "http://[::1]:3773",
+                  },
+                  { service: "http_status:404" },
+                ],
+              },
+            },
+          ]);
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          expect(yield* lifecycle.get(key)).toMatchObject({
+            lifecycleState: "idle",
+            origin: ipv6Origin,
+            pendingMutation: null,
+          });
+        }),
+      ),
+  );
+
+  it.effect.each([
+    { localHttpHost: "remote.example.test", localHttpPort: 3000 },
+    { localHttpHost: "0.0.0.0", localHttpPort: 3000 },
+    { localHttpHost: "localhost", localHttpPort: 0 },
+    { localHttpHost: "localhost", localHttpPort: -1 },
+    { localHttpHost: "localhost", localHttpPort: 65536 },
+    { localHttpHost: "localhost", localHttpPort: 3000.5 },
+  ])(
+    "rejects invalid origin $localHttpHost:$localHttpPort before admission with consistent proof",
+    (invalidOrigin) =>
+      fixture(
+        Effect.gen(function* () {
+          const runtime = yield* makeRuntime();
+          const publication = publicationFor(key.environmentId);
+          if (publication.kind !== "link") throw new Error("Fixture proof missing");
+          const error = yield* Effect.flip(
+            runtime.provider.provision({
+              ...key,
+              origin: invalidOrigin,
+              publication: {
+                ...publication,
+                proof: { ...publication.proof, origin: invalidOrigin },
+              },
+            }),
+          );
+          expect(error).toMatchObject({
+            _tag: "ManagedEndpointOriginNotAllowed",
+            host: invalidOrigin.localHttpHost,
+            port: invalidOrigin.localHttpPort,
+          });
+          expect(runtime.calls).toEqual([]);
+          expect(runtime.configurationCalls).toEqual([]);
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          expect(yield* lifecycle.get(key)).toBeNull();
+        }),
+      ),
+  );
+
+  it.effect(
+    "changed registered origin configures once and becomes ready only after checkpoint and registration",
+    () =>
+      fixture(
+        Effect.gen(function* () {
+          const entered = yield* Deferred.make<void>();
+          const resume = yield* Deferred.make<void>();
+          let holding = false;
+          const runtime = yield* makeRuntime({
+            before: (operation) =>
+              holding && operation === "tunnel-configure"
+                ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(resume)))
+                : Effect.void,
+          });
+          const { row, link, expectedLink } = yield* ready(runtime);
+          expect(
+            yield* runtime.provider.reconcileOrigin({
+              ...key,
+              tunnelId: "tunnel-1",
+              origin,
+              expectedLink,
+            }),
+          ).toBe("ready");
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const registered = yield* lifecycle.get(key);
+          if (!registered || registered.recoveryEnabledAt === null)
+            throw new Error("Fixture registration missing");
+          const db = yield* RelayDb.RelayDb;
+          const credentialsBefore = yield* db.select().from(relayEnvironmentCredentials);
+          runtime.calls.length = 0;
+          runtime.configurationCalls.length = 0;
+          runtime.tunnelGetIds.length = 0;
+          holding = true;
+          const nextOrigin = { localHttpHost: "127.0.0.1", localHttpPort: 5432 };
+          const fiber = yield* Effect.forkChild(
+            runtime.provider.reconcileOrigin({
+              ...key,
+              tunnelId: "tunnel-1",
+              origin: nextOrigin,
+              expectedLink,
+            }),
+          );
+          yield* Effect.addFinalizer(() =>
+            Deferred.succeed(resume, undefined).pipe(
+              Effect.andThen(Fiber.interrupt(fiber)),
+              Effect.asVoid,
+            ),
+          );
+          yield* Deferred.await(entered);
+          expect(yield* lifecycle.get(key)).toMatchObject({
+            lifecycleState: "owned",
+            pendingMutation: {
+              action: "configure_tunnel",
+              tunnelId: "tunnel-1",
+              origin: nextOrigin,
+            },
+            origin,
+            readyAt: registered.readyAt,
+            recoveryEnabledAt: registered.recoveryEnabledAt,
+            recoveryEnvironmentPublicKey: "fixture-key",
+          });
+          yield* Deferred.succeed(resume, undefined);
+          expect(yield* Fiber.join(fiber)).toBe("ready");
+          expect(runtime.calls).toEqual(["tunnel-get", "dns-get", "tunnel-configure"]);
+          expect(runtime.tunnelGetIds).toEqual(["tunnel-1"]);
+          expect(runtime.configurationCalls).toEqual([
+            {
+              tunnelId: "tunnel-1",
+              config: {
+                ingress: [
+                  { hostname: row.hostname, service: "http://127.0.0.1:5432" },
+                  { service: "http_status:404" },
+                ],
+              },
+            },
+          ]);
+          const completed = yield* lifecycle.get(key);
+          expect(completed).toMatchObject({
+            lifecycleState: "idle",
+            operationId: null,
+            pendingMutation: null,
+            origin: nextOrigin,
+            recoveryEnvironmentPublicKey: "fixture-key",
+          });
+          expect(completed?.recoveryEnabledAt).not.toBeNull();
+          const links = yield* Links.EnvironmentLinks;
+          expect(yield* links.getForUser(key)).toEqual(link);
+          expect(yield* db.select().from(relayEnvironmentCredentials)).toEqual(credentialsBefore);
+        }),
+      ),
+  );
+
+  it.effect.each(["get", "put-configuration"] as const)(
+    "typed exact tunnel absence during %s safely settles reconciliation without publication",
+    (operation) =>
+      fixture(
+        Effect.gen(function* () {
+          const options = { configurationNotFound: false };
+          const runtime = yield* makeRuntime(options);
+          const { row, link, expectedLink } = yield* ready(runtime);
+          const db = yield* RelayDb.RelayDb;
+          const credentialsBefore = yield* db.select().from(relayEnvironmentCredentials);
+          runtime.calls.length = 0;
+          runtime.configurationCalls.length = 0;
+          runtime.tunnelGetIds.length = 0;
+          if (operation === "get") runtime.tunnelRows.delete("tunnel-1");
+          else options.configurationNotFound = true;
+          const result = yield* runtime.provider.reconcileOrigin({
+            ...key,
+            tunnelId: "tunnel-1",
+            origin:
+              operation === "get" ? origin : { localHttpHost: "127.0.0.1", localHttpPort: 5432 },
+            expectedLink,
+          });
+          expect(result).toBe("recovery_required");
+          expect(runtime.calls).toEqual(
+            operation === "get" ? ["tunnel-get"] : ["tunnel-get", "dns-get", "tunnel-configure"],
+          );
+          expect(runtime.tunnelGetIds).toEqual(["tunnel-1"]);
+          expect(runtime.configurationCalls).toHaveLength(operation === "get" ? 0 : 1);
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          expect(yield* lifecycle.get(key)).toMatchObject({
+            allocationId: row.allocationId,
+            lifecycleState: "idle",
+            operationId: null,
+            pendingMutation: null,
+            tunnelPresence: "absent",
+            tunnelId: row.tunnelId,
+            dnsRecordId: row.dnsRecordId,
+            origin,
+            readyAt: row.readyAt,
+            recoveryEnabledAt: row.recoveryEnabledAt,
+            recoveryEnvironmentPublicKey: row.recoveryEnvironmentPublicKey,
+          });
+          const links = yield* Links.EnvironmentLinks;
+          expect(yield* links.getForUser(key)).toEqual(link);
+          expect(yield* db.select().from(relayEnvironmentCredentials)).toEqual(credentialsBefore);
+          expect(yield* db.select().from(table)).toHaveLength(1);
         }),
       ),
   );

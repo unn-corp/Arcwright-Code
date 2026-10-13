@@ -779,8 +779,12 @@ export const make = Effect.gen(function* () {
         (input.publication.proof.environmentId !== input.environmentId ||
           input.publication.proof.sub !== input.environmentId ||
           input.publication.proof.descriptor.environmentId !== input.environmentId ||
+          input.publication.proof.environmentPublicKey.length === 0 ||
           !input.publication.request.managedTunnelsEnabled ||
           !input.publication.proof.scopes.includes("managed_tunnels") ||
+          ((input.publication.request.notificationsEnabled ||
+            input.publication.request.liveActivitiesEnabled) &&
+            !input.publication.proof.scopes.includes("agent_activity_notifications")) ||
           input.publication.proof.origin.localHttpHost !== input.origin.localHttpHost ||
           input.publication.proof.origin.localHttpPort !== input.origin.localHttpPort)
       )
