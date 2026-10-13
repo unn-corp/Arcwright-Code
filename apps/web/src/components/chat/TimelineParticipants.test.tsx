@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+// @effect-diagnostics nodeBuiltinImport:off - Verify the pinned tab uses the shipped stylesheet.
+import * as NodeFS from "node:fs";
+import * as NodeURL from "node:url";
 import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { LegendListRef } from "@legendapp/list/react";
@@ -105,6 +108,13 @@ describe("timeline participant grouping", () => {
     const mountedRow = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
+    const stylesheet = NodeFS.readFileSync(
+      new NodeURL.URL("../../index.css", import.meta.url),
+      "utf8",
+    );
+    const style = document.createElement("style");
+    style.textContent = stylesheet.match(/\.chat-pinned-participant-tab \{[^}]*\}/)?.[0] ?? "";
+    document.head.append(style);
     let scroll = 1000;
     const positions = [0, 800, 1400];
     vi.spyOn(mountedRow, "getBoundingClientRect").mockImplementation(
@@ -133,6 +143,15 @@ describe("timeline participant grouping", () => {
       expect(pinned).not.toBeNull();
       expect(pinned?.hasAttribute("inert")).toBe(true);
       expect(pinned?.getAttribute("aria-hidden")).toBe("true");
+      const tab = pinned?.querySelector<HTMLElement>(".chat-pinned-participant-tab");
+      expect(tab).not.toBeNull();
+      const tabStyle = getComputedStyle(tab!);
+      expect(tabStyle.width).toBe("fit-content");
+      expect(tabStyle.borderTopLeftRadius).toBe("0px");
+      expect(tabStyle.borderTopRightRadius).toBe("0px");
+      expect(tabStyle.borderBottomLeftRadius).toBe("14px");
+      expect(tabStyle.borderBottomRightRadius).toBe("14px");
+      expect(getComputedStyle(tab!.parentElement!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
       scroll = 1370;
       await act(async () => refreshRef.current());
       expect(container.querySelector(".chat-content-lane")?.getAttribute("style")).toContain(
@@ -151,6 +170,7 @@ describe("timeline participant grouping", () => {
     } finally {
       await act(async () => root.unmount());
       container.remove();
+      style.remove();
       vi.unstubAllGlobals();
     }
   });

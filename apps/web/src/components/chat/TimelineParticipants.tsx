@@ -134,11 +134,14 @@ export function PinnedTimelineParticipant({
       aria-hidden="true"
       inert
     >
-      <div className="chat-content-lane" style={{ transform: `translateY(${pinned.offset}px)` }}>
-        <div
-          ref={headerRef}
-          className={`flex bg-background py-1 ${pinned.group.role === "user" ? "justify-end" : ""}`}
-        >
+      <div
+        className="chat-content-lane flex items-start"
+        style={{
+          transform: `translateY(${pinned.offset}px)`,
+          justifyContent: pinned.group.role === "user" ? "flex-end" : "flex-start",
+        }}
+      >
+        <div ref={headerRef} className="chat-pinned-participant-tab">
           <ParticipantChip participant={pinned.group.participant} />
         </div>
       </div>
