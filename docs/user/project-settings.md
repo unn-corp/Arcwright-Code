@@ -248,8 +248,8 @@ local work, resolve it yourself before automatic pulls can resume.
 
 Connect your Teams account in **Settings > Connections > Teams** on the environment
 that will hold your checkout. Choose **Sign in to Teams** and approve sign-in in your
-browser. If your environment has no team service configured, enter your team owner's
-service URL under **Advanced** first. Use **Open shared project** or **Create shared project**
+browser. To use a different team service, enter your team owner's service URL under
+**Advanced** first. Use **Open shared project** or **Create shared project**
 in the command palette, or **Share this project** from the project menu or Project
 settings. Choose a new local directory when opening or creating a shared project.
 Sharing an existing project keeps its project entry and uploads the checked Git

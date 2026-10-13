@@ -1034,11 +1034,11 @@ it.effect("allows explicit custom sign-in instead of the host default", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-it.effect("leaves fresh custom hosts unconfigured when no default is set", () =>
+it.effect("offers the fork Teams service when no host default is configured", () =>
   Effect.gen(function* () {
     const fixture = yield* setup();
     const state = yield* fixture.manager.state;
-    expect(state.serviceUrl).toBeNull();
+    expect(state.serviceUrl).toBe("https://t3teams.unnportal.io");
     expect(state.message).toBeNull();
     expect(fixture.calls).toEqual([]);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),

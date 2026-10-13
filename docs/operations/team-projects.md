@@ -43,8 +43,8 @@ Previously issued JWT access tokens remain valid until expiry; revoking their
 refresh grant does not provide immediate access-token revocation. See
 [Clerk's token format guidance](https://clerk.com/docs/guides/configure/auth-strategies/oauth/how-clerk-implements-oauth#access-token-format).
 
-Set `T3_TEAM_SERVICE_URL` on each teammate's T3 environment to the Teams service
-origin to offer sign-in without entering an address. Saved account bindings take
+T3 environments offer sign-in to `https://t3teams.unnportal.io` by default. Set
+`T3_TEAM_SERVICE_URL` to a different Teams service origin to change that default. Saved account bindings take
 precedence over this default; changing it never redirects existing credentials.
 In T3 Settings > Connections > Teams, select the environment, choose **Sign in to
 Teams**, and approve the displayed code at the verification link. For a custom

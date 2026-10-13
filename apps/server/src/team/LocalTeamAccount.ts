@@ -224,9 +224,13 @@ const decode = <A>(schema: Schema.Codec<A, unknown>, value: unknown) =>
     ),
   );
 
+// The fork's hosted Teams service. T3_TEAM_SERVICE_URL overrides it, and Advanced in
+// Teams settings can still sign in to any other service.
+const FORK_TEAM_SERVICE_URL = "https://t3teams.unnportal.io";
+
 export const makeLocalTeamAccount = Effect.gen(function* () {
   const configuredServiceUrl = yield* Config.String("T3_TEAM_SERVICE_URL").pipe(
-    Config.withDefault(""),
+    Config.withDefault(FORK_TEAM_SERVICE_URL),
   );
   const defaultServiceUrl = configuredServiceUrl
     ? yield* validate(() => teamServiceOrigin(configuredServiceUrl)).pipe(Effect.option)
