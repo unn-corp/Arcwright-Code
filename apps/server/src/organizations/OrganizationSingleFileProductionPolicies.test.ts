@@ -202,6 +202,7 @@ it.effect("denies policy selection while runtime readiness is closed", () =>
 it.effect("never calls a provider before admission, and never repeats a dispatched call", () => {
   let providerCalls = 0;
   const provider = TextGeneration.of({
+    generateReviewGuide: () => Effect.die(new Error("Unexpected review guide generation")),
     generateCommitMessage: () => Effect.die("not used"),
     generatePrContent: () => Effect.die("not used"),
     generateBranchName: () => Effect.die("not used"),

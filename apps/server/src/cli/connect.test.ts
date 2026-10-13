@@ -181,6 +181,7 @@ it.effect.each([
             resolve: forbidden("resolve"),
             install: forbidden("install"),
             installWithProgress: () => forbidden("download"),
+            pruneManagedVersions: forbidden("prune"),
           }),
         ),
       );
@@ -276,6 +277,7 @@ it.effect("does not install the relay client when the user declines the managed 
             installCalls += 1;
             return managedExecutable;
           }),
+        pruneManagedVersions: Effect.void,
       },
       () => Effect.succeed(false),
       () => Effect.void,
@@ -309,6 +311,7 @@ it.effect("installs the relay client after the user accepts the managed download
               }),
             ),
           ),
+        pruneManagedVersions: Effect.void,
       },
       () => Effect.succeed(true),
       (event) =>
@@ -333,6 +336,7 @@ it.effect("reuses an available relay client executable without prompting", () =>
         resolve: Effect.succeed(managedExecutable),
         install: Effect.die("unexpected install"),
         installWithProgress: () => Effect.die("unexpected install"),
+        pruneManagedVersions: Effect.void,
       },
       () =>
         Effect.sync(() => {

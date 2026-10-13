@@ -117,6 +117,10 @@ export const ForkUpdateStatus = Schema.Struct({
   countdown: Schema.optionalKey(Schema.NullOr(ForkUpdateCountdown)),
   lastError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   installable: Schema.optionalKey(Schema.Boolean),
+  /** Explicit storage optimization support; older controllers omit this capability. */
+  storageOptimization: Schema.optionalKey(Schema.Boolean),
+  /** Durable historical conversion requested by the database upgrade, independent of binary auto-update policy. */
+  storageMigrationPending: Schema.optionalKey(Schema.Boolean),
   /** Homes (Windows and each WSL distribution, or this host's home) that installation snapshots and replaces. */
   affectedHomes: Schema.optionalKey(Schema.Array(ForkAffectedHome)),
 });
@@ -143,7 +147,16 @@ export type ForkMaintenanceInteraction = typeof ForkMaintenanceInteraction.Type;
 /** Bound to the exact build the person reviewed. A newer release never inherits the confirmation. */
 export const ForkMaintenanceActionInput = Schema.Union([
   Schema.Struct({ action: Schema.Literal("check") }),
-  Schema.Struct({ action: Schema.Literal("install"), targetArtifactSha256: Schema.String }),
+  Schema.Struct({
+    action: Schema.Literal("install"),
+    targetArtifactSha256: Schema.String,
+    optimizeStorage: Schema.optionalKey(Schema.Boolean),
+  }),
+  /** Restart this exact verified installed build for data maintenance; allocates no new build identity. */
+  Schema.Struct({
+    action: Schema.Literal("optimize-storage"),
+    targetArtifactSha256: Schema.String,
+  }),
   Schema.Struct({ action: Schema.Literal("cancel-countdown") }),
   /** The person confirms every fork installation on this device is registered. Lifts the `bootstrap` blocker. */
   Schema.Struct({ action: Schema.Literal("confirm-bootstrap") }),

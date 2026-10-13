@@ -2,6 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react"
 import { androidAuthStore } from "../../android/connectAuth";
 import { ManagedAuthContext } from "../../auth/managedAuthContext";
 import { ManagedRelayAuthProvider } from "../../cloud/managedAuth";
+import { AndroidParticipantProfileSync } from "./AndroidParticipantProfileSync";
 
 /** APK sessions live in the Android SDK, independent of this WebView and its lifetime. */
 export default function AndroidManagedAuthShell({
@@ -35,6 +36,7 @@ export default function AndroidManagedAuthShell({
   );
   return (
     <ManagedAuthContext value={value}>
+      <AndroidParticipantProfileSync />
       <ManagedRelayAuthProvider>{children}</ManagedRelayAuthProvider>
     </ManagedAuthContext>
   );

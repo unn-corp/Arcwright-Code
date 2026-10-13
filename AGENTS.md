@@ -6,7 +6,7 @@ You can think of T3 Code as an open source "bring-your-own-subscription" alterna
 
 ## What makes T3 Code special?
 
-We have over 400,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
+We have over 500,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
 
 ### 1. Open at the core
 
@@ -34,6 +34,21 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
+- **Hard GitHub storage rule:** retain only the newest five published Arcwright nightlies
+  and newest five stable/main releases. Completed Actions artifact copies are temporary
+  intermediates and must be removed. Protect active release transactions while cleanup waits;
+  preserve immutable Git tags, Android counter reservations and local recovery assets.
+  Follow [build retention](docs/operations/fork-releases.md#github-build-storage-retention).
+
+- **Hard rule for nightly installations:** use the release pipeline's allocated
+  `<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**
+  everywhere it is named, including local builds, the sidebar, application title,
+  and Start Menu. Do not install `preview` artifacts or introduce a **Local Nightly**
+  counter. Existing preview identities remain truthful historical/recovery records;
+  do not relabel their binaries as published nightlies or reuse a release counter.
+  After every admitted installation, replace obsolete menu entries with one canonical
+  entry and record its name, version, source, digest, launcher, retired entries, and
+  verification. Protect running chats while waiting for coordinator admission.
 - Keep `fork-upstream.json` tied to the upstream commit actually included whenever integrating
   upstream. Show the T3 base and separate **Arcwright build** counter; retain exact installer
   identities for ordering/recovery. See [version provenance](docs/operations/fork-releases.md#version-provenance-and-history).

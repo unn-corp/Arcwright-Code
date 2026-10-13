@@ -11,7 +11,7 @@ type MigrationRow = {
 
 // Upstream 1.4.x and the fork assigned different meanings to migration ids
 // after 35. Move upstream ledger entries by migration identity before running
-// the fork's retained 1–96 sequence. The schema changes themselves are already
+// the fork's retained migration sequence. The schema changes themselves are already
 // present, so this prevents both rerunning V2 and skipping fork migrations.
 const upstreamMigrationTargets = new Map<string, number>([
   ["ProjectionThreadsPinned", 38],
@@ -37,6 +37,9 @@ const upstreamMigrationTargets = new Map<string, number>([
   ["RemoveRedundantProjectionIndexes", 96],
   ["ScheduledTaskWebhooks", 97],
   ["WebhookRelayDeliveries", 98],
+  ["McpAppModelContext", 104],
+  ["ThreadSnapshotWindowIndexes", 105],
+  ["PullRequestReviewGuides", 106],
 ]);
 
 const previewMigrationTargets = new Map<string, number>([
@@ -88,7 +91,7 @@ export const reconcileV2PreviewMigration = Effect.fn("reconcileV2PreviewMigratio
         }
         const upstreamRows = history.filter((row) => row.migration_id >= 36);
         const valid = upstreamRows.every((row) => {
-          if (row.migration_id <= 58) {
+          if (row.migration_id <= 61) {
             const expectedName = upstreamMigrationNames.get(row.migration_id);
             return expectedName === row.name;
           }
@@ -169,9 +172,16 @@ const migrateForkGap = (
       yield* sql`UPDATE effect_sql_migrations SET migration_id = ${1000 + row.migration_id} WHERE migration_id = ${row.migration_id}`;
     }
 
+    const reconciliationThrough = Math.max(
+      94,
+      ...rows.map(
+        (row) =>
+          upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name) ?? 0,
+      ),
+    );
     const executed: Array<readonly [number, string]> = [];
     for (const [id, name, migration] of migrations) {
-      if (id < 36 || id > 94) continue;
+      if (id < 36 || id > reconciliationThrough) continue;
       const existing = alreadyAppliedRows.find((row) => {
         const target =
           upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name);
@@ -237,4 +247,7 @@ const upstreamMigrationNames = new Map<number, string>([
   [56, "RemoveRedundantProjectionIndexes"],
   [57, "ScheduledTaskWebhooks"],
   [58, "WebhookRelayDeliveries"],
+  [59, "McpAppModelContext"],
+  [60, "ThreadSnapshotWindowIndexes"],
+  [61, "PullRequestReviewGuides"],
 ]);

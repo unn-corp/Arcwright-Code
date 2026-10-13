@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.*
 
 /** No credentials in observable state. Generation binds every consumer to one account/session. */
 data class ConnectAccount(val userId: String, val sessionId: String)
+data class ConnectProfileAccount(val id: String, val label: String, val photo: String?)
+data class ConnectParticipantProfile(val name: String, val photo: String?, val accounts: List<ConnectProfileAccount> = emptyList())
 data class ConnectSdkState(val ready: Boolean, val account: ConnectAccount? = null, val error: Boolean = false)
 data class ConnectAuthStatus(
     val available: Boolean,
@@ -24,6 +26,8 @@ interface ConnectAuthSdk {
     suspend fun signIn()
     suspend fun handleCallback(uri: String): Boolean
     suspend fun relayToken(template: String, forceRefresh: Boolean): String
+    /** Public presentation only; older adapters may have no profile metadata. */
+    suspend fun participantProfile(account: ConnectAccount): ConnectParticipantProfile? = null
     suspend fun signOut()
     fun reset()
 }
@@ -211,6 +215,13 @@ class ConnectAuth(
             if (status.value.available) observe(sdk!!.current()) // SDK authoritative revocation may clear its session; network failure does not.
             throw error
         }
+    }
+
+    suspend fun getParticipantProfile(fence: ConnectAuthStatus): ConnectParticipantProfile? {
+        check(isCurrent(fence)) { "Account session is not ready." }
+        val profile = sdk!!.participantProfile(ConnectAccount(requireNotNull(fence.userId), requireNotNull(fence.sessionId)))
+        check(isCurrent(fence)) { "Account changed while reading its profile." }
+        return profile
     }
 
     /** Local reset is mandatory even if remote sign-out hangs or fails. Direct pairing storage is untouched. */

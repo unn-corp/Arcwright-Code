@@ -1,3 +1,4 @@
+import { ParticipantProfileSync } from "./ParticipantProfileSync";
 import { passkeys } from "@clerk/electron/passkeys";
 import { ClerkProvider } from "@clerk/electron/react";
 import type { ReactNode } from "react";
@@ -21,6 +22,7 @@ export default function ElectronManagedAuthShell({
 }) {
   return (
     <ClerkProvider appearance={clerkAppearance} publishableKey={publishableKey} passkeys={passkeys}>
+      <ParticipantProfileSync />
       <ClerkManagedAuthAdapter>
         <ManagedRelayAuthProvider>{children}</ManagedRelayAuthProvider>
       </ClerkManagedAuthAdapter>

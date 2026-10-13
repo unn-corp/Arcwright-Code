@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import type { WorktreeStorageSupport, WorktreeStorageUsage } from "@t3tools/contracts";
 import * as ServerConfig from "../config.ts";
 

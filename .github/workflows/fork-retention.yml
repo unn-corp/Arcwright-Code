@@ -1,0 +1,49 @@
+name: Fork build retention
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Fork release, Fork manual updater baseline, CI]
+    types: [completed]
+  schedule:
+    - cron: "41 9 * * *"
+
+concurrency:
+  # Serializes the full release pipeline, including old predecessor downloads.
+  group: fork-release
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  retain:
+    if: github.repository == 'unn-corp/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: fork-release-state
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+      - name: Keep five nightlies and five stable releases; remove completed Actions copies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/fork-release-retention.ts --apply

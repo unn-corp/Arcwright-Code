@@ -44,6 +44,8 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 
+const HOST_RESPONSE_GRACE_MS = 1_000;
+
 export interface PreviewAutomationInvokeInput {
   /** Preview tabs belong to a thread, so only thread callers reach the broker. */
   readonly scope: McpInvocationContext.McpThreadInvocationScope;
@@ -716,11 +718,10 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         }
         return yield* new PreviewAutomationRequestQueueClosedError(requestContext);
       }
-      // Browser actions use timeoutMs themselves. Let the server host deliver its
-      // normal timeout response before treating an unanswered request as a dead host.
-      // The browser's deadline and action replay policy stay unchanged.
+      // The browser starts its operation timer after delivery. Allow its timeout
+      // response to arrive before treating the entire host as unresponsive.
       const responseTimeoutMs =
-        timeoutMs + (connection.preferred && input.updateCurrentTab !== false ? 1_000 : 0);
+        input.updateCurrentTab === false ? timeoutMs : timeoutMs + HOST_RESPONSE_GRACE_MS;
       const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption(responseTimeoutMs));
       return yield* Option.match(result, {
         onNone: () =>

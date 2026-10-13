@@ -122,7 +122,7 @@ vi.mock("../settings/CodexSetupSection", () => ({
   AddManagedCodexAccountDialog: () => null,
 }));
 vi.mock("../settings/providerDriverMeta", () => ({
-  getDriverOption: (driver: string) => ({ label: driver }),
+  providerClients: { get: (driver: string) => ({ label: driver }) },
 }));
 vi.mock("../settings/providerStatus", () => ({
   getProviderSummary: () => ({ headline: "Setup required" }),
@@ -154,6 +154,7 @@ const primaryEnvironment = {
   label: "This computer",
   connection: { phase: "connected" },
   entry: {
+    enabled: true,
     target: new PrimaryConnectionTarget({
       environmentId: primaryId,
       label: "This computer",
@@ -167,6 +168,7 @@ const remoteEnvironment = {
   label: "Paired computer",
   connection: { phase: "connected" },
   entry: {
+    enabled: true,
     target: new BearerConnectionTarget({
       environmentId: remoteId,
       label: "Paired computer",
@@ -432,7 +434,7 @@ describe("welcome agent terminal setup", () => {
     expect(hasViewport()).toBe(false);
     expect(state.close).not.toHaveBeenCalled();
     await click("Continue");
-    expect(text(renderer!.root)).toContain("Choose your projects");
+    expect(text(renderer!.root)).toContain("Import your projects");
   });
 
   it("settles accepted pretyping locally after revocation without closing the PTY", async () => {

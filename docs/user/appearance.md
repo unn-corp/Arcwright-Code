@@ -27,6 +27,21 @@ Turn on **AI message bubbles** in **Settings → Appearance** to display AI repl
 chat messages. Turn it off to return to the standard layout. This preference is saved on each
 web, desktop, or fork Android client and also applies while replies stream.
 
+## Chat participants and your profile
+
+Open **Settings → General → Profile** to set your chat name and upload a photo, choose a
+connected personal account's photo, or use initials. Your first personal sign-in initializes
+that account's profile. Later account connections preserve your choices. Provider API keys and
+environment Git credentials do not set your personal photo. Profile preferences are local to
+this device or browser; sent messages carry their name and photo to other connected clients.
+Changes apply to new messages, so historical authors remain identifiable.
+
+Agent chips show the recorded model when it is known. Colors follow the conversation's
+agent instance, including through retries and model changes. Different child agents receive
+automatic colors. Select an agent chip to choose its color or restore the automatic color.
+Color choices are saved on this device or browser. Old messages without model or author metadata
+use a neutral fallback rather than guessing today's model or profile.
+
 ## Composer context
 
 Git-backed projects show branch and worktree controls below the composer while you create a thread.

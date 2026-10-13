@@ -273,7 +273,7 @@ export const layer: Layer.Layer<
             CASE
               WHEN event.application_event_version = 2
                 AND event.event_type IN ('message.updated', 'node.updated')
-              THEN json_extract(event.payload_json, '$.id')
+              THEN json_extract(arcwright_payload_json(event.payload_json), '$.id')
               ELSE NULL
             END AS entity_id,
             CASE

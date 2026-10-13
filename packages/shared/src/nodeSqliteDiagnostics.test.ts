@@ -77,7 +77,6 @@ it.effect("records successful and failed calls, bounds warnings, and preserves r
       outcome: "success",
     });
     assert.equal(spans[1]!.attributes.get("outcome"), "failure");
-    // @effect-diagnostics-next-line preferSchemaOverJson:off - check emitted diagnostics for private data.
     assert.notInclude(JSON.stringify(messages), "private SQL or parameter");
   }),
 );

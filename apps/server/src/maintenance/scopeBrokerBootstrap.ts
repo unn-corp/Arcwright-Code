@@ -7,7 +7,7 @@ import {
   type CoordinatorStatus,
 } from "@t3tools/shared/forkMaintenanceStore";
 import * as Schema from "effect/Schema";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import { ensureOrganizationScopeLaunchBroker } from "../organizations/OrganizationScopeLaunchBrokerBootstrap.ts";
 import { callOperator, discoverOperatorTarget, type OperatorResult } from "./operatorClient.ts";
 

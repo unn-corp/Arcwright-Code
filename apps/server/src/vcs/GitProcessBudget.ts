@@ -25,7 +25,8 @@ function isHeavy(args: ReadonlyArray<string>): boolean {
       i++;
     } else if (!arg.startsWith("-")) {
       // Unknown commands and aliases may scan assets or write objects.
-      return !METADATA_COMMANDS.has(arg);
+      // Only listing worktrees is metadata; mutations retain the heavy write lock.
+      return !(METADATA_COMMANDS.has(arg) || (arg === "worktree" && args[i + 1] === "list"));
     }
   }
   return false;

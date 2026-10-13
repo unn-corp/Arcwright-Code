@@ -19,6 +19,7 @@ import { beginAcpMockPrompt } from "./acpMockCancellationState.ts";
 
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
+const hermesProfile = process.env.T3_ACP_HERMES_PROFILE === "1";
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
@@ -94,6 +95,7 @@ const emitOverlappingXAiPromptCompleteOutOfOrder =
   process.env.T3_ACP_EMIT_OVERLAPPING_XAI_PROMPT_COMPLETE_OUT_OF_ORDER === "1";
 const failPrompt = process.env.T3_ACP_FAIL_PROMPT === "1";
 const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
+const failSetModeConfigOption = process.env.T3_ACP_FAIL_SET_MODE_CONFIG_OPTION === "1";
 const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
 const omitModelConfigOption = process.env.T3_ACP_OMIT_MODEL_CONFIG_OPTION === "1";
 const promptResponseText = process.env.T3_ACP_PROMPT_RESPONSE_TEXT;
@@ -124,7 +126,11 @@ const permissionRequestCount = Math.max(
 const sessionId = "mock-session-1";
 
 let currentModeId = antigravityProfile ? "default" : "ask";
-let currentModelId = antigravityProfile ? "gemini-test-low" : "default";
+let currentModelId = hermesProfile
+  ? "openrouter:hermes-build"
+  : antigravityProfile
+    ? "gemini-test-low"
+    : "default";
 let parameterizedModelPicker = false;
 let currentReasoning = "medium";
 let currentContext = "272k";
@@ -177,6 +183,22 @@ process.once("exit", (code) => {
 });
 
 function configOptions(): ReadonlyArray<AcpSchema.SessionConfigOption> {
+  if (hermesProfile) {
+    return [
+      {
+        configId: "model",
+        name: "Hermes Model",
+        category: "model",
+        type: "select",
+        currentValue: currentModelId,
+        options: [
+          { value: "openrouter:hermes-build", name: "Hermes" },
+          { value: "grok-4.6", name: "Hermes custom model" },
+        ],
+      },
+    ];
+  }
+
   if (omitModelConfigOption) {
     return [];
   }
@@ -584,6 +606,7 @@ const program = Effect.gen(function* () {
       }
       return {
         sessionId,
+        models: modelState(),
         configOptions: configOptions(),
       };
     }),
@@ -775,7 +798,7 @@ const program = Effect.gen(function* () {
           process.exit(7);
         });
       }
-      if (failSetConfigOption) {
+      if (failSetConfigOption || (failSetModeConfigOption && request.configId === "mode")) {
         return yield* AcpError.AcpRequestError.invalidParams(
           "Mock invalid params for session/set_config_option",
           {

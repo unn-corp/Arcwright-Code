@@ -23,7 +23,7 @@ import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as NetService from "@t3tools/shared/Net";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { windowsSystemTar } from "./build-cli-archive.ts";
 import { cliSmokeEnvironment } from "./lib/cli-smoke-environment.ts";
 import { appendCliSmokeOutput, redactCliSmokeOutput } from "./lib/cli-smoke-output.ts";
@@ -53,8 +53,8 @@ const runExecutable = Effect.fn("runExecutable")(function* (
   cwd: string,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const platform = yield* HostProcessPlatform;
-  const inherited = yield* HostProcessEnvironment;
+  const platform = yield* HostProcess.Platform;
+  const inherited = yield* HostProcess.Environment;
   const path = yield* Path.Path;
   const child = yield* spawner.spawn(
     ChildProcess.make(executable, args, {
@@ -76,8 +76,8 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const platform = yield* HostProcessPlatform;
-  const inherited = yield* HostProcessEnvironment;
+  const platform = yield* HostProcess.Platform;
+  const inherited = yield* HostProcess.Environment;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const scratch = yield* fs.makeTempDirectory({ prefix: "t3-cli-smoke-" });
   // Windows can keep t3.exe locked (EBUSY) for a moment after the server

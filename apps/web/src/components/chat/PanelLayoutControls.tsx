@@ -16,10 +16,10 @@ export interface PanelLayoutControlsProps {
   terminalOpen: boolean;
   terminalShortcutLabel: string | null;
   threadPanelOpen: boolean;
+  threadPanelHasAttention: boolean;
   threadPanelPresentation: ThreadPanelPresentation;
   threadPanelPopoverHandle?: ReturnType<typeof PopoverCreateHandle>;
   threadPanelShortcutLabel: string | null;
-  threadPanelHasAttention: boolean;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
@@ -37,10 +37,10 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   terminalOpen,
   terminalShortcutLabel,
   threadPanelOpen,
+  threadPanelHasAttention,
   threadPanelPresentation,
   threadPanelPopoverHandle,
   threadPanelShortcutLabel,
-  threadPanelHasAttention,
   rightPanelAvailable,
   rightPanelOpen,
   rightPanelShortcutLabel,

@@ -10,12 +10,12 @@ import { OrganizationId, ProviderInstanceId } from "@t3tools/contracts";
 import * as NodeCrypto from "node:crypto";
 import { createModelSelection } from "@t3tools/shared/model";
 
-import type { ProviderInstance } from "../provider/ProviderDriver.ts";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as Layer from "effect/Layer";
-import { buildThreadTitlePrompt } from "./TextGenerationPrompts.ts";
+import { buildThreadTitlePrompt } from "@t3tools/provider-core/server/textGenerationPrompts";
 
 const makeStubTextGeneration = (
   overrides: Partial<TextGeneration.TextGeneration["Service"]>,
@@ -26,6 +26,7 @@ const makeStubTextGeneration = (
     generatePrContent: () => Effect.die("generatePrContent stub not configured for this test"),
     generateBranchName: () => Effect.die("generateBranchName stub not configured for this test"),
     generateThreadTitle: () => Effect.die("generateThreadTitle stub not configured for this test"),
+    generateReviewGuide: () => Effect.die("generateReviewGuide stub not configured for this test"),
     ...overrides,
   });
 

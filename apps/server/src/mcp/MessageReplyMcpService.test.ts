@@ -20,6 +20,7 @@ import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as Service from "./OrchestratorMcpService.ts";
 
 it.effect("allows only the current provider to select a direct reply and namespaces retries", () =>
@@ -110,6 +111,12 @@ it.effect("allows only the current provider to select a direct reply and namespa
         "thread_credential_required",
       );
       assert.equal(dispatched.length, 2);
-    }).pipe(Effect.provide(Service.layer.pipe(Layer.provide(dependencies))));
+    }).pipe(
+      Effect.provide(
+        Service.layer.pipe(
+          Layer.provideMerge(Layer.merge(dependencies, ServerSettings.layerTest())),
+        ),
+      ),
+    );
   }),
 );

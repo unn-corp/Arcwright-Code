@@ -85,7 +85,7 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
           status,
           error
         )
-        VALUES (
+        SELECT
           ${receipt.commandId},
           ${receipt.aggregateKind},
           ${receipt.aggregateId},
@@ -94,7 +94,8 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
           ${receipt.resultSequence},
           ${receipt.status},
           ${receipt.error}
-        )
+        WHERE NOT EXISTS (SELECT 1 FROM arcwright_history_rows
+          WHERE source='orchestration_command_receipts' AND row_key=${receipt.commandId})
         ON CONFLICT (command_id)
         DO UPDATE SET
           aggregate_kind = excluded.aggregate_kind,
@@ -123,6 +124,19 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
           error
         FROM orchestration_command_receipts
         WHERE command_id = ${commandId}
+        UNION ALL
+        SELECT
+          json_extract(body, '$.command_id') AS "commandId",
+          json_extract(body, '$.aggregate_kind') AS "aggregateKind",
+          json_extract(body, '$.aggregate_id') AS "aggregateId",
+          json_extract(body, '$.command_type') AS "commandType",
+          json_extract(body, '$.accepted_at') AS "acceptedAt",
+          json_extract(body, '$.result_sequence') AS "resultSequence",
+          json_extract(body, '$.status') AS status,
+          json_extract(body, '$.error') AS error
+        FROM (SELECT arcwright_history_json(digest,raw_bytes,compressed) AS body
+          FROM arcwright_history_rows WHERE source='orchestration_command_receipts' AND row_key=${commandId})
+        LIMIT 1
       `,
   });
 
@@ -145,7 +159,7 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
         status,
         error
       )
-      VALUES (
+      SELECT
         ${receipt.commandId},
         ${receipt.aggregateKind},
         ${receipt.aggregateId},
@@ -154,7 +168,8 @@ const makeOrchestrationCommandReceiptRepository = Effect.gen(function* () {
         ${receipt.resultSequence},
         ${receipt.status},
         ${receipt.error}
-      )
+      WHERE NOT EXISTS (SELECT 1 FROM arcwright_history_rows
+        WHERE source='orchestration_command_receipts' AND row_key=${receipt.commandId})
       ON CONFLICT(command_id) DO NOTHING
       RETURNING command_id
     `.pipe(

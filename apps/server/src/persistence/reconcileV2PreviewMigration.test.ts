@@ -122,6 +122,9 @@ describe("V2 preview upgrade", () => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "ScheduledTaskWebhooks"],
         [58, "WebhookRelayDeliveries"],
+        [59, "McpAppModelContext"],
+        [60, "ThreadSnapshotWindowIndexes"],
+        [61, "PullRequestReviewGuides"],
       ] as const;
       yield* Migrator.make({})({
         loader: Migrator.fromRecord(
@@ -134,7 +137,7 @@ describe("V2 preview upgrade", () => {
 
       const executed = yield* runMigrations();
       const alreadyApplied = new Set([
-        38, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 94,
+        38, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 94, 104, 105, 106,
       ]);
       assert.deepStrictEqual(
         executed,

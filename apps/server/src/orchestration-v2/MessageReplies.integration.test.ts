@@ -19,7 +19,7 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as EventSink from "./EventSink.ts";
-import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 
@@ -31,7 +31,7 @@ const adapter = {
   getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
   openSession: () => Effect.die("Reply tests never launch a provider"),
-} as ProviderAdapterV2Shape;
+} as ProviderAdapterV2["Service"];
 const database = SqlitePersistence.layerMemory;
 const testLayer = Layer.mergeAll(
   database,
@@ -77,6 +77,19 @@ const writeMessage = (
       nodeId: null,
       role,
       text: `Text ${id}`,
+      ...(id === "root"
+        ? {
+            context: {
+              version: 1 as const,
+              records: [],
+              agent: {
+                threadId,
+                providerInstanceId: ProviderInstanceId.make("codex"),
+                model: "gpt-original",
+              },
+            },
+          }
+        : {}),
       createdBy: role === "user" ? "user" : "agent",
       creationSource: "web",
       attachments: [],
@@ -173,6 +186,11 @@ it.effect(
             messageId: MessageId.make("root"),
             role: "user",
             text: "Spoofed quote",
+            agent: {
+              threadId,
+              providerInstanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-spoofed",
+            },
           },
         },
       });
@@ -181,6 +199,7 @@ it.effect(
       })).messages[0]!;
       assert.equal(sent.context?.replyTo?.text, "Text root");
       assert.equal(sent.context?.replyTo?.role, "assistant");
+      assert.equal(sent.context?.replyTo?.agent?.model, "gpt-original");
       const foreign = ThreadId.make("thread:foreign");
       yield* createThread(foreign);
       yield* writeMessage(foreign, "foreign-message", "assistant");
@@ -235,6 +254,11 @@ it.effect(
         threadId,
         messageId: MessageId.make("current-user"),
         text: "Current question",
+        context: {
+          version: 1,
+          records: [],
+          author: { id: "alice", name: "Alice", photo: "data:image/webp;base64,AA==" },
+        },
         attachments: [],
         createdBy: "user",
         creationSource: "web",
@@ -324,7 +348,14 @@ it.effect(
           );
           return records.messages[0]!;
         });
-      assert.equal((yield* emitAssistant("default")).context?.replyTo?.messageId, "current-user");
+      const answer = yield* emitAssistant("default");
+      assert.equal(answer.context?.replyTo?.messageId, "current-user");
+      assert.equal(answer.context?.replyTo?.author?.photo, "data:image/webp;base64,AA==");
+      assert.deepEqual(answer.context?.agent, {
+        threadId,
+        providerInstanceId: run.providerInstanceId,
+        model: run.modelSelection.model,
+      });
       yield* orchestrator.dispatch({
         type: "run.reply-target.set",
         commandId: CommandId.make("agent-select"),

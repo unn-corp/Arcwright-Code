@@ -1,4 +1,4 @@
-import type { T3CodePublicConfig } from "./public-config";
+import type { T3CodePublicConfig } from "./public-config.ts";
 
 /** Public build inputs only; the helper passes one resolved config to both native and Vite. */
 export function androidManagedAuthBuildEnv(config: T3CodePublicConfig) {

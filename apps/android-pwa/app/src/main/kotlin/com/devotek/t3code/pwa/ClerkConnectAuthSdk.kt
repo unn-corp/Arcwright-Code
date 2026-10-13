@@ -34,6 +34,28 @@ class ClerkConnectAuthSdk(private val application: Application, private val key:
     }
     override suspend fun handleCallback(uri: String): Boolean = Clerk.auth.handle(Uri.parse(uri))
     override suspend fun relayToken(template: String, forceRefresh: Boolean): String = value(Clerk.auth.getToken(GetTokenOptions(template = template, skipCache = forceRefresh)))
+    override suspend fun participantProfile(account: ConnectAccount): ConnectParticipantProfile? {
+        val session = Clerk.session ?: return null
+        if (session.id != account.sessionId || session.status != Session.SessionStatus.ACTIVE) return null
+        // Only the session's own user snapshot supplies metadata; userFlow can lag a session switch.
+        val user = session.user?.takeIf { it.id == account.userId }
+        val publicUser = session.publicUserData?.takeIf { it.userId == account.userId }
+        if (user == null && publicUser == null) return null
+        val accounts = user?.externalAccounts.orEmpty().take(20).map { external ->
+            val label = external.username?.takeIf { it.isNotBlank() }
+                ?: external.emailAddress.takeIf { it.isNotBlank() } ?: "Account"
+            ConnectProfileAccount(
+                id = external.id.take(256),
+                label = "${external.provider}: $label".take(200),
+                photo = profilePhoto(external.imageUrl),
+            )
+        }
+        val name = listOfNotNull(user?.firstName ?: publicUser?.firstName, user?.lastName ?: publicUser?.lastName)
+            .filter { it.isNotBlank() }.joinToString(" ").ifBlank { user?.username?.takeIf { it.isNotBlank() } ?: "You" }.take(100)
+        val photo = if (user?.hasImage == true) profilePhoto(user.imageUrl)
+            else if (publicUser?.hasImage == true) profilePhoto(publicUser.imageUrl) else null
+        return ConnectParticipantProfile(name, photo ?: accounts.firstOrNull { it.photo != null }?.photo, accounts)
+    }
     override suspend fun signOut() { value(Clerk.auth.signOut()) }
     override fun reset() { Clerk.reset() }
     // Do not pass SDK errors, URLs, credentials or raw callback contents to JavaScript/logs.
@@ -42,3 +64,10 @@ class ClerkConnectAuthSdk(private val application: Application, private val key:
         is ClerkResult.Failure -> throw IllegalStateException("Account request failed. Check your network and try again.")
     }
 }
+
+/** SDK avatar URLs only; no arbitrary URI schemes or credential-bearing URLs leave native auth. */
+internal fun profilePhoto(value: String?): String? = try {
+    value?.takeIf { it.length <= 2048 }?.let { java.net.URI(it) }?.takeIf {
+        it.scheme == "https" && !it.host.isNullOrBlank() && it.rawUserInfo == null
+    }?.toString()
+} catch (_: Exception) { null }

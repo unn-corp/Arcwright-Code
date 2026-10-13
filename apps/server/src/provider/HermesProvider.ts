@@ -1,3 +1,4 @@
+import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import {
   type HermesSettings,
   type ModelCapabilities,
@@ -24,11 +25,11 @@ import {
   providerModelsFromSettings,
   spawnAndCollect,
   type ServerProviderDraft,
-} from "./providerSnapshot.ts";
+} from "@t3tools/provider-core/server/snapshotProbe";
 import {
   enrichProviderSnapshotWithVersionAdvisory,
   type ProviderMaintenanceCapabilities,
-} from "./providerMaintenance.ts";
+} from "@t3tools/provider-core/server/maintenanceResolver";
 import { makeHermesAcpRuntime, resolveHermesAcpBaseModelId } from "./acp/HermesAcpSupport.ts";
 
 const HERMES_PRESENTATION = {
@@ -310,7 +311,7 @@ export const enrichHermesSnapshot = (input: {
   readonly enableProviderUpdateChecks?: boolean;
   readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
   readonly httpClient: HttpClient.HttpClient;
-}): Effect.Effect<void> => {
+}): Effect.Effect<void, never, ProviderLatestVersions.ProviderLatestVersions> => {
   const { snapshot, publishSnapshot } = input;
 
   return enrichProviderSnapshotWithVersionAdvisory(snapshot, input.maintenanceCapabilities, {

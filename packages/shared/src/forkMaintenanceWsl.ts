@@ -109,8 +109,28 @@ export const homeOperationArgs = (
   switch (operation.op) {
     case "requirement":
     case "list":
+    case "storage-status":
     case "canonical":
       return base;
+    case "history":
+      return [
+        ...base,
+        "--source",
+        operation.source,
+        "--thread",
+        operation.threadId,
+        "--after",
+        operation.after,
+      ];
+    case "optimize-storage":
+      return [
+        ...base,
+        "--transaction",
+        operation.transactionId,
+        ...(operation.parentParticipantId === undefined
+          ? []
+          : ["--parent-participant", operation.parentParticipantId]),
+      ];
     case "capacity":
       return [
         ...base,
@@ -329,6 +349,16 @@ export function createCohortStorage(homes: ReadonlyArray<CohortHome>) {
   };
   return {
     affectedHomes: async () => homes.map((home) => home.id),
+    storageMigrationNeeded: async () => {
+      for (const home of homes) {
+        const value = unwrap<{ state: string }>(
+          await home.control.run({ op: "storage-status" }),
+          home,
+        );
+        if (value.state === "pending") return true;
+      }
+      return false;
+    },
     homeLabel: (id: string) => homes.find((home) => home.id === id)?.label ?? id,
     snapshot: async (id: string, transactionId: string) =>
       unwrap<string>(await find(id).control.run({ op: "snapshot", transactionId }), find(id)),

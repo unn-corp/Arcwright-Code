@@ -7,11 +7,7 @@ import * as PlatformError from "effect/PlatformError";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import {
-  HostProcessEnvironment,
-  HostProcessHostname,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { vi } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -57,9 +53,9 @@ const withHostPlatform = <ROut, E, RIn>(
 ) =>
   Layer.mergeAll(
     layer,
-    Layer.succeed(HostProcessPlatform, platform),
-    Layer.succeed(HostProcessHostname, hostname),
-    Layer.succeed(HostProcessEnvironment, environment),
+    Layer.succeed(HostProcess.Platform, platform),
+    Layer.succeed(HostProcess.Hostname, hostname),
+    Layer.succeed(HostProcess.Environment, environment),
   );
 
 afterEach(() => {

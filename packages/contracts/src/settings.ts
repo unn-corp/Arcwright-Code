@@ -1,5 +1,7 @@
+import { ParticipantProfiles, AgentColorOverrides } from "./participants.ts";
 import { SshDeviceHostConfigs } from "./device.ts";
 import {
+  AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   AuthProvidersManageScope,
   type AuthEnvironmentScope,
@@ -27,7 +29,7 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { ProjectScript } from "./project.ts";
+import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
@@ -41,7 +43,7 @@ import {
 import {
   ProviderInstanceConfig,
   ProviderInstanceId,
-  type ProviderDriverKind,
+  ProviderDriverKind,
 } from "./providerInstance.ts";
 import { GitHubAccount, GitHubAccountId, GitHubAccountPatch } from "./sourceControl.ts";
 import {
@@ -303,7 +305,29 @@ export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
 
+/** Preferences shared by clients connected to the same environment. */
+export const ModelFavorite = Schema.Struct({
+  // The historical field name is retained; default instance ids also decode old provider-kind favorites.
+  provider: ProviderInstanceId,
+  model: TrimmedNonEmptyString,
+});
+export const ModelFavorites = Schema.Array(ModelFavorite);
+export const ProviderModelPreferences = Schema.Record(
+  ProviderInstanceId,
+  Schema.Struct({
+    hiddenModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  }),
+);
+export type ModelPreferences = {
+  readonly favorites: typeof ModelFavorites.Type;
+  readonly providerModelPreferences: typeof ProviderModelPreferences.Type;
+};
+
 export const ClientSettingsSchema = Schema.Struct({
+  participantProfiles: ParticipantProfiles.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  activeParticipantProfile: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed("local"))),
+  agentColorOverrides: AgentColorOverrides.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agentNotifications: AgentNotificationPreferences.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_NOTIFICATION_PREFERENCES)),
   ),
@@ -429,31 +453,11 @@ export const ClientSettingsSchema = Schema.Struct({
   persistComposerContextStrip: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
-  // Model favorites. Historically keyed by provider kind, now
-  // widened to `ProviderInstanceId` so users can favorite a specific model
-  // on a custom provider instance (e.g. "Codex Personal · gpt-5") without
-  // the UI collapsing it into the same bucket as the default Codex. The
-  // widening is backward-compatible by construction: prior provider-kind
-  // strings satisfy the `ProviderInstanceId` slug schema, so previously
-  // persisted favorites decode unchanged and continue to point at the
-  // default instance for their kind (because `defaultInstanceIdForDriver(kind)`
-  // uses the same slug). The field name is kept as `provider` for storage
-  // stability; new call sites should treat the value as an instance id.
-  favorites: Schema.Array(
-    Schema.Struct({
-      provider: ProviderInstanceId,
-      model: TrimmedNonEmptyString,
-    }),
-  ).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
-  providerModelPreferences: Schema.Record(
-    ProviderInstanceId,
-    Schema.Struct({
-      hiddenModels: Schema.Array(Schema.String).pipe(
-        Schema.withDecodingDefault(Effect.succeed([])),
-      ),
-      modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
-    }),
-  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // Legacy client values retained for migration to the connected environment.
+  favorites: ModelFavorites.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  providerModelPreferences: ProviderModelPreferences.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   pullRequestMergeMethodOverrides: Schema.Record(
     TrimmedNonEmptyString,
     PullRequestMergeMethod,
@@ -543,7 +547,8 @@ export const UsageModelPriceOverride = Schema.Struct({
 });
 export type UsageModelPriceOverride = typeof UsageModelPriceOverride.Type;
 
-const makeBinaryPathSetting = (fallback: string) =>
+/** A binary path setting that decodes empty input to the provider's default executable. */
+export const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
     Schema.decodeTo(
       Schema.String,
@@ -571,6 +576,15 @@ export interface ProviderSettingsFormAnnotation {
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
 }
 
+/** Secret fields declared by a settings schema, shared by persistence and client redaction. */
+export function secretSettingsFields(schema: {
+  readonly fields: Readonly<Record<string, Schema.Top>>;
+}): ReadonlyArray<string> {
+  return Object.entries(schema.fields).flatMap(([field, fieldSchema]) => {
+    return isSecretSetting(fieldSchema) ? [field] : [];
+  });
+}
+
 export interface ProviderSettingsFormSchemaAnnotation {
   readonly order?: readonly string[] | undefined;
 }
@@ -578,10 +592,22 @@ export interface ProviderSettingsFormSchemaAnnotation {
 declare module "effect/Schema" {
   namespace Annotations {
     interface Annotations {
+      /** Store this credential separately and expose only whether it is configured to clients. */
+      readonly settingsSecret?: boolean | undefined;
       readonly providerSettingsForm?: ProviderSettingsFormAnnotation | undefined;
       readonly providerSettingsFormSchema?: ProviderSettingsFormSchemaAnnotation | undefined;
     }
   }
+}
+
+/** Mark a string or a record of strings as a credential in its settings schema. */
+export function secretSetting<S extends Schema.Top>(schema: S): S["Rebuild"] {
+  return schema.annotateKey({ settingsSecret: true });
+}
+
+export function isSecretSetting(schema: Schema.Top): boolean {
+  const annotations = Schema.resolveAnnotationsKey(schema) ?? Schema.resolveAnnotations(schema);
+  return annotations?.settingsSecret === true;
 }
 
 export type ProviderSettingsOrder<Fields extends Schema.Struct.Fields> = readonly Extract<
@@ -589,7 +615,8 @@ export type ProviderSettingsOrder<Fields extends Schema.Struct.Fields> = readonl
   string
 >[];
 
-function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fields>(
+/** A provider settings struct whose fields the settings form renders in `order`. */
+export function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fields>(
   fields: Fields,
   options?: {
     readonly order?: ProviderSettingsOrder<Fields> | undefined;
@@ -723,6 +750,89 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
+/**
+ * Antigravity ACP auth methods. Personal and Enterprise open a Google sign-in
+ * in the browser. The API key and Agent Platform methods take credentials from
+ * the instance config and never open a browser.
+ */
+export const ANTIGRAVITY_AUTH_METHODS = [
+  { value: "oauth-personal", label: "Google account" },
+  { value: "oauth-business", label: "Gemini Enterprise" },
+  { value: "gemini-api-key", label: "Gemini API key" },
+  { value: "agent-platform", label: "Agent Platform (Vertex AI)" },
+] as const satisfies ReadonlyArray<ProviderSettingsFormOption>;
+export const AntigravityAuthMethod = Schema.Literals(
+  ANTIGRAVITY_AUTH_METHODS.map((method) => method.value),
+);
+export type AntigravityAuthMethod = typeof AntigravityAuthMethod.Type;
+
+export const AntigravitySettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    authMethod: AntigravityAuthMethod.pipe(
+      Schema.withDecodingDefault(Effect.succeed("oauth-personal" as const)),
+      Schema.annotateKey({
+        title: "Sign-in method",
+        description:
+          "Google account uses your Antigravity subscription. Gemini Enterprise needs a GCP project and location. API key and Agent Platform bill the credential you enter.",
+        providerSettingsForm: {
+          control: "select",
+          options: ANTIGRAVITY_AUTH_METHODS,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    apiKey: TrimmedString.pipe(
+      secretSetting,
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "API key",
+        description: "Gemini or Vertex AI express key. Stored separately on the host.",
+        providerSettingsForm: {
+          control: "password",
+          placeholder: "Optional",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    gcpProject: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "GCP project",
+        description:
+          "Required for Gemini Enterprise. Agent Platform uses it when no API key is set.",
+        providerSettingsForm: { placeholder: "my-project-id", clearWhenEmpty: "omit" },
+      }),
+    ),
+    gcpLocation: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "GCP location",
+        description: "Region for Gemini Enterprise or Agent Platform, such as us-central1.",
+        providerSettingsForm: { placeholder: "us-central1", clearWhenEmpty: "omit" },
+      }),
+    ),
+    binaryPath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Binary path",
+        description:
+          "Optional path to the official Antigravity ACP executable. Leave empty for automatic selection.",
+        providerSettingsForm: { placeholder: "Automatic", clearWhenEmpty: "persist" },
+      }),
+    ),
+    customModels: Schema.Array(CustomModelSetting).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  { order: ["authMethod", "apiKey", "gcpProject", "gcpLocation", "binaryPath"] },
+);
+export type AntigravitySettings = typeof AntigravitySettings.Type;
+
 export const CursorSettings = makeProviderSettingsSchema(
   {
     // Off by default like Grok and OpenCode. Users opt in from Settings.
@@ -774,89 +884,6 @@ export const GrokSettings = makeProviderSettingsSchema(
   },
 );
 export type GrokSettings = typeof GrokSettings.Type;
-
-/**
- * Antigravity ACP auth methods. Personal and Enterprise open a Google sign-in
- * in the browser. The API key and Agent Platform methods take credentials from
- * the instance config and never open a browser.
- */
-export const ANTIGRAVITY_AUTH_METHODS = [
-  { value: "oauth-personal", label: "Google account" },
-  { value: "oauth-business", label: "Gemini Enterprise" },
-  { value: "gemini-api-key", label: "Gemini API key" },
-  { value: "agent-platform", label: "Agent Platform (Vertex AI)" },
-] as const satisfies ReadonlyArray<ProviderSettingsFormOption>;
-export const AntigravityAuthMethod = Schema.Literals(
-  ANTIGRAVITY_AUTH_METHODS.map((method) => method.value),
-);
-export type AntigravityAuthMethod = typeof AntigravityAuthMethod.Type;
-
-export const AntigravitySettings = makeProviderSettingsSchema(
-  {
-    enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(false)),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
-    authMethod: AntigravityAuthMethod.pipe(
-      Schema.withDecodingDefault(Effect.succeed("oauth-personal" as const)),
-      Schema.annotateKey({
-        title: "Sign-in method",
-        description:
-          "Google account uses your Antigravity subscription. Gemini Enterprise needs a GCP project and location. API key and Agent Platform bill the credential you enter.",
-        providerSettingsForm: {
-          control: "select",
-          options: ANTIGRAVITY_AUTH_METHODS,
-          clearWhenEmpty: "omit",
-        },
-      }),
-    ),
-    apiKey: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "API key",
-        description:
-          "Gemini API key, or a Vertex AI express key for Agent Platform. Stored in plain text on this environment.",
-        providerSettingsForm: {
-          control: "password",
-          placeholder: "Optional",
-          clearWhenEmpty: "omit",
-        },
-      }),
-    ),
-    gcpProject: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "GCP project",
-        description:
-          "Required for Gemini Enterprise. Agent Platform uses it when no API key is set.",
-        providerSettingsForm: { placeholder: "my-project-id", clearWhenEmpty: "omit" },
-      }),
-    ),
-    gcpLocation: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "GCP location",
-        description: "Region for Gemini Enterprise or Agent Platform, such as us-central1.",
-        providerSettingsForm: { placeholder: "us-central1", clearWhenEmpty: "omit" },
-      }),
-    ),
-    binaryPath: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "Binary path",
-        description:
-          "Optional path to the official Antigravity ACP executable. Leave empty for automatic selection.",
-        providerSettingsForm: { placeholder: "Automatic", clearWhenEmpty: "persist" },
-      }),
-    ),
-    customModels: Schema.Array(CustomModelSetting).pipe(
-      Schema.withDecodingDefault(Effect.succeed([])),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
-  },
-  { order: ["authMethod", "apiKey", "gcpProject", "gcpLocation", "binaryPath"] },
-);
-export type AntigravitySettings = typeof AntigravitySettings.Type;
 
 export const HermesSettings = makeProviderSettingsSchema(
   {
@@ -1053,54 +1080,25 @@ export const UsageLimitSourceConfig = Schema.Struct({
   kind: Schema.Literal("cliproxy"),
   label: Schema.optional(TrimmedNonEmptyString),
   url: TrimmedNonEmptyString,
-  managementKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  managementKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
 
-/**
- * Bitbucket API credentials for this environment, used before the
- * `T3CODE_BITBUCKET_*` environment variables. The tokens live in the server's
- * secret store; settings and clients only see a redaction marker when one is
- * set. The access token wins when both kinds are configured.
- */
-export const BitbucketSettings = Schema.Struct({
-  email: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  accessToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  apiToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-});
-export type BitbucketSettings = typeof BitbucketSettings.Type;
-
-/**
- * Per-host choices for the GitHub CLI's logins. `account` pins one of the logins
- * `gh` holds for the host instead of its active one; a disabled host gets no
- * credential at all. A token saved here wins over `GH_TOKEN` and friends, which win over `gh`.
- */
 /** A GitHub host name, lowercased on decode so `GitHub.com` and `github.com` are one entry. */
 export const GitHubHost = TrimmedNonEmptyString.pipe(
   Schema.decodeTo(Schema.String, SchemaTransformation.toLowerCase()),
 );
 
-export const GitHubHostSettings = Schema.Struct({
-  account: Schema.optionalKey(TrimmedNonEmptyString),
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-});
-export type GitHubHostSettings = typeof GitHubHostSettings.Type;
-
-export const GitHubSettings = Schema.Struct({
-  /** Keyed by lowercased host, for example `github.com`. */
-  hosts: Schema.Record(GitHubHost, GitHubHostSettings).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-  /**
-   * A token per host, used before `GH_TOKEN` and `gh`. The server keeps each one in its secret
-   * store; settings and clients only ever see a redaction marker for a saved token.
-   */
-  tokens: Schema.Record(GitHubHost, TrimmedString).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-});
-export type GitHubSettings = typeof GitHubSettings.Type;
+/**
+ * One source control host's saved settings. Each host package declares the fields it reads in
+ * its client definition's settings schema and decodes this blob with it; the environment stores
+ * it whole, so a host this build does not ship keeps its settings. A field annotated as a secret
+ * holds a string, or a string per server host, whose value lives in the server's secret store:
+ * settings and clients only see a redaction marker for a saved one.
+ */
+export const SourceControlHostSettings = Schema.Record(Schema.String, Schema.Unknown);
+export type SourceControlHostSettings = typeof SourceControlHostSettings.Type;
 
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -1471,7 +1469,17 @@ const StorageRetentionDays = Schema.NullOr(
   Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3650 })),
 );
 
+export const WorktreeKeepWhen = Schema.Literals([
+  "any-local-files",
+  "uncommitted-changes",
+  "tracked-changes",
+]);
+export type WorktreeKeepWhen = typeof WorktreeKeepWhen.Type;
+
 export const WorktreeCleanupRules = Schema.Struct({
+  worktreeKeepWhen: WorktreeKeepWhen.pipe(
+    Schema.withDecodingDefault(Effect.succeed("uncommitted-changes")),
+  ),
   worktreeAfterDays: StorageRetentionDays,
   worktreeOnMerge: Schema.Boolean,
   worktreeOnDelete: Schema.Boolean,
@@ -1501,6 +1509,8 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
   "sourceControlWriterModelSelection",
+  "reviewGuideModelSelection",
+  "reviewGuideInstructions",
   "sourceControlWritingStyle",
   "removeAgentCreditsOnMerge",
   "branchNamingMode",
@@ -1515,10 +1525,24 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
 ] as const;
 export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number];
 
+export const ProjectProviderInstanceOverride = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+});
+export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOverride.Type;
+
 /**
  * One project's overrides. An absent key inherits the environment value;
  * `null` is a real value where the environment type is nullable (no default
  * model, no dedicated writer model, never auto-settle).
+ *
+ * `providerInstances` sits outside `PROJECT_SCOPED_SERVER_SETTING_KEYS`:
+ * every other key replaces its `ServerSettings` field whole, while this one
+ * keeps the settings.json shape but overrides field by field, per
+ * `ProviderInstanceId`. Only `enabled` is overridable today. An instance id
+ * or field absent here inherits the machine value, and a present `enabled`
+ * wins in either direction, so a project can turn on an instance the machine
+ * disabled, or turn off one the machine enabled. See
+ * `resolveProjectProviderInstanceEnabled` for the combined resolution.
  */
 export const ProjectSettingsOverrides = Schema.Struct({
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
@@ -1535,6 +1559,8 @@ export const ProjectSettingsOverrides = Schema.Struct({
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
   removeAgentCreditsOnMerge: Schema.optionalKey(Schema.Boolean),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
@@ -1546,7 +1572,10 @@ export const ProjectSettingsOverrides = Schema.Struct({
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
-} satisfies Record<ProjectScopedServerSettingKey, unknown>);
+  providerInstances: Schema.optionalKey(
+    Schema.Record(ProviderInstanceId, ProjectProviderInstanceOverride),
+  ),
+} satisfies Record<ProjectScopedServerSettingKey | "providerInstances", unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
 /**
@@ -1565,9 +1594,32 @@ const NULLABLE_PROJECT_SETTINGS_OVERRIDES: ReadonlySet<ProjectScopedServerSettin
 >([
   "defaultModelSelection",
   "sourceControlWriterModelSelection",
+  "reviewGuideModelSelection",
   "pullRequestMergeMethod",
   "sidebarAutoSettleAfterDays",
 ]);
+
+export const StorageCleanupReportEntry = Schema.Struct({
+  kind: Schema.Literals(["worktree", "browser-artifacts", "logs"]),
+  outcome: Schema.Literals(["removed", "kept", "failed"]),
+  reason: Schema.String,
+  path: Schema.NullOr(Schema.String),
+  threadId: Schema.NullOr(ThreadId),
+  threadTitle: Schema.NullOr(Schema.String),
+  bytes: Schema.NullOr(Schema.Number).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  files: Schema.NullOr(Schema.Number).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+});
+export type StorageCleanupReportEntry = typeof StorageCleanupReportEntry.Type;
+export const StorageCleanupReport = Schema.Struct({
+  trigger: Schema.Literals(["automatic", "manual"]),
+  startedAt: Schema.String,
+  finishedAt: Schema.String,
+  entries: Schema.Array(StorageCleanupReportEntry),
+  counts: Schema.Struct({ removed: Schema.Number, kept: Schema.Number, failed: Schema.Number }),
+  omittedCount: Schema.Number,
+  bytesFreed: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+});
+export type StorageCleanupReport = typeof StorageCleanupReport.Type;
 
 export const StorageCleanupSettings = Schema.Struct({
   conversationEvidenceOnArchive: Schema.Boolean.pipe(
@@ -1575,6 +1627,9 @@ export const StorageCleanupSettings = Schema.Struct({
   ),
   conversationEvidenceAfterDays: StorageRetentionDays.pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  worktreeKeepWhen: WorktreeKeepWhen.pipe(
+    Schema.withDecodingDefault(Effect.succeed("uncommitted-changes")),
   ),
   worktreeAfterDays: StorageRetentionDays.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   worktreeOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1605,6 +1660,12 @@ export const ServerSettings = Schema.Struct({
   threadRunLimits: Schema.Record(ThreadId, Schema.NullOr(RunLimits)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  // Null means no client has migrated this preference yet; an empty value is
+  // authoritative so another device cannot resurrect cleared preferences.
+  favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  providerModelPreferences: Schema.NullOr(ProviderModelPreferences).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(StorageCleanupSettings)({}))),
@@ -1631,7 +1692,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // Retain the update-era key; recovery now needs an environment-owned opt-in.
+  // Preserve the fork opt-in default and saved choices. Recovery stops after
+  // three automatic continuations in a row.
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1667,10 +1729,11 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE)),
   ),
   /**
-   * Per-project overrides of the keys in `PROJECT_SCOPED_SERVER_SETTING_KEYS`.
-   * The source of truth for project settings; `projectAgentBrowserAccessOverrides`,
-   * `projectAutoPullOverrides` and `projectScriptOverrides` are derived views
-   * kept for one release so older clients keep reading them.
+   * Per-project overrides of the keys in `PROJECT_SCOPED_SERVER_SETTING_KEYS`,
+   * plus `providerInstances`. The source of truth for project
+   * settings; `projectAgentBrowserAccessOverrides`, `projectAutoPullOverrides`
+   * and `projectScriptOverrides` are derived views kept for one release so
+   * older clients keep reading them.
    */
   projectSettingsOverrides: Schema.Record(ProjectId, ProjectSettingsOverrides).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1789,6 +1852,24 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   /**
+   * Beta: review guides on this server. Off hides the Guide tab in every client and refuses to
+   * write guides, for people and agents alike.
+   */
+  reviewGuidesEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * The model that reads a pull request to write its review guide. It investigates a checkout
+   * over many turns, so it can want a stronger model than one-shot writing. `null` uses the
+   * source control writer model.
+   */
+  reviewGuideModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  /**
+   * The maintainer's taste for review guides: what to dwell on, skip, or order first. Shapes the
+   * guide's emphasis only; the output format and coverage rules stay fixed.
+   */
+  reviewGuideInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
    * The merge method pull requests start with; `null` reuses the method
    * last chosen on this device. Server-side so a project can override it
    * like any other project setting.
@@ -1826,8 +1907,10 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  bitbucket: BitbucketSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  github: GitHubSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /** Keyed by source control host kind, such as `gitcafe`; see `SourceControlHostSettings`. */
+  sourceControlHosts: Schema.Record(Schema.String, SourceControlHostSettings).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   // Keyed by a user-chosen id so a source keeps its rows across edits. Entries
   // this build cannot decode round-trip untouched, as provider instances do.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
@@ -1863,8 +1946,8 @@ export const DEFAULT_SERVER_SETTINGS: ServerSettings = Schema.decodeSync(ServerS
 /**
  * Read the legacy `enabled` flag embedded in a provider instance config
  * blob. The envelope-level `ProviderInstanceConfig.enabled` is the single
- * flag going forward; this reader exists for legacy `providers.<kind>`
- * blobs and old settings files that still carry the flag in-config.
+ * flag going forward; this reader exists for old settings files that still
+ * carry the flag in-config.
  */
 export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | undefined => {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
@@ -1875,18 +1958,34 @@ export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | un
 };
 
 /**
- * Default enabled state for a built-in driver when neither the envelope nor
- * the config blob carries a flag. Derived from the driver's settings schema
- * through `DEFAULT_SERVER_SETTINGS`, so the schema's decoding default stays
- * the single source of truth. Unknown (fork) drivers default to enabled.
+ * Built-in drivers that stay off until the user turns them on. Matches the
+ * `enabled` decoding default of each driver's settings schema.
  */
-const defaultEnabledForDriver = (driver: ProviderDriverKind): boolean => {
-  const legacyDefaults = DEFAULT_SERVER_SETTINGS.providers as Record<
-    string,
-    { readonly enabled?: boolean } | undefined
-  >;
-  return legacyDefaults[driver]?.enabled ?? true;
-};
+const DEFAULT_DISABLED_PROVIDER_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
+  ["cursor", "grok", "muse", "pi", "opencode", "antigravity"].map((driver) =>
+    ProviderDriverKind.make(driver),
+  ),
+);
+
+/** Built-in drivers whose default instance runs before the user configures it. */
+const DEFAULT_ENABLED_DEFAULT_INSTANCES: ReadonlySet<ProviderInstanceId> = new Set(
+  ["codex", "claudeAgent"].map((instanceId) => ProviderInstanceId.make(instanceId)),
+);
+
+/**
+ * Whether the built-in default instance at `instanceId` is enabled while
+ * settings have no `providerInstances` entry for it. Only Codex and Claude
+ * start on; any other id without an entry has no running instance.
+ */
+export const isUnconfiguredDefaultInstanceEnabled = (instanceId: ProviderInstanceId): boolean =>
+  DEFAULT_ENABLED_DEFAULT_INSTANCES.has(instanceId);
+
+/**
+ * Default enabled state for a driver when neither the envelope nor the config
+ * blob carries a flag. Unknown (fork) drivers default to enabled.
+ */
+const defaultEnabledForDriver = (driver: ProviderDriverKind): boolean =>
+  !DEFAULT_DISABLED_PROVIDER_DRIVERS.has(driver);
 
 /**
  * Resolve whether a configured provider instance is enabled. An explicit
@@ -1902,6 +2001,30 @@ export const resolveProviderInstanceEnabled = (
     return false;
   }
   return instance.enabled ?? configEnabled ?? defaultEnabledForDriver(instance.driver);
+};
+
+/**
+ * Effective enablement for a provider instance within a project: the
+ * project's `providerInstances[id].enabled` override when set, otherwise the
+ * machine-wide `resolveProviderInstanceEnabled` value. `projectId` of `null`
+ * (no project in scope) always resolves to the machine-wide value.
+ */
+export const resolveProjectProviderInstanceEnabled = (
+  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
+  projectId: ProjectId | null,
+  instanceId: ProviderInstanceId,
+): boolean => {
+  const override =
+    projectId === null
+      ? undefined
+      : settings.projectSettingsOverrides[projectId]?.providerInstances?.[instanceId]?.enabled;
+  if (override !== undefined) return override;
+  const instanceConfig = Object.hasOwn(settings.providerInstances, instanceId)
+    ? settings.providerInstances[instanceId]
+    : undefined;
+  return instanceConfig !== undefined
+    ? resolveProviderInstanceEnabled(instanceConfig)
+    : isUnconfiguredDefaultInstanceEnabled(instanceId);
 };
 
 export const ServerSettingsOperation = Schema.Literals([
@@ -1922,6 +2045,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "remove-github-account-token",
   "remove-stale-github-account-token",
   "read-project-github-account",
+  "storage-cleanup-held",
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 
@@ -1950,7 +2074,7 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
 
 // ── Unified type ─────────────────────────────────────────────────────
 
-export type UnifiedSettings = ServerSettings & ClientSettings;
+export type UnifiedSettings = Omit<ServerSettings, keyof ModelPreferences> & ClientSettings;
 export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
   ...DEFAULT_SERVER_SETTINGS,
   ...DEFAULT_CLIENT_SETTINGS,
@@ -2033,6 +2157,24 @@ export const ServerSettingsPatch = Schema.Struct({
   spaceEfficientWorktrees: Schema.optionalKey(Schema.Boolean),
   runLimits: Schema.optionalKey(RunLimits),
   threadRunLimits: Schema.optionalKey(Schema.Record(ThreadId, Schema.NullOr(RunLimits))),
+  setModelFavorites: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
+  ),
+  setModelsHidden: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ ...ModelFavorite.fields, hidden: Schema.Boolean })),
+  ),
+  setProviderModelOrder: Schema.optionalKey(
+    Schema.Struct({ provider: ProviderInstanceId, modelOrder: Schema.Array(TrimmedString) }),
+  ),
+  favorites: Schema.optionalKey(ModelFavorites),
+  providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),
+  // Applied under the settings service's write lock, only while still unset.
+  migrateModelPreferences: Schema.optionalKey(
+    Schema.Struct({
+      favorites: Schema.optionalKey(ModelFavorites),
+      providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),
+    }),
+  ),
   worktreeCleanup: Schema.optionalKey(
     Schema.NullOr(
       Schema.Union([
@@ -2040,6 +2182,7 @@ export const ServerSettingsPatch = Schema.Struct({
         Schema.Struct({
           mode: Schema.Literal("custom"),
           rules: Schema.Struct({
+            worktreeKeepWhen: Schema.optionalKey(WorktreeKeepWhen),
             worktreeAfterDays: Schema.optionalKey(StorageRetentionDays),
             worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
             worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
@@ -2053,6 +2196,7 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       conversationEvidenceOnArchive: Schema.optionalKey(Schema.Boolean),
       conversationEvidenceAfterDays: Schema.optionalKey(StorageRetentionDays),
+      worktreeKeepWhen: Schema.optionalKey(WorktreeKeepWhen),
       worktreeAfterDays: Schema.optionalKey(StorageRetentionDays),
       worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
       worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
@@ -2089,6 +2233,11 @@ export const ServerSettingsPatch = Schema.Struct({
    * the entry without that key. Per-key null cannot express "clear" for the
    * keys whose value type is itself nullable, and clients always hold the
    * current entry from the last settings snapshot.
+   *
+   * `providerInstances` is the one exception: an entry that omits the key
+   * keeps the stored value instead of clearing it, so a client built before
+   * that field existed cannot wipe it by editing another key. Clearing every
+   * provider override for a project means sending `providerInstances: {}`.
    */
   projectSettingsOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(ProjectSettingsOverrides)),
@@ -2130,6 +2279,9 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  reviewGuidesEnabled: Schema.optionalKey(Schema.Boolean),
+  reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
   observability: Schema.optionalKey(
     Schema.Struct({
@@ -2214,24 +2366,11 @@ export const ServerSettingsPatch = Schema.Struct({
       modelSelection: Schema.optionalKey(ModelSelection),
     }),
   ),
-  /** An empty token clears it; an omitted one keeps what the server has. */
-  bitbucket: Schema.optionalKey(
-    Schema.Struct({
-      email: Schema.optionalKey(TrimmedString),
-      accessToken: Schema.optionalKey(TrimmedString),
-      apiToken: Schema.optionalKey(TrimmedString),
-    }),
-  ),
   /**
-   * `hosts` replaces the whole map, so an omitted host or account clears it. `tokens` merges per
-   * host: an empty token removes that host's token, the redaction marker keeps it.
+   * Merges per host: a patched field replaces the saved one, so a client sends a per-server-host
+   * map whole, with the redaction marker for each saved secret it keeps. An empty or omitted
+   * secret is removed from the secret store.
    */
-  github: Schema.optionalKey(
-    Schema.Struct({
-      hosts: Schema.optionalKey(Schema.Record(GitHubHost, GitHubHostSettings)),
-      tokens: Schema.optionalKey(Schema.Record(GitHubHost, TrimmedString)),
-    }),
-  ),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
@@ -2244,6 +2383,7 @@ export const ServerSettingsPatch = Schema.Struct({
       antigravity: Schema.optionalKey(AntigravitySettingsPatch),
     }),
   ),
+  sourceControlHosts: Schema.optionalKey(Schema.Record(Schema.String, SourceControlHostSettings)),
   // Whole-map replacement for the new instance config. Patching individual
   // entries is intentionally out of scope: the map is small, and partial
   // patches risk leaving driver-specific config in a half-merged state.
@@ -2289,7 +2429,27 @@ export function requiredScopesForServerSettingsPatch(
   ];
 }
 
+/**
+ * Project scripts run on the host when a worktree is created or a thread
+ * settles, so a project mutation that carries them needs the same grant as
+ * saving project scripts through settings, on top of `orchestration:operate`.
+ */
+export function requiredScopesForProjectMutation(
+  mutation: ProjectMutation,
+): ReadonlyArray<AuthEnvironmentScope> {
+  if (mutation.type === "project.delete" || mutation.scripts === undefined) {
+    return [AuthOrchestrationOperateScope];
+  }
+  return [
+    AuthOrchestrationOperateScope,
+    ...requiredScopesForServerSettingsPatch({ defaultProjectScripts: mutation.scripts }),
+  ];
+}
+
 export const ClientSettingsPatch = Schema.Struct({
+  participantProfiles: Schema.optionalKey(ParticipantProfiles),
+  activeParticipantProfile: Schema.optionalKey(Schema.String),
+  agentColorOverrides: Schema.optionalKey(AgentColorOverrides),
   agentNotifications: Schema.optionalKey(AgentNotificationPreferences),
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   notificationMode: Schema.optionalKey(NotificationMode),
@@ -2334,27 +2494,8 @@ export const ClientSettingsPatch = Schema.Struct({
   fontFamilyTerminal: Schema.optionalKey(FontFamilyPreference),
   fontSmoothing: Schema.optionalKey(Schema.Boolean),
   persistComposerContextStrip: Schema.optionalKey(Schema.Boolean),
-  favorites: Schema.optionalKey(
-    Schema.Array(
-      Schema.Struct({
-        provider: ProviderInstanceId,
-        model: TrimmedNonEmptyString,
-      }),
-    ),
-  ),
-  providerModelPreferences: Schema.optionalKey(
-    Schema.Record(
-      ProviderInstanceId,
-      Schema.Struct({
-        hiddenModels: Schema.Array(Schema.String).pipe(
-          Schema.withDecodingDefault(Effect.succeed([])),
-        ),
-        modelOrder: Schema.Array(Schema.String).pipe(
-          Schema.withDecodingDefault(Effect.succeed([])),
-        ),
-      }),
-    ),
-  ),
+  favorites: Schema.optionalKey(ModelFavorites),
+  providerModelPreferences: Schema.optionalKey(ProviderModelPreferences),
   pullRequestMergeMethodOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, PullRequestMergeMethod),
   ),

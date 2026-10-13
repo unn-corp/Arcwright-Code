@@ -6,7 +6,7 @@ import {
   type RelayClientInstallProgressStage,
 } from "@t3tools/contracts";
 import { RelayOkResponse } from "@t3tools/contracts/relay";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
@@ -796,7 +796,7 @@ export const connectCommand = Command.make("connect", {
         // show how to run the server manually.
         const background = yield* recoverServiceOnboardingOffer(offerServiceDuringOnboarding);
         if (background) {
-          const platform = yield* HostProcessPlatform;
+          const platform = yield* HostProcess.Platform;
           yield* Console.log(
             platform === "darwin"
               ? "\n✓ Background service ready\n\nArcwright Code is set to run while you are logged in to this Mac. The server establishes the Arcwright Connect link on startup."

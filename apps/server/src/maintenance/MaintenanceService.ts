@@ -23,7 +23,10 @@ import {
   type ForkMaintenanceController,
 } from "@t3tools/shared/forkMaintenanceController";
 import { listForkReleases, type FetchLike } from "@t3tools/shared/forkMaintenanceFeed";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  Architecture as HostProcessArchitecture,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -208,6 +211,7 @@ const make = Effect.gen(function* () {
     currentBuild,
     launcher: {
       supportsMaintenanceTrial: launcher.supportsMaintenanceTrial,
+      supportsStorageOptimization: launcher.supportsStorageOptimization ?? false,
       requestUpdate: (input) => Effect.runPromiseWith(context)(launcher.requestUpdate(input)),
     },
     dbPath: config.dbPath,
@@ -273,7 +277,11 @@ const make = Effect.gen(function* () {
             return controller.stage();
           });
         case "install":
-          return attempt(() => controller.install(input.targetArtifactSha256));
+          return attempt(() =>
+            controller.install(input.targetArtifactSha256, input.optimizeStorage),
+          );
+        case "optimize-storage":
+          return attempt(() => controller.optimizeStorage(input.targetArtifactSha256));
         case "cancel-countdown":
           return attempt(() => controller.cancelCountdown());
         case "acknowledge-automation-review":

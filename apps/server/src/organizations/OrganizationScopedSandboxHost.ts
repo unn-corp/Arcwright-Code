@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 import * as NodeStream from "node:stream";
 import * as NodeStreamPromises from "node:stream/promises";
 import * as NodeUtil from "node:util";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import {
   OrganizationSandboxUnavailable,
   isOrganizationSandboxAvailable,

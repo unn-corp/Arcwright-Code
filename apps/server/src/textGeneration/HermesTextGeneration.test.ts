@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { expect } from "vite-plus/test";
 
-import { execScriptSource, writeFakeCli } from "../testUtils/fakeCli.ts";
+import { execScriptSource, writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 import { makeHermesTextGeneration } from "./HermesTextGeneration.ts";
 import { architectTurnInput } from "./OrganizationArchitectFixture.ts";
 import type * as TextGeneration from "./TextGeneration.ts";
@@ -37,7 +37,7 @@ function withFakeHermes<A, E, R>(
     const binaryPath = writeFakeCli({
       directory,
       name: "hermes",
-      env,
+      env: { T3_ACP_HERMES_PROFILE: "1", ...env },
       source: execScriptSource({ scriptPath: mockAgentPath, expectedArgs: ["acp"] }),
     });
     return yield* run(yield* makeHermesTextGeneration(decodeHermesSettings({ binaryPath })));

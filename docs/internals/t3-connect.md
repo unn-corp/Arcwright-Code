@@ -171,6 +171,31 @@ and clients keep their bindings. Every mutation on an allocation bumps its
 `generation`, and deletion locks the row at the generation it claimed, so a
 host that reconnects mid-sweep wins.
 
+## The relay client follows the server's pin
+
+The host runs `cloudflared` pinned by `CLOUDFLARED_VERSION` in
+[`relayClient.ts`](../../packages/shared/src/relayClient.ts), and bumping it there
+(version, URLs, and checksums) is the whole release step. A linked host that
+starts a server with a new pin keeps its connector up on the newest older managed
+release, installs the pinned one in the background, then starts a second
+connector on it for the same tunnel. The old connector stops only after the new
+one registers, so the swap never takes the host off the relay. If the new one
+fails to spawn, the old one keeps serving and the install retries later. A host
+with no relay client installs one first. A `cloudflared` on `PATH` or an explicit `T3CODE_CLOUDFLARED_PATH` is the
+user's choice and is never replaced, since linking asks before downloading.
+
+Once the pinned release registers a connection, managed releases older than the
+pin are deleted except the newest of them. That one, and any newer release, can
+belong to another server sharing the same T3 home, such as a rollback after a
+failed update, which could not run again without it.
+
+The version comes from running `cloudflared version`, not from the folder name.
+Connectors from before `--no-autoupdate` replaced themselves in place, so a
+managed folder can hold another release. Such a binary still runs as a fallback
+while the pin installs. Every binary needs `CLOUDFLARED_MIN_VERSION`, the oldest
+release that accepts every flag the connector is started with. Raise it whenever
+a new flag is added.
+
 ## OAuth traps
 
 Interactive clients and the headless CLI use the same Clerk application but
@@ -221,7 +246,13 @@ its next launch. A mismatched profile cannot initialize the SDK to perform that 
 
 [ConnectAuthBridge.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuthBridge.kt)
 provides `t3ConnectAuth` only to main-frame messages from `https://appassets.androidplatform.net`.
-It accepts bounded JSON/request IDs for status, subscribe, sign-in, relay token and sign-out.
+It accepts bounded JSON/request IDs for status, subscribe, sign-in, relay token, public participant
+profile and sign-out. The optional request-only profile action leaves protocol-1 status unchanged.
+It reads only the matching session's public name, avatar and external-account presentation, under
+the same user/session/generation fence as relay tokens; it never serializes SDK objects or credentials.
+The APK selects a per-user local participant profile, preserves manual edits and existing metadata
+when the optional read fails, and switches to its local profile only on confirmed sign-out. Older
+bridges keep authentication and manual profiles, with a neutral initial profile when metadata is absent.
 Token requests use only the compiled JWT template; no arbitrary template, URL, fetch, device
 credential, refresh credential, or proof key is exposed. Account generation, user and session
 fences reject renewal results after logout or account replacement. Navigation clears listeners

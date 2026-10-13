@@ -5,6 +5,7 @@
  * @module SqliteClient
  */
 import * as NodeSqlite from "node:sqlite";
+import { registerStorageFunctions } from "./forkStorageCodec.ts";
 
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
@@ -141,6 +142,8 @@ const make = Effect.fn("makeWithDatabase")(function* (
           }),
       ).pipe(Effect.orDie),
     );
+
+    registerStorageFunctions(db);
 
     const statementReaderCache = new WeakMap<NodeSqlite.StatementSync, boolean>();
     const hasRows = (statement: NodeSqlite.StatementSync): boolean => {

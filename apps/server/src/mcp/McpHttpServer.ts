@@ -14,6 +14,7 @@ import { OrchestratorMcpFailure, PreviewAutomationError } from "@t3tools/contrac
 import packageJson from "../../package.json" with { type: "json" };
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
+import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
@@ -462,7 +463,10 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                         ),
                       )
                   : undefined;
-              if (screenshotPath !== undefined && payload?.includeImage === false) {
+              // Images stay out of tool history unless asked for: providers replay them on every
+              // later request, and some reject inline images outright.
+              const includeImage = payload?.includeImage === true;
+              if (screenshotPath !== undefined && !includeImage) {
                 // The agent only wants a file to show the user. The url keeps the site icon on the tool row.
                 const saved = {
                   url: cutText(snapshot.url, MAX_SNAPSHOT_IDENTIFIER_CHARS),
@@ -507,9 +511,9 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                           text: `Snapshot text was bounded. Omitted: ${bounded.omitted.join("; ")}.`,
                         },
                       ]),
-                  ...(payload?.includeImage === false
-                    ? []
-                    : [{ type: "image" as const, data: png, mimeType: screenshot.mimeType }]),
+                  ...(includeImage
+                    ? [{ type: "image" as const, data: png, mimeType: screenshot.mimeType }]
+                    : []),
                 ],
               });
             }),
@@ -718,11 +722,25 @@ const registerHtmlPreview = Effect.fn("McpHttpServer.registerHtmlPreview")(funct
 /**
  * `McpServer.toolkit` for handlers that declared their access (see
  * `McpToolAccess`). Every toolkit on `/mcp` registers through this.
+ *
+ * `McpServer.toolkit` asks for every service its tools declare when it
+ * registers them, but the auth middleware provides `McpInvocationContext` to
+ * each request instead. Registration must not get one: the services it
+ * captures would replace the request's.
  */
 export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, RX>(
   toolkit: Toolkit.Toolkit<Tools>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
-) => McpServer.toolkit(toolkit).pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)));
+) => {
+  const registration = McpServer.toolkit(toolkit);
+  // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off - the auth middleware provides it per request.
+  const registered = registration as Layer.Layer<
+    never,
+    never,
+    Exclude<Layer.Services<typeof registration>, McpInvocationContext.McpInvocationContext>
+  >;
+  return registered.pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)));
+};
 
 /** A hand-registered tool, also only with handlers that declared their access. */
 const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, EX, RX>(
@@ -767,10 +785,10 @@ const layerPreviewControlsRegistration = toolkitRegistration(
   PreviewControlsHandlers.layer,
 );
 
-const layerEnvironmentRegistration = toolkitRegistration(
+export const layerEnvironmentToolkit = toolkitRegistration(
   EnvironmentToolkit,
   EnvironmentHandlers.layer,
-);
+).pipe(Layer.provide(ThreadCommandExecutor.layer));
 
 const layerMaintenanceRegistration = toolkitRegistration(
   MaintenanceToolkit,
@@ -779,7 +797,7 @@ const layerMaintenanceRegistration = toolkitRegistration(
 
 const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
-const layerAttachmentRegistration = toolkitRegistration(
+export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentToolkit,
   AttachmentHandlers.layer,
 );
@@ -809,15 +827,16 @@ export const layerMcpTransport = McpServer.layerHttp({
   version: packageJson.version,
   path: "/mcp",
   protocols: [McpProtocol.v2025_06_18],
+  allowSessionTermination: true,
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
 export const layer = Layer.mergeAll(
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,
-  layerAttachmentRegistration,
+  layerAttachmentToolkit,
   layerProjectRegistration,
-  layerEnvironmentRegistration,
+  layerEnvironmentToolkit,
   layerMaintenanceRegistration,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,

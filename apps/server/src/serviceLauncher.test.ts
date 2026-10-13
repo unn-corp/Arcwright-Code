@@ -76,6 +76,30 @@ it("rejects contradictory service state", () => {
   );
 });
 
+it("round-trips same-version storage trials without accepting same-version updates or downgrades", () => {
+  for (const status of ["pending", "committed", "rolled-back", "failed"] as const) {
+    const state = {
+      protocol: SERVICE_LAUNCHER_PROTOCOL,
+      activeVersion: "1.0.0",
+      update: {
+        id: "storage",
+        fromVersion: "1.0.0",
+        targetVersion: "1.0.0",
+        dbPath: "/tmp/isolated.sqlite",
+        status,
+        storageOptimization: true,
+      },
+    };
+    assert.equal(decodeServiceState(state)?.update?.storageOptimization, true);
+    assert.isUndefined(
+      decodeServiceState({ ...state, update: { ...state.update, storageOptimization: undefined } }),
+    );
+    assert.isUndefined(
+      decodeServiceState({ ...state, update: { ...state.update, targetVersion: "0.9.0" } }),
+    );
+  }
+});
+
 // A pinned runtime is an executable at <versionDir>/t3. The tests stand one up
 // as a Node shebang script so the launcher spawns it the way it spawns the
 // real single-executable, IPC channel included.
@@ -247,6 +271,58 @@ if (context.update?.status === "pending") {
       const state = yield* Effect.promise(() => readServiceState(statePath));
       assert.equal(state.activeVersion, "1.1.0");
       assert.equal(state.update?.status, "committed");
+    }),
+  );
+
+  it.effect("runs an admitted storage trial on the same runtime and persists its completion", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-service-storage-trial-" });
+      const statePath = path.join(root, "runtime", "service-state.json");
+      const databasePath = path.join(root, "userdata", "statev2.sqlite");
+      yield* fs.makeDirectory(path.dirname(databasePath), { recursive: true });
+      yield* fs.writeFileString(databasePath, "independent fixture");
+      yield* writeFakeRuntime(
+        fs,
+        path,
+        path.join(root, "runtime", "versions", "1.0.0"),
+        `
+const context=JSON.parse(process.env.T3_SERVICE_LAUNCHER_CONTEXT);
+if (context.update?.status === "pending") {
+  if (!context.capabilities.includes("storage-migration") || !context.update.storageOptimization) process.exit(4);
+  process.send({type:"prepared",updateId:context.update.id});
+  process.on("message", message=>{if(message.type === "committed")process.exit(0);});
+} else if (context.update === undefined) {
+  process.send({type:"request-update",targetVersion:"1.0.0",dbPath:${JSON.stringify(databasePath)},trial:{transactionId:"fixture-storage",home:${JSON.stringify(root)},nonce:"isolated",storageOptimization:true}});
+  setInterval(()=>{},1000);
+} else process.exit(0);
+`,
+      );
+      yield* Effect.promise(() =>
+        writeServiceState(statePath, {
+          protocol: SERVICE_LAUNCHER_PROTOCOL,
+          activeVersion: "1.0.0",
+        }),
+      );
+      const launcher = new Launcher(
+        root,
+        yield* Effect.promise(() => readServiceState(statePath)),
+        async () => {},
+      );
+      yield* Effect.promise(() =>
+        launcher.run().then(
+          () => Promise.reject(new Error("launcher unexpectedly completed")),
+          () => Promise.resolve(),
+        ),
+      );
+      assert.deepEqual((yield* Effect.promise(() => readServiceState(statePath))).update, {
+        id: (yield* Effect.promise(() => readServiceState(statePath))).update!.id,
+        fromVersion: "1.0.0",
+        targetVersion: "1.0.0",
+        status: "committed",
+        storageOptimization: true,
+      });
     }),
   );
 

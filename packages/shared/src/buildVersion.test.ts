@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { formatBuildVersion, includedUpstreamVersion } from "./buildVersion.ts";
+import {
+  formatBuildVersion,
+  formatCompactBuildVersion,
+  includedUpstreamVersion,
+} from "./buildVersion.ts";
 
 describe("build version presentation", () => {
   it("keeps the included upstream version separate from the Arcwright nightly counter", () => {
@@ -21,6 +25,39 @@ describe("build version presentation", () => {
     expect(
       formatBuildVersion({ version: "1.0.1", upstreamVersion: "0.0.45", forkBuildNumber: 36 }),
     ).toBe("0.0.45 · Arcwright build 36 · Stable");
+  });
+  it("identifies a local nightly preview instead of presenting it as stable", () => {
+    expect(
+      formatBuildVersion({ version: "1.0.1-preview.20261012.1", upstreamVersion: "0.0.49" }),
+    ).toBe("0.0.49 · Arcwright build 1 · Local Nightly");
+  });
+  it("puts the nightly channel and counter before the upstream version in compact labels", () => {
+    expect(
+      formatCompactBuildVersion({
+        version: "1.0.1-nightly.20261011.85",
+        upstreamVersion: "0.0.49",
+      }),
+    ).toBe("Nightly 85 · T3 0.0.49");
+    expect(
+      formatCompactBuildVersion({ version: "1.0.1-preview.20261012.1", upstreamVersion: "0.0.49" }),
+    ).toBe("Local Nightly 1 · T3 0.0.49");
+  });
+  it("keeps local preview counters separate from published fork counters", () => {
+    const local = {
+      version: "1.0.1-preview.20261012.2",
+      upstreamVersion: "0.0.49",
+      forkBuildNumber: 85,
+    };
+    expect(formatCompactBuildVersion(local)).toBe("Local Nightly 2 · T3 0.0.49");
+    expect(formatBuildVersion(local)).toBe("0.0.49 · Arcwright build 2 · Local Nightly");
+  });
+  it("does not invent upstream provenance or nightly counters for compact labels", () => {
+    expect(formatCompactBuildVersion({ version: "1.0.1-nightly.20261011.85" })).toBe("Nightly 85");
+    expect(formatCompactBuildVersion({ version: "dev" })).toBe("dev");
+    expect(formatCompactBuildVersion({ version: "0.0.45" })).toBe("0.0.45");
+    expect(formatCompactBuildVersion({ version: "1.0.1", forkBuildNumber: 36 })).toBe(
+      "Arcwright build 36",
+    );
   });
   it("leaves unknown and upstream-only identities intact", () => {
     expect(formatBuildVersion({ version: "dev" })).toBe("dev");

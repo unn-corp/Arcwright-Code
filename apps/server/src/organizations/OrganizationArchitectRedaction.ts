@@ -1,1 +1,1 @@
-export { redactKnownCredentials as redactOrganizationArchitectText } from "./CredentialRedaction.ts";
+export * from "@t3tools/provider-core/server/OrganizationArchitectRedaction";

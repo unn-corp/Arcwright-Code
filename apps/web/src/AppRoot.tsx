@@ -2,6 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 
 import { DesktopAgentNotificationCoordinator } from "./agentNotifications/DesktopAgentNotificationCoordinator";
 import { AndroidBrowserHosts } from "./android/AndroidBrowserHosts";
+import { BrowserProfileReporter } from "./browser/BrowserProfileReporter";
 import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
 import { QuitHoldOverlay } from "./components/QuitHoldOverlay";
 import { AppAtomRegistryProvider } from "./rpc/atomRegistry";
@@ -20,6 +21,7 @@ export function AppRoot({ router }: { readonly router: AppRouter }) {
       <DesktopAgentNotificationCoordinator router={router} />
       <AndroidBrowserHosts />
       <ElectronBrowserHost />
+      <BrowserProfileReporter />
       <QuitHoldOverlay />
     </AppAtomRegistryProvider>
   );

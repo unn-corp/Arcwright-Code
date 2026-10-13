@@ -1,4 +1,20 @@
 // oxlint-disable unicorn/prefer-add-event-listener, unicorn/require-post-message-target-origin -- Android WebMessage listener exposes onmessage/postMessage without DOM event or targetOrigin APIs.
+import { ParticipantPhoto } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+
+const NativeParticipantProfile = Schema.Struct({
+  name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  photo: Schema.NullOr(ParticipantPhoto),
+  accounts: Schema.Array(
+    Schema.Struct({
+      id: Schema.String.check(Schema.isMaxLength(256)),
+      label: Schema.String.check(Schema.isMaxLength(200)),
+      photo: Schema.NullOr(ParticipantPhoto),
+    }),
+  ).check(Schema.isMaxLength(20)),
+});
+export type AndroidParticipantProfile = typeof NativeParticipantProfile.Type;
+const isParticipantProfile = Schema.is(NativeParticipantProfile);
 /** Restricted native auth RPC. Session/device/refresh credentials never cross this boundary. */
 export interface AndroidAuthStatus {
   readonly protocol: 1;
@@ -91,7 +107,13 @@ export function createAndroidAuthStore(readBridge: () => AuthBridge | undefined)
     for (const listener of listeners) listener();
   };
   const request = (
-    action: "status" | "subscribe" | "signIn" | "getRelayToken" | "signOut",
+    action:
+      | "status"
+      | "subscribe"
+      | "signIn"
+      | "getRelayToken"
+      | "getParticipantProfile"
+      | "signOut",
     forceRefresh?: boolean,
   ): Promise<unknown> => {
     const bridge = readBridge();
@@ -150,8 +172,14 @@ export function createAndroidAuthStore(readBridge: () => AuthBridge | undefined)
       }
     });
   };
+  const isCurrentAccount = (captured: AndroidAuthStatus) =>
+    snapshot.phase === "signedIn" &&
+    snapshot.generation === captured.generation &&
+    snapshot.userId === captured.userId &&
+    snapshot.sessionId === captured.sessionId;
   return {
     getSnapshot: () => snapshot,
+    isCurrentAccount,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
@@ -196,6 +224,31 @@ export function createAndroidAuthStore(readBridge: () => AuthBridge | undefined)
       if (typeof data.token !== "string" || data.token.length > 32768)
         throw new Error("Invalid account token response.");
       return data.token;
+    },
+    getParticipantProfile: async (
+      captured = snapshot,
+    ): Promise<AndroidParticipantProfile | null> => {
+      if (!isCurrentAccount(captured)) return null;
+      // A protocol-1 bridge without this optional action retains auth and manual profiles.
+      let result: unknown;
+      try {
+        result = await request("getParticipantProfile");
+      } catch {
+        return null;
+      }
+      if (!isCurrentAccount(captured) || typeof result !== "object" || result === null) return null;
+      if (
+        !("generation" in result) ||
+        result.generation !== captured.generation ||
+        !("userId" in result) ||
+        result.userId !== captured.userId ||
+        !("sessionId" in result) ||
+        result.sessionId !== captured.sessionId ||
+        !("profile" in result) ||
+        !isParticipantProfile(result.profile)
+      )
+        return null;
+      return result.profile;
     },
     dispose: () => {
       for (const call of pending.values()) {

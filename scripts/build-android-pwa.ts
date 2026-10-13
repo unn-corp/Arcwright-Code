@@ -14,7 +14,7 @@ import {
 } from "./lib/public-config.ts";
 import { androidManagedAuthBuildEnv } from "./lib/android-pwa-public-config.ts";
 import { forkUpstreamIdentity } from "./lib/build-identity.ts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import {
   ANDROID_METADATA_FILE,
   androidBuildMetadata,

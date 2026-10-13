@@ -22,10 +22,31 @@ Android displays its source version separately from its installation sequence.
 
 The main label is **Arcwright Code 0.0.45 · Arcwright build 35 · Nightly**, for example.
 The T3 version identifies the upstream code included; the Arcwright number identifies
-our build. About retains the exact upstream and Arcwright commits and the installer
+our build. The sidebar starts with **Nightly N**, followed by the included T3 version. Hover over
+it for the full identity and exact installer release. **Hard rule:** all new nightly installations,
+including locally built copies, use the release pipeline's allocated
+`<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**. A separate
+**Local Nightly** name/counter or a `preview` artifact is not an accepted replacement.
+Existing preview builds keep their true identity until an admitted replacement; their labels
+must not be changed to impersonate a published nightly.
+About retains the exact upstream and Arcwright commits and the installer
 release for diagnosis. Android's installation sequence is separate: recovery installs
 older source using a higher Android code. Historical builds with unknown upstream
 provenance show only their Arcwright counter rather than guessing a T3 version.
+
+## Continue threads after restarts
+
+**Settings → General → Continue threads after restarts** is off by default.
+It resumes supported active threads after an update, crash, or machine
+restart. Changes are saved to connected environments that support this setting;
+update older servers first. If a supported environment was offline or has a
+different value, use **Apply to all** in Settings after it connects.
+Arcwright Code must start again on that machine;
+the setting does not enable automatic startup. Terminal commands may still be
+interrupted, and threads without saved provider resume state need a new message.
+A thread is not resumed while it waits for your approval, answer, or secret, or
+while it is archived, snoozed, or settled. After three automatic resumes in a row,
+the thread waits for your next message.
 
 Desktop sidebar update controls and **Check for Updates** in the application
 menu open this same status surface. Downloads are not ready to install until
@@ -254,6 +275,11 @@ permission. Read the provider's own restart guidance.
 
 ## Manual backups
 
+For measured database contents and safe improvement options, see the
+[database storage audit](../operations/database-storage.md). A large database is not
+automatically disposable cache. Inspection can use an existing verified recovery copy while
+the app stays running; retention changes and compaction need their own admitted maintenance.
+
 Stop the server and use an explicit home and a new private output directory:
 
 ```sh
@@ -278,3 +304,26 @@ you while the app is in the background. Native recovery links to this permission
 
 In **Settings → General → App updates**, use **Open App updates notification settings**
 to enable that channel. Native recovery offers the same route when the bundled interface cannot load.
+
+## Storage maintenance
+
+Large output bodies are stored once in compressed form while chats and their original
+replay history stay available. Upgrading a populated database from an older build queues
+a one-time shrink. It waits for idle maintenance admission and a cancellable countdown,
+then verifies a restore point and repacks the database in a background worker. Running
+chats continue and hold cleanup until they finish. Later launches use a small schema fingerprint check and do not repeat completed cleanup.
+
+Newer storage upgrades can reduce old history further even if an earlier cleanup completed.
+They preserve every historical record and use the same idle maintenance and recovery checks.
+Each storage upgrade runs once; ordinary launches do not repeatedly repack your database.
+
+This data upgrade keeps your installed version and pin, independently of the automatic
+binary-update setting. If a managed server reports an older service launcher, refresh it
+with `t3 service install` during its maintenance window so the queued cleanup can run.
+An installation needing operating-system authorization waits for a manual request.
+
+For a manual retry on a supported numbered nightly, use `t3 maintenance optimize-storage
+--digest <installed-artifact-sha256>`. An update can also request `--optimize-storage`
+when both controller and target support it. Read the
+[storage runbook](../operations/database-storage.md) for exact commands, limits and
+old-history access. Savings are measured after the admitted run.

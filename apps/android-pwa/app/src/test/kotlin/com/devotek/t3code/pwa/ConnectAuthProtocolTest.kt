@@ -12,6 +12,9 @@ class ConnectAuthProtocolTest {
     @Test fun onlyBoundedPublicCapabilitiesCanBeDispatched() {
         val request = ConnectAuthProtocol.parse("""{"id":"request_1","action":"getRelayToken","forceRefresh":true}""")!!
         assertEquals("getRelayToken", request.action); assertTrue(request.forceRefresh)
+        assertEquals("getParticipantProfile", ConnectAuthProtocol.parse("""{"id":"profile_1","action":"getParticipantProfile"}""")!!.action)
+        assertNull(ConnectAuthProtocol.parse("""{"id":"r","action":"getParticipantProfile","userId":"other"}"""))
+        assertNull(ConnectAuthProtocol.parse("""{"id":"r","action":"getParticipantProfile","forceRefresh":true}"""))
         for (raw in listOf("""{"id":"r","action":"fetch","url":"https://example.test"}""", """{"id":"r","action":"getRelayToken","template":"admin"}""", """{"id":"r","action":"status","forceRefresh":true}""", """{"id":"r","action":"getRelayToken","forceRefresh":"true"}""", """{"id":1,"action":"signOut"}""", """{"id":"","action":"status"}""", "x".repeat(2049))) assertNull(ConnectAuthProtocol.parse(raw))
     }
 }

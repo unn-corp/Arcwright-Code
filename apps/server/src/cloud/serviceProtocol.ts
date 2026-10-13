@@ -21,9 +21,12 @@ export interface PendingServiceUpdate {
   readonly targetVersion: string;
   readonly dbPath: string;
   readonly status: "pending";
+  readonly storageOptimization?: true;
 }
 
-export type ServiceUpdateRecord = PendingServiceUpdate | ServerSelfUpdateOutcome;
+export type ServiceUpdateRecord =
+  | PendingServiceUpdate
+  | (ServerSelfUpdateOutcome & { readonly storageOptimization?: true });
 
 export interface ServiceState {
   readonly protocol: typeof SERVICE_LAUNCHER_PROTOCOL;
@@ -33,12 +36,14 @@ export interface ServiceState {
 
 /** Capabilities a launcher advertises to its child. Absent on launchers that predate them. */
 export const SERVICE_LAUNCHER_MAINTENANCE_TRIAL = "maintenance-trial" as const;
+export const SERVICE_LAUNCHER_STORAGE_MIGRATION = "storage-migration" as const;
 
 /** One-use launch capability a trial child presents to the device coordinator. */
 export interface ServiceMaintenanceTrial {
   readonly transactionId: string;
   readonly home: string;
   readonly nonce: string;
+  readonly storageOptimization?: boolean;
 }
 
 /** Context is copied from launcher-owned state when a child is spawned. */
@@ -102,9 +107,12 @@ function decodeServiceUpdate(value: unknown): ServiceUpdateRecord | undefined {
   ) {
     return undefined;
   }
+  if (value.storageOptimization !== undefined && value.storageOptimization !== true)
+    return undefined;
+  const storage = value.storageOptimization === true ? { storageOptimization: true as const } : {};
   if (status === "pending") {
     return typeof value.dbPath === "string" && value.dbPath.trim() !== ""
-      ? { id, fromVersion, targetVersion, dbPath: value.dbPath, status }
+      ? { id, fromVersion, targetVersion, dbPath: value.dbPath, status, ...storage }
       : undefined;
   }
   if (
@@ -116,6 +124,7 @@ function decodeServiceUpdate(value: unknown): ServiceUpdateRecord | undefined {
       fromVersion,
       targetVersion,
       status,
+      ...storage,
       ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
     };
   }
@@ -169,7 +178,9 @@ export function decodeServiceState(value: unknown): ServiceState | undefined {
     !isExactServiceVersion(value.activeVersion) ||
     (value.update !== undefined && update === undefined) ||
     (update !== undefined &&
-      compareExactServiceVersions(update.targetVersion, update.fromVersion) <= 0) ||
+      (compareExactServiceVersions(update.targetVersion, update.fromVersion) < 0 ||
+        (compareExactServiceVersions(update.targetVersion, update.fromVersion) === 0 &&
+          update.storageOptimization !== true))) ||
     (update?.status === "pending" && update.fromVersion !== value.activeVersion) ||
     (update?.status === "committed" && update.targetVersion !== value.activeVersion) ||
     ((update?.status === "rolled-back" || update?.status === "failed") &&
@@ -260,8 +271,16 @@ function decodeMaintenanceTrial(value: unknown): ServiceMaintenanceTrial | undef
     typeof home === "string" &&
     typeof nonce === "string" &&
     transactionId !== "" &&
-    nonce !== ""
-    ? { transactionId, home, nonce }
+    nonce !== "" &&
+    (value.storageOptimization === undefined || typeof value.storageOptimization === "boolean")
+    ? {
+        transactionId,
+        home,
+        nonce,
+        ...(value.storageOptimization === undefined
+          ? {}
+          : { storageOptimization: value.storageOptimization }),
+      }
     : undefined;
 }
 

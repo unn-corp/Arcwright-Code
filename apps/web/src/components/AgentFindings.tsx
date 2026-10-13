@@ -383,7 +383,7 @@ export function AgentFindings({
   const [snoozeDays, setSnoozeDays] = useState("3");
   const findingComposerModelCatalog = useMemo(() => {
     const providerInstanceEntries = sortProviderInstanceEntries(
-      applyProviderInstanceSettings(deriveProviderInstanceEntries(serverProviders), settings),
+      applyProviderInstanceSettings(deriveProviderInstanceEntries(serverProviders), settings, null),
     );
     const modelOptionsByInstance = new Map<
       ProviderInstanceId,

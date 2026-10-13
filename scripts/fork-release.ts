@@ -8,7 +8,10 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import * as Effect from "effect/Effect";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  Architecture as HostProcessArchitecture,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import {
   ANDROID_RECOVERY_EXTRAS_DIR,
   ANDROID_METADATA_FILE,
@@ -52,7 +55,12 @@ import {
   BASELINE_MANIFEST_ASSET,
   baselineDigest,
 } from "./fork-release-baseline.ts";
-import { androidCodeRangeTag, androidCodeTag } from "./fork-release-policy.ts";
+import {
+  androidCodeRangeTag,
+  androidCodeTag,
+  FORK_TAG_PREFIX,
+  forkVersionFromTag,
+} from "./fork-release-policy.ts";
 import {
   createDraft,
   createGitHubApi,
@@ -138,8 +146,11 @@ const runPlan = async (values: Args) => {
   if (channel !== "stable" && channel !== "nightly")
     throw new Error("--channel must be stable or nightly.");
   const github = githubFromEnv();
-  const releases = await loadReleaseRecords(github);
-  const baseline = await loadBaseline(github);
+  const [releases, baseline, reservedTags] = await Promise.all([
+    loadReleaseRecords(github),
+    loadBaseline(github),
+    github.listTags(FORK_TAG_PREFIX),
+  ]);
   const outcome = buildPlan({
     channel,
     ...(channel === "nightly" ? { commit: values.commit ?? requireEnv("GITHUB_SHA") } : {}),
@@ -150,6 +161,10 @@ const runPlan = async (values: Args) => {
       values["android-recovery-tags"] ?? "[]",
     ),
     releases,
+    reservedVersions: reservedTags.flatMap((tag) => {
+      const version = forkVersionFromTag(tag);
+      return version === null ? [] : [version];
+    }),
     baseline: baseline
       ? {
           tag: BASELINE_TAG,

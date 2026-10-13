@@ -15,6 +15,7 @@ import type { ForkReleaseManifest } from "@t3tools/contracts";
 import type { ForkPlatformKey } from "./forkMaintenance.ts";
 import {
   installRecoveryHelper,
+  installLocalRecoveryHelper,
   promoteRecoveryDirectory,
   readRecoveryCommand,
   recoveryInvocation,
@@ -110,6 +111,67 @@ const serve = (helper: Uint8Array, node: Uint8Array) => async (name: string) =>
   name.endsWith(".mjs") ? helper : node;
 
 describe("recovery helper cache", () => {
+  it("proves an explicit local preview pair through the same isolated cache self-tests", async () => {
+    const dir = await cacheDir();
+    const helper = helperScript();
+    const source = NodePath.join(NodePath.dirname(dir), "local-helper.mjs");
+    await NodeFSP.writeFile(source, helper);
+    const command = await installLocalRecoveryHelper({
+      cacheDir: dir,
+      version: "1.0.1-preview.20261012.2",
+      platform: HOST_PLATFORM,
+      helperPath: source,
+      helperSha256: digest(helper),
+      nodePath: process.execPath,
+      nodeSha256: digest(await realNode()),
+    });
+    expect(await readRecoveryCommand(dir)).toEqual(command);
+    expect(command.version).toBe("1.0.1-preview.20261012.2");
+    expect(command.helperPath).not.toBe(source);
+    expect(command.nodePath).not.toBe(process.execPath);
+  });
+
+  it("refuses local staging under a published identity before touching the cache", async () => {
+    const dir = await cacheDir();
+    await expect(
+      installLocalRecoveryHelper({
+        cacheDir: dir,
+        version: "1.0.1-nightly.20261011.85",
+        platform: HOST_PLATFORM,
+        helperPath: process.execPath,
+        helperSha256: "a".repeat(64),
+        nodePath: process.execPath,
+        nodeSha256: "a".repeat(64),
+      }),
+    ).rejects.toThrow("distinct local preview");
+    await expect(NodeFSP.stat(dir)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps the existing recovery pair when a local preview has a wrong digest", async () => {
+    const dir = await cacheDir();
+    const helper = helperScript();
+    const node = await realNode();
+    const previous = await installRecoveryHelper({
+      cacheDir: dir,
+      manifest: manifest("1.0.2", helper, node),
+      platform: HOST_PLATFORM,
+      fetchAsset: serve(helper, node),
+    });
+    const source = NodePath.join(NodePath.dirname(dir), "local-helper.mjs");
+    await NodeFSP.writeFile(source, helper);
+    await expect(
+      installLocalRecoveryHelper({
+        cacheDir: dir,
+        version: "1.0.1-preview.20261012.2",
+        platform: HOST_PLATFORM,
+        helperPath: source,
+        helperSha256: "a".repeat(64),
+        nodePath: process.execPath,
+        nodeSha256: digest(node),
+      }),
+    ).rejects.toThrow("does not match the digest");
+    expect(await readRecoveryCommand(dir)).toEqual(previous);
+  });
   it("promotes proven staging after transient locks outlast the old half-second retry window", async () => {
     const dir = await cacheDir();
     const staging = NodePath.join(dir, ".staging-test");

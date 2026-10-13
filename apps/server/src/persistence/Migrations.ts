@@ -115,6 +115,18 @@ import Migration0097 from "./Migrations/057_ScheduledTaskWebhooks.ts";
 import Migration0098 from "./Migrations/058_WebhookRelayDeliveries.ts";
 import Migration0099 from "./Migrations/099_MessageReplyIndex.ts";
 import Migration0100 from "./Migrations/100_ProviderThreadRecoveryIndex.ts";
+import Migration0101 from "./Migrations/101_LosslessStorage.ts";
+import Migration0102 from "./Migrations/102_AutomaticStorageMigration.ts";
+import Migration0103 from "./Migrations/103_StartupSchemaFingerprint.ts";
+import {
+  hasCurrentSchemaFingerprint,
+  recordSchemaFingerprint,
+  expectedSchemaObjects,
+} from "./SchemaFingerprint.ts";
+import Migration0104 from "./Migrations/059_McpAppModelContext.ts";
+import Migration0105 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
+import Migration0106 from "./Migrations/061_PullRequestReviewGuides.ts";
+import Migration0107 from "./Migrations/107_CompactHistoryBlocks.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -227,6 +239,13 @@ export const migrationEntries = [
   [98, "WebhookRelayDeliveries", Migration0098],
   [99, "MessageReplyIndex", Migration0099],
   [100, "ProviderThreadRecoveryIndex", Migration0100],
+  [101, "LosslessStorage", Migration0101],
+  [102, "AutomaticStorageMigration", Migration0102],
+  [103, "StartupSchemaFingerprint", Migration0103],
+  [104, "McpAppModelContext", Migration0104],
+  [105, "ThreadSnapshotWindowIndexes", Migration0105],
+  [106, "PullRequestReviewGuides", Migration0106],
+  [107, "CompactHistoryBlocks", Migration0107],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -263,6 +282,13 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  if (
+    toMigrationInclusive === undefined &&
+    (yield* hasCurrentSchemaFingerprint(migrationManifest))
+  ) {
+    yield* Effect.logDebug("Database schema fingerprint is current; skipping migration execution");
+    return [] as ReadonlyArray<readonly [number, string]>;
+  }
   const previewMigrations =
     toMigrationInclusive === undefined ? yield* reconcileV2PreviewMigration(migrationEntries) : [];
   const executedMigrations = [
@@ -297,6 +323,16 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     yield* Effect.logWarning(
       "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
     ).pipe(Effect.annotateLogs({ divergent }));
+  }
+  if (toMigrationInclusive === undefined) {
+    yield* recordSchemaFingerprint(migrationManifest, expectedSchemaObjects).pipe(
+      Effect.catchTags({
+        SchemaFingerprintError: (cause) =>
+          Effect.fail(
+            new Migrator.MigrationError({ kind: "BadState", message: cause.reason, cause }),
+          ),
+      }),
+    );
   }
   return executedMigrations;
 });

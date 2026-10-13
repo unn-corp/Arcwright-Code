@@ -5,6 +5,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import * as NodeSqlite from "node:sqlite";
+import { vi } from "vite-plus/test";
 import {
   assertCapacity,
   createSnapshot,
@@ -16,8 +17,12 @@ import {
   verifySnapshot,
 } from "./forkMaintenanceSnapshot.ts";
 
+vi.mock("node:fs/promises", { spy: true });
+const actualFs = await vi.importActual<typeof NodeFSP>("node:fs/promises");
+
 const roots: string[] = [];
 afterEach(async () => {
+  vi.mocked(NodeFSP.readdir).mockImplementation(actualFs.readdir);
   await Promise.all(
     roots.splice(0).map((root) => NodeFSP.rm(root, { recursive: true, force: true })),
   );
@@ -64,6 +69,55 @@ const messages = (file: string) => {
 };
 
 describe("restore points", () => {
+  it("reuses unchanged listing metadata, invalidates edits and still fully verifies recovery bytes", async () => {
+    const h = await home();
+    const id = await createSnapshot(h.root, "listing-cache", { restrict: noAcl });
+    h.close();
+    const point = NodePath.join(h.root, "maintenance", "restore-points", id);
+    const file = NodePath.join(point, "manifest.json");
+    const original = await actualFs.readFile(file, "utf8");
+    const reads = () =>
+      vi.mocked(NodeFSP.readFile).mock.calls.filter(([path]) => path === file).length;
+    const before = reads();
+    const [first, concurrent] = await Promise.all([
+      listRestorePoints(h.root),
+      listRestorePoints(h.root),
+    ]);
+    expect(concurrent).toEqual(first);
+    expect(await listRestorePoints(h.root)).toEqual(first);
+    expect(reads() - before).toBe(1);
+    await NodeFSP.writeFile(file, "invalid manifest");
+    expect(await listRestorePoints(h.root)).toEqual([]);
+    await NodeFSP.writeFile(file, original);
+    expect(await listRestorePoints(h.root)).toEqual(first);
+    await NodeFSP.writeFile(NodePath.join(point, "userdata", "settings.json"), "changed bytes");
+    await expect(verifySnapshot(h.root, id)).rejects.toThrow("checksum mismatch");
+  });
+  it("verifies file membership in large saved-workspace trees without overflowing the call stack", async () => {
+    const h = await home();
+    const id = await createSnapshot(h.root, "large-tree", { restrict: noAcl });
+    h.close();
+    const directory = NodePath.join(h.root, "maintenance", "restore-points", id, "userdata");
+    const original = actualFs.readdir;
+    const entries = await original(NodePath.join(directory, "attachments"), {
+      withFileTypes: true,
+    });
+    const file = entries[0]!;
+    const extraFiles = Array.from({ length: 160_000 }, (_, index) =>
+      Object.assign(Object.create(Object.getPrototypeOf(file)), file, {
+        name: `unrecorded-${index}.txt`,
+      }),
+    );
+    vi.spyOn(NodeFSP, "readdir").mockImplementation((async (...args) =>
+      args[0] === NodePath.join(directory, "attachments")
+        ? extraFiles
+        : Reflect.apply(original, actualFs, args)) as typeof NodeFSP.readdir);
+    // A large directory with unrecorded files must still reach the manifest's
+    // membership check, rather than failing while collecting its file paths.
+    await expect(verifySnapshot(h.root, id)).rejects.toThrow(
+      "Restore point file list does not match its manifest.",
+    );
+  });
   it("captures a live idle runtime's database and all unlisted state while excluding rebuildable artifacts", async () => {
     const h = await home();
     const id = await createSnapshot(h.root, "tx1", { restrict: noAcl });

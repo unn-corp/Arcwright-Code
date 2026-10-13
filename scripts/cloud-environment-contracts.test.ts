@@ -3,9 +3,13 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeURL from "node:url";
 import { expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
-import { CodexSettings, ServerSettings } from "../packages/contracts/src/settings.ts";
-import { DEFAULT_MODEL, DEFAULT_TEXT_GENERATION_MODEL } from "../packages/contracts/src/model.ts";
-import { ProviderInstanceId } from "../packages/contracts/src/providerInstance.ts";
+import {
+  CodexSettings,
+  ServerSettings,
+  DEFAULT_MODEL,
+  DEFAULT_TEXT_GENERATION_MODEL,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 
 const decodeFixtures = Schema.decodeUnknownSync(
   Schema.Array(Schema.Struct({ owner: ProviderInstanceId, settings: ServerSettings })),

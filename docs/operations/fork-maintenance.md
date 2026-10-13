@@ -37,6 +37,44 @@ contains Git submodule entries, preserve their root-relative registration in `.g
 initialization disabled. GitHub checkout's credential cleanup traverses these entries even during
 a sparse checkout; missing root metadata can stop every build before dependency installation.
 
+The [2026-10-12 integration record](upstream-integration-20261012.md) records the
+pinned upstream range, retained package ownership and compatibility corrections.
+The [2026-10-13 Connect integration record](connect-main-integration-20261013.md)
+records its pinned main merge, native participant adapter, focused checks and remaining
+relay/runtime and device gates.
+
+## Lossless data storage
+
+Migration 101 adds content-addressed compressed event/tool bodies, checksummed cold
+legacy history and durable legacy stream baselines. The server expands references
+before its existing contracts and JSON projection queries, preserving paired-client
+compatibility and original replay byte budgets. Normal startup performs light schema
+work; migration 102 queues one-time historical shrink for populated older databases.
+Supported desktop, WSL and managed-service launchers perform it during native maintenance;
+older service launchers hold it pending until refreshed. Migration 103 binds a fast schema
+and ledger SHA check to the compiled schema contract; matching future loads skip migration
+execution. Completed bulk cleanup is tracked separately and is not rerun.
+Migration 107 upgrades both original and previously optimized homes to storage migration 2:
+cold rows share bounded, checksummed Brotli blocks, with indexed access and exact record
+verification. Mixed gzip/block readers preserve command tombstones and archived exports.
+Packing is resumable and stays in the admitted worker; no historical row is discarded.
+The exact journal, native snapshots, worker parent/child identities, fencing, capacity
+checks and final health receipts govern the entire operation. Worker ownership survives
+an unexpected parent exit; recovery must not race a recorded storage worker.
+
+The implementation is owned by [payload storage](../../apps/server/src/persistence/PayloadStorage.ts),
+[the codec](../../packages/shared/src/forkStorageCodec.ts),
+[legacy archives](../../packages/shared/src/forkStorageArchive.ts),
+[compact history blocks](../../packages/shared/src/forkStorageBlocks.ts),
+[maintenance admission](../../packages/shared/src/forkStorageMaintenance.ts), and
+[the CLI worker](../../apps/server/src/maintenance/storageWorker.ts). Preserve the
+storage compatibility and maintenance regression suites when merging upstream. Populated databases from older builds queue a durable one-time shrink; it uses the same
+coordinator snapshots and receipts, preserves version pins, and waits for launcher support.
+Read
+[the storage runbook](database-storage.md) for retention boundaries, old-history access,
+supported installation paths and production verification. GitHub build retention is
+owned separately by [the release retention policy](fork-releases.md#github-build-storage-retention).
+
 ## Agent memory admission
 
 New agent starts, restarts, and restart continuations are held under host memory pressure without
@@ -70,8 +108,10 @@ regeneration and verification. Linux desktop registration uses content-derived i
 Header images, launchers, splash screens, notifications, and
 widgets must use these shared outputs. Keep installed package IDs, signing identities, URL
 schemes, legacy data folders, and recovery artifact names compatible when changing display names.
-Installed Android, Windows and Linux application names are exactly **Arcwright Code**. Channel
-and Arcwright build identity belong in About and App updates. Development desktops retain the
+The product name remains **Arcwright Code**. New numbered nightly installations use
+**Arcwright Code — Nightly N** in their launcher and application identity; the allocated release
+version, source and digest remain the update/recovery authority. About and App updates also
+show the included T3 base separately from the Arcwright build. Development desktops retain the
 `(Dev)` label. Windows keeps its previous channel-specific executable filename so already
 recorded updater/recovery handoffs still relaunch it; NSIS shortcuts and uninstall metadata use
 the clean product name. Do not change those executable paths without a handoff migration.
@@ -250,6 +290,8 @@ the existing cover/unfolded resize checks.
 [OpenWhisprVoiceInput.tsx](../../apps/web/src/components/chat/OpenWhisprVoiceInput.tsx)
 uses the shared client-operation guard; its [interaction tests](../../apps/web/src/components/chat/OpenWhisprVoiceInput.test.tsx)
 cover denied admission, cancelled permission acquisition, and pending transcription.
+When the picker preload cannot return a frozen page snapshot, desktop capture retries with bounded DOM-only extraction. Retain the screenshot/navigation consistency check, request/frame validation, and listener cleanup. React source attribution is optional in this fallback.
+
 Desktop preview annotations use the same recorder in
 [PreviewAnnotationEditor.tsx](../../apps/web/src/components/preview/PreviewAnnotationEditor.tsx).
 The app-root modal owns a frozen screenshot and extracted element metadata, independently of the
@@ -283,6 +325,25 @@ Android after rebuilding its bundle.
 The APK native container zeroes handled bars/cutout/IME insets before forwarding updates to WebView;
 see [shell inset maintenance](./android-pwa.md#shell-insets-and-folded-layouts). Verify native header
 alignment and keyboard hide after live fold changes as well as browser viewport tests.
+
+## Chat participant identity
+
+The shared participant contracts and client-runtime resolver retain message-time author photos
+and model attribution. Web, desktop and fork Android use the same chip and profile settings;
+upstream native mobile renders the shared attribution with its own chip. Preserve first personal
+account initialization, per-principal local profiles, manual photo choices, bounded raster
+thumbnails, broken-photo initials, and instance colors through timeline and auth refactors.
+Provider credentials must never initialize human profiles. Author metadata is display information,
+not proof of authorization. Replies must canonicalize their author snapshots from the target.
+The fork APK uses its native session's optional public-profile request instead of Clerk browser
+hooks. That read and deferred local persistence are fenced to the captured account/session/generation;
+transient failure retains existing edits and metadata, and confirmed sign-out selects the local profile.
+
+Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,
+`ParticipantProfileSync.test.tsx`, `AndroidParticipantProfileSync.test.tsx`, the native
+`ConnectParticipantProfileTest`, and `MessageReplies.integration.test.ts`. Keep plain and bubble
+messages, reply chains and related-agent lists using the same identity rules. See
+[chat profiles](../user/appearance.md#chat-participants-and-your-profile).
 
 ## Direct message replies
 
@@ -349,7 +410,11 @@ runtime context must carry its singleton admission service into server-scoped la
 and [maintenance policy](../../apps/server/src/maintenance/MaintenanceCoordinator.test.ts)
 regressions with their domain suites.
 Provider-role/model defaults and upstream orchestration event changes require reviewing adapters
-and contracts. Restoring old data must not silently replay schedules, queues, or standing work
+and contracts. Tool-free Architect prompts, output validation and credential redaction now live in
+[provider-core](../../packages/provider-core/src/server/OrganizationArchitectPrompt.ts), with
+server compatibility exports. Packaged Cursor, Grok and OpenCode drivers own their text generation;
+both OpenCode protocol versions expose the isolated Architect handler. Preserve the bound output,
+private temporary directories, tool denial and native process ownership when changing their runners. Restoring old data must not silently replay schedules, queues, or standing work
 authorization.
 
 ## Experimental Codex Cloud integration
@@ -516,7 +581,10 @@ This is host functionality, not an APK or cloud-push feature.
 Maintenance uses the `active-runtime` projection selector; restart recovery keeps
 `runtime`, which also reconciles ready provider sessions. A ready session alone is
 not active work. Keep one shared `IdleProcessRoots` service at server scope so
-spawn sites and the collector use the same exact PID/creation identity registry.
+spawn sites and the collector use the same exact PID/creation identity registry. The shared
+package owns [idleProcessRoots](../../packages/shared/src/idleProcessRoots.ts); the server
+[compatibility export](../../apps/server/src/maintenance/IdleProcessRoots.ts) re-exports that same
+service object. Provider packages must import the shared service rather than create their own registry.
 Only a verified provider root is exempt: terminal shells, unregistered helper
 children (including a lingering code-mode host), reused PIDs, and unknown process
 observations still hold installation. A completed turn does not prove those

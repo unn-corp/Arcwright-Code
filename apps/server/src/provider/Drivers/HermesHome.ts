@@ -1,8 +1,9 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import type { HermesSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 
-import { expandHomePath } from "../../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 
 /**
  * Hermes accepts a dedicated HERMES_HOME directory. Keep the host HOME
@@ -19,6 +20,6 @@ export const makeHermesEnvironment = Effect.fn("makeHermesEnvironment")(function
   const path = yield* Path.Path;
   return {
     ...environment,
-    HERMES_HOME: path.resolve(expandHomePath(configuredHome)),
+    HERMES_HOME: path.resolve(expandHomePath(configuredHome, yield* HostProcess.HomeDirectory)),
   };
 });

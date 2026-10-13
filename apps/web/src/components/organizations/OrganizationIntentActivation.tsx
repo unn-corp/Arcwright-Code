@@ -68,6 +68,7 @@ export function OrganizationIntentActivation({
   const entries = applyProviderInstanceSettings(
     deriveProviderInstanceEntries(providers),
     settings,
+    null,
   ).filter(
     (entry) =>
       (entry.driverKind === "codex" || entry.driverKind === "claude") &&

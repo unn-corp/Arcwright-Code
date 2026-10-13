@@ -30,7 +30,10 @@ const fixtureFor = (pageOrigin = origin) =>
       pickFiles: vi.fn(),
       showErrorBox: vi.fn(),
     });
-    const create = (storagePath: string | null = directory) =>
+    const create = (
+      storagePath: string | null = directory,
+      confirmOpenExternal?: Parameters<typeof MicrophonePermission.make>[2],
+    ) =>
       Effect.gen(function* () {
         const requestSetter = vi.fn<Session["setPermissionRequestHandler"]>();
         const checkSetter = vi.fn<Session["setPermissionCheckHandler"]>();
@@ -39,9 +42,11 @@ const fixtureFor = (pageOrigin = origin) =>
           setPermissionRequestHandler: requestSetter,
           setPermissionCheckHandler: checkSetter,
         } as unknown as Session;
-        const policy = yield* MicrophonePermission.make(session, new Set(["clipboard-read"])).pipe(
-          Effect.provide(dialogLayer),
-        );
+        const policy = yield* MicrophonePermission.make(
+          session,
+          new Set(["clipboard-read"]),
+          confirmOpenExternal,
+        ).pipe(Effect.provide(dialogLayer));
         const request = requestSetter.mock.calls[0]![0]!;
         const check = checkSetter.mock.calls[0]![0]!;
         const ask = (
@@ -403,4 +408,36 @@ it.effect.each([
     expect(first.audioCheck()).toBe(false);
     expect(prompt).not.toHaveBeenCalled();
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("keeps external protocol requests separate from remembered microphone grants", () =>
+  Effect.gen(function* () {
+    const { create, contents, prompt } = yield* fixture;
+    const first = yield* create(null);
+    const refused = vi.fn();
+    first.request(contents, "openExternal", refused, {
+      externalURL: "mailto:review@example.test",
+      isMainFrame: true,
+      requestingUrl: origin,
+    });
+    expect(refused).toHaveBeenCalledWith(false);
+    const confirm = vi.fn(
+      (
+        _contents: WebContents | null,
+        _url: string | undefined,
+        callback: (allowed: boolean) => void,
+      ) => callback(true),
+    );
+    const second = yield* create(null, confirm);
+    const allowed = vi.fn();
+    second.request(contents, "openExternal", allowed, {
+      externalURL: "mailto:review@example.test",
+      isMainFrame: true,
+      requestingUrl: origin,
+    });
+    expect(confirm).toHaveBeenCalledWith(contents, "mailto:review@example.test", allowed);
+    expect(allowed).toHaveBeenCalledWith(true);
+    expect(second.audioCheck()).toBe(false);
+    expect(prompt).not.toHaveBeenCalled();
+  }).pipe(Effect.provide(NodeServices.layer)),
 );

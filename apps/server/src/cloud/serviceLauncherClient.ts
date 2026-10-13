@@ -1,5 +1,5 @@
 import type { ServerSelfUpdateOutcome } from "@t3tools/contracts";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -11,6 +11,7 @@ import {
   decodeServiceLauncherParentMessage,
   SERVICE_LAUNCHER_CONTEXT_ENV,
   SERVICE_LAUNCHER_MAINTENANCE_TRIAL,
+  SERVICE_LAUNCHER_STORAGE_MIGRATION,
   type ServiceLauncherChildMessage,
   type ServiceMaintenanceTrial,
   type ServiceLauncherParentMessage,
@@ -104,6 +105,7 @@ export class ServiceLauncherClient extends Context.Service<
     readonly managed: boolean;
     /** True when this launcher can hand a one-use maintenance capability to the trial child. Older launchers cannot. */
     readonly supportsMaintenanceTrial: boolean;
+    readonly supportsStorageOptimization?: boolean;
     readonly requestUpdate: (input: {
       readonly targetVersion: string;
       readonly dbPath: string;
@@ -119,7 +121,7 @@ export class ServiceLauncherClient extends Context.Service<
 const resolveStartup = Effect.fn("cloud.service_launcher_client.resolve_startup")(
   function* (options?: { readonly currentVersion?: string }) {
     const host = yield* ServiceLauncherHostProcess;
-    const environment = yield* HostProcessEnvironment;
+    const environment = yield* HostProcess.Environment;
     const currentVersion = options?.currentVersion ?? packageJson.version;
     const rawContext = environment[SERVICE_LAUNCHER_CONTEXT_ENV];
     const context = rawContext === undefined ? undefined : decodeServiceLauncherContext(rawContext);
@@ -258,6 +260,8 @@ export const make = Effect.fn("cloud.service_launcher_client.make")(function* (o
 
   return ServiceLauncherClient.of({
     managed,
+    supportsStorageOptimization:
+      context?.capabilities?.includes(SERVICE_LAUNCHER_STORAGE_MIGRATION) === true,
     supportsMaintenanceTrial:
       context?.capabilities?.includes(SERVICE_LAUNCHER_MAINTENANCE_TRIAL) === true,
     requestUpdate,

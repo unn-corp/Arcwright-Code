@@ -109,3 +109,47 @@ describe("applyHermesAcpModelSelection", () => {
     }),
   );
 });
+
+it.effect("uses the model config option when ACP v2 retires session/set_model", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const result = yield* applyHermesAcpModelSelection({
+      runtime: {
+        setSessionModel: () =>
+          Effect.fail(EffectAcpErrors.AcpRequestError.methodNotFound("session/set_model")),
+        setModel: (model) =>
+          Effect.sync(() => {
+            calls.push(model);
+          }),
+      },
+      currentModelId: "openrouter:old",
+      requestedModelId: "openrouter:hermes-custom",
+      mapError: (cause) => cause.message,
+    });
+    expect(calls).toEqual(["openrouter:hermes-custom"]);
+    expect(result).toBe("openrouter:hermes-custom");
+  }),
+);
+
+it.effect("does not retry model validation errors through another protocol method", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const failure = EffectAcpErrors.AcpRequestError.invalidParams("Unknown model");
+    const error = yield* Effect.flip(
+      applyHermesAcpModelSelection({
+        runtime: {
+          setSessionModel: () => Effect.fail(failure),
+          setModel: (model) =>
+            Effect.sync(() => {
+              calls.push(model);
+            }),
+        },
+        currentModelId: "openrouter:old",
+        requestedModelId: "openrouter:unknown",
+        mapError: (cause) => cause,
+      }),
+    );
+    expect(calls).toEqual([]);
+    expect(error).toBe(failure);
+  }),
+);

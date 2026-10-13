@@ -1,3 +1,5 @@
+import { ParticipantChip } from "./ParticipantChip";
+import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -27,7 +29,6 @@ import {
 } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
-  BotIcon,
   ChevronRightIcon,
   ArrowRightLeftIcon,
   ArrowRightIcon,
@@ -41,7 +42,7 @@ import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { getProviderInstanceEntry } from "../../providerInstances";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { getTriggerDisplayModelName } from "./providerIconUtils";
-import { ProviderInstanceIcon, providerTextColorClassName } from "./ProviderInstanceIcon";
+import { ProviderInstanceIcon, providerTextColor } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 import { Button, InlineButton } from "../ui/button";
@@ -289,11 +290,17 @@ export function SubagentElapsed({ agent }: { agent: Parameters<typeof AgentElaps
 
 /** Round provider tile with the agents panel's status dot; rings let a header stack overlap. */
 export function SubagentAvatar({
+  instanceId,
+  name,
+  model,
   driver,
   provider,
   status,
   className,
 }: {
+  instanceId: string;
+  name?: string | undefined;
+  model?: string | undefined;
   driver?: ProviderDriverKind | undefined;
   provider?: ServerProvider | undefined;
   /** Omitted inside an overlapped stack, where a covered dot would only add noise. */
@@ -302,23 +309,22 @@ export function SubagentAvatar({
 }) {
   return (
     <span
-      aria-hidden
       className={cn(
-        "relative inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted ring-2 ring-background",
+        "relative inline-flex size-6 shrink-0 items-center justify-center rounded-full ring-2 ring-background",
         className,
       )}
     >
-      {driver ? (
-        <ProviderInstanceIcon
-          driverKind={driver}
-          displayName={provider?.displayName ?? driver}
-          acpRegistryIconUrl={provider?.iconUrl}
-          className="z-auto"
-          iconClassName="size-3.5"
-        />
-      ) : (
-        <BotIcon className="size-3.5 text-muted-foreground" />
-      )}
+      <ParticipantChip
+        variant="avatar"
+        participant={{
+          kind: "agent",
+          id: instanceId,
+          name: name ?? provider?.displayName ?? "Agent",
+          model,
+          driver,
+          iconUrl: provider?.iconUrl,
+        }}
+      />
       {status ? (
         <span
           className={cn(
@@ -443,6 +449,12 @@ function SubagentTimelineLink(props: {
   const content = (
     <>
       <SubagentAvatar
+        instanceId={agentInstanceId(
+          props.threadId ?? `${props.parentRef.threadId}:${props.subagentId}`,
+          props.providerInstanceId,
+        )}
+        name={props.title}
+        model={agent?.modelSelection?.model ?? agent?.model ?? undefined}
         driver={props.driver}
         provider={props.provider}
         status={status ?? undefined}
@@ -522,6 +534,7 @@ function SubagentTimelineLink(props: {
           {...props}
           elapsed={agent ? <AgentElapsed agent={projectedSubagentsToRuntime([agent])[0]!} /> : null}
           model={agent?.model ?? null}
+          modelSelection={agent?.modelSelection}
           status={liveStatus}
           result={agent?.result ?? props.result}
           progress={agent?.progress ?? props.progress}
@@ -532,7 +545,11 @@ function SubagentTimelineLink(props: {
 }
 
 function SubagentTimelineTooltip(
-  props: Parameters<typeof SubagentTimelineLink>[0] & { model: string | null; elapsed: ReactNode },
+  props: Parameters<typeof SubagentTimelineLink>[0] & {
+    model: string | null;
+    modelSelection: OrchestrationV2Subagent["modelSelection"];
+    elapsed: ReactNode;
+  },
 ) {
   const environmentId = props.parentRef.environmentId;
   const parent = useThreadShell(props.parentRef)?.source;
@@ -549,6 +566,7 @@ function SubagentTimelineTooltip(
       model={props.model}
       providerInstanceId={props.providerInstanceId}
       origin={props.origin}
+      modelSelection={props.modelSelection}
       provider={props.provider}
       providers={props.providers}
       driver={props.driver}
@@ -581,13 +599,16 @@ function HandoffEndpoint(props: {
       : model !== undefined && model.length > 0
         ? model
         : (entry?.displayName ?? props.instanceId);
+  const labelColor = providerTextColor(
+    entry?.driverKind ?? ProviderDriverKind.make(props.instanceId),
+  );
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <span
             tabIndex={0}
-            className="inline-flex min-w-0 items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-w-0 items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
             <ProviderInstanceIcon
               driverKind={entry?.driverKind ?? ProviderDriverKind.make(props.instanceId)}
@@ -597,12 +618,8 @@ function HandoffEndpoint(props: {
               iconClassName="size-3"
             />
             <span
-              className={cn(
-                "truncate font-medium",
-                providerTextColorClassName(
-                  entry?.driverKind ?? ProviderDriverKind.make(props.instanceId),
-                ),
-              )}
+              className={cn("truncate font-medium", labelColor.className)}
+              style={labelColor.style}
             >
               {label}
             </span>

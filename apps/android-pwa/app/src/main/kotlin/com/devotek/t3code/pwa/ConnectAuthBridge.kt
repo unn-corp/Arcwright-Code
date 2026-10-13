@@ -5,6 +5,7 @@ import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONObject
+import org.json.JSONArray
 import kotlinx.coroutines.*
 
 /** One restricted capability. External documents, browser-agent tabs and subframes never get it. */
@@ -35,6 +36,19 @@ class ConnectAuthBridge(private val activity: MainActivity, private val webView:
                             val token = auth.getRelayToken(request.forceRefresh)
                             check(auth.isCurrent(fence)) { "Account changed." }
                             JSONObject().put("token", token).put("generation", fence.generation).put("userId", fence.userId).put("sessionId", fence.sessionId)
+                        }
+                        "getParticipantProfile" -> {
+                            val fence = auth.accountFence()
+                            val profile = auth.getParticipantProfile(fence)
+                            check(auth.isCurrent(fence)) { "Account changed." }
+                            val data = profile?.let {
+                                JSONObject().put("name", it.name).put("photo", it.photo ?: JSONObject.NULL)
+                                    .put("accounts", JSONArray(it.accounts.map { account ->
+                                        JSONObject().put("id", account.id).put("label", account.label).put("photo", account.photo ?: JSONObject.NULL)
+                                    }))
+                            }
+                            JSONObject().put("generation", fence.generation).put("userId", fence.userId).put("sessionId", fence.sessionId)
+                                .put("profile", data ?: JSONObject.NULL)
                         }
                         else -> error("Unsupported account action.")
                     }
@@ -87,7 +101,7 @@ object ConnectAuthProtocol {
             val id = json.get("id") as? String
             val action = json.get("action") as? String
             val keys = json.keys().asSequence().toSet()
-            val actions = setOf("status", "subscribe", "signIn", "getRelayToken", "signOut")
+            val actions = setOf("status", "subscribe", "signIn", "getRelayToken", "getParticipantProfile", "signOut")
             if (id == null || !id.matches(Regex("[A-Za-z0-9_-]{1,80}")) || action !in actions ||
                 !setOf("id", "action", "forceRefresh").containsAll(keys) ||
                 (json.has("forceRefresh") && (action != "getRelayToken" || json.get("forceRefresh") !is Boolean))) null

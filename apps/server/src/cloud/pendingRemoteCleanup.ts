@@ -10,7 +10,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_PUBLIC_AUTHORITY_SECRET, RELAY_URL_SECRET, RELAY_ISSUER_SECRET } from "./config.ts";
 import { LinkPublicAuthority } from "./connectAuthority.ts";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
-import { writeFileStringAtomically } from "../atomicWrite.ts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as ServerConfig from "../config.ts";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import { lock } from "proper-lockfile";

@@ -31,6 +31,47 @@ function fixture() {
   return { store, bridge, messages, emit, status };
 }
 describe("native managed auth store", () => {
+  it("reads bounded public profile metadata without changing strict protocol-1 status", async () => {
+    const { store, messages, emit, status } = fixture();
+    const promise = store.getParticipantProfile();
+    const request = messages.at(-1)!;
+    expect(request.action).toBe("getParticipantProfile");
+    const profile = {
+      name: "Alice",
+      photo: "https://example.test/alice.png",
+      accounts: [{ id: "google", label: "Google: Alice", photo: null }],
+    };
+    emit({ id: request.id, result: { ...status, profile } });
+    await expect(promise).resolves.toEqual(profile);
+    expect(store.getSnapshot()).toEqual(status);
+  });
+  it("drops a delayed profile from a replaced session and rejects a stale reader before dispatch", async () => {
+    const { store, messages, emit, status } = fixture();
+    const promise = store.getParticipantProfile();
+    const request = messages.at(-1)!;
+    emit({ event: { ...status, generation: 2, sessionId: "new-session" } });
+    emit({
+      id: request.id,
+      result: { ...status, profile: { name: "Old Alice", photo: null, accounts: [] } },
+    });
+    await expect(promise).resolves.toBeNull();
+    const count = messages.length;
+    await expect(store.getParticipantProfile(status)).resolves.toBeNull();
+    expect(messages).toHaveLength(count);
+  });
+  it("keeps account auth when optional metadata is unavailable or malformed", async () => {
+    const { store, messages, emit, status } = fixture();
+    const unavailable = store.getParticipantProfile();
+    emit({ id: messages.at(-1)!.id, error: "Unsupported account action" });
+    await expect(unavailable).resolves.toBeNull();
+    const malformed = store.getParticipantProfile();
+    emit({
+      id: messages.at(-1)!.id,
+      result: { ...status, profile: { name: "Alice", photo: "javascript:unsafe", accounts: [] } },
+    });
+    await expect(malformed).resolves.toBeNull();
+    expect(store.getSnapshot()).toEqual(status);
+  });
   it("exposes observable native account state and only requests the fixed token capability", async () => {
     const { store, messages, emit, status } = fixture();
     const listener = vi.fn();

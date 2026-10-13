@@ -3,7 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import type * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import type { BackgroundPolicySnapshot } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";

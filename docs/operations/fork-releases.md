@@ -40,6 +40,21 @@ provenance in web, server, desktop, and native Android; release manifests carry 
 additively. Nightly build counters come from their exact release version, and stable
 build counters come from `ARCWRIGHT_BUILD_NUMBER` (the fork workflow run number).
 Recovery builds read their predecessor's source; unknown historical provenance stays unknown.
+The sidebar uses a compact channel-first label such as **Nightly 35 · T3 0.0.45**, so narrowing it
+does not hide the nightly counter. **Hard rule:** every new nightly installed on the user's
+device, including a locally built copy, must use the pipeline's allocated
+`<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**. Do not install
+`preview` artifacts or create a separate **Local Nightly** name/counter. Prefer the verified
+published nightly when it already exists; never invent or reuse a counter, rename an existing
+binary to impersonate that release, or alter its source/digest identity. Existing preview builds
+retain their actual identity in historical and recovery records. The tooltip retains the full
+included-base and exact installer identities.
+
+After every coordinator-admitted installation, replace obsolete Start Menu entries with one
+canonical entry using that exact nightly name. Record the installed version/counter, source commit,
+artifact digest, launcher path, retired entries, and launch verification for each replacement.
+An existing running build and its chats remain active until replacement is explicitly authorized
+and admitted by the maintenance coordinator.
 
 [`buildVersion.ts`](../../packages/shared/src/buildVersion.ts) owns shared presentation;
 Android's [`VersionLabels.java`](../../apps/android-pwa/app/src/main/java/com/devotek/t3code/pwa/VersionLabels.java)
@@ -99,6 +114,46 @@ channel, and its recovery APK is a distinct source with a higher installation co
 signer. Devices never downgrade: stable devices take only stable releases, nightly devices follow
 nightlies but take a stable that outranks them. The rules live in
 `scripts/fork-release-policy.ts` and are tested there.
+
+## GitHub build storage retention
+
+**Hard rule:** keep only the newest **five published nightlies** and newest **five
+stable/main releases** in `unn-corp/t3code`. If a channel has fewer than five, keep
+all of them. Release assets are the retained build copies. Completed Actions
+artifacts, including candidate/predecessor/final archives and platform packages,
+are intermediates and are removed after their workflow completes. Active workflow
+artifacts remain available until completion. Source history, immutable Git tags,
+Android installation-code reservation tags, workflow logs and device-local
+recovery assets are preserved.
+
+[`fork-retention.yml`](../../.github/workflows/fork-retention.yml) runs after release,
+baseline and CI completion, daily, or by explicit dispatch. It uses the release
+pipeline's `fork-release` concurrency group and the shared publication/withdrawal
+state lock, so cleanup cannot remove a predecessor during an active publication.
+[`fork-release-retention.ts`](../../scripts/fork-release-retention.ts) defaults to a
+dry run, scopes mutations to this fork, orders versions numerically within each
+channel, rechecks releases before deletion, and protects in-progress, queued and
+waiting workflows. `--apply` performs the reviewed deletions. The commissioning
+baseline retires after five numbered nightlies have replaced it. Retained nightly
+core versions preserve the allocation floor after the baseline payload retires. Immutable
+fork version tags keep consumed stable versions reserved even after a draft or older payload
+is removed, so cleanup cannot regress versions or reuse one. Other repositories
+and unrelated release tags are outside this policy.
+
+Older release URLs stop serving binaries after retirement. Device recovery continues
+using its verified local cache and retained restore points; do not delete these
+because a GitHub release expires. Additional Android recovery commissioning must
+use a still-retained source or a verified device-local artifact. Never recreate an
+expired identity with different bytes. Shared dependency caches are rebuildable
+caches, not retained released builds; the bulk storage duplication was in completed
+Actions build archives.
+
+Linux binary handoffs restore normal foreground scheduling before Electron creates its
+threads, so an idle/background recovery helper cannot leave the new app in idle scheduling.
+
+Local storage optimization is a separate, explicitly admitted operation; see
+[database storage](database-storage.md). It does not extend the remote build window
+or authorize stopping working chats.
 
 ## Pipeline
 
@@ -501,23 +556,43 @@ it.
 
 ## Local desktop builds and menu replacement
 
-For an explicitly requested local Linux nightly, build a fresh AppImage from the committed source:
+Use the verified published nightly when one already exists for the required source. A local
+desktop build intended for installation must first have a fresh nightly identity allocated by
+the release pipeline and must build that allocation's pinned commit. Set
+`ARCWRIGHT_NIGHTLY_VERSION` to the allocated `<version>-nightly.<YYYYMMDD>.<N>` value;
+the example below does not allocate a version or establish release eligibility:
 
 ```bash
 node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64 \
-  --build-version 1.0.1-preview.YYYYMMDD.N --output-dir /absolute/local-output
+  --build-version "$ARCWRIGHT_NIGHTLY_VERSION" --output-dir /absolute/local-output
 ```
 
-Use a fresh local preview counter for that date. Local previews show **Arcwright Code — Local
-Nightly N** and do not advertise themselves as published releases. Published nightlies show
-**Arcwright Code — Nightly N**. The app derives this name at every launch, including its Linux menu
-entry; package IDs, WM class, URL scheme, pairing, and data-home identity stay stable.
+The installed application's name must be **Arcwright Code — Nightly N**, using that allocated
+counter. Do not install a `preview` artifact, introduce a separate local counter, or reuse a
+published version for different bytes. An already installed preview keeps its real identity
+until the next admitted nightly replacement; renaming it does not make it that nightly.
+The app derives its name at every launch, including its Linux menu entry; package IDs, WM class,
+URL scheme, pairing, and data-home identity stay stable.
 
 Every installation must go through the device maintenance coordinator with normal activity,
 idle-window, snapshot, trial, and health checks. A local build is not permission to bypass those
 checks or create release eligibility or installed-build receipts manually. Keep the previous binary
 and recovery assets until the new build is healthy. Close the old desktop only after the coordinator
 permits replacement, then launch the installed build against its original home.
+
+Build local recovery assets from the same committed source when changing backup or recovery code:
+
+```bash
+node scripts/fork-release.ts build-helper --workdir /absolute/checkout --platform linux-x64 \
+  --out /absolute/local-recovery-assets
+```
+
+Stage that helper and its retained runtime through `installLocalRecoveryHelper` with their actual
+digests and the distinct private preview cache key required by that API. This identifies only
+the recovery-helper cache, never the installed application's version, name, or nightly counter.
+It does not authorize installing a preview application. This uses the native private-cache and isolated
+self-test gates, retains the preceding recovery pair on failure, and creates no release eligibility
+or installed-build receipt. Never modify an existing published helper or its recorded digest in place.
 
 After **each** successful installation, verify the canonical menu entry
 `~/.local/share/applications/com.t3tools.T3Code.desktop` names the new build and launches its installed
@@ -529,6 +604,23 @@ the correct build name after a second launch, a ready backend, and working saved
 Record the exact source commit, version, artifact digest, coordinator transaction, health result, and
 retired entry names in the private installation record. Do not rerun first-launch migration or copy
 the database simply to update a menu entry.
+
+### Reboot launch and stale binaries on Linux
+
+When a desktop remains at **Starting**, compare its actual AppImage path with the installed build
+and read the server startup error. `Cannot upgrade unrecognized migration history` means the
+launched binary does not recognize the saved schema; repeatedly retrying that binary will not
+finish startup. Use the compatible build through coordinated installation. Do not edit the
+migration ledger or restore an older database to make the old launcher work. Verify the stable
+launcher and canonical menu after replacement, including a second launch.
+
+Disabling XDG autostart alone does not prevent KDE Wayland from restoring a previously open app.
+When the person requests no automatic login launch, keep its autostart entries disabled and add
+`com.t3tools.T3Code.desktop` to `ksmserverrc` → `General` → `excludeApps`, preserving other
+exclusions and the chosen login mode. Back up and remove only matching Arcwright entries from
+`~/.local/state/plasmasessionrestorestaterc`; KDE's fallback restorer reads that saved list on login.
+Retain a disabled canonical autostart override so a saved fallback entry cannot start the app.
+Recheck this preference after menu replacement; never enable login launch while changing a build name.
 
 ## Commissioning
 

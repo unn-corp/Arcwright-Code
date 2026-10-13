@@ -22,11 +22,11 @@ import {
 } from "../orchestration-v2/ProjectionStore.ts";
 import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
 import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
-import * as IdAllocator from "../orchestration-v2/IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
-import type { ProviderInstance } from "./ProviderDriver.ts";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import { discoverAgentSessions } from "./agentSessionDiscovery.ts";
 import { listNativeSessions, resumeNativeSession } from "./NativeSessionResume.ts";
 

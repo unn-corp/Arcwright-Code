@@ -33,35 +33,53 @@ describe("GitProcessBudget", () => {
         yield* budget.withPermit("/repo/a", ["rev-parse", "HEAD"], Effect.succeed("read")),
         "read",
       );
+      assert.equal(
+        yield* budget.withPermit(
+          "/repo/a",
+          ["--git-dir", "/repo/a/.git", "worktree", "list", "--porcelain", "-z"],
+          Effect.succeed("worktrees"),
+        ),
+        "worktrees",
+      );
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.joinAll([first, second, third]);
     }),
   );
 
-  it.effect("serializes one checkout without blocking another and releases on cancellation", () =>
-    Effect.gen(function* () {
-      const budget = yield* GitProcessBudget.make.pipe(Effect.provide(NodePath.layer));
-      const entered = yield* Deferred.make<void>();
-      const holder = yield* budget
-        .withPermit(
-          "/repo",
-          ["status"],
-          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
-        )
-        .pipe(Effect.forkChild);
-      yield* Deferred.await(entered);
-      const queued = yield* Deferred.make<void>();
-      const waiter = yield* budget
-        .withPermit("/repo/.", ["diff"], Deferred.succeed(queued, undefined))
-        .pipe(Effect.forkChild);
-      assert.equal(
-        yield* budget.withPermit("/other", ["add", "-A"], Effect.succeed("other")),
-        "other",
-      );
-      assert.isFalse(yield* Deferred.isDone(queued));
-      yield* Fiber.interrupt(holder);
-      yield* Fiber.join(waiter);
-      assert.isTrue(yield* Deferred.isDone(queued));
-    }),
+  it.effect.each([
+    { args: ["diff"] },
+    { args: ["worktree", "add", "/target"] },
+    { args: ["worktree", "remove", "/target"] },
+    { args: ["worktree", "prune"] },
+    { args: ["worktree", "lock", "/target"] },
+    { args: ["worktree", "unlock", "/target"] },
+    { args: ["worktree", "move", "/target", "/new-target"] },
+  ])(
+    "serializes $args without blocking another checkout and releases on cancellation",
+    ({ args }) =>
+      Effect.gen(function* () {
+        const budget = yield* GitProcessBudget.make.pipe(Effect.provide(NodePath.layer));
+        const entered = yield* Deferred.make<void>();
+        const holder = yield* budget
+          .withPermit(
+            "/repo",
+            ["status"],
+            Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+          )
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        const queued = yield* Deferred.make<void>();
+        const waiter = yield* budget
+          .withPermit("/repo/.", args, Deferred.succeed(queued, undefined))
+          .pipe(Effect.forkChild);
+        assert.equal(
+          yield* budget.withPermit("/other", ["add", "-A"], Effect.succeed("other")),
+          "other",
+        );
+        assert.isFalse(yield* Deferred.isDone(queued));
+        yield* Fiber.interrupt(holder);
+        yield* Fiber.join(waiter);
+        assert.isTrue(yield* Deferred.isDone(queued));
+      }),
   );
 });

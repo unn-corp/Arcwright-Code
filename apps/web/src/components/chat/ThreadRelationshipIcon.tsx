@@ -1,3 +1,4 @@
+import { ParticipantChip } from "./ParticipantChip";
 import type { ProviderDriverKind, ServerProvider } from "@t3tools/contracts";
 import { BotIcon, type LucideIcon } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -44,11 +45,13 @@ export function threadRelationshipStatusLabel(status: string | null): string {
 
 /** Shared by lineage and timeline links, including the provider glyph and status badge. */
 export function ThreadRelationshipIcon({
+  participant,
   driver,
   provider,
   status,
   fallbackIcon: FallbackIcon = BotIcon,
 }: {
+  participant?: import("@t3tools/client-runtime/participants").Participant | undefined;
   driver?: ProviderDriverKind | undefined;
   provider?: ServerProvider | undefined;
   status: string | null;
@@ -56,8 +59,15 @@ export function ThreadRelationshipIcon({
 }) {
   const iconClassName = "size-4 shrink-0 text-muted-foreground";
   return (
-    <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-      {driver ? (
+    <span
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center",
+        participant ? "size-6" : "size-4",
+      )}
+    >
+      {participant ? (
+        <ParticipantChip participant={participant} variant="avatar" />
+      ) : driver ? (
         <ProviderInstanceIcon
           driverKind={driver}
           displayName={provider?.displayName ?? driver}

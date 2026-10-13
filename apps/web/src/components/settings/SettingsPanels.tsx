@@ -1,3 +1,4 @@
+import { ParticipantProfileSettings } from "./ParticipantProfileSettings";
 import { ClientBuildIdentity } from "./ClientBuildIdentity";
 import { AppUpdateSettings } from "./AppUpdateSettings";
 import { PwaAppUpdateSettings } from "./PwaAppUpdateSettings";
@@ -9,6 +10,7 @@ import {
 import { RunLimitsSettings } from "./RunLimitsSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
+import { usePrimaryEnvironmentId } from "../../state/environments";
 import {
   ArchiveIcon,
   ArchiveX,
@@ -94,6 +96,7 @@ import * as Schema from "effect/Schema";
 import { APP_BUILD_IDENTITY, APP_VERSION } from "../../branding";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
 
+import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
@@ -2079,9 +2082,10 @@ function AutomationModelControl({
   readonly onChange: (selection: ModelSelection) => void;
 }) {
   const settings = usePrimarySettings();
+  const environmentId = usePrimaryEnvironmentId();
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const instanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(deriveProviderInstanceEntries(serverProviders), settings),
+    applyProviderInstanceSettings(deriveProviderInstanceEntries(serverProviders), settings, null),
   );
   const instanceEntry = instanceEntries.find((entry) => entry.instanceId === selection.instanceId);
   const provider = instanceEntry?.driverKind ?? DEFAULT_DRIVER_KIND;
@@ -2100,6 +2104,7 @@ function AutomationModelControl({
         lockedProvider={null}
         instanceEntries={instanceEntries}
         modelOptionsByInstance={modelOptionsByInstance}
+        environmentId={environmentId}
         triggerClassName="min-w-0 max-w-full shrink-0 text-foreground/90 hover:text-foreground"
         triggerAriaLabel={`${ariaLabel} provider account and model`}
         onInstanceModelChange={(instanceId, model) => {
@@ -3429,7 +3434,7 @@ export function GeneralSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const navigate = useNavigate();
-  const { scope, environment, connectedEnvironments } = useSettingsScope();
+  const { scope, environment, connectedEnvironments, target } = useSettingsScope();
   // The representative environment supplies the provider list for pickers;
   // a fanned-out model choice is validated against every target before it
   // is written. Per-machine tuning (background activity overrides) still
@@ -3519,7 +3524,11 @@ export function GeneralSettingsPanel() {
   const textGenModel = textGenerationModelSelection.model;
   const textGenModelOptions = textGenerationModelSelection.options;
   const textGenerationModelInstanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(deriveProviderInstanceEntries(textGenerationProviders), settings),
+    applyProviderInstanceSettings(
+      deriveProviderInstanceEntries(textGenerationProviders),
+      settings,
+      target?.projectId ?? null,
+    ),
   );
   const hasTextGenerationProvider = textGenerationModelInstanceEntries.some(
     (entry) => entry.enabled && entry.isAvailable,
@@ -3562,6 +3571,7 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <ParticipantProfileSettings />
       <ProjectDefaultsSettings category="general" />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow
@@ -4570,6 +4580,7 @@ export function GeneralSettingsPanel() {
             ) : (
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 <ProviderModelPicker
+                  environmentId={environmentId}
                   activeInstanceId={textGenInstanceId}
                   model={textGenModel}
                   lockedProvider={null}
@@ -4801,6 +4812,7 @@ export function GeneralSettingsPanel() {
             </a>
           }
         />
+        {isElectron ? <CliCommandSettingsRow /> : null}
         <SettingsRow
           {...searchableSetting("privacy-policy")}
           description={

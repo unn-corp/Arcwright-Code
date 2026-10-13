@@ -72,7 +72,7 @@ Use the fork APK and keep its package/signing identity when updating Android;
 never uninstall or clear storage to update saved connections.
 
 Upstream winget, Homebrew, AUR, `t3.codes` installers, and `npx t3` install upstream
-Arcwright Code. They do not deliver this fork's updater or Android app.
+T3 Code. They do not deliver this fork's updater or Android app.
 
 ## Some notes
 

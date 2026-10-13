@@ -24,6 +24,12 @@ if (
     command === "maintenance" &&
     ["home", "fence", "helper"].includes(process.argv[3] ?? "")
   ) {
+    if (
+      process.argv[3] === "home" &&
+      process.argv[4] === "optimize-storage" &&
+      process.argv.includes("--parent-participant")
+    )
+      process.title = "arcwright-storage-maintenance";
     // Machine verbs take positional vectors, so they skip the flag parser and print one JSON line.
     const { runMaintenanceMachineVerb } = await import("./cli/maintenance.ts");
     process.exit(await runMaintenanceMachineVerb(process.argv.slice(3)));

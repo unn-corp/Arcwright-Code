@@ -215,6 +215,7 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
                     <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                       {selectedProviderEntry ? (
                         <ProviderModelPicker
+                          environmentId={environmentId}
                           activeInstanceId={modelSelection.instanceId}
                           compact
                           disabled={disabled || busy}

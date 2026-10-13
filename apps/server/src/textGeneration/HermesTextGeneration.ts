@@ -1,3 +1,4 @@
+import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -22,12 +23,12 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
-} from "./TextGenerationPrompts.ts";
+} from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-} from "./TextGenerationUtils.ts";
+} from "@t3tools/provider-core/server/textGenerationUtils";
 import {
   applyHermesAcpModelSelection,
   currentHermesModelIdFromSessionSetup,
@@ -63,6 +64,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
+      | "generateReviewGuide"
       | "generateThreadTitle"
       | "generateOrganizationArchitectTurn";
     cwd: string;
@@ -73,7 +75,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
     Effect.gen(function* () {
       const resolvedModel = resolveHermesAcpBaseModelId(modelSelection.model);
       const outputRef = yield* Ref.make("");
-      const toolAttempted = yield* Ref.make(false);
+      let toolAttempted = false;
       const outputExceeded = yield* Ref.make(false);
       const workingDirectory =
         operation === "generateOrganizationArchitectTurn"
@@ -94,6 +96,18 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
         childProcessSpawner: commandSpawner,
         cwd: workingDirectory,
         clientInfo: { name: "t3-code-git-text", version: "0.0.0" },
+        // Observe forbidden tool activity synchronously during decoding, before a
+        // protocol completion can wake the isolated generation's prompt waiter.
+        transformSessionUpdate: (notification) => {
+          const update = notification.update;
+          if (
+            operation === "generateOrganizationArchitectTurn" &&
+            (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")
+          ) {
+            toolAttempted = true;
+          }
+          return notification;
+        },
       }).pipe(Effect.provideService(Crypto.Crypto, crypto));
 
       if (operation === "generateOrganizationArchitectTurn") {
@@ -106,7 +120,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
           operation === "generateOrganizationArchitectTurn" &&
           (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")
         ) {
-          return Ref.set(toolAttempted, true);
+          return Effect.void;
         }
         if (update.sessionUpdate !== "agent_message_chunk") {
           return Effect.void;
@@ -169,7 +183,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
         ),
       );
 
-      if (yield* Ref.get(toolAttempted)) {
+      if (toolAttempted) {
         return yield* new TextGenerationError({
           operation,
           detail: "Hermes attempted tool work during Architect generation.",
@@ -328,6 +342,12 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
   });
 
   return {
+    generateReviewGuide: TextGenerationOperations.fromRunner(
+      "HermesTextGeneration",
+      TextGenerationOperations.withoutInvestigation("Hermes", (request) =>
+        runHermesJson({ ...request, outputSchemaJson: request.outputSchema }),
+      ),
+    ).generateReviewGuide,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

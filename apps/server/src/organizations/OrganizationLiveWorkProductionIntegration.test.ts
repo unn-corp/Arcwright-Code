@@ -293,6 +293,7 @@ it.effect.skipIf(!available)(
         );
         let providerCalls = 0;
         const text = TextGeneration.of({
+          generateReviewGuide: () => Effect.die(new Error("Unexpected review guide generation")),
           generateCommitMessage: () => Effect.die("unused"),
           generatePrContent: () => Effect.die("unused"),
           generateBranchName: () => Effect.die("unused"),

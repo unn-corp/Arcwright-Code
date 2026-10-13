@@ -267,7 +267,9 @@ authorization recorded and prints the exact `handoff --plan` command to run.
 
 ## Crash and restart continuation
 
-Separate from updates. Restart continuation is an environment-owned preference, off by default. The
+Separate from updates. Restart continuation is an environment-owned preference, off by default. A
+`settings.json` that fails to decode turns it off, since the file may hold an
+opt-out. The
 [v2 recovery service](../../apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.ts)
 requires matching durable run, provider thread, session, and native resume identity.
 Queued runs never started, so recovery holds them and continues the run they wait
@@ -282,8 +284,13 @@ closing providers, then reconciles after ingestion has stopped so a late complet
 cannot be overwritten by a stale cancellation.
 
 The [continuation handler](../../apps/server/src/orchestration-v2/RestartContinuation.ts)
-rechecks the preference, archive state, provider selection, newer user work, a stop
-the user requested, and maintenance turns such as `/compact` before dispatching. Stable
+rechecks the preference, provider selection, newer user work, a stop the user requested,
+and maintenance turns such as `/compact` before dispatching. Intent and delivery both
+refuse a thread that is archived, settled, or still snoozed, a provider turn that already
+ended, and a run waiting on the user: an approval, question, or secret that was pending,
+or that recovery closed on the cut turn. Message-capable questions stay answerable, so
+they do not block. Delivery also stops after three consecutive continuations in one
+`restartContinuationOfRunId` chain, so a turn that crashes the server cannot loop. Stable
 command and message IDs prevent duplicate submissions after an outbox retry. Codex
 resumes without adding provider prompt text unless the turn lost background work;
 other adapters receive the continuation message through their normal turn path.

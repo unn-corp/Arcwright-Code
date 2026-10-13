@@ -27,7 +27,15 @@ const isCurrentPage = (contents: WebContents | null, origin: string) =>
   Boolean(contents && !contents.isDestroyed() && originOf(contents.getURL()) === origin);
 
 /** Owns one profile's microphone choice; no page can write this permission file. */
-export const make = (browserSession: Session, allowedPermissions: ReadonlySet<string>) =>
+export const make = (
+  browserSession: Session,
+  allowedPermissions: ReadonlySet<string>,
+  confirmOpenExternal?: (
+    contents: WebContents | null,
+    url: string | undefined,
+    callback: (allowed: boolean) => void,
+  ) => void,
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -110,6 +118,16 @@ export const make = (browserSession: Session, allowedPermissions: ReadonlySet<st
     };
 
     browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+      if (permission === "openExternal") {
+        if (confirmOpenExternal) {
+          confirmOpenExternal(
+            contents,
+            "externalURL" in details ? details.externalURL : undefined,
+            callback,
+          );
+        } else callback(false);
+        return;
+      }
       if (permission !== "media") {
         callback(allowedPermissions.has(permission));
         return;
