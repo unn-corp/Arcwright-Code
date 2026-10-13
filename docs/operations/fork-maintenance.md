@@ -303,7 +303,7 @@ agent reply controls belong beside their messages. Agent deliveries use the left
 their transport role is user; human messages remain on the right. In the fork Android app and on narrow mobile screens,
 participant identities and subagent starts, activity, and finishes remain in the feed; duplicate
 pinned identity tabs and the subagent row above the composer are hidden. Wider screens retain
-those shortcuts across parent turns and scrolling. Collapsed repository groups and Working,
+those shortcuts across parent turns and scrolling. Collapsed repository groups in both sidebars and Working,
 Snoozed, and Settled shelves summarize input/approval, failure/limit, and unread completion
 with an icon per status and a multiplier above one. Counts use shell summaries and the same
 server-authoritative read watermarks as thread rows, without opening hidden thread details.
