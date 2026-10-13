@@ -227,6 +227,19 @@ commissioning does not establish application migrations, public relay deployment
 deletion operations or native delivery. The hosted publication remains **preparing** until the
 remaining service gates are recorded.
 
+Managed endpoint admission now reserves capacity atomically per user before Cloudflare work.
+The default is three held reservations; an exact user override may change it. Every allocation
+counts, including incomplete provisioning, failed link or credential issuance, offline, unlinked
+but retained, and released or cleanup-failed rows. Three offline or released reservations can block
+a fourth until full teardown is confirmed and the allocation is removed. Reusing the same user's
+existing environment allocation remains allowed at capacity and after a limit is lowered.
+Do not delete an allocation merely to make room while its external resources may remain.
+
+Atomic admission is implemented in source and tested on an isolated PostgreSQL fixture. Lifecycle
+fencing, public quota and abuse policy, deletion operations, owned runtime/build validation,
+application migrations, service commissioning and device validation remain pending; this change
+applies no production migration and does not make the owned relay ready.
+
 ## Changing the account service
 
 New CLI OAuth exchanges record the actual issuer/token endpoint origin and public client ID.

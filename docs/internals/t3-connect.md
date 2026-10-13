@@ -103,6 +103,15 @@ requests must not follow redirects. These restrictions keep endpoint discovery
 from turning into arbitrary relay egress or exposing another service on the
 environment host.
 
+Managed endpoint capacity belongs to held allocation rows rather than live connectors or active
+links. Admission serializes each user's check and insertion in one short PostgreSQL transaction;
+Cloudflare provisioning begins after commit succeeds. Every retained row consumes capacity, and
+same-environment reuse precedes the quota check even after the user's limit is lowered. A release
+retains the reservation: only confirmed full teardown and row removal free it. This admission
+boundary does not resolve the remaining lifecycle fencing and cross-system cleanup hazards.
+Public limits, deletion operations, owned runtime/build validation, migrations, commissioning and
+device validation remain separate work.
+
 ## A link outlives a connector process
 
 CLI authorization, desired exposure, and a running connector have different

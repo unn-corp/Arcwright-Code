@@ -198,7 +198,6 @@ function makeAllocations(
   return {
     getByTunnelName: () => Effect.die("unused getByTunnelName"),
     get: () => Effect.succeed(allocation),
-    reserve: () => Effect.die("unused"),
     recordTunnel: () => Effect.die("unused"),
     recordDns: () => Effect.die("unused"),
     markReady: () => Effect.die("unused"),

@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import * as SqlError from "effect/sql/SqlError";
 
 import * as RelayDb from "../db.ts";
+import { allocationSelection } from "./managedEndpointAllocationSelection.ts";
 import { isManagedEndpointHostname, managedEndpointForHostname } from "../deploymentConfig.ts";
 import { relayEnvironmentLinks, relayManagedEndpointAllocations } from "../persistence/schema.ts";
 
@@ -55,7 +56,6 @@ export class ManagedEndpointAllocationPersistenceError extends Schema.TaggedErro
   {
     operation: Schema.Literals([
       "get",
-      "reserve",
       "record-tunnel",
       "record-dns",
       "mark-ready",
@@ -86,11 +86,6 @@ export class ManagedEndpointAllocationPersistenceError extends Schema.TaggedErro
 interface ManagedEndpointAllocationKey {
   readonly userId: string;
   readonly environmentId: string;
-}
-
-interface ReserveManagedEndpointAllocationInput extends ManagedEndpointAllocationKey {
-  readonly hostname: string;
-  readonly tunnelName: string;
 }
 
 interface RecordManagedEndpointTunnelInput extends ManagedEndpointAllocationKey {
@@ -141,9 +136,6 @@ export class ManagedEndpointAllocations extends Context.Service<
     readonly getByTunnelName: (
       tunnelName: string,
     ) => Effect.Effect<ManagedEndpointAllocation | null, ManagedEndpointAllocationPersistenceError>;
-    readonly reserve: (
-      input: ReserveManagedEndpointAllocationInput,
-    ) => Effect.Effect<ManagedEndpointAllocation, ManagedEndpointAllocationPersistenceError>;
     readonly recordTunnel: (
       input: RecordManagedEndpointTunnelInput,
     ) => Effect.Effect<number | null, ManagedEndpointAllocationPersistenceError>;
@@ -194,20 +186,6 @@ export class ManagedEndpointAllocations extends Context.Service<
     ) => Effect.Effect<boolean, ManagedEndpointAllocationPersistenceError>;
   }
 >()("t3code-relay/environments/ManagedEndpointAllocations") {}
-
-const allocationSelection = {
-  userId: relayManagedEndpointAllocations.userId,
-  environmentId: relayManagedEndpointAllocations.environmentId,
-  hostname: relayManagedEndpointAllocations.hostname,
-  tunnelId: relayManagedEndpointAllocations.tunnelId,
-  tunnelName: relayManagedEndpointAllocations.tunnelName,
-  dnsRecordId: relayManagedEndpointAllocations.dnsRecordId,
-  readyAt: relayManagedEndpointAllocations.readyAt,
-  origin: relayManagedEndpointAllocations.origin,
-  updatedAt: relayManagedEndpointAllocations.updatedAt,
-  generation: relayManagedEndpointAllocations.generation,
-  tunnelReleasedAt: relayManagedEndpointAllocations.tunnelReleasedAt,
-};
 
 const whereAllocation = (input: ManagedEndpointAllocationKey) =>
   and(
@@ -262,61 +240,6 @@ export const make = Effect.gen(function* () {
               }),
           ),
         );
-    }),
-    reserve: Effect.fn("relay.managed_endpoint_allocations.reserve")(function* (
-      input: ReserveManagedEndpointAllocationInput,
-    ) {
-      const now = DateTime.formatIso(yield* DateTime.now);
-      const inserted = yield* db
-        .insert(relayManagedEndpointAllocations)
-        .values({
-          ...input,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing()
-        .returning(allocationSelection)
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointAllocationPersistenceError({
-                operation: "reserve",
-                stage: "database-request",
-                ...input,
-                cause,
-              }),
-          ),
-        );
-
-      const allocation =
-        inserted[0] ??
-        (yield* db
-          .select(allocationSelection)
-          .from(relayManagedEndpointAllocations)
-          .where(whereAllocation(input))
-          .limit(1)
-          .pipe(
-            Effect.map((rows) => rows[0]),
-            Effect.mapError(
-              (cause) =>
-                new ManagedEndpointAllocationPersistenceError({
-                  operation: "reserve",
-                  stage: "database-request",
-                  ...input,
-                  cause,
-                }),
-            ),
-          ));
-
-      if (allocation === undefined) {
-        return yield* new ManagedEndpointAllocationPersistenceError({
-          operation: "reserve",
-          stage: "resolve-reservation",
-          ...input,
-        });
-      }
-
-      return allocation;
     }),
     recordTunnel: Effect.fn("relay.managed_endpoint_allocations.record_tunnel")(function* (
       input: RecordManagedEndpointTunnelInput,

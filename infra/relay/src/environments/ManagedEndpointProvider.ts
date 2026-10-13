@@ -1020,10 +1020,12 @@ export const make = Effect.gen(function* () {
         environmentHash,
       );
       const requestedTunnelName = managedEndpointTunnelName(cf.namespace, environmentHash);
-      yield* tunnelLimits
-        .ensureCapacity({
+      const allocation = yield* tunnelLimits
+        .reserveAllocation({
           userId: input.userId,
           environmentId: input.environmentId,
+          hostname: requestedHostname,
+          tunnelName: requestedTunnelName,
         })
         .pipe(
           Effect.catchTags({
@@ -1032,33 +1034,13 @@ export const make = Effect.gen(function* () {
                 new ManagedEndpointProvisioningFailed({
                   userId: input.userId,
                   environmentId: input.environmentId,
-                  stage: "check-tunnel-limit",
+                  stage: "reserve-allocation",
                   hostname: requestedHostname,
                   tunnelName: requestedTunnelName,
                   cause,
                 }),
               ),
           }),
-        );
-      const allocation = yield* allocations
-        .reserve({
-          userId: input.userId,
-          environmentId: input.environmentId,
-          hostname: requestedHostname,
-          tunnelName: requestedTunnelName,
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ManagedEndpointProvisioningFailed({
-                userId: input.userId,
-                environmentId: input.environmentId,
-                stage: "reserve-allocation",
-                hostname: requestedHostname,
-                tunnelName: requestedTunnelName,
-                cause,
-              }),
-          ),
         );
       const { hostname, tunnelName } = allocation;
 
