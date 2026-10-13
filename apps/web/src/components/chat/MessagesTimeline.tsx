@@ -975,6 +975,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
+  const participantProfiles = useClientSettings((settings) => settings.participantProfiles);
+  const activeParticipantProfile = useClientSettings(
+    (settings) => settings.activeParticipantProfile,
+  );
   const participantGroups = useMemo(
     () =>
       timelineParticipantGroups(
@@ -982,8 +986,17 @@ const ConversationTimeline = memo(function ConversationTimeline({
         citationThreadRef?.threadId ?? routeThreadKey,
         runs,
         providerStatuses,
+        { participantProfiles, activeParticipantProfile },
       ),
-    [rows, citationThreadRef, routeThreadKey, runs, providerStatuses],
+    [
+      rows,
+      citationThreadRef,
+      routeThreadKey,
+      runs,
+      providerStatuses,
+      participantProfiles,
+      activeParticipantProfile,
+    ],
   );
   const participantGroupStartsRef = useRef<ReadonlySet<string>>(new Set());
   const participantGroupStarts = useMemo(() => {
@@ -2403,11 +2416,13 @@ function MessageAuthorHeading({
   showChip?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  const profileSettings = useClientSettings((settings) => settings);
   const participant = resolveMessageParticipant(
     message,
     ctx.threadRef?.threadId ?? ctx.routeThreadKey,
     ctx.runs,
     ctx.providerStatuses,
+    profileSettings,
   );
   return (
     <h3

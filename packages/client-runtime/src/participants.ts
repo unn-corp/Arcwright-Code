@@ -54,6 +54,22 @@ export function currentHuman(
     }
   );
 }
+/** Display known authors from their live profile; never relabel a different recorded user. */
+export function resolveHumanParticipant(
+  author: HumanParticipant | undefined,
+  settings: Pick<ClientSettings, "participantProfiles" | "activeParticipantProfile">,
+): HumanParticipant {
+  if (!author || author.id === "legacy-user" || author.id === "local")
+    return currentHuman(settings);
+  const profile = Object.values(settings.participantProfiles).find(
+    (candidate) => candidate.participant.id === author.id,
+  );
+  // Before the first personal sign-in, bootstrap sends an uncustomized local identity.
+  if (profile && !profile.initialized && author.id.startsWith("local:"))
+    return currentHuman(settings);
+  return profile?.participant ?? author;
+}
+
 export function seedProfile(
   existing: ParticipantProfile | undefined,
   participant: HumanParticipant,
@@ -90,6 +106,7 @@ export function resolveMessageParticipant(
   thread: string,
   runs: ReadonlyArray<import("./handoff.ts").HandoffTimelineRun>,
   providers: ReadonlyArray<import("@t3tools/contracts").ServerProvider>,
+  profiles?: Pick<ClientSettings, "participantProfiles" | "activeParticipantProfile">,
 ): Participant {
   const attribution = resolveUserMessagePresentation({
     id: message.id,
@@ -127,6 +144,8 @@ export function resolveMessageParticipant(
   }
   return {
     kind: "human",
-    ...(message.context?.author ?? { id: "legacy-user", name: "You", photo: null }),
+    ...(profiles
+      ? resolveHumanParticipant(message.context?.author, profiles)
+      : (message.context?.author ?? { id: "legacy-user", name: "You", photo: null })),
   };
 }

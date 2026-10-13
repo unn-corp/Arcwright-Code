@@ -175,3 +175,27 @@ describe("timeline participant grouping", () => {
     }
   });
 });
+
+it("groups legacy and recorded messages from the same current user into one identity", () => {
+  const legacy = message("legacy", "user");
+  if (legacy.kind !== "message") throw new Error("Expected message fixture");
+  const legacyRow = {
+    ...legacy,
+    message: { ...legacy.message, context: { version: 1 as const, records: [] } },
+  };
+  const current = { id: "alice", name: "Alice Updated", photo: "https://example.com/current.png" };
+  const groups = timelineParticipantGroups(
+    [legacyRow, message("recorded", "user")],
+    "chat",
+    [],
+    [],
+    {
+      activeParticipantProfile: "account:alice",
+      participantProfiles: {
+        "account:alice": { participant: current, initialized: true, accounts: [] },
+      },
+    },
+  );
+  expect(groups).toHaveLength(1);
+  expect(groups[0]?.participant).toEqual({ kind: "human", ...current });
+});

@@ -5,6 +5,7 @@ import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { BotIcon, InfoIcon } from "lucide-react";
 import {
+  resolveHumanParticipant,
   participantColor,
   participantInitials,
   type Participant,
@@ -17,7 +18,7 @@ import { cn } from "../../lib/utils";
 export type ParticipantChipVariant = "standard" | "compact" | "avatar" | "expanded";
 /** One identity treatment for chat, reply previews and participant stacks. */
 export function ParticipantChip({
-  participant,
+  participant: recordedParticipant,
   variant = "standard",
   status,
 }: {
@@ -25,7 +26,12 @@ export function ParticipantChip({
   variant?: ParticipantChipVariant;
   status?: string | undefined;
 }) {
-  const override = useClientSettings((settings) => settings.agentColorOverrides[participant.id]);
+  const settings = useClientSettings((settings) => settings);
+  const participant =
+    recordedParticipant.kind === "human"
+      ? { kind: "human" as const, ...resolveHumanParticipant(recordedParticipant, settings) }
+      : recordedParticipant;
+  const override = settings.agentColorOverrides[participant.id];
   const [failedPhoto, setFailedPhoto] = useState<string | null>(null);
   const model = participant.kind === "agent" ? participant.model : undefined;
   const modelLabel = model ? formatModelSlugName(model) : undefined;

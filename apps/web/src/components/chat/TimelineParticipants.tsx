@@ -19,11 +19,12 @@ export function timelineParticipantGroups(
   thread: string,
   runs: Parameters<typeof resolveMessageParticipant>[2],
   providers: Parameters<typeof resolveMessageParticipant>[3],
+  profiles?: Parameters<typeof resolveMessageParticipant>[4],
 ): ReadonlyArray<TimelineParticipantGroup> {
   const groups: TimelineParticipantGroup[] = [];
   for (const [index, row] of rows.entries()) {
     if (row.kind !== "message") continue;
-    const participant = resolveMessageParticipant(row.message, thread, runs, providers);
+    const participant = resolveMessageParticipant(row.message, thread, runs, providers, profiles);
     const previous = groups.at(-1);
     if (
       previous?.participant.id === participant.id &&
