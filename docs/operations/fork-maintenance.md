@@ -131,6 +131,9 @@ Keep auth preflight ahead of Worker layer construction and the raw runtime-bindi
 silently select legacy through provider normalization.
 Focused auth/API and DPoP regression fixtures cover these boundaries; public relay commissioning
 and the remaining privacy, abuse, deletion and physical-device gates are not established by them.
+The managed-allocation lifecycle SQL protocol remains unwired; preserve its legacy quarantine,
+retained uncertain owners and immutable target identity. The provider/publication/unlink conversion
+must land together before deployment, with no mixed old and new writers or automatic owner reset.
 The example configuration selects upstream T3 services in legacy mode. Explicit owned builds
 require one complete validated public profile; cloudless builds clear managed aliases across web,
 CLI, standalone Android and Expo. [connectProfile.ts](../../packages/shared/src/connectProfile.ts)

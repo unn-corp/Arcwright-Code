@@ -18,6 +18,7 @@ import * as RelayDb from "../db.ts";
 // variable is consulted, and the schema below belongs exclusively to this suite.
 export const fixtureFile = process.env.RELAY_PWA_TEST_FIXTURE_FILE;
 export const migrationDirectory = "infra/relay/migrations/postgres";
+export const lifecycleMigration = "20261013154149_managed_endpoint_lifecycle";
 const containerId = "dbc30b134c2b29164e8b69094e4038f3541b24158ac5a60cccbba50f1ef35390";
 const networkId = "873a155e6310965ce514f0ff2cf5b47c4caf384e497b65a9d0eb8424c38dbdd7";
 const image =
@@ -68,7 +69,7 @@ const checkedMigrate: (
   config: MigrationConfig,
 ) => Effect.Effect<undefined, EffectDrizzleQueryError | SqlError | MigratorInitError> = migrate;
 
-const runFixtureMigrations = (db: RelayDb.RelayDb["Service"], config: MigrationConfig) => {
+export const runFixtureMigrations = (db: RelayDb.RelayDb["Service"], config: MigrationConfig) => {
   const migration = checkedMigrate(db, config);
   return migration.pipe(Effect.mapError((cause) => new FixtureMigrationError({ cause })));
 };
@@ -88,7 +89,10 @@ const verifiedConnection = Effect.gen(function* () {
 });
 
 /** A separate scoped pool; never resets any schema. */
-export const connectionLayer = (lockTimeout?: string) =>
+export const connectionLayer = (
+  lockTimeout?: string,
+  schema: "task4c_managed_endpoints" | "task4c_managed_migration" = "task4c_managed_endpoints",
+) =>
   Layer.unwrap(
     verifiedConnection.pipe(
       Effect.map((connection) =>
@@ -102,7 +106,7 @@ export const connectionLayer = (lockTimeout?: string) =>
           prepare: false,
           maxConnections: lockTimeout ? 1 : 24,
           startupParameters: {
-            search_path: "task4c_managed_endpoints",
+            search_path: schema,
             ...(lockTimeout ? { lock_timeout: lockTimeout } : {}),
           },
         }),
@@ -126,3 +130,29 @@ export const layerDb = Layer.effect(
     return db;
   }),
 ).pipe(Layer.provide(connectionLayer()));
+
+/** Separate approved schema, with the actual preceding ordered migrations. */
+export const layerLegacyDb = Layer.effect(
+  RelayDb.RelayDb,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const db = yield* PgDrizzle.makeWithDefaults();
+    const folder = yield* fs.makeTempDirectoryScoped({ prefix: "managed-lifecycle-migration-" });
+    for (const directory of (yield* fs.readDirectory(migrationDirectory))
+      .filter((name) => name < lifecycleMigration)
+      .sort()) {
+      yield* fs.copy(`${migrationDirectory}/${directory}`, `${folder}/${directory}`);
+    }
+    yield* db.$client`DROP SCHEMA IF EXISTS task4c_managed_migration CASCADE`;
+    yield* db.$client`CREATE SCHEMA task4c_managed_migration`;
+    yield* runFixtureMigrations(db, {
+      ...migrationConfig,
+      migrationsFolder: folder,
+      migrationsSchema: "task4c_managed_migration",
+    });
+    return db;
+  }),
+).pipe(
+  Layer.provide(connectionLayer(undefined, "task4c_managed_migration")),
+  Layer.provide(NodeFileSystem.layer),
+);

@@ -240,6 +240,14 @@ fencing, public quota and abuse policy, deletion operations, owned runtime/build
 application migrations, service commissioning and device validation remain pending; this change
 applies no production migration and does not make the owned relay ready.
 
+The internal durable lifecycle protocol is tested but is not wired into the provider. Its
+intermediate migration must not be deployed with the existing unfenced writers. Existing rows
+and new rows remain `legacy_unverified` with unresolved resource presence until the coordinated
+runtime conversion supplies fresh protocol history. A released marker, readiness or a null resource
+ID proves no absence. Uncertain owners retain capacity indefinitely; timestamps never authorize
+owner stealing. Legacy cutover needs operator classification and terminal provider proof, with no
+automatic reset or classification tool.
+
 ## Changing the account service
 
 New CLI OAuth exchanges record the actual issuer/token endpoint origin and public client ID.

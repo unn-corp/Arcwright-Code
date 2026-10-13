@@ -7,6 +7,7 @@ import type {
 } from "@t3tools/contracts/relay";
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -17,6 +18,14 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import type {
+  LifecycleState,
+  OperationKind,
+  PendingMutation,
+  ResourcePresence,
+} from "../environments/managedEndpointLifecycleContracts.ts";
+import { pendingMutationCheck } from "../environments/managedEndpointLifecycleConstraints.ts";
 
 export const relayMobileDevices = pgTable(
   "relay_mobile_devices",
@@ -155,6 +164,27 @@ export const relayManagedEndpointAllocations = pgTable(
     tunnelReleasedAt: varchar("tunnel_released_at", { length: 64 }),
     origin: jsonb("origin").$type<RelayManagedEndpointOrigin>(),
     generation: integer("generation").notNull().default(0),
+    allocationId: uuid("allocation_id").notNull().defaultRandom(),
+    // Unfenced writers have no verifiable protocol history. Fresh idle admission
+    // requires the coordinated provider/publication conversion.
+    lifecycleState: varchar("lifecycle_state", { length: 24 })
+      .notNull()
+      .default("legacy_unverified")
+      .$type<LifecycleState>(),
+    operationId: uuid("operation_id"),
+    operationKind: varchar("operation_kind", { length: 16 }).$type<OperationKind>(),
+    operationStartedAt: varchar("operation_started_at", { length: 64 }),
+    pendingMutation: jsonb("pending_mutation").$type<PendingMutation>(),
+    cleanupRequested: boolean("cleanup_requested").notNull().default(false),
+    tunnelPresence: varchar("tunnel_presence", { length: 16 })
+      .notNull()
+      .default("unresolved")
+      .$type<ResourcePresence>(),
+    dnsPresence: varchar("dns_presence", { length: 16 })
+      .notNull()
+      .default("unresolved")
+      .$type<ResourcePresence>(),
+    dnsTargetTunnelId: varchar("dns_target_tunnel_id", { length: 191 }),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
   },
@@ -162,6 +192,20 @@ export const relayManagedEndpointAllocations = pgTable(
     primaryKey({ columns: [table.userId, table.environmentId] }),
     uniqueIndex("idx_relay_managed_endpoint_allocations_hostname").on(table.hostname),
     uniqueIndex("idx_relay_managed_endpoint_allocations_tunnel_name").on(table.tunnelName),
+    uniqueIndex("idx_relay_managed_endpoint_allocations_id").on(table.allocationId),
+    check(
+      "chk_managed_endpoint_lifecycle_values",
+      sql`"lifecycle_state" IN ('idle', 'owned', 'uncertain', 'legacy_unverified') AND ("operation_kind" IS NULL OR "operation_kind" IN ('provision', 'release', 'deprovision', 'reconcile')) AND "tunnel_presence" IN ('unresolved', 'never_created', 'recorded', 'absent') AND "dns_presence" IN ('unresolved', 'never_created', 'recorded', 'absent') AND "generation" >= 0`,
+    ),
+    check(
+      "chk_managed_endpoint_owner",
+      sql`("lifecycle_state" IN ('idle', 'legacy_unverified') AND "operation_id" IS NULL AND "operation_kind" IS NULL AND "operation_started_at" IS NULL AND "pending_mutation" IS NULL) OR ("lifecycle_state" IN ('owned', 'uncertain') AND "operation_id" IS NOT NULL AND "operation_kind" IS NOT NULL AND "operation_started_at" IS NOT NULL)`,
+    ),
+    check(
+      "chk_managed_endpoint_recorded_presence",
+      sql`("tunnel_presence" <> 'recorded' OR "tunnel_id" IS NOT NULL) AND ("dns_presence" <> 'recorded' OR ("dns_record_id" IS NOT NULL AND "dns_target_tunnel_id" IS NOT NULL))`,
+    ),
+    check("chk_managed_endpoint_pending", sql.raw(pendingMutationCheck)),
   ],
 );
 

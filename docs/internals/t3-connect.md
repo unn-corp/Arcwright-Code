@@ -112,6 +112,21 @@ boundary does not resolve the remaining lifecycle fencing and cross-system clean
 Public limits, deletion operations, owned runtime/build validation, migrations, commissioning and
 device validation remain separate work.
 
+The [internal lifecycle SQL service](../../infra/relay/src/environments/ManagedEndpointLifecycle.ts)
+now models an immutable allocation identity, a single durable operation owner and one bounded
+pending mutation step. Its short transactions share admission's per-user advisory lock; captured
+targets compare identity and generation, and cleanup intent preserves a running owner while
+blocking its next provisioning dispatch. Known absence checkpoints retain resource IDs for status
+and partial teardown; only guarded full removal frees capacity. Uncertain operations keep their
+owner and pending step without age-based recovery, since an observed absence cannot fence a
+previously dispatched provider call.
+
+This service remains unwired. Provider dispatch, link/credential publication and unlink must be
+converted together before these constraints can provide runtime fencing. The intermediate schema
+defaults every allocation to legacy quarantine and must not be deployed with the old writers;
+fresh idle admission requires the complete protocol. There is no automatic legacy classification
+or owner reset, and publication/readiness completion remains part of that pending conversion.
+
 ## A link outlives a connector process
 
 CLI authorization, desired exposure, and a running connector have different
@@ -132,11 +147,11 @@ token. An update handoff immediately starts a replacement server, and replacing
 the tunnel would add routing propagation delay to every update. These exceptions
 belong to [shutdown handling](../../apps/server/src/cloud/CloudLink.ts).
 
-Release and unlink claim the allocation generation before deleting external
-resources. A delayed cleanup must not delete a tunnel reused by a concurrent
-restart or relink. Unlink commits authorization revocation before external
-teardown, because a database failure must leave the active link usable. Failed
-teardown retains enough state to retry. See the
+The existing release and unlink paths claim allocation generations before deleting external
+resources, but those claims do not yet cover the whole provider/publication lifetime. Their
+delayed cleanup and ambiguous external outcomes remain unsafe commissioning gates. Unlink commits
+authorization revocation before external teardown, because a database failure must leave the
+active link usable. See the
 [managed endpoint lifecycle](../../infra/relay/src/environments/ManagedEndpointProvider.ts).
 
 ## Idle tunnels are reclaimed and recovered
