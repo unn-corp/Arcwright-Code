@@ -103,6 +103,17 @@ requests must not follow redirects. These restrictions keep endpoint discovery
 from turning into arbitrary relay egress or exposing another service on the
 environment host.
 
+The managed endpoint transport pins the installed Cloudflare SDK directly and disables its retries
+for each mutation invocation. Exact DNS reads preserve identity and require bounded, complete page
+metadata before claiming an inventory. This transport prerequisite does not fence the lifecycle:
+the legacy provider can still invoke a mutation again, adopt records after ambiguous failures, and
+hold SQL transactions around provider work. A timeout remains an unknown outcome. Full fencing
+requires the coordinated runtime-writer, publication and revocation conversion (B2b), including
+retaining and validating complete DNS create/update responses before a terminal checkpoint, followed
+by integrated fault verification (B3). The unused durable lifecycle service remains unwired and
+allocation defaults remain `legacy_unverified`/`unresolved`; this intermediate source must not be
+deployed with the old writers as a completed lifecycle conversion.
+
 Managed endpoint capacity belongs to held allocation rows rather than live connectors or active
 links. Admission serializes each user's check and insertion in one short PostgreSQL transaction;
 Cloudflare provisioning begins after commit succeeds. Every retained row consumes capacity, and

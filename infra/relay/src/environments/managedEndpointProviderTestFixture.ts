@@ -48,6 +48,9 @@ export const deniedProviderLayer = <E, R>(
     delete: () => forbidden("delete"),
   });
   const dns = ManagedEndpointProvider.ManagedEndpointDnsClient.of({
+    getRecord: () => Effect.die("Unexpected getRecord"),
+    listRecordsPage: () => Effect.die("Unexpected listRecordsPage"),
+    listExactRecords: () => Effect.die("Unexpected listExactRecords"),
     listRecords: () => forbidden("dns-list"),
     createRecord: () => forbidden("dns-create"),
     updateRecord: () => forbidden("dns-update"),

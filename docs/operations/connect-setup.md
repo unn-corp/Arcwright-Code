@@ -227,6 +227,13 @@ commissioning does not establish application migrations, public relay deployment
 deletion operations or native delivery. The hosted publication remains **preparing** until the
 remaining service gates are recorded.
 
+The managed endpoint transport uses the pinned installed Cloudflare SDK with one HTTP attempt per
+mutation invocation and bounded exact DNS discovery. This is a source prerequisite, not a deployment
+gate for the durable lifecycle: legacy retry/adoption, SQL ownership and publication/unlink writers
+still require the coordinated B2b conversion and B3 fault verification. Timeout does not establish
+that a provider mutation had no effect. Keep this intermediate source uncommissioned; see the
+[lifecycle constraint](../internals/t3-connect.md) before deploying runtime writers.
+
 Managed endpoint admission now reserves capacity atomically per user before Cloudflare work.
 The default is three held reservations; an exact user override may change it. Every allocation
 counts, including incomplete provisioning, failed link or credential issuance, offline, unlinked

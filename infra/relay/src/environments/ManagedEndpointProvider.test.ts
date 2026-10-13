@@ -151,6 +151,9 @@ function makeDnsClient(
 ) {
   let currentRecords = [...records];
   return ManagedEndpointProvider.ManagedEndpointDnsClient.of({
+    getRecord: () => Effect.die("Unexpected getRecord"),
+    listRecordsPage: () => Effect.die("Unexpected listRecordsPage"),
+    listExactRecords: () => Effect.die("Unexpected listExactRecords"),
     listRecords: (hostname) =>
       Effect.sync(() => {
         calls.push({ operation: "listRecords", input: hostname });
@@ -833,6 +836,9 @@ describe("ManagedEndpointProvider", () => {
     });
     let records: ReadonlyArray<{ readonly id: string }> = [];
     const dnsClient = ManagedEndpointProvider.ManagedEndpointDnsClient.of({
+      getRecord: () => Effect.die("Unexpected getRecord"),
+      listRecordsPage: () => Effect.die("Unexpected listRecordsPage"),
+      listExactRecords: () => Effect.die("Unexpected listExactRecords"),
       listRecords: (hostname) =>
         Effect.sync(() => {
           dnsCalls.push({ operation: "listRecords", input: hostname });
@@ -1879,6 +1885,9 @@ describe("ManagedEndpointProvider", () => {
     });
     let records: ReadonlyArray<{ readonly id: string }> = [];
     const dnsClient = ManagedEndpointProvider.ManagedEndpointDnsClient.of({
+      getRecord: () => Effect.die("Unexpected getRecord"),
+      listRecordsPage: () => Effect.die("Unexpected listRecordsPage"),
+      listExactRecords: () => Effect.die("Unexpected listExactRecords"),
       listRecords: (hostname) =>
         Effect.sync(() => {
           dnsCalls.push({ operation: "listRecords", input: hostname });
@@ -1958,6 +1967,9 @@ describe("ManagedEndpointProvider", () => {
       cause: "Cloudflare DNS failure",
     });
     const dnsClient = ManagedEndpointProvider.ManagedEndpointDnsClient.of({
+      getRecord: () => Effect.die("Unexpected getRecord"),
+      listRecordsPage: () => Effect.die("Unexpected listRecordsPage"),
+      listExactRecords: () => Effect.die("Unexpected listExactRecords"),
       listRecords: () => Effect.fail(failure),
       createRecord: () => Effect.die("unused"),
       updateRecord: () => Effect.die("unused"),

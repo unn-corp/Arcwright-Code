@@ -1,3 +1,5 @@
+import * as Retry from "@distilled.cloud/cloudflare/Retry";
+import type { ResultInfo } from "@distilled.cloud/cloudflare/Pagination";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Arr from "effect/Array";
@@ -297,6 +299,9 @@ interface ManagedEndpointCnameRecordInput {
 
 const ManagedEndpointDnsClientOperation = Schema.Literals([
   "list-records",
+  "get-record",
+  "list-records-page",
+  "list-exact-records",
   "create-record",
   "update-record",
   "delete-record",
@@ -317,9 +322,33 @@ export class ManagedEndpointDnsClientError extends Schema.TaggedError<ManagedEnd
   }
 }
 
+export interface ManagedEndpointDnsRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly type: string;
+  readonly content: string | null;
+  readonly proxied: boolean | null;
+}
+
+export interface ManagedEndpointDnsRecordsPage {
+  readonly records: ReadonlyArray<ManagedEndpointDnsRecord>;
+  readonly resultInfo?: ResultInfo | null;
+}
+
 export class ManagedEndpointDnsClient extends Context.Service<
   ManagedEndpointDnsClient,
   {
+    readonly getRecord: (
+      dnsRecordId: string,
+    ) => Effect.Effect<ManagedEndpointDnsRecord, ManagedEndpointDnsClientError>;
+    readonly listRecordsPage: (request: {
+      readonly hostname: string;
+      readonly page: number;
+      readonly perPage: number;
+    }) => Effect.Effect<ManagedEndpointDnsRecordsPage, ManagedEndpointDnsClientError>;
+    readonly listExactRecords: (
+      hostname: string,
+    ) => Effect.Effect<ReadonlyArray<ManagedEndpointDnsRecord>, ManagedEndpointDnsClientError>;
     readonly listRecords: (
       hostname: string,
     ) => Effect.Effect<ReadonlyArray<{ readonly id: string }>, ManagedEndpointDnsClientError>;
@@ -1345,6 +1374,372 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ManagedEndpointProvider, make);
 
+class InvalidDnsResponse extends Schema.TaggedError<InvalidDnsResponse>()("InvalidDnsResponse", {
+  reason: Schema.String,
+}) {}
+
+const DnsRecordResponse = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  type: Schema.String,
+  content: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  proxied: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+});
+const decodeDnsRecordResponse = Schema.decodeUnknownEffect(DnsRecordResponse);
+
+const decodeExactHostname = (hostname: string) => {
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/u, "");
+  const labels = normalized.split(".");
+  return normalized.length <= 253 &&
+    labels.length >= 2 &&
+    labels.every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label))
+    ? Effect.succeed(normalized)
+    : Effect.fail(new InvalidDnsResponse({ reason: "Invalid DNS hostname" }));
+};
+
+const decodeDnsRecord = Effect.fnUntraced(function* (response: unknown) {
+  const record = yield* decodeDnsRecordResponse(response);
+  const name = yield* decodeExactHostname(record.name);
+  if (
+    record.id.length === 0 ||
+    record.id.length > 256 ||
+    /\s/u.test(record.id) ||
+    !/^[A-Z][A-Z0-9]*$/u.test(record.type)
+  ) {
+    return yield* new InvalidDnsResponse({ reason: "Invalid DNS record identity" });
+  }
+  return {
+    id: record.id,
+    name,
+    type: record.type,
+    content: record.content ?? null,
+    proxied: record.proxied ?? null,
+  } satisfies ManagedEndpointDnsRecord;
+});
+
+// A complete inventory is bounded independently of the old single-page lookup.
+const DNS_EXACT_PER_PAGE = 100;
+const DNS_EXACT_MAX_PAGES = 10;
+const DNS_EXACT_MAX_RECORDS = 1_000;
+
+const listExactDnsRecords = Effect.fnUntraced(function* (
+  listRecordsPage: ManagedEndpointDnsClient["Service"]["listRecordsPage"],
+  hostname: string,
+) {
+  return yield* Effect.gen(function* () {
+    const records: Array<ManagedEndpointDnsRecord> = [];
+    const ids = new Set<string>();
+    let inventoryTotal: number | undefined;
+    let inventoryPages: number | undefined;
+    for (let page = 1; page <= DNS_EXACT_MAX_PAGES; page++) {
+      const response = yield* listRecordsPage({ hostname, page, perPage: DNS_EXACT_PER_PAGE });
+      const info = response.resultInfo;
+      if (info === undefined || info === null) {
+        return yield* new InvalidDnsResponse({ reason: "Missing DNS pagination metadata" });
+      }
+      const { count, page: reportedPage, perPage, totalCount, totalPages } = info;
+      const values = [
+        count,
+        reportedPage,
+        perPage,
+        totalCount,
+        ...(totalPages == null ? [] : [totalPages]),
+      ];
+      if (
+        values.some(
+          (value) => typeof value !== "number" || !Number.isSafeInteger(value) || value < 0,
+        ) ||
+        count === undefined ||
+        count === null ||
+        reportedPage === undefined ||
+        reportedPage === null ||
+        perPage === undefined ||
+        perPage === null ||
+        totalCount === undefined ||
+        totalCount === null
+      ) {
+        return yield* new InvalidDnsResponse({
+          reason: "Invalid or incomplete DNS pagination metadata",
+        });
+      }
+      const derivedPages = Math.ceil(totalCount / DNS_EXACT_PER_PAGE);
+      // Empty inventories may report zero or one pages; neither requires another read.
+      const validPages =
+        totalPages == null ||
+        (totalCount === 0 ? totalPages === 0 || totalPages === 1 : totalPages === derivedPages);
+      const effectivePages = Math.max(1, derivedPages);
+      const expectedCount = Math.min(
+        DNS_EXACT_PER_PAGE,
+        Math.max(0, totalCount - (page - 1) * DNS_EXACT_PER_PAGE),
+      );
+      if (
+        reportedPage !== page ||
+        perPage !== DNS_EXACT_PER_PAGE ||
+        count !== response.records.length ||
+        count !== expectedCount ||
+        !validPages ||
+        page > effectivePages ||
+        totalCount > DNS_EXACT_MAX_RECORDS ||
+        effectivePages > DNS_EXACT_MAX_PAGES ||
+        (inventoryTotal !== undefined && totalCount !== inventoryTotal) ||
+        (inventoryPages !== undefined && effectivePages !== inventoryPages) ||
+        info.cursor != null ||
+        info.cursors != null
+      ) {
+        return yield* new InvalidDnsResponse({
+          reason: "Contradictory or over-budget DNS pagination",
+        });
+      }
+      inventoryTotal = totalCount;
+      inventoryPages = effectivePages;
+      for (const record of response.records) {
+        if (ids.has(record.id)) {
+          return yield* new InvalidDnsResponse({ reason: "Duplicate DNS record identity" });
+        }
+        ids.add(record.id);
+        records.push(record);
+      }
+      if (page >= effectivePages) {
+        if (records.length !== totalCount) {
+          return yield* new InvalidDnsResponse({ reason: "Incomplete DNS inventory" });
+        }
+        return records;
+      }
+    }
+    return yield* new InvalidDnsResponse({ reason: "DNS page budget exhausted" });
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ManagedEndpointDnsClientError({ operation: "list-exact-records", hostname, cause }),
+    ),
+  );
+});
+
+export const makeCloudflareTunnelClient = (
+  tunnelClient: Pick<
+    Cloudflare.Tunnel.ReadWriteTunnelClient,
+    "get" | "list" | "create" | "putConfiguration" | "getToken" | "delete"
+  >,
+  alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
+): ManagedEndpointTunnelClient["Service"] =>
+  ManagedEndpointTunnelClient.of({
+    get: (tunnelId) =>
+      tunnelClient.get(tunnelId).pipe(
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointTunnelClientError({
+              operation: "get",
+              tunnelId,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    list: (request) =>
+      tunnelClient.list(request).pipe(
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointTunnelClientError({
+              operation: "list",
+              ...(request.name === undefined ? {} : { tunnelName: request.name }),
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    create: (request) =>
+      tunnelClient.create(request).pipe(
+        Retry.none,
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointTunnelClientError({
+              operation: "create",
+              tunnelName: request.name,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    putConfiguration: (tunnelId, config) =>
+      tunnelClient.putConfiguration(tunnelId, config).pipe(
+        Retry.none,
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointTunnelClientError({
+              operation: "put-configuration",
+              tunnelId,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    getToken: (tunnelId) =>
+      tunnelClient.getToken(tunnelId).pipe(
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointTunnelClientError({
+              operation: "get-token",
+              tunnelId,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    delete: (tunnelId) =>
+      tunnelClient.delete(tunnelId).pipe(
+        Retry.none,
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointTunnelClientError({
+              operation: "delete",
+              tunnelId,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+  });
+
+export const makeCloudflareDnsClient = (
+  dnsClient: Pick<
+    Cloudflare.DNS.ReadWriteDnsClient,
+    "getDnsRecord" | "listDnsRecords" | "createDnsRecord" | "updateDnsRecord" | "deleteDnsRecord"
+  >,
+  alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
+): ManagedEndpointDnsClient["Service"] => {
+  const getRecord: ManagedEndpointDnsClient["Service"]["getRecord"] = (dnsRecordId) =>
+    dnsClient.getDnsRecord(dnsRecordId).pipe(
+      Effect.timeout("8 seconds"),
+      Effect.flatMap(decodeDnsRecord),
+      Effect.mapError(
+        (cause) =>
+          new ManagedEndpointDnsClientError({ operation: "get-record", dnsRecordId, cause }),
+      ),
+      Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+    );
+  const listRecordsPage: ManagedEndpointDnsClient["Service"]["listRecordsPage"] = Effect.fnUntraced(
+    function* (request) {
+      return yield* Effect.gen(function* () {
+        const hostname = yield* decodeExactHostname(request.hostname);
+        if (
+          !Number.isSafeInteger(request.page) ||
+          request.page < 1 ||
+          !Number.isSafeInteger(request.perPage) ||
+          request.perPage < 1
+        ) {
+          return yield* new InvalidDnsResponse({ reason: "Invalid DNS page request" });
+        }
+        const response = yield* dnsClient
+          .listDnsRecords({
+            name: { exact: hostname },
+            page: request.page,
+            perPage: request.perPage,
+          })
+          .pipe(Effect.timeout("8 seconds"));
+        if (response.result.length > request.perPage) {
+          return yield* new InvalidDnsResponse({ reason: "DNS page exceeds requested size" });
+        }
+        const records = yield* Effect.forEach(response.result, decodeDnsRecord);
+        // Never hide a contradictory server response behind client-side filtering.
+        if (records.some((record) => record.name !== hostname)) {
+          return yield* new InvalidDnsResponse({
+            reason: "Exact DNS query returned a different hostname",
+          });
+        }
+        return {
+          records,
+          ...(response.resultInfo === undefined ? {} : { resultInfo: response.resultInfo }),
+        };
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointDnsClientError({
+              operation: "list-records-page",
+              hostname: request.hostname,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      );
+    },
+  );
+  return ManagedEndpointDnsClient.of({
+    getRecord,
+    listRecordsPage,
+    listExactRecords: (hostname) => listExactDnsRecords(listRecordsPage, hostname),
+    listRecords: (hostname) =>
+      dnsClient.listDnsRecords({ search: hostname }).pipe(
+        Effect.timeout("8 seconds"),
+        Effect.map((response) =>
+          response.result.filter(
+            (record): record is typeof record & { readonly id: string } =>
+              typeof record.id === "string" &&
+              normalizeHostname(record.name) === normalizeHostname(hostname),
+          ),
+        ),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointDnsClientError({
+              operation: "list-records",
+              hostname,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    createRecord: (request) =>
+      dnsClient.createDnsRecord(request).pipe(
+        Retry.none,
+        Effect.timeout("8 seconds"),
+        Effect.map((response) => ({ id: response.id })),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointDnsClientError({
+              operation: "create-record",
+              hostname: request.name,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    updateRecord: (dnsRecordId, request) =>
+      dnsClient.updateDnsRecord(dnsRecordId, request).pipe(
+        Retry.none,
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointDnsClientError({
+              operation: "update-record",
+              hostname: request.name,
+              dnsRecordId,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+    deleteRecord: (dnsRecordId) =>
+      dnsClient.deleteDnsRecord(dnsRecordId).pipe(
+        Retry.none,
+        Effect.timeout("8 seconds"),
+        Effect.mapError(
+          (cause) =>
+            new ManagedEndpointDnsClientError({
+              operation: "delete-record",
+              dnsRecordId,
+              cause,
+            }),
+        ),
+        Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+      ),
+  });
+};
+
 export const layerCloudflareBindings = (
   tunnelClient: Cloudflare.Tunnel.ReadWriteTunnelClient,
   dnsClient: Cloudflare.DNS.ReadWriteDnsClient,
@@ -1353,149 +1748,8 @@ export const layerCloudflareBindings = (
   layer.pipe(
     Layer.provideMerge(
       Layer.mergeAll(
-        layerTunnelClient({
-          get: (tunnelId) =>
-            tunnelClient.get(tunnelId).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointTunnelClientError({
-                    operation: "get",
-                    tunnelId,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          list: (request) =>
-            tunnelClient.list(request).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointTunnelClientError({
-                    operation: "list",
-                    ...(request.name === undefined ? {} : { tunnelName: request.name }),
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          create: (request) =>
-            tunnelClient.create(request).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointTunnelClientError({
-                    operation: "create",
-                    tunnelName: request.name,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          putConfiguration: (tunnelId, config) =>
-            tunnelClient.putConfiguration(tunnelId, config).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointTunnelClientError({
-                    operation: "put-configuration",
-                    tunnelId,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          getToken: (tunnelId) =>
-            tunnelClient.getToken(tunnelId).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointTunnelClientError({
-                    operation: "get-token",
-                    tunnelId,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          delete: (tunnelId) =>
-            tunnelClient.delete(tunnelId).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointTunnelClientError({
-                    operation: "delete",
-                    tunnelId,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-        }),
-        layerDnsClient({
-          listRecords: (hostname) =>
-            dnsClient.listDnsRecords({ search: hostname }).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.map((response) =>
-                response.result.filter(
-                  (record): record is typeof record & { readonly id: string } =>
-                    typeof record.id === "string" &&
-                    normalizeHostname(record.name) === normalizeHostname(hostname),
-                ),
-              ),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointDnsClientError({
-                    operation: "list-records",
-                    hostname,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          createRecord: (request) =>
-            dnsClient.createDnsRecord(request).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.map((response) => ({ id: response.id })),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointDnsClientError({
-                    operation: "create-record",
-                    hostname: request.name,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          updateRecord: (dnsRecordId, request) =>
-            dnsClient.updateDnsRecord(dnsRecordId, request).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointDnsClientError({
-                    operation: "update-record",
-                    hostname: request.name,
-                    dnsRecordId,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-          deleteRecord: (dnsRecordId) =>
-            dnsClient.deleteDnsRecord(dnsRecordId).pipe(
-              Effect.timeout("8 seconds"),
-              Effect.mapError(
-                (cause) =>
-                  new ManagedEndpointDnsClientError({
-                    operation: "delete-record",
-                    dnsRecordId,
-                    cause,
-                  }),
-              ),
-              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
-            ),
-        }),
+        layerTunnelClient(makeCloudflareTunnelClient(tunnelClient, alchemyRuntimeContext)),
+        layerDnsClient(makeCloudflareDnsClient(dnsClient, alchemyRuntimeContext)),
       ),
     ),
   );
