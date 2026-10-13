@@ -293,6 +293,7 @@ account initialization, per-principal local profiles, manual photo choices, boun
 thumbnails, broken-photo initials, and instance colors through timeline and auth refactors.
 Provider credentials must never initialize human profiles. Author metadata is display information,
 not proof of authorization. Replies must canonicalize their author snapshots from the target.
+AI message bubbles default on when no preference is saved; saved opt-outs are preserved.
 Web timelines place chips outside bubbles, show one per consecutive sender group, and pin that
 identity while its group scrolls past. Preserve this through row recycling and disclosure changes;
 agent reply controls belong beside their messages. Active subagent chips stay above the

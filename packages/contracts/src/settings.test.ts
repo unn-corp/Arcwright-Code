@@ -1390,13 +1390,16 @@ describe("ServerSettings.removeAgentCreditsOnMerge", () => {
 });
 
 describe("ClientSettings AI message bubbles", () => {
-  it("keeps existing clients in the standard layout by default", () => {
-    expect(decodeClientSettings({}).assistantMessageBubbles).toBe(false);
+  it("defaults clients without a saved preference to chat bubbles", () => {
+    expect(decodeClientSettings({}).assistantMessageBubbles).toBe(true);
   });
   it.each([true, false])("persists the selected layout: %s", (assistantMessageBubbles) => {
     expect(decodeClientSettings({ assistantMessageBubbles }).assistantMessageBubbles).toBe(
       assistantMessageBubbles,
     );
+    expect(encodeClientSettings(decodeClientSettings({ assistantMessageBubbles }))).toMatchObject({
+      assistantMessageBubbles,
+    });
     expect(decodeClientSettingsPatch({ assistantMessageBubbles })).toEqual({
       assistantMessageBubbles,
     });

@@ -1089,7 +1089,11 @@ export function AppearanceSettingsPanel() {
             DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles ? (
               <SettingResetButton
                 label="AI message bubbles"
-                onClick={() => updateSettings({ assistantMessageBubbles: false })}
+                onClick={() =>
+                  updateSettings({
+                    assistantMessageBubbles: DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles,
+                  })
+                }
               />
             ) : null
           }

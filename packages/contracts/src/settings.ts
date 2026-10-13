@@ -340,7 +340,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
   alwaysCompactComposer: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  assistantMessageBubbles: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  assistantMessageBubbles: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
