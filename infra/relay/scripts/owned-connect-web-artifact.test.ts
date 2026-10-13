@@ -46,6 +46,21 @@ afterEach(() =>
 );
 
 describe("owned assets identity and private state", () => {
+  it("retains compiled chat draft routes and receipt icons while rejecting operator data", () => {
+    const directory = fixture();
+    NodeFS.mkdirSync(NodePath.join(directory, "assets"));
+    NodeFS.writeFileSync(
+      NodePath.join(directory, "assets/_chat.draft._draftId-DJ7LAi8J.js"),
+      'export const route = "draft";',
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(directory, "assets/receipt-BpCQ5mXe.js"),
+      'export const icon = "receipt";',
+    );
+    expect(Object.keys(artifactInventory(directory))).toHaveLength(2);
+    NodeFS.writeFileSync(NodePath.join(directory, "hosted-public-content-draft.json"), "{}");
+    expect(() => artifactInventory(directory)).toThrow(/Nonpublic/);
+  });
   it.effect(
     "captures the actual reader's extension-aware upload manifest and separate SHA inventory",
     () =>

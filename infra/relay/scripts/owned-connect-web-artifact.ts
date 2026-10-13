@@ -64,7 +64,7 @@ export function artifactInventory(directory: string) {
       }
       if (
         !stat.isFile() ||
-        /(?:^|\/)(?:\.env[^/]*|\.alchemy|.*\.map|.*\.log|.*receipt.*|.*draft.*|.*analysis.*)$/.test(
+        /(?:^|\/)(?:\.env[^/]*|\.alchemy|.*\.map|.*\.log|.*(?:receipt|draft|analysis).*\.(?:json|md|txt|html))$/.test(
           path,
         )
       )
