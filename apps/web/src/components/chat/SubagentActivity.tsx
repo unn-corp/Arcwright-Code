@@ -126,7 +126,7 @@ export function ActiveSubagentChips({
         const contents = (
           <>
             <ParticipantChip participant={agent.participant} variant="compact" />
-            <span className="text-xs text-muted-foreground">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {agent.status === "pending"
                 ? "Starting"
                 : agent.status === "waiting"
@@ -140,13 +140,14 @@ export function ActiveSubagentChips({
             key={agent.id}
             variant="ghost-muted"
             size="compact"
+            style={{ maxWidth: "100%", minWidth: 0 }}
             onClick={() => onOpenThread(agent.childThreadId!)}
             aria-label={`Open subagent ${agent.participant.name}`}
           >
             {contents}
           </Button>
         ) : (
-          <span key={agent.id} className="inline-flex min-w-0 items-center gap-2">
+          <span key={agent.id} className="inline-flex min-w-0 max-w-full items-center gap-2">
             {contents}
           </span>
         );

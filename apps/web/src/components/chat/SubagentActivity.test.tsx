@@ -83,6 +83,12 @@ describe("subagent activity", () => {
         container.querySelector<HTMLButtonElement>('[aria-label="Open subagent review"]')!.click(),
       );
       expect(open).toHaveBeenCalledWith(ThreadId.make("child-review"));
+      expect(
+        getComputedStyle(
+          container.querySelector<HTMLButtonElement>('[aria-label="Open subagent review"]')!,
+        ).maxWidth,
+      ).toBe("100%");
+
       const id = container
         .querySelector("[data-participant-id]")
         ?.getAttribute("data-participant-id");
