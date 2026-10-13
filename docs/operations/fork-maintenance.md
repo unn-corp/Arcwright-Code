@@ -110,6 +110,12 @@ clean-source artifact receipt and final actual Alchemy manifest. Hosted preparat
 precede the relay; they do not commission public Google signup, account isolation, deletion or native
 delivery. Keep JavaScript-free public pages, hosted-only headers and assets-first SPA routing
 separate from the existing website, Vercel channels and Android/Electron/local classification.
+The shared web [legal helper](../../apps/web/src/legalLinks.ts) binds Welcome and Settings policy links
+and owned copy to the validated public profile, including desktop/APK bundles; retain legacy/cloudless
+behavior and keep telemetry preferences separate. Hosted Clerk protection CSP permits only its documented
+script/frame hosts and all-port connection source; static public pages retain the detached no-script
+policy. The owned database/tunnel is operated through its Dokploy-managed application; that commissioning
+does not establish migrations or public relay availability.
 The [hosted runbook](./connect-setup.md#independent-owned-hosted-web) owns deployment and recovery gates.
 
 ## Android client

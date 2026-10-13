@@ -201,7 +201,8 @@ export function ownedHostedHeaders(clerkOrigin: string) {
     throw new Error("Invalid Clerk header origin.");
   // Existing inline bootstraps and Clerk UI require inline script/styles. Direct environment
   // HTTPS/WSS, challenge frames, blob workers and WASM remain available on this hosted surface.
-  const shell = `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' ${clerkOrigin} https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; frame-src ${clerkOrigin} https://challenges.cloudflare.com; media-src 'self' blob: https:; form-action 'self' ${clerkOrigin}`;
+  // Clerk protection connections also use non-443 ports; keep its explicit all-port source.
+  const shell = `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' ${clerkOrigin} https://challenges.cloudflare.com https://*.protect.clerk.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss: https://*.protect.clerk.com:*; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; frame-src ${clerkOrigin} https://challenges.cloudflare.com https://*.protect.clerk.com; media-src 'self' blob: https:; form-action 'self' ${clerkOrigin}`;
   const strict =
     "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'none'";
   // Matching rules accumulate headers; detach the global cache policy before the asset override.

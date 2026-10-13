@@ -14,7 +14,7 @@ The **Settings → Environments** paths below describe the upstream mobile app.
 
 ## Arcwright Connect
 
-Arcwright Connect is the account-based relay option. The private Arcwright service is not yet
+Arcwright Connect is the account-based relay option. Arcwright managed environment access is not yet
 commissioned. Owned builds use a complete public profile selected by the maintainer; explicit
 cloudless builds keep direct pairing without managed account setup. The setup below applies to a
 build configured for an available relay and Clerk
@@ -29,6 +29,8 @@ public signup is being prepared. Those pages provide contact and intended inform
 their availability does not mean managed environment access is ready. Public signup is intended
 for anyone, with each account limited to its own linked environments. Your coding provider account
 and its charges remain separate. Signing out does not revoke independent manual pairings.
+In owned builds, the privacy links in Welcome and **Settings → General → About** open the selected
+service's public policy, including its account and connection information and service availability.
 When the owned service is commissioned, CLI sign-in must use its approved Connect application;
 old or revoked CLI credentials require signing in again. The native app keeps its own account
 sign-in. Both routes give access only to environments linked to your account.

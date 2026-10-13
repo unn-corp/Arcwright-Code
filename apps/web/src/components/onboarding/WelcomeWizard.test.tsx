@@ -78,7 +78,10 @@ vi.mock("../../onboarding/useProjectScans", () => ({
 vi.mock("../../connection/onboarding", () => ({ connectPairing: vi.fn() }));
 vi.mock("../../state/terminal", () => ({ terminalEnvironment: {} }));
 vi.mock("../clerk/useT3ConnectAuthPrompt", () => ({ useT3ConnectAuthPrompt: vi.fn() }));
-vi.mock("../../cloud/publicConfig", () => ({ hasCloudPublicConfig: () => false }));
+vi.mock("../../cloud/publicConfig", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../cloud/publicConfig")>()),
+  hasCloudPublicConfig: () => false,
+}));
 vi.mock("../ThreadTerminalDrawer", () => ({ TerminalViewport: () => null }));
 vi.mock("../settings/ChatGptWelcomeCoordinator", () => ({ ChatGptWelcomeCoordinator: () => null }));
 vi.mock("../settings/CodexSetupSection", () => ({
@@ -126,6 +129,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.unstubAllEnvs();
 });
 
 async function click(label: string) {
@@ -135,6 +139,43 @@ async function click(label: string) {
   expect(button, `button ${label}`).toBeDefined();
   await act(async () => button!.click());
 }
+
+it.each(["owned", "legacy", "cloudless"])(
+  "opens the selected %s privacy policy from the actual welcome step",
+  async (mode) => {
+    vi.stubEnv("VITE_CONNECT_MODE", mode);
+    vi.stubEnv("VITE_CLERK_PUBLISHABLE_KEY", `pk_test_${btoa("sample.accounts.dev$")}`);
+    vi.stubEnv("VITE_CLERK_JWT_TEMPLATE", "arcwright-relay");
+    vi.stubEnv("VITE_CLERK_CLI_OAUTH_CLIENT_ID", "client_sample");
+    vi.stubEnv("VITE_T3CODE_RELAY_URL", "https://relay.example.test");
+    vi.stubEnv("VITE_CONNECT_HOSTED_APP_URL", "https://selected.example.test");
+    await act(async () => root.render(<WelcomeWizard localAvailable onDone={vi.fn()} />));
+    const policy = [...document.querySelectorAll("a")].find(
+      (anchor) => anchor.textContent === "privacy policy",
+    )!;
+    const navigate = vi.fn();
+    policy.addEventListener("click", (event) => {
+      event.preventDefault();
+      navigate(policy.href, policy.target);
+    });
+    await act(async () => policy.click());
+    expect(navigate).toHaveBeenCalledWith(
+      mode === "owned"
+        ? "https://selected.example.test/privacy.html"
+        : "https://t3.codes/privacy-policy",
+      "_blank",
+    );
+    const notice = policy.closest("p")!.textContent!;
+    if (mode === "owned") {
+      expect(notice).toContain("account information");
+      expect(notice).toContain("environment connections");
+      expect(notice).toContain("service availability");
+      expect(notice).not.toMatch(/anonymous usage|opt out/);
+    } else {
+      expect(notice).toContain("T3 Code collects anonymous usage data");
+    }
+  },
+);
 
 it("enters the workspace after a partial import and warns after navigation finishes", async () => {
   let finishNavigation = () => {};

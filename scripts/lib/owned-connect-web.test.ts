@@ -202,6 +202,37 @@ function effectiveAssetHeaders(text: string, pathname: string) {
 }
 
 describe("public hosted pages and headers", () => {
+  it("permits Clerk protection scripts, frames and non-443 connections only in the shell policy", () => {
+    const rules = ownedHostedHeaders("https://clerk.arcwright.space");
+    const policy = effectiveAssetHeaders(rules, "/").get("Content-Security-Policy")!;
+    const directives = new Map(
+      policy.split(";").map((directive) => {
+        const [name, ...sources] = directive.trim().split(/\s+/);
+        return [name, sources];
+      }),
+    );
+    expect(directives.get("script-src")).toEqual([
+      "'self'",
+      "'unsafe-inline'",
+      "'wasm-unsafe-eval'",
+      "https://clerk.arcwright.space",
+      "https://challenges.cloudflare.com",
+      "https://*.protect.clerk.com",
+    ]);
+    expect(directives.get("frame-src")).toEqual([
+      "https://clerk.arcwright.space",
+      "https://challenges.cloudflare.com",
+      "https://*.protect.clerk.com",
+    ]);
+    expect(directives.get("connect-src")).toContain("https://*.protect.clerk.com:*");
+    for (const pathname of ["/about.html", "/privacy.html"]) {
+      const staticPolicy = effectiveAssetHeaders(rules, pathname).get("Content-Security-Policy")!;
+      expect(staticPolicy).toContain("default-src 'none'");
+      expect(staticPolicy).toContain("script-src 'none'");
+      expect(staticPolicy).not.toMatch(/protect\.clerk|challenges\.cloudflare|script-src 'self'/);
+      expect(staticPolicy.split("default-src")).toHaveLength(2);
+    }
+  });
   it("detaches the global revalidation policy for matching hashed assets without changing other paths", () => {
     const rules = ownedHostedHeaders("https://clerk.arcwright.space");
     for (const pathname of [

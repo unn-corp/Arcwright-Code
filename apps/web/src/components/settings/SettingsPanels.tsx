@@ -20,7 +20,7 @@ import {
 import { Spinner } from "~/components/ui/spinner";
 import { SettingsGroup } from "./SettingsGroup";
 import { NotificationSettings } from "./NotificationSettings";
-import { PRIVACY_POLICY_URL } from "../../legalLinks";
+import { resolvePrivacyPolicy } from "../../legalLinks";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -3419,6 +3419,7 @@ export function AutomationSettingsPanel() {
 }
 
 export function GeneralSettingsPanel() {
+  const privacyPolicy = resolvePrivacyPolicy();
   const modifierLabel = isMacPlatform(navigator.platform) ? "⌘" : "Ctrl";
   const sendShortcutOptions = [
     { value: "enter", label: "Enter" },
@@ -4802,10 +4803,14 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("privacy-policy")}
-          description="How we handle your data, including the anonymous usage data Arcwright Code collects."
+          description={
+            privacyPolicy.ownedConnect
+              ? "How Arcwright Connect handles account and connection information, including service availability."
+              : "How we handle your data, including the anonymous usage data Arcwright Code collects."
+          }
           control={
             <Button
-              render={<a href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer noopener" />}
+              render={<a href={privacyPolicy.url} target="_blank" rel="noreferrer noopener" />}
               size="sm"
               variant="outline"
             >

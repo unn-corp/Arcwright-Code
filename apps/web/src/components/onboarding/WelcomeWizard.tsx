@@ -37,7 +37,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
-import { PRIVACY_POLICY_URL } from "../../legalLinks";
+import { resolvePrivacyPolicy } from "../../legalLinks";
 import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 import { useCompleteOnboarding } from "../../onboarding/firstRun";
 import {
@@ -303,6 +303,7 @@ function ConnectionStep({
 }) {
   const { environments } = useEnvironments();
   const cloudEnabled = hasCloudPublicConfig();
+  const privacyPolicy = resolvePrivacyPolicy();
   const directEnvironments = environments.filter(
     (environment) => !cloudEnabled || !isOnboardingRelayEnvironment(environment),
   );
@@ -416,11 +417,12 @@ function ConnectionStep({
       </div>
       <div className="mt-6 flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-          T3 Code collects anonymous usage data to help us improve it. To read more about how your
-          data is used and how to opt out, see our{" "}
+          {privacyPolicy.ownedConnect
+            ? "For details about how Arcwright Connect handles account information for sign-in and environment connections, including service availability, see our "
+            : "T3 Code collects anonymous usage data to help us improve it. To read more about how your data is used and how to opt out, see our "}
           <a
             className="underline underline-offset-2 hover:text-foreground"
-            href={PRIVACY_POLICY_URL}
+            href={privacyPolicy.url}
             target="_blank"
             rel="noreferrer noopener"
           >

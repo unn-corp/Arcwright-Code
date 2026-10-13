@@ -134,6 +134,17 @@ separate no-script policy to public pages. The shell
 policy permits Clerk/challenge UI, current inline bootstraps, blob workers/WASM, and direct HTTPS/
 WSS environments. Post-deployment verification must include real assets and public pages with
 `Sec-Fetch-Mode: navigate`, valid/invalid CLI auth requests, and the unchanged loopback callback.
+The shell explicitly allows `https://*.protect.clerk.com` in script and frame sources, and
+`https://*.protect.clerk.com:*` in connection sources for Clerk's non-443 protection ports, as required
+by [Clerk's CSP guidance](https://clerk.com/docs/guides/secure/best-practices/csp-headers).
+Keep these narrow script/frame sources rather than adding a general HTTPS script source or
+`unsafe-eval`. Verify Clerk protection bootstrap and sign-in in the served app after deployment;
+keep both public pages under their detached `default-src 'none'; script-src 'none'` policy.
+Welcome and Settings share the selected owned public profile's `/privacy.html` link. Owned copy
+describes account/connection information and service availability; legacy and cloudless builds retain
+their existing policy/copy. Desktop and APK bundles use the same web helper without treating their
+local/native surface origin as the owned policy origin. These changes do not change telemetry
+preferences or commission the relay.
 
 Cloudflare injected its analytics beacon into actual hosted HTML even though the source has no
 hosted OTLP destination. The operator disabled RUM specifically for `connect.arcwright.space`
@@ -147,6 +158,22 @@ documents the supported [Disable Real User Monitoring setting](https://developer
 Publishing preparation pages is independent of relay commissioning. Public account isolation,
 Google Production, quota/abuse controls, deletion operations, private recovery and physical-device
 delivery remain later gates; a hosted build or page deployment must not claim they passed.
+
+## Owned database and tunnel operations
+
+The owned PostgreSQL database and its tunnel are commissioned as the Dokploy-managed **Database and
+Tunnel** application under **Mothership → Arcwright Connect → production**. Operate its compose
+configuration, private environment and redeployments through Dokploy; retain the TLS roles and
+private networks. Do not replace the managed application with an independently launched compose
+stack. Keep resource identifiers, credentials, encrypted backups and recovery receipts outside the
+repository and the hosted asset tree.
+
+Encrypted backup with isolated restore, TLS role checks, private-network checks and a normal managed
+redeployment have been verified. Record and recheck those gates before changing that application;
+use an isolated restore target rather than production for recovery trials. Database/tunnel
+commissioning does not establish application migrations, public relay deployment, account isolation,
+deletion operations or native delivery. The hosted publication remains **preparing** until the
+remaining service gates are recorded.
 
 ## Changing the account service
 
@@ -207,8 +234,9 @@ These server guards do not authorize automatic cross-realm rollback to older sou
 binding checks. Historical release/recovery authority enforcement remains **NEXT Task4D**; native
 installation/SDK credential authority handling and live owned-service commissioning are separate.
 
-Copy `infra/relay/.env.example` to `infra/relay/.env` for relay deployment settings.
-Deploy `prod` before personal stages because it owns the retained database that their branches
+For the existing upstream/legacy relay stack, copy `infra/relay/.env.example` to `infra/relay/.env` for
+deployment settings. This does not configure the owned Dokploy database/tunnel or commission an owned
+public relay. Deploy `prod` before personal stages because it owns the retained database that their branches
 depend on. The stack's `PublishClientConfig` action writes the resulting relay URL back to the root `.env`.
 
 Browser PWA push uses the same selected relay destination without account authentication.
