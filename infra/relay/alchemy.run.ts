@@ -13,6 +13,7 @@ import * as RelayDb from "./src/db.ts";
 import { RelayObservability } from "./src/observability.ts";
 import { ManagedEndpointZone, RelayApiZone } from "./src/zone.ts";
 import * as RelayWorker from "./src/worker.ts";
+import { clerkAuthPolicyConfig } from "./src/Config.ts";
 
 export default Alchemy.Stack(
   "T3CodeRelay",
@@ -25,41 +26,48 @@ export default Alchemy.Stack(
     ),
     state: Cloudflare.state(),
   },
-  Effect.gen(function* () {
-    const db = yield* RelayDb.PlanetscaleDatabase;
-    const hyperdrive = yield* RelayDb.RelayHyperdrive;
-    const managedEndpointZone = yield* ManagedEndpointZone.pipe(Effect.orDie);
-    const relayApiZone = yield* RelayApiZone.pipe(Effect.orDie);
-    const observability = yield* RelayObservability;
-    const api = yield* RelayWorker.Api;
-    yield* PublishClientConfig({
-      url: api.url,
-      mobileTracingUrl: observability.traces.otelTracesEndpoint,
-      mobileTracingDataset: observability.traces.name,
-      mobileTracingToken: observability.mobileIngestToken.token,
-      clientTracingUrl: observability.traces.otelTracesEndpoint,
-      clientTracingDataset: observability.traces.name,
-      clientTracingToken: observability.clientIngestToken.token,
-      tokenDigest: Output.map(
-        Output.all(observability.mobileIngestToken.token, observability.clientIngestToken.token),
-        tokenDigest,
-      ),
-    });
+  clerkAuthPolicyConfig.pipe(
+    Effect.andThen(
+      Effect.gen(function* () {
+        const db = yield* RelayDb.PlanetscaleDatabase;
+        const hyperdrive = yield* RelayDb.RelayHyperdrive;
+        const managedEndpointZone = yield* ManagedEndpointZone.pipe(Effect.orDie);
+        const relayApiZone = yield* RelayApiZone.pipe(Effect.orDie);
+        const observability = yield* RelayObservability;
+        const api = yield* RelayWorker.Api;
+        yield* PublishClientConfig({
+          url: api.url,
+          mobileTracingUrl: observability.traces.otelTracesEndpoint,
+          mobileTracingDataset: observability.traces.name,
+          mobileTracingToken: observability.mobileIngestToken.token,
+          clientTracingUrl: observability.traces.otelTracesEndpoint,
+          clientTracingDataset: observability.traces.name,
+          clientTracingToken: observability.clientIngestToken.token,
+          tokenDigest: Output.map(
+            Output.all(
+              observability.mobileIngestToken.token,
+              observability.clientIngestToken.token,
+            ),
+            tokenDigest,
+          ),
+        });
 
-    return {
-      databaseName: db.database.name,
-      databaseBranchName: db.branch?.name ?? "main",
-      hyperdriveName: hyperdrive.name,
-      workerName: api.workerName,
-      url: api.url,
-      relayApiZoneId: relayApiZone.zoneId,
-      managedEndpointZoneId: managedEndpointZone.zoneId,
-      mobileTracingUrl: observability.traces.otelTracesEndpoint,
-      mobileTracingDataset: observability.traces.name,
-      mobileTracingToken: observability.mobileIngestToken.token,
-      clientTracingUrl: observability.traces.otelTracesEndpoint,
-      clientTracingDataset: observability.traces.name,
-      clientTracingToken: observability.clientIngestToken.token,
-    };
-  }).pipe(Effect.provide(RelayWorker.layer)),
+        return {
+          databaseName: db.database.name,
+          databaseBranchName: db.branch?.name ?? "main",
+          hyperdriveName: hyperdrive.name,
+          workerName: api.workerName,
+          url: api.url,
+          relayApiZoneId: relayApiZone.zoneId,
+          managedEndpointZoneId: managedEndpointZone.zoneId,
+          mobileTracingUrl: observability.traces.otelTracesEndpoint,
+          mobileTracingDataset: observability.traces.name,
+          mobileTracingToken: observability.mobileIngestToken.token,
+          clientTracingUrl: observability.traces.otelTracesEndpoint,
+          clientTracingDataset: observability.traces.name,
+          clientTracingToken: observability.clientIngestToken.token,
+        };
+      }).pipe(Effect.provide(RelayWorker.layer)),
+    ),
+  ),
 );

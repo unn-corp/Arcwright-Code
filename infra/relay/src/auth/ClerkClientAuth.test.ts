@@ -68,6 +68,32 @@ const respond = (body: unknown, status = 200) => {
 };
 
 describe("owned Clerk bearer policy", () => {
+  it.effect.each([
+    { name: "204 empty", body: undefined, status: 204 },
+    { name: "null", body: null, status: 200 },
+    { name: "array", body: [], status: 200 },
+    { name: "string", body: "provider-message-fixture", status: 200 },
+    { name: "missing grant fields", body: {}, status: 200 },
+  ])("maps real SDK $name responses to a controlled local auth failure", ({ body, status }) =>
+    Effect.gen(function* () {
+      respond(body, status);
+      const error = yield* Effect.flip(
+        verifyRelayClientBearerToken(ownedSettings, "oat_sensitive_fixture"),
+      );
+      expect(error._tag).toBe("ClerkTokenVerificationFailed");
+      expect(error.cause).toEqual({
+        reason: expect.stringMatching(
+          /^(invalid_oauth_response|invalid_oauth_grant|oauth_verification_failed)$/,
+        ),
+      });
+      if (status === 204) expect(error.cause).toEqual({ reason: "invalid_oauth_response" });
+      expect(JSON.stringify(error.cause)).not.toContain("oat_sensitive_fixture");
+      expect(JSON.stringify(error.cause)).not.toContain("provider-message-fixture");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(verifyToken).not.toHaveBeenCalled();
+    }),
+  );
+
   it.effect(
     "uses the real public SDK direct verifier and seconds/no-type response for two ordinary users",
     () =>

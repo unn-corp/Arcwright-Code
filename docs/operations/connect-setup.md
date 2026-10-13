@@ -254,7 +254,11 @@ CLERK_JWT_AUDIENCE=t3-code-relay
 The publishable key must name the configured issuer. Issuers are exact HTTPS origins without paths,
 query, fragments or credentials. Missing, partial and invalid owned policy fails closed; secrets
 and Backend API destinations are never derived from token claims. Legacy deployments with no
-policy fields retain the deliberate legacy default. This policy is implemented and fixture-tested;
+policy fields retain the deliberate legacy default. Explicit blank policy settings fail before the
+Worker layer is constructed; runtime admission checks the raw Worker bindings as well. Keep this
+preflight ordering when adding an owned stack, and do not globally change other configuration defaults.
+Empty or malformed successful OAuth verification responses produce controlled authentication denial.
+This policy is implemented and fixture-tested;
 the owned relay stack is not deployed by this change. Public relay commissioning, Google Production,
 push isolation, quota/abuse, deletion and hardware checks remain separate gates.
 

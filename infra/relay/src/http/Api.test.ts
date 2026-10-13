@@ -254,6 +254,7 @@ describe("relay client authentication", () => {
 
 const ownedRelaySettings: RelayConfiguration.RelayConfiguration["Service"] = {
   ...relaySettings,
+  clerkSecretKey: Redacted.make("sk_live_fixture"),
   clerkPublishableKey: "pk_live_Y2xlcmsuYXJjd3JpZ2h0LnNwYWNlJA",
   clerkAuthPolicy: {
     mode: "owned",
@@ -296,6 +297,63 @@ const ownedFixtureRequest = (token: string) =>
 
 // These are request admission tests, with deliberately isolated provider fixtures.
 describe("owned RelayClientAuth boundary", () => {
+  it.effect.each([
+    { name: "204 empty", body: undefined, status: 204 },
+    { name: "null", body: null, status: 200 },
+    { name: "malformed object", body: {}, status: 200 },
+    { name: "malformed string", body: "provider-exception-fixture", status: 200 },
+  ])(
+    "real SDK $name response produces 401 without a principal or provider details",
+    ({ body, status }) =>
+      Effect.gen(function* () {
+        const actual = yield* Effect.promise(() =>
+          vi.importActual<typeof import("@clerk/backend")>("@clerk/backend"),
+        );
+        vi.mocked(createClerkClient).mockImplementation(actual.createClerkClient);
+        const network = vi.fn<typeof fetch>().mockResolvedValue(
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+        vi.stubGlobal("fetch", network);
+        let reached = false;
+        const httpEffect = yield* HttpRouter.toHttpEffect(
+          ownedAuthFixtureRouter(() => {
+            reached = true;
+          }),
+        );
+        const response = yield* sendRelayRequest(
+          httpEffect,
+          ownedFixtureRequest("oat_sensitive_fixture"),
+        );
+        expect(response.status).toBe(401);
+        expect(reached).toBe(false);
+        expect(network).toHaveBeenCalledTimes(1);
+        expect(verifyToken).not.toHaveBeenCalled();
+        expect(response.body._tag).toBe("Uint8Array");
+        if (response.body._tag === "Uint8Array") {
+          const text = new TextDecoder().decode(response.body.body);
+          expect(JSON.parse(text)).toMatchObject({
+            code: "auth_invalid",
+            reason: "invalid_bearer",
+          });
+          expect(text).not.toContain("oat_sensitive_fixture");
+          expect(text).not.toContain("provider-exception-fixture");
+          expect(text).not.toContain("TypeError");
+        }
+      }).pipe(
+        Effect.scoped,
+        Effect.ensuring(
+          Effect.sync(() => {
+            vi.unstubAllGlobals();
+            vi.mocked(createClerkClient).mockReset();
+            vi.mocked(verifyToken).mockReset();
+          }),
+        ),
+      ),
+  );
+
   it.effect(
     "the DPoP route never accepts Clerk bearer credentials or invokes Clerk verification",
     () =>

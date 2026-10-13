@@ -1,4 +1,5 @@
 import * as Config from "effect/Config";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -6,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 
 export const ApnsEnvironment = Schema.Literals(["sandbox", "production"]);
 export type ApnsEnvironment = typeof ApnsEnvironment.Type;
@@ -83,8 +85,14 @@ const decodeClerkAuthPolicy = Schema.decodeUnknownEffect(ClerkAuthPolicy, {
   onExcessProperty: "error",
 });
 
-/** Missing mode is deliberately legacy; stray owned fields must never select that fallback. */
-export const clerkAuthPolicyConfig = Config.all({
+const CLERK_AUTH_KEYS = [
+  "RELAY_CLERK_AUTH_MODE",
+  "RELAY_CLERK_ISSUER",
+  "RELAY_CLERK_CLI_CLIENT_ID",
+] as const;
+
+/** Leaf reads stay inside Alchemy's interceptor so only real values are auto-bound. */
+const clerkAuthPolicyFieldsConfig = Config.all({
   mode: Config.String("RELAY_CLERK_AUTH_MODE").pipe(Config.withDefault("legacy")),
   issuer: Config.option(Config.String("RELAY_CLERK_ISSUER")),
   cliClientId: Config.option(Config.String("RELAY_CLERK_CLI_CLIENT_ID")),
@@ -101,6 +109,65 @@ export const clerkAuthPolicyConfig = Config.all({
     ).pipe(Effect.mapError((error) => new Config.ConfigError(error))),
   ),
 );
+
+const invalidClerkAuthConfiguration = () =>
+  Effect.fail(
+    new Config.ConfigError(
+      new Schema.SchemaError(new SchemaIssue.InvalidValue({ message: "invalid_auth_policy" })),
+    ),
+  );
+
+/**
+ * Default providers drop empty leaves but retain their original parent keys.
+ * Run outside the Worker layer: Alchemy would otherwise auto-bind parent records.
+ */
+export const parseClerkAuthPolicyConfig = (provider: ConfigProvider.ConfigProvider) =>
+  Effect.gen(function* () {
+    const root = yield* provider
+      .load([])
+      .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
+    for (const key of CLERK_AUTH_KEYS) {
+      const leaf = yield* provider
+        .load([key])
+        .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
+      if (leaf !== undefined) continue;
+      const segments = key.split("_");
+      const last = segments.pop();
+      const parent = yield* provider
+        .load(segments)
+        .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
+      if (
+        (root?._tag === "Record" && root.keys.has(key)) ||
+        (last !== undefined && parent?._tag === "Record" && parent.keys.has(last))
+      ) {
+        return yield* invalidClerkAuthConfiguration();
+      }
+    }
+    return yield* clerkAuthPolicyFieldsConfig.parse(provider);
+  });
+
+/** Deployment preflight must finish before building the Worker layer. */
+export const clerkAuthPolicyConfig = Effect.gen(function* () {
+  return yield* parseClerkAuthPolicyConfig(yield* ConfigProvider.ConfigProvider);
+});
+
+/** The bridge's raw environment retains own-property presence even for dropped empty bindings. */
+export const clerkAuthPolicyFromWorkerEnvironment = (
+  environment: Readonly<Record<string, unknown>>,
+) =>
+  Effect.gen(function* () {
+    for (const key of CLERK_AUTH_KEYS) {
+      if (
+        Object.hasOwn(environment, key) &&
+        (typeof environment[key] !== "string" || environment[key].trim().length === 0)
+      ) {
+        return yield* invalidClerkAuthConfiguration();
+      }
+    }
+    // Plan-time WorkerEnvironment is {}, so it cannot replace operator preflight.
+    // These leaf reads preserve Alchemy's existing binding and marker reification.
+    return yield* clerkAuthPolicyFieldsConfig;
+  });
 
 export class RelayConfiguration extends Context.Service<
   RelayConfiguration,

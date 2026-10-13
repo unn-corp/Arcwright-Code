@@ -46,6 +46,10 @@ function isClerkUserSubject(subject: unknown): subject is string {
   return typeof subject === "string" && /^user_[A-Za-z0-9]+$/.test(subject);
 }
 
+function isOAuthGrantRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isSessionJwt(token: string): boolean {
   const parts = token.split(".");
   const encodedHeader = parts[0];
@@ -127,27 +131,32 @@ function verifyOwnedClerkOAuthBearerToken(
       }).idPOAuthAccessToken.verify(token),
     catch: () => invalidClerkCredential("oauth_verification_failed"),
   }).pipe(
-    Effect.flatMap((verified) =>
+    Effect.flatMap((response) =>
       Effect.gen(function* () {
+        const verified: unknown = response;
+        if (!isOAuthGrantRecord(verified)) {
+          return yield* invalidClerkCredential("invalid_oauth_response");
+        }
+        const { clientId, subject, scopes, revoked, expired, expiration } = verified;
         const now = yield* DateTime.now;
         // Direct BAPI fromJSON has no type field and preserves Unix SECONDS.
         // Bound timestamps to RFC 3339's four-digit years; never guess units.
         if (
-          verified.clientId !== policy.cliClientId ||
-          !isClerkUserSubject(verified.subject) ||
-          !Array.isArray(verified.scopes) ||
-          !verified.scopes.every((scope) => typeof scope === "string" && scope.length > 0) ||
-          !["openid", "profile", "email"].every((scope) => verified.scopes.includes(scope)) ||
-          verified.revoked !== false ||
-          verified.expired !== false ||
-          typeof verified.expiration !== "number" ||
-          !Number.isSafeInteger(verified.expiration) ||
-          verified.expiration > 253_402_300_799 ||
-          verified.expiration <= Math.floor(now.epochMilliseconds / 1_000)
+          clientId !== policy.cliClientId ||
+          !isClerkUserSubject(subject) ||
+          !Array.isArray(scopes) ||
+          !scopes.every((scope) => typeof scope === "string" && scope.length > 0) ||
+          !["openid", "profile", "email"].every((scope) => scopes.includes(scope)) ||
+          revoked !== false ||
+          expired !== false ||
+          typeof expiration !== "number" ||
+          !Number.isSafeInteger(expiration) ||
+          expiration > 253_402_300_799 ||
+          expiration <= Math.floor(now.epochMilliseconds / 1_000)
         ) {
           return yield* invalidClerkCredential("invalid_oauth_grant");
         }
-        return { sub: verified.subject, mode: "clerk_oauth_bearer" as const };
+        return { sub: subject, mode: "clerk_oauth_bearer" as const };
       }),
     ),
   );

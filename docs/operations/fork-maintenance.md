@@ -86,6 +86,9 @@ Relay bearer policy belongs to [Config.ts](../../infra/relay/src/Config.ts),
 bootstrap in [Api.ts](../../infra/relay/src/http/Api.ts). Preserve strict owned issuer/audience
 session checks, opaque-only approved CLI client/scope/Unix-seconds grant checks, and deliberate
 legacy compatibility. DPoP exchange stays session-only and environment-link guards remain separate.
+Keep auth preflight ahead of Worker layer construction and the raw runtime-binding check in
+[workerAuthPolicy.ts](../../infra/relay/src/workerAuthPolicy.ts); empty policy settings cannot
+silently select legacy through provider normalization.
 Focused auth/API and DPoP regression fixtures cover these boundaries; public relay commissioning
 and the remaining privacy, abuse, deletion and physical-device gates are not established by them.
 The example configuration selects upstream T3 services in legacy mode. Explicit owned builds

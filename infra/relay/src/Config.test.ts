@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import {
-  clerkAuthPolicyConfig,
+  parseClerkAuthPolicyConfig,
   legacyManagedEndpointCleanupModeConfig,
   legacyTunnelGraceMinutesConfig,
   managedEndpointCleanupModeConfig,
@@ -20,11 +20,11 @@ it.effect(
   "defaults an untouched deployment deliberately to legacy, or selects complete owned policy",
   () =>
     Effect.gen(function* () {
-      expect(yield* clerkAuthPolicyConfig.parse(ConfigProvider.fromEnv({ env: {} }))).toEqual({
+      expect(yield* parseClerkAuthPolicyConfig(ConfigProvider.fromEnv({ env: {} }))).toEqual({
         mode: "legacy",
       });
       expect(
-        yield* clerkAuthPolicyConfig.parse(ConfigProvider.fromEnv({ env: ownedAuthEnv })),
+        yield* parseClerkAuthPolicyConfig(ConfigProvider.fromEnv({ env: ownedAuthEnv })),
       ).toEqual({
         mode: "owned",
         issuer: ownedAuthEnv.RELAY_CLERK_ISSUER,
@@ -36,6 +36,9 @@ it.effect(
 it.effect.each([
   { RELAY_CLERK_AUTH_MODE: "unknown" },
   { RELAY_CLERK_AUTH_MODE: "" },
+  { RELAY_CLERK_ISSUER: "" },
+  { RELAY_CLERK_CLI_CLIENT_ID: "" },
+  { RELAY_CLERK_AUTH_MODE: "", RELAY_CLERK_ISSUER: "", RELAY_CLERK_CLI_CLIENT_ID: "" },
   { RELAY_CLERK_AUTH_MODE: "owned" },
   { RELAY_CLERK_AUTH_MODE: "owned", RELAY_CLERK_ISSUER: ownedAuthEnv.RELAY_CLERK_ISSUER },
   {
@@ -52,11 +55,9 @@ it.effect.each([
   { ...ownedAuthEnv, RELAY_CLERK_CLI_CLIENT_ID: "client id" },
 ])("rejects partial or invalid auth deployment configuration %j", (env) =>
   Effect.gen(function* () {
-    expect(
-      (yield* Effect.flip(
-        clerkAuthPolicyConfig.parse(ConfigProvider.fromEnv({ env, preserveEmptyStrings: true })),
-      ))._tag,
-    ).toBe("ConfigError");
+    for (const provider of [ConfigProvider.fromEnv({ env }), ConfigProvider.fromUnknown(env)]) {
+      expect((yield* Effect.flip(parseClerkAuthPolicyConfig(provider)))._tag).toBe("ConfigError");
+    }
   }),
 );
 
@@ -75,7 +76,7 @@ it.effect.each([
   Effect.gen(function* () {
     expect(
       (yield* Effect.flip(
-        clerkAuthPolicyConfig.parse(
+        parseClerkAuthPolicyConfig(
           ConfigProvider.fromEnv({ env: { ...ownedAuthEnv, RELAY_CLERK_ISSUER: issuer } }),
         ),
       ))._tag,
