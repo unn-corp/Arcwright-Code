@@ -717,6 +717,9 @@ the first installation, clear app data or uninstall to bypass the gate. See the
 Managed notifications use a separate issuer/relay/template stamp. Old unknown/foreign references,
 their unknown fields and route preferences stay dormant and are not rewritten on launch. Explicit
 current-account registration activates the new authority; direct pairing remains usable.
+Automatic setup also retains missing-reference logout/switch suppression flags and cannot revive
+saved direct notifications. The explicit current-paired-route action under Connections → Routes
+changes phone-alert selection, with native configuration/order, allowlist and permission checks.
 
 [ConnectAuthTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthTest.kt)
 and [ConnectAuthProtocolTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/ConnectAuthProtocolTest.kt)
@@ -729,6 +732,10 @@ isolated fixture state and do not require installing or restarting a phone app.
 proves SDK construction/observation is gated, and
 [NativeNotificationAuthorityTest.kt](../../apps/android-pwa/app/src/test/kotlin/com/devotek/t3code/pwa/NativeNotificationAuthorityTest.kt)
 checks dormant data preservation and publication fencing across authorities.
+[NativeNotificationBridgeTest.java](../../apps/android-pwa/app/src/test/java/com/devotek/t3code/pwa/NativeNotificationBridgeTest.java)
+replays messages emitted by the production web coordinator, real notification bridge and actual
+route-choice click through the compiled native handler. It checks automatic suppression, raw
+preference/tombstone preservation, deliberate selection and stale/disabled/permission refusal.
 
 The [Connect setup runbook](./connect-setup.md#android-native-sign-in-redirects) owns registration,
 public configuration and pending phone proof. Native background Connect renewal is implemented;

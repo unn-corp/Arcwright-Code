@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { AndroidNotificationCoordinator } from "./AndroidNotificationCoordinator";
 import type { PreparedHttpAuthorization } from "@t3tools/client-runtime/connection";
 import type { AndroidAuthStatus } from "./connectAuth";
+import { notificationConfiguration } from "./notificationRegistration";
 
 const fixture = vi.hoisted(() => {
   const account: AndroidAuthStatus = {
@@ -98,8 +99,12 @@ describe("native managed notification registration", () => {
     );
     await render();
     expect(fixture.request.mock.calls.map(([action]) => action)).toEqual(["configure"]);
+    expect(notificationConfiguration.getSnapshot()).toBeNull();
     await act(async () => finish?.());
     const configuration = fixture.request.mock.calls[0]?.[1];
+    expect(notificationConfiguration.getSnapshot()).toBe(
+      (configuration as { configurationId: string }).configurationId,
+    );
     const registration = fixture.request.mock.calls[1];
     expect(registration?.[0]).toBe("registerManaged");
     expect(registration?.[1]).toEqual({

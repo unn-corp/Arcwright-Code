@@ -1,0 +1,101 @@
+[
+  {
+    "id": "42:1",
+    "action": "configure",
+    "payload": {
+      "preferences": {
+        "enabled": true
+      },
+      "environmentIds": ["env"],
+      "configurationId": "42:1"
+    }
+  },
+  {
+    "id": "42:2",
+    "action": "register",
+    "payload": {
+      "environmentId": "env",
+      "configurationId": "42:1",
+      "sequence": 1,
+      "httpBaseUrl": "https://saved-direct.test/",
+      "token": "saved-pairing"
+    }
+  },
+  {
+    "id": "42:3",
+    "action": "register",
+    "payload": {
+      "environmentId": "env",
+      "configurationId": "42:1",
+      "sequence": 2,
+      "httpBaseUrl": "https://saved-direct.test/",
+      "token": "saved-pairing"
+    }
+  },
+  {
+    "id": "42:4",
+    "action": "selectDirect",
+    "payload": {
+      "environmentId": "env",
+      "configurationId": "42:1",
+      "sequence": 3,
+      "httpBaseUrl": "https://saved-direct.test/",
+      "token": "saved-pairing"
+    }
+  },
+  {
+    "id": "42:5",
+    "action": "configure",
+    "payload": {
+      "preferences": {
+        "enabled": true
+      },
+      "environmentIds": [],
+      "configurationId": "42:2"
+    }
+  },
+  {
+    "id": "42:6",
+    "action": "configure",
+    "payload": {
+      "preferences": {
+        "enabled": false
+      },
+      "environmentIds": [],
+      "configurationId": "42:3"
+    }
+  },
+  {
+    "id": "42:7",
+    "action": "configure",
+    "payload": {
+      "preferences": {
+        "enabled": true
+      },
+      "environmentIds": ["env"],
+      "configurationId": "42:4"
+    }
+  },
+  {
+    "id": "42:8",
+    "action": "register",
+    "payload": {
+      "environmentId": "env",
+      "configurationId": "42:4",
+      "sequence": 4,
+      "httpBaseUrl": "https://saved-direct.test/",
+      "token": "saved-pairing"
+    }
+  },
+  {
+    "id": "42:9",
+    "action": "selectDirect",
+    "payload": {
+      "environmentId": "env",
+      "configurationId": "42:4",
+      "sequence": 5,
+      "httpBaseUrl": "https://saved-direct.test/",
+      "token": "saved-pairing"
+    }
+  }
+]

@@ -35,6 +35,7 @@ import { usePreparedConnection } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { AndroidDirectNotificationChoice } from "../../android/AndroidDirectNotificationChoice";
 
 /**
  * The ways this client reaches one saved machine, preferred first. Drag to
@@ -129,6 +130,7 @@ export function EnvironmentRoutesList({
         </SortableContext>
       </DndContext>
       <div className="border-t border-border/70 px-1 py-1">
+        <AndroidDirectNotificationChoice environmentId={environment.environmentId} />
         <Button size="xs" variant="ghost-muted" onClick={onAddRoute}>
           <PlusIcon className="size-3" />
           Add route

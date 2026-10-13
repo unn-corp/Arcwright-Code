@@ -6,6 +6,11 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useEnvironments } from "../state/environments";
 import { usePreparedConnection } from "../state/session";
 import { androidNotificationRequest, supportsAndroidNotifications } from "./notifications";
+import {
+  clearNotificationConfiguration,
+  confirmNotificationConfiguration,
+  notificationRegistration,
+} from "./notificationRegistration";
 
 let registrationSequence = 0;
 
@@ -33,11 +38,15 @@ export function AndroidNotificationCoordinator() {
       configurationId: id,
     })
       .then(() => {
-        if (current) setConfigured({ configuration, id });
+        if (current) {
+          confirmNotificationConfiguration(id);
+          setConfigured({ configuration, id });
+        }
       })
       .catch(() => {});
     return () => {
       current = false;
+      clearNotificationConfiguration(id);
     };
   }, [isReady, configuration]);
   // Configure the native allowlist before copying credentials; stale registrations
@@ -71,7 +80,7 @@ function RegisterEnvironment({
     if (Option.isNone(prepared)) return;
     const connection = prepared.value;
     const authorization = connection.httpAuthorization;
-    const registration = { configurationId, sequence: ++registrationSequence };
+    const registration = notificationRegistration(configurationId);
     if (authorization?._tag === "Dpop") {
       if (account.phase !== "signedIn") return;
       void androidNotificationRequest("registerManaged", {

@@ -192,6 +192,11 @@ use your directly paired environments and contact your maintainer. A retry or ap
 move that account safely to another application. Keep your app data and pairings. After a managed
 service changes, old background registrations remain dormant until you explicitly register alerts
 with the current account; saved direct credentials and route choices remain available.
+Automatic account changes and app launches keep old phone-alert route choices suppressed. To use
+your current paired route for alerts, open that environment's **Settings → Connections → Routes**
+and choose **Use current paired route for phone alerts**. This action is available when the current
+connection uses a paired route and phone notifications are enabled. It changes phone alerts only;
+foreground connections remain independent.
 
 Native foreground account sign-in is implemented; live commissioning of the owned Clerk and
 relay service remains pending. Maintainers explicitly select owned service configuration when

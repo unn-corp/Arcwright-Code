@@ -230,8 +230,13 @@ relay/template on the same Clerk profile preserves the SDK session while leaving
 references dormant. Persisted references also bind user/session identity; process-local
 generations are captured again after SDK restoration. Loading/network failures retain registrations.
 An authoritative logout/account change evicts only current-authority managed references and fences
-HTTP, sockets and queued alerts while retaining independent direct pairing, browser state and drafts. Ordered configuration
-and registration writes allow managed/direct route changes while rejecting stale registrations.
+HTTP, sockets and queued alerts while retaining independent direct pairing, browser state and drafts.
+Automatic configuration preserves managed selection flags even after logout removes the reference or
+the catalog omits the environment. Automatic direct registrations cannot clear those flags or revive
+the suppressed route; ordering establishes freshness, not user intent. Only a user click on the current
+paired notification route sends `selectDirect`, subject to current native configuration/order,
+environment allowlist, enabled-alert and Android permission guards. Selection clears only that
+environment's preference and reprimes its revision under the shared publication monitor.
 Every accepted managed registration gets an opaque native revision. Admission, selected connection,
 cache/tickets, rejection cleanup, queued frames, watermarks and posts all retain authority fencing.
 Unknown/foreign refs cannot open DPoP keys, HTTP or sockets or authorize cached frames. Rejection

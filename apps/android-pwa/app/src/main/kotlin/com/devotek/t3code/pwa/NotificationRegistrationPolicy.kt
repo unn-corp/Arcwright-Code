@@ -36,14 +36,10 @@ object NotificationRegistrationPolicy {
         ref.optString("mode") == "managed" && ref.optString("authority") == authority && ref.optString("registrationRevision").isNotEmpty()
     @JvmStatic fun preserveDormantPreference(managed: JSONObject, id: String, authority: String?): Boolean =
         managed.has(id) && !belongs(managed.optJSONObject(id), authority)
-    /** A removed current-account registration remains an explicit managed selection tombstone.
-     * Retained foreign/unknown rows cannot block a fresh direct registration. */
-    @JvmStatic fun prefersManaged(preferred: JSONObject, managed: JSONObject, id: String, authority: String?): Boolean =
-        preferred.has(id) && (!managed.has(id) || belongs(managed.optJSONObject(id), authority))
     @JvmStatic fun combine(direct: JSONObject, preferred: JSONObject, managed: JSONObject, authority: String?): JSONObject {
         val result = JSONObject(direct.toString())
-        // A profile change is not consent to revive old direct notifications. A fresh direct
-        // registration explicitly clears its preference after receiving a new revision.
+        // Profile changes and fresh automatic registrations are not consent to revive old direct
+        // notifications. Only the explicit native selectDirect action clears its saved preference.
         preferred.keys().forEach { result.remove(it) }
         managed.keys().forEach { if (belongs(managed.optJSONObject(it), authority)) result.put(it, managed.getJSONObject(it)) }
         return result

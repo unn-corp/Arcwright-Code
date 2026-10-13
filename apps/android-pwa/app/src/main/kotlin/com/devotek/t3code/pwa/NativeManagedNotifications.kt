@@ -104,10 +104,6 @@ class NativeManagedNotifications(private val app: ArcwrightApplication) {
         @JvmStatic fun from(context: Context) = (context.applicationContext as ArcwrightApplication).managedNotifications
         @JvmStatic fun preserveDormantPreference(context: Context, managed: JSONObject, id: String) =
             NotificationRegistrationPolicy.preserveDormantPreference(managed, id, from(context).authority)
-        @JvmStatic fun prefersManaged(context: Context, id: String) = synchronized(NotificationCredentials::class.java) {
-            NotificationRegistrationPolicy.prefersManaged(NativeNotifications.read(context, "managedPreferred"),
-                NotificationCredentials.read(context, STORAGE), id, from(context).authority)
-        }
         @JvmStatic fun register(context: Context, payload: JSONObject) = synchronized(NotificationCredentials::class.java) {
             val app = context.applicationContext as ArcwrightApplication
             val ref = NotificationRegistrationPolicy.managedReference(payload, app.connectAuth, app.connectAuthority?.notificationStamp)

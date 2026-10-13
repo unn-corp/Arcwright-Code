@@ -33,6 +33,7 @@ export function androidNotificationRequest(
     | "requestPermission"
     | "configure"
     | "register"
+    | "selectDirect"
     | "registerManaged"
     | "background"
     | "test"

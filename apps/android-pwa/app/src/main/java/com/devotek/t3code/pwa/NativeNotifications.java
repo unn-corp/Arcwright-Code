@@ -113,7 +113,7 @@ final class NativeNotifications {
                 activity.runOnUiThread(() -> handle(raw, reply));
             });
     }
-    private void handle(String raw, JavaScriptReplyProxy reply) {
+    void handle(String raw, JavaScriptReplyProxy reply) {
         String id = "";
         try {
             JSONObject request = new JSONObject(raw); id = request.getString("id");
@@ -151,9 +151,10 @@ final class NativeNotifications {
                         for (String key : removed) { connections.remove(key); store(activity).edit().remove("state:" + key).apply(); }
                         JSONObject direct = NotificationCredentials.read(activity);
                         JSONObject managed = NotificationCredentials.read(activity, NativeManagedNotifications.STORAGE);
+                        JSONObject preferred = read(activity, "managedPreferred");
                         java.util.List<String> directRemoved = new java.util.ArrayList<>();
                         direct.keys().forEachRemaining(key -> {
-                            if (!keep.contains(key) && !NativeManagedNotifications.preserveDormantPreference(activity, managed, key)) directRemoved.add(key);
+                            if (!keep.contains(key) && !preferred.has(key) && !NativeManagedNotifications.preserveDormantPreference(activity, managed, key)) directRemoved.add(key);
                         });
                         for (String key : directRemoved) {
                             // Dormant encrypted rows may be absent from the selected connections.
@@ -164,17 +165,14 @@ final class NativeNotifications {
                         java.util.List<String> managedRemoved = new java.util.ArrayList<>();
                         managed.keys().forEachRemaining(key -> { if (!keep.contains(key)) managedRemoved.add(key); });
                         for (String key : managedRemoved) NativeManagedNotifications.remove(activity, key);
-                        JSONObject preferred = read(activity, "managedPreferred");
-                        java.util.List<String> preferenceRemoved = new java.util.ArrayList<>();
-                        preferred.keys().forEachRemaining(key -> {
-                            if (!keep.contains(key) && !NativeManagedNotifications.preserveDormantPreference(activity, managed, key)) preferenceRemoved.add(key);
-                        });
-                        for (String key : preferenceRemoved) preferred.remove(key);
-                        store(activity).edit().putString("managedPreferred", preferred.toString()).putString("preferences", prefs.toString()).putString("environmentIds", new JSONArray(keep).toString()).apply();
+                        // Catalog absence and automatic configuration do not revoke a saved selection.
+                        // Keep foreign/unknown choices and missing-row logout tombstones byte-for-byte.
+                        store(activity).edit().putString("preferences", prefs.toString()).putString("environmentIds", new JSONArray(keep).toString()).apply();
                         refresh(); break;
                     }
                 }
                 case "registerManaged":
+                case "selectDirect":
                 case "register": {
                     synchronized (NotificationCredentials.class) {
                         String environmentId = payload.getString("environmentId");
@@ -183,8 +181,17 @@ final class NativeNotifications {
                         for (int i = 0; i < allowedIds.length(); i++) if (environmentId.equals(allowedIds.getString(i))) active = true;
                         if (!active || !read(activity, "preferences").optBoolean("enabled")) throw new JSONException("Environment alerts are disabled.");
                         JSONObject versions = read(activity, "registrationVersions");
+                        boolean explicitDirect = "selectDirect".equals(request.getString("action"));
+                        if (explicitDirect && !allowed(activity)) throw new JSONException("Allow notifications before selecting a route.");
+                        java.util.Set<String> payloadKeys = new java.util.HashSet<>();
+                        payload.keys().forEachRemaining(payloadKeys::add);
+                        if (explicitDirect && !payloadKeys.equals(new java.util.HashSet<>(java.util.Arrays.asList("environmentId", "configurationId", "sequence", "httpBaseUrl", "token")))) throw new JSONException("Invalid direct notification selection.");
                         boolean ordered = payload.has("configurationId") || payload.has("sequence");
-                        if (ordered && !NotificationRegistrationPolicy.accepts(store(activity).getString("configurationId", ""), versions, environmentId, payload)) break;
+                        if (explicitDirect && !ordered) throw new JSONException("Direct selection needs current configuration.");
+                        if (ordered && !NotificationRegistrationPolicy.accepts(store(activity).getString("configurationId", ""), versions, environmentId, payload)) {
+                            if (explicitDirect) throw new JSONException("Direct selection is stale.");
+                            break;
+                        }
                         if ("registerManaged".equals(request.getString("action"))) {
                             if (!ordered) throw new JSONException("Managed registration needs current configuration.");
                             NativeManagedNotifications.register(activity, payload);
@@ -192,25 +199,29 @@ final class NativeNotifications {
                             store(activity).edit().putString("registrationVersions", versions.toString()).apply();
                             refresh(); break;
                         }
-                        // Legacy registrations cannot override managed selection. Current ordered writes can switch routes.
-                        if (!ordered && NativeManagedNotifications.prefersManaged(activity, environmentId)) break;
+                        // Freshness is not user intent. Automatic/legacy writes cannot clear a
+                        // managed selection, including retained foreign refs and logout tombstones.
+                        if (!explicitDirect && read(activity, "managedPreferred").has(environmentId)) break;
                         String token = payload.getString("token");
                         okhttp3.HttpUrl base = okhttp3.HttpUrl.parse(payload.getString("httpBaseUrl"));
                         if (base == null || !base.username().isEmpty() || !base.password().isEmpty() || token.isEmpty() || token.length() > 8192) throw new JSONException("Invalid environment connection.");
-                        if (ordered) {
-                            NativeManagedNotifications.remove(activity, environmentId);
-                            versions.put(environmentId, payload.getLong("sequence"));
-                            store(activity).edit().putString("registrationVersions", versions.toString()).apply();
-                        }
                         JSONObject connections = NotificationCredentials.read(activity);
                         JSONObject preferred = read(activity, "managedPreferred");
                         JSONObject previous = connections.optJSONObject(environmentId);
                         JSONObject direct = NotificationRegistrationPolicy.directReference(previous, preferred.has(environmentId), base.toString(), token);
-                        NotificationRegistrationPolicy.reprime(previous, direct, () -> store(activity).edit().remove("state:" + environmentId).apply());
-                        preferred.remove(environmentId);
-                        store(activity).edit().putString("managedPreferred", preferred.toString()).apply();
                         connections.put(environmentId, direct);
-                        NotificationCredentials.write(activity, connections); refresh(); break;
+                        NotificationCredentials.write(activity, connections);
+                        NotificationRegistrationPolicy.reprime(previous, direct, () -> store(activity).edit().remove("state:" + environmentId).apply());
+                        if (explicitDirect) {
+                            NativeManagedNotifications.remove(activity, environmentId);
+                            preferred.remove(environmentId);
+                            store(activity).edit().putString("managedPreferred", preferred.toString()).apply();
+                        }
+                        if (ordered) {
+                            versions.put(environmentId, payload.getLong("sequence"));
+                            store(activity).edit().putString("registrationVersions", versions.toString()).apply();
+                        }
+                        refresh(); break;
                     }
                 }
                 case "background":

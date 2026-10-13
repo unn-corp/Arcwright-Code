@@ -35,6 +35,8 @@
     "../../scripts/lib/public-config.ts",
     "../../scripts/lib/connect-build-surfaces.ts",
     "../../scripts/lib/build-identity.ts",
-    "../../scripts/lib/third-party-licenses.ts"
+    "../../scripts/lib/third-party-licenses.ts",
+    "../../packages/shared/src/connectProfile.ts",
+    "../../packages/shared/src/relayAuth.ts"
   ]
 }

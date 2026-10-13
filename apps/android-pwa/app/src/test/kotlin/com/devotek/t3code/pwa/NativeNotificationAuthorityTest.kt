@@ -31,10 +31,6 @@ class NativeNotificationAuthorityTest {
             assertEquals(raw, refs.toString()); assertEquals(savedPreferred, preferred.toString())
             assertEquals("paired", direct.getJSONObject("foreign").getString("token"))
         }
-        // Manual direct selection is explicit: it can unselect dormant managed data without deleting it.
-        preferred.remove("foreign")
-        assertEquals("paired", NotificationRegistrationPolicy.combine(direct, preferred, refs, next).getJSONObject("foreign").getString("token"))
-        assertEquals(raw, refs.toString())
     }
     @Test fun onlyStampedCurrentAuthorityCanActivateOrBeRemovedByAccountReconciliation() {
         val refs = JSONObject().put("current", ref(next)).put("foreign", ref()).put("unknown", ref(null))
@@ -43,36 +39,17 @@ class NativeNotificationAuthorityTest {
         assertEquals(setOf("current"), NotificationRegistrationPolicy.reconcile(refs, ConnectAuthStatus(true, "signedOut"), next))
         assertTrue(refs.has("foreign")); assertTrue(refs.has("unknown"))
     }
-    @Test fun automaticConfigurePruningPreservesDormantRoutePreferencesIncludingOpaqueOldRows() {
-        val refs = JSONObject().put("current", ref(next)).put("foreign", ref()).put("unknown", ref(null)).put("opaque", "old-data")
-        val preferred = JSONObject().put("current", true).put("foreign", true).put("unknown", false).put("opaque", "old-choice")
-        val direct = JSONObject().put("foreign", JSONObject().put("token", "dormant-pairing").put("httpBaseUrl", "https://direct.test/").put("registrationRevision", "old-direct"))
-            .put("ordinary", JSONObject().put("token", "disabled-pairing"))
-        val before = refs.toString()
-        val removable = preferred.keys().asSequence().filter { !NotificationRegistrationPolicy.preserveDormantPreference(refs, it, next) }.toList()
-        removable.forEach { preferred.remove(it) }
-        val directRemoved = direct.keys().asSequence().filter { !NotificationRegistrationPolicy.preserveDormantPreference(refs, it, next) }.toList()
-        directRemoved.forEach { direct.remove(it) }
-        assertEquals(listOf("current"), removable)
-        assertEquals(3, preferred.length()); assertTrue(preferred.getBoolean("foreign")); assertFalse(preferred.getBoolean("unknown"))
-        assertEquals("old-choice", preferred.getString("opaque")); assertEquals(before, refs.toString())
-        assertEquals("dormant-pairing", direct.getJSONObject("foreign").getString("token")); assertFalse(direct.has("ordinary"))
-        assertFalse(NotificationRegistrationPolicy.preserveDormantPreference(refs, "missing", next))
-        assertTrue(NotificationRegistrationPolicy.preserveDormantPreference(refs, "current", null))
-        assertFalse(NotificationRegistrationPolicy.prefersManaged(preferred, refs, "foreign", next))
-        assertFalse(NotificationRegistrationPolicy.prefersManaged(preferred, refs, "unknown", next))
-        assertFalse(NotificationRegistrationPolicy.combine(direct, preferred, refs, next).has("foreign"))
-        // A new direct registration is an intentional selection; mere configure above was not.
-        val previous = direct.getJSONObject("foreign")
-        val selected = NotificationRegistrationPolicy.directReference(previous, preferred.has("foreign"), previous.getString("httpBaseUrl"), previous.getString("token"))
-        assertNotEquals("old-direct", selected.getString("registrationRevision"))
-        direct.put("foreign", selected); preferred.remove("foreign")
-        assertEquals("dormant-pairing", NotificationRegistrationPolicy.combine(direct, preferred, refs, next).getJSONObject("foreign").getString("token"))
-        assertEquals(before, refs.toString())
-        val currentPreferred = JSONObject().put("current", true)
-        assertTrue(NotificationRegistrationPolicy.prefersManaged(currentPreferred, refs, "current", next))
-        refs.remove("current") // Current-profile logout does not silently resurrect dormant direct data.
-        assertTrue(NotificationRegistrationPolicy.prefersManaged(currentPreferred, refs, "current", next))
+    @Test fun dormantRowsAndMissingReferenceTombstonesSuppressDirectSelectionWithoutChangingRawChoices() {
+        val refs = JSONObject().put("foreign", ref()).put("unknown", ref(null)).put("opaque", "old-data")
+        val preferred = JSONObject("""{ "foreign":true, "unknown":false, "opaque":"old-choice", "missing":true }""")
+        val direct = JSONObject().put("foreign", JSONObject().put("token", "dormant-pairing"))
+            .put("missing", JSONObject().put("token", "logout-pairing"))
+        val before = refs.toString(); val choices = preferred.toString()
+        assertEquals(0, NotificationRegistrationPolicy.combine(direct, preferred, refs, next).length())
+        assertEquals(before, refs.toString()); assertEquals(choices, preferred.toString())
+        assertFalse(NotificationRegistrationPolicy.belongs(refs.getJSONObject("foreign"), next))
+        assertTrue(NotificationRegistrationPolicy.preserveDormantPreference(refs, "unknown", next))
+        assertTrue(NotificationRegistrationPolicy.preserveDormantPreference(refs, "opaque", next))
     }
     @Test fun foreignOrUnknownCachedFramesWatermarksAndQueuedPostsNeverConsultAccountOrPublish() {
         for (config in listOf(ref(), ref(null))) {
