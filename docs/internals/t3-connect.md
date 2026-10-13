@@ -1,5 +1,15 @@
 # Arcwright Connect
 
+The owned hosted application has an independent assets-only deployment boundary. The
+[hosted runbook](../operations/connect-setup.md#independent-owned-hosted-web) binds a clean source
+commit, compiler-produced complete public identity, immutable asset tree and actual Alchemy upload
+manifest before deployment. Private LocalState and the executable Alchemy context stay outside the
+checkout/upload tree. Public preparation pages may precede the relay; their deployment cannot
+establish backend account isolation, public Google signup, deletion operations or native delivery.
+Owned hosted compile isolation is opt-in and leaves local, native and legacy surface authority
+unchanged. Assets-first SPA routing retains the CLI fragment and existing signed-out sign-in gate;
+edge authorization or relay proxying would change that trust boundary and is not part of this stack.
+
 The Connect display name is Arcwright Connect across the fork's clients and CLI. This does not
 change the protocol, persisted identities, `t3 connect` command, `T3CODE_*` configuration keys,
 JWT audience, or callback schemes. The public example still selects upstream T3 services;

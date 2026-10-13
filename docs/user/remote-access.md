@@ -24,6 +24,12 @@ standalone Android APK is implemented, with live owned-service commissioning pen
 background Connect/DPoP renewal is implemented using a native read-only session, alongside directly
 paired alerts. Real-phone delivery with the owned service remains pending commissioning.
 
+The owned hosted service has separate public About and Privacy pages that can be published while
+public signup is being prepared. Those pages provide contact and intended information handling;
+their availability does not mean managed environment access is ready. Public signup is intended
+for anyone, with each account limited to its own linked environments. Your coding provider account
+and its charges remain separate. Signing out does not revoke independent manual pairings.
+
 Arcwright Connect makes an environment available to your other devices without setting
 up router forwarding. In the desktop app on the host, open **Settings →
 Connections**, sign in, and enable **Arcwright Connect** for that environment.

@@ -40,12 +40,15 @@ const REPO_ROOT = NodePath.dirname(
 export function loadRepoEnv({
   baseEnv = process.env,
   repoRoot = REPO_ROOT,
+  readEnvFiles = true,
 }: {
   readonly baseEnv?: Environment;
   readonly repoRoot?: string;
+  /** Explicit isolated builds must not load developer root environment files. */
+  readonly readEnvFiles?: boolean;
 } = {}): Record<string, string | undefined> {
-  const rootEnv = readEnvFile(NodePath.join(repoRoot, ".env"));
-  const localEnv = readEnvFile(NodePath.join(repoRoot, ".env.local"));
+  const rootEnv = readEnvFiles ? readEnvFile(NodePath.join(repoRoot, ".env")) : {};
+  const localEnv = readEnvFiles ? readEnvFile(NodePath.join(repoRoot, ".env.local")) : {};
   const sources = [baseEnv, localEnv, rootEnv];
   const mode = resolveConnectMode(firstNonEmpty(sources, "T3CODE_CONNECT_MODE"));
   const profileFile = firstNonEmpty(sources, "T3CODE_CONNECT_PROFILE_FILE");

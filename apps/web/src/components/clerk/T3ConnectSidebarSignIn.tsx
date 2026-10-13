@@ -78,6 +78,19 @@ function ConfiguredT3ConnectSidebarSignIn() {
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
+      {surface === "browser" &&
+      import.meta.env.VITE_CONNECT_MODE === "owned" &&
+      window.location.origin === import.meta.env.VITE_HOSTED_APP_URL ? (
+        <p className="px-3 py-2 text-xs text-muted-foreground">
+          <a href="/privacy.html" className="underline">
+            Privacy
+          </a>
+          {" · "}
+          <a href="/about.html" className="underline">
+            About Arcwright Connect
+          </a>
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="px-3 py-2 text-xs text-muted-foreground">
           {error}

@@ -8,8 +8,9 @@ provisioning instructions.
 
 Choose `T3CODE_CONNECT_MODE=legacy|owned|cloudless` before building. An absent mode keeps
 legacy behavior, including upstream example configuration and per-field process > `.env.local` >
-`.env` precedence. Private Arcwright production Clerk, hosted app and relay delivery remain
-uncommissioned; branding and a development identity do not provision production services.
+`.env` precedence. Private Arcwright managed access remains uncommissioned. The independent owned
+hosted build can publish preparation pages before the relay and Google public signup are ready;
+branding and a verified owner sign-in do not establish public managed access.
 
 Owned mode requires one complete public profile:
 
@@ -60,8 +61,82 @@ blocked until the original artifact's profile is supplied and bound to its sourc
 through release/feed provenance. Recovery admission checks the historical checkout's own env/file
 selection independently of ambient build overrides, so selecting legacy in today's environment
 cannot mask an owned or cloudless predecessor. This refusal does not establish original-artifact
-provenance. Do not publish owned builds before that release/recovery work
-and live commissioning are verified.
+provenance. Native/server owned releases still require that release/recovery work and live
+commissioning. The independent hosted preparation artifact does not commission those clients.
+
+## Independent owned hosted web
+
+[build-owned-connect-web.ts](../../scripts/build-owned-connect-web.ts) builds only the hosted web
+package into a new external operator/evidence directory. It requires a clean committed checkout,
+the complete five-field public profile, the reviewed public content digest, and separate content
+configuration and content JSON files. The profile excludes credentials. The hosted build ignores
+root and Vite dotenv files, passes an allowlist to the compiler, clears all unused tracing aliases,
+sets its surface origin to the profile's hosted origin, leaves the release channel/local backend
+pins/native classification empty, and disables source maps. Existing local, Electron, APK, Expo
+and Vercel builds retain their own classifications and release controls.
+
+```sh
+nice -n 10 node scripts/build-owned-connect-web.ts \
+  --profile /absolute/operator/connect-public-profile.json \
+  --content-config /absolute/operator/hosted-public-content-config.json \
+  --content /absolute/operator/hosted-public-content-draft.json \
+  --reviewed-content-sha256 "$REVIEWED_CONTENT_SHA256" \
+  --output-root /absolute/operator/new-hosted-build \
+  --status preparing
+```
+
+The new root contains a frozen `assets/` upload tree and a separate `build-receipt.json` with exact
+clean Git source, compiler-produced five-field/digest/surface proof, SHA-256 inventory, and the
+installed Alchemy `Cloudflare.readAssets` manifest, hash, sizes, headers and redirects. Alchemy's
+per-asset upload hashes include the extension and use 32 hex characters; they are distinct from
+the inventory's ordinary SHA-256 hashes. The reader enforces 20,000 assets and 25 MiB per asset.
+Branding, public pages, profile receipt and hosted headers precede manifest capture. Any subsequent
+file change rejects deployment. Keep receipts, JSON drafts, operator notes, logs and state outside
+the upload tree. A build receipt is not a deployment receipt.
+
+`about.html` and `privacy.html` require neither JavaScript nor authentication. They provide public
+contact at `theunnamed@theunnamed.dev`, navigation and the October 12, 2026 notice. Preparation copy
+does not claim that public managed access or the manual Clerk/relay cleanup procedure is operational.
+Ready copy requires an explicitly reviewed `status: "reviewed-ready"` content configuration and
+`--status ready`; selecting that copy does not prove commissioning. The operator must first record
+backend account-isolation, Google Production/public-signup and applicable native/hardware gates,
+as well as a working deletion procedure. Do not publish draft JSON or maintainer notes.
+
+[alchemy.web.run.ts](../../infra/relay/alchemy.web.run.ts) is an independent assets-only Worker stack:
+`ArcwrightConnectWeb`, stage `devotek-pilot`, Worker `arcwright-connect-web`, domain
+`connect.arcwright.space`. Its explicit `ARCWRIGHT_CONNECT_WEB_DEPLOY_CONFIG` JSON has exactly
+`accountId`, `zoneId`, `hostname`, `stage`, `privateStateRoot`, `artifactReceipt` and `profileFile`.
+Use account `e0fa69f64063aa2670ad354549a34dd6`, zone `71edc69babf1a57c2abca300c28c8c27`, the named
+hostname/stage, and absolute external paths. `privateStateRoot` must be operator-owned mode 0700;
+run the local Alchemy CLI **from that directory** with umask 077 so its own bootstrap logs also
+remain private. Supply `CI=true` and `CLOUDFLARE_ACCOUNT_ID` equal to the configuration; the operator
+injects the deployment token privately only at deployment time. No credentials enter this build.
+
+```sh
+# After operator account/zone/hostname checks and artifact review, from privateStateRoot:
+umask 077
+"$REPO/infra/relay/node_modules/.bin/alchemy" deploy \
+  --config "$REPO/infra/relay/alchemy.web.run.ts" --stage devotek-pilot
+```
+
+The executable Stack wrapper retains Alchemy metadata and private context in compiled services;
+LocalState writes live under `privateStateRoot/state/ArcwrightConnectWeb/devotek-pilot`. It refuses
+unknown-resource adoption, uses no Cloudflare state-store Worker, and imports no relay/database/
+tunnel/queue/Clerk-secret/Axiom graph. State's Redacted encoding is reversible: the operator must
+maintain a separate encrypted private backup and test recovery. This entry neither deploys the
+relay nor changes the existing website, marketing/Vercel publishing or upstream channels.
+
+Cloudflare assets are served before SPA fallback, with `htmlHandling: none`; public `.html` URLs
+remain stable and `/connect` PKCE fragments never pass through redirects. `/pair`, settings and
+workspace routes use the SPA shell. Hosted-only headers revalidate shell, SW and public profile,
+cache hashed assets immutably, and apply a separate no-script policy to public pages. The shell
+policy permits Clerk/challenge UI, current inline bootstraps, blob workers/WASM, and direct HTTPS/
+WSS environments. Post-deployment verification must include real assets and public pages with
+`Sec-Fetch-Mode: navigate`, valid/invalid CLI auth requests, and the unchanged loopback callback.
+
+Publishing preparation pages is independent of relay commissioning. Public account isolation,
+Google Production, quota/abuse controls, deletion operations, private recovery and physical-device
+delivery remain later gates; a hosted build or page deployment must not claim they passed.
 
 ## Changing the account service
 

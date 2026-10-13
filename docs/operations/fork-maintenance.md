@@ -93,6 +93,15 @@ saved pairings, and credentials through branding changes. Account sign-in discov
 enabling host sharing exposes one, joining saves a client route, and deregistration revokes the
 account link. Forgetting a route on one device does not deregister its host.
 
+The independent owned hosted entry belongs to [alchemy.web.run.ts](../../infra/relay/alchemy.web.run.ts),
+the [offline builder](../../scripts/build-owned-connect-web.ts), and its public-content/asset helpers.
+Preserve its complete five-field digest, controlled compile inputs, external private LocalState,
+clean-source artifact receipt and final actual Alchemy manifest. Hosted preparation pages may
+precede the relay; they do not commission public Google signup, account isolation, deletion or native
+delivery. Keep JavaScript-free public pages, hosted-only headers and assets-first SPA routing
+separate from the existing website, Vercel channels and Android/Electron/local classification.
+The [hosted runbook](./connect-setup.md#independent-owned-hosted-web) owns deployment and recovery gates.
+
 ## Android client
 
 **Behavior and reason.** A standalone APK bundles the shared web client and native phone features.

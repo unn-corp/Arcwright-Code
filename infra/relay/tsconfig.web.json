@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "alchemy.web.run.ts",
+    "scripts/owned-connect-web-*.ts",
+    "../../scripts/build-owned-connect-web.ts"
+  ]
+}
