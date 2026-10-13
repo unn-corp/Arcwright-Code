@@ -650,6 +650,95 @@ describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle owned PostgreSQL protoco
   );
 
   it.effect(
+    "never-created release completes without inventing a marker when marking is requested",
+    () =>
+      fixture(
+        Effect.gen(function* () {
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const owner = yield* acquire(yield* fresh(), "release");
+          yield* neverCreated(owner.claim);
+          expect(
+            yield* lifecycle.finishReleased({ claim: owner.claim, markReleased: true }),
+          ).toEqual({ status: "Applied" });
+          expect(yield* lifecycle.get(key)).toMatchObject({
+            allocationId: owner.claim.allocationId,
+            lifecycleState: "idle",
+            operationId: null,
+            generation: owner.claim.generation + 1,
+            tunnelPresence: "never_created",
+            tunnelId: null,
+            tunnelReleasedAt: null,
+          });
+        }),
+      ),
+  );
+
+  it.effect.each([true, false])(
+    "never-created release preserves its historical marker with markReleased=%s",
+    (markReleased) =>
+      fixture(
+        Effect.gen(function* () {
+          const db = yield* RelayDb.RelayDb;
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const owner = yield* acquire(yield* fresh(), "release");
+          yield* neverCreated(owner.claim);
+          yield* db
+            .update(table)
+            .set({ tunnelReleasedAt: "historical-marker" })
+            .where(eq(table.allocationId, owner.claim.allocationId));
+          expect(yield* lifecycle.finishReleased({ claim: owner.claim, markReleased })).toEqual({
+            status: "Applied",
+          });
+          expect(yield* lifecycle.get(key)).toMatchObject({
+            lifecycleState: "idle",
+            tunnelId: null,
+            tunnelPresence: "never_created",
+            tunnelReleasedAt: "historical-marker",
+          });
+        }),
+      ),
+  );
+
+  it.effect.each([true, false])(
+    "recorded exact absence permits release and changes its historical marker only with markReleased=%s",
+    (markReleased) =>
+      fixture(
+        Effect.gen(function* () {
+          const db = yield* RelayDb.RelayDb;
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const owner = yield* acquire(yield* fresh(), "release");
+          yield* observeRecorded(owner.claim);
+          expect(
+            yield* lifecycle.recordObservation({
+              claim: owner.claim,
+              observation: { resource: "tunnel", presence: "absent", tunnelId: "owned-tunnel" },
+            }),
+          ).toEqual({ status: "Applied" });
+          yield* db
+            .update(table)
+            .set({ tunnelReleasedAt: "historical-marker" })
+            .where(eq(table.allocationId, owner.claim.allocationId));
+          expect(yield* lifecycle.finishReleased({ claim: owner.claim, markReleased })).toEqual({
+            status: "Applied",
+          });
+          const row = yield* lifecycle.get(key);
+          expect(row).toMatchObject({
+            lifecycleState: "idle",
+            tunnelId: "owned-tunnel",
+            tunnelPresence: "absent",
+            dnsRecordId: "owned-dns",
+          });
+          if (markReleased) {
+            expect(row?.tunnelReleasedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
+            expect(row?.tunnelReleasedAt).not.toBe("historical-marker");
+          } else {
+            expect(row?.tunnelReleasedAt).toBe("historical-marker");
+          }
+        }),
+      ),
+  );
+
+  it.effect(
     "release requires proven absence, preserves recorded IDs/readiness and never frees capacity",
     () =>
       fixture(

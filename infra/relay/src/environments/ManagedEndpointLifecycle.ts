@@ -308,12 +308,16 @@ const make = Effect.gen(function* () {
         )
           return stale;
         const timestamp = yield* now;
+        // Never-created resources may finish safely, but cannot invent a
+        // history marker for a previously recorded tunnel's confirmed absence.
+        const markConfirmedTunnelReleased =
+          markReleased && row.tunnelPresence === "absent" && row.tunnelId !== null;
         yield* db
           .update(table)
           .set({
             ...clearOwner,
             updatedAt: timestamp,
-            ...(markReleased ? { tunnelReleasedAt: timestamp } : {}),
+            ...(markConfirmedTunnelReleased ? { tunnelReleasedAt: timestamp } : {}),
           })
           .where(ownerWhere(claim));
         return applied;
