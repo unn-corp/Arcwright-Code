@@ -97,7 +97,16 @@ checker, focused lint, conflict-marker scan and whitespace check against pinned 
 pass. Incoming dependency patches retain their original upstream whitespace.
 
 Independent spec/quality and server/recovery/UI/Android source reviews remain separate
-controller gates. Production assembly repair, current-authority V2 Web Push delivery, owned relay commissioning, actual
+controller gates. The bounded current-authority V2 Web Push consumer is now implemented and locally tested:
+HMAC/TTL precede policy/reads; every retry validates current subscription authority/target,
+account link/key/state/preferences and reconstructs permitted copy. Explicit manual tests
+use fixed generic text and `/` despite automated preferences. Legacy anonymous activity
+checks current installation/environment/preferences and signed kind/age but has no current
+source-key/state projection; those changes can remain invisible until TTL/phase age.
+Conditional transactional 404/410 cleanup preserves replacement incarnations/baselines.
+Fresh database observations admit each external request; later changes can race it and
+future retries reauthorize. Counted transport payloads do not establish browser rendering
+or device arrival. Production assembly repair, owned relay commissioning, actual
 production PostgreSQL delivery/migrations, device signup/renewal/logout, notification delivery and
 release/update/recovery verification remain pending. The old frozen artifact at the
 pre-merge source is not production proof for this merge or Effect 4.0.2. Canary deadline

@@ -185,6 +185,7 @@ function layerFor(input: {
             input.activityStates !== undefined
               ? Effect.succeed([...input.activityStates])
               : Effect.succeed([state]),
+          getForNotification: () => Effect.succeed(null),
           getForUserThread: ({ environmentId, threadId }) =>
             Effect.succeed(
               (input.currentActivityStates ?? input.activityStates ?? [state]).find(

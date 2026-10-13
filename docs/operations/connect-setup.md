@@ -309,12 +309,23 @@ is preserved; internal link and subscription incarnation UUIDs rotate on authori
 replacement. Preferences-only registration retains the UUID and alert baseline. The ordered
 `20261013030258_delivery_incarnations` database migration is tested only on a disposable fixture
 and remains pending in production. These source and fixture checks do not deploy or
-commission the owned relay. V2 activity/test jobs now bind freshly selected subscription incarnations and
-verified source provenance with WebCrypto HMAC. All V2 deliveries remain explicitly
-unavailable in the intermediate consumer; owned mode also rejects every V1 job.
-Current subscription/link/state reauthorization and copy reconstruction must be completed
-before deployment can admit V2 traffic. Queue acceptance proves enqueue only, including
-API test acceptance; it does not prove transport delivery.
+commission the owned relay. V2 activity/test jobs bind freshly selected subscription incarnations
+and verified source provenance with WebCrypto HMAC. The source consumer now verifies HMAC/TTL
+before policy or database access, then freshly validates exact ownership/incarnation/target on
+every retry. Account activity requires current master/category preferences, the exact active
+notification-enabled account/key/thread/link incarnation and matching current state/version/age;
+copy and deep link are reconstructed, with names requiring queued and current permission.
+Explicit manual tests use fixed generic copy and `/` regardless of automated event preferences.
+Owned mode rejects verified V1 and anonymous V2. Legacy V1 keeps historical queued-copy
+compatibility. Legacy anonymous V2 requires current installation/environment/preferences and
+signed kind/age, always generic copy and `/`; current source-key/state changes are not observable
+through that legacy projection and can remain invisible until job TTL or phase age expires.
+Denied jobs never claim or record attempts. 404/410 cleanup is transactional and conditional on
+the observed subscription incarnation, preserving a replacement and its baselines. Database
+observations admit each send without a network lock; later revocation can race an admitted
+request, and every retry reauthorizes. These source fixtures count adapter requests, not browser
+rendering or device arrival. Broader Worker assembly repair, production migration and owned
+commissioning remain pending. Queue/test API acceptance proves enqueue only.
 Native installation authority and historical recovery remain separate pending work.
 
 ## CLI OAuth application

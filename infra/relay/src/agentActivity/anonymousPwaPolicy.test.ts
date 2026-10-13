@@ -12,6 +12,7 @@ import { RelayConfiguration } from "../Config.ts";
 import * as RelayDb from "../db.ts";
 import * as WebCrypto from "../WebCrypto.ts";
 const webCryptoLayer = Layer.succeed(WebCrypto.WebCrypto, { subtle: globalThis.crypto.subtle });
+import * as AgentActivityRows from "./AgentActivityRows.ts";
 import * as DeliveryAttempts from "./DeliveryAttempts.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
 import * as WebPushDeliveries from "./WebPushDeliveries.ts";
@@ -116,8 +117,10 @@ function guardedRuntime(
         return "claimed" as const;
       }),
     completeSourceJob: () => Effect.void,
+    releaseSourceJob: () => Effect.void,
   });
   const deps = Layer.mergeAll(
+    Layer.mock(AgentActivityRows.AgentActivityRows, {}),
     crypto,
     webCryptoLayer,
     attempts,
@@ -193,10 +196,10 @@ describe("owned Worker Web Push assembly", () => {
         },
       });
       expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe("v1_unavailable");
-      // Even a bad signature must be short-circuited before verification and reads.
+      // Invalid signatures are rejected before deployment policy or reads.
       expect(
         (yield* deliveries.processSignedJob({ ...job, signature: "invalid" })).webPushReason,
-      ).toBe("v1_unavailable");
+      ).toBe("invalid_job");
       expect(
         (yield* deliveries.send({ subscription: anonymousSubscription, payload })).webPushReason,
       ).toBe("anonymous_pwa_unavailable");
@@ -237,6 +240,7 @@ describe("owned Worker Web Push assembly", () => {
           WebPushDeliveryQueue.layer.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.mock(AgentActivityRows.AgentActivityRows, {}),
                 deps,
                 Layer.succeed(WebPushDeliveryQueue.WebPushDeliveryQueueSender, {
                   send: () =>
@@ -289,12 +293,14 @@ describe("owned Worker Web Push assembly", () => {
             WebPushDeliveries.layer.pipe(
               Layer.provide(
                 Layer.mergeAll(
+                  Layer.mock(AgentActivityRows.AgentActivityRows, {}),
                   webCryptoLayer,
                   Layer.succeed(RelayConfiguration, config),
                   Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
                     get: () => Effect.succeed(contaminated),
                   }),
                   Layer.mock(DeliveryAttempts.DeliveryAttempts, {
+                    releaseSourceJob: () => Effect.void,
                     claimSourceJob: () =>
                       Effect.sync(() => {
                         claims++;
@@ -342,10 +348,13 @@ describe("owned Worker Web Push assembly", () => {
         const deliveries = yield* WebPushDeliveries.make.pipe(
           Effect.provide(
             Layer.mergeAll(
+              Layer.mock(AgentActivityRows.AgentActivityRows, {}),
               webCryptoLayer,
               Layer.succeed(RelayConfiguration, config),
               Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
-              Layer.mock(DeliveryAttempts.DeliveryAttempts, {}),
+              Layer.mock(DeliveryAttempts.DeliveryAttempts, {
+                releaseSourceJob: () => Effect.void,
+              }),
             ),
           ),
         );
@@ -382,12 +391,14 @@ it.effect("consumes valid legacy V1 and permanently rejects owned account V1 bef
       const deliveries = yield* WebPushDeliveries.make.pipe(
         Effect.provide(
           Layer.mergeAll(
+            Layer.mock(AgentActivityRows.AgentActivityRows, {}),
             webCryptoLayer,
             Layer.succeed(RelayConfiguration, config),
             Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
               get: () => Effect.succeed(subscription),
             }),
             Layer.mock(DeliveryAttempts.DeliveryAttempts, {
+              releaseSourceJob: () => Effect.void,
               claimSourceJob: () =>
                 Effect.sync(() => {
                   claims++;
@@ -427,7 +438,7 @@ it.effect("consumes valid legacy V1 and permanently rejects owned account V1 bef
 });
 
 it.effect.each(["owned", "legacy"] as const)(
-  "%s permanently drops every V2 kind before subscription/baseline/claim/transport effects",
+  "%s revalidates V2 ownership before claims and transport",
   (mode) => {
     const config =
       mode === "owned"
@@ -472,7 +483,9 @@ it.effect.each(["owned", "legacy"] as const)(
           secret: config.apnsDeliveryJobSigningSecret,
           payload,
         });
-        expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe("v2_unavailable");
+        expect((yield* deliveries.processSignedJob(job)).webPushReason).toBe(
+          "subscription_unavailable",
+        );
         expect(
           (yield* deliveries.processSignedJob({ ...job, signature: "malformed" })).webPushReason,
         ).toBe("invalid_job");
@@ -499,7 +512,7 @@ it.effect.each(["owned", "legacy"] as const)(
         }
       }
       expect(webpush.sendNotification).not.toHaveBeenCalled();
-      expect(lookups).toBe(0);
+      expect(lookups).toBe(2);
       expect(calls).toEqual({ db: 0, crypto: 0, claims: 0, sends: 0 });
     }).pipe(
       Effect.provide(
@@ -508,6 +521,7 @@ it.effect.each(["owned", "legacy"] as const)(
           WebPushDeliveries.layer.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.mock(AgentActivityRows.AgentActivityRows, {}),
                 deps,
                 Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
                   get: () =>
@@ -568,6 +582,7 @@ it.effect("keeps consumer crypto provider failures retryable without lookup or c
         WebPushDeliveries.layer.pipe(
           Layer.provide(
             Layer.mergeAll(
+              Layer.mock(AgentActivityRows.AgentActivityRows, {}),
               deps,
               Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
                 get: () =>

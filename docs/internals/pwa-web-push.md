@@ -102,19 +102,49 @@ notification state; queued copy never grants delivery authority. Test jobs conta
 activity, copy or deep link. Only legacy anonymous activity may carry an explicit null
 link incarnation; owned policy blocks that producer before transitions or fanout.
 
-The intermediate consumer deliberately drops every V2 job as unavailable before any
-subscription lookup, claim, baseline or transport effect. Owned mode also drops every
-V1 job, including test-looking IDs; legacy V1 retains historical canonical bytes and
-expiry semantics. Malformed, invalid-MAC and expired jobs are permanent drops, while
-WebCrypto provider failures remain typed failures for queue retry. Do not deploy this
-intermediate source to admit V2 traffic. Current-authority delivery must first freshly
-verify the owner, subscription incarnation/target/preferences, exact-key active link
-incarnation and notification permission, current activity state, expiry and job kind;
-rebuild copy using both queued and current name permission before claims and each retry;
-and bind 404/410 removal to the admitted incarnation. Revocation cannot recall a
-transport request already admitted. That consumer and owned commissioning remain pending. Native credential
-migration, release/recovery authority, and real device delivery still require separate work
-and verification.
+The consumer decodes the signed envelope and verifies WebCrypto HMAC and job expiry
+before payload-based policy or database access. Malformed, invalid-MAC and expired
+jobs are permanent `invalid_job` drops; crypto, persistence and transport failures
+remain typed failures for queue retry. Owned mode rejects every verified V1 job,
+including test-looking IDs, and every anonymous V2 job. Legacy V1 retains its
+historical canonical bytes and queued copy; those bytes lack current source and
+subscription-incarnation provenance.
+
+Every V2 retry freshly checks the exact owner/subscription ID, incarnation, current
+HTTPS target and keys. Account activity also decodes current preferences, checks the
+master/category switches, and selects one current activity through the exact account,
+environment key, thread and active notification-enabled link incarnation. It requires
+all normalized version fields, compatible kind and activity age to match. Live Activity
+and managed-tunnel switches do not gate this notification lookup. Copy and deep link
+come from the current authorized row, with names shown only when both queued and current
+preferences permit them. Denials write no claim, completion, release, transition or
+transport record. Duplicate completed jobs return `duplicate_job` with `ok: false`;
+in-flight claims are typed retryable failures. Consume never advances alert baselines.
+
+Explicit V2 tests use fixed generic test copy and `/`, overriding automated master,
+category and name preferences while still requiring current ownership, incarnation
+and target. Legacy anonymous V2 activity requires coherent installation metadata,
+current environment and preferences, null link incarnation, compatible signed kind
+and finite signed activity age. It always sends generic kind text and `/`. Anonymous
+rows have no current source-key or account-state projection: later key/state changes
+can remain invisible until job TTL or activity phase age expires. A signed job does
+not prove knowledge of the installation secret.
+
+404/410 cleanup deletes only the exact observed owner, subscription ID and incarnation
+in one short transaction, then deletes that subscription's baselines. A replacement
+incarnation and its baselines survive stale cleanup; baseline failure rolls the whole
+transaction back. Successful or gone-subscription sends complete the admitted claim
+with the actual transport status. Transport/cleanup failures release that claim before
+typed propagation; completion persistence failures keep the claim. Admission uses fresh
+database observations immediately before claiming and sending, without holding a
+network transaction or lock. Later changes can race an admitted request; revocation
+cannot recall it, and every future retry reauthorizes first.
+
+This is locally tested source behavior, including counted transport-adapter payloads.
+The browser service worker still forces generic text when names are disabled; the
+fixtures do not prove rendered kind-specific copy. The production incarnation migration,
+broader Worker assembly repair, owned commissioning, native credential/recovery work
+and real device delivery remain pending. Queue/test API acceptance proves enqueue only.
 
 `service-worker.js` contains no cache or session data. It accepts only a
 validated root/test link or validated relative thread link, shows generic copy
@@ -172,10 +202,11 @@ adds `environment_id`, `installation_id`, and `installation_secret_hash` to
 `pwa:<installationId>` solely to preserve the shared table's existing
 non-null `user_id` column; it is not a user account.
 
-`WebPushDeliveryQueue` signs explicit V2 jobs. The intermediate consumer permanently
-returns unavailable for them. Only existing legacy V1 jobs reach the historical VAPID
-transport, push-service retry, subscription removal and idempotent attempt path.
-Current-authority V2 transport and incarnation-bound removal remain unimplemented.
+`WebPushDeliveryQueue` signs explicit V2 jobs. The consumer uses the current-authority
+checks above before VAPID transport and attempt lifecycle. Legacy anonymous activity
+uses current installation/environment/preferences and generic transport copy, with the
+explicit source-key/current-state limitation described above. Existing legacy V1 jobs
+retain historical queued-copy compatibility.
 
 ## 2. Account/Arcwright Connect relay path
 
@@ -221,9 +252,10 @@ registration retry, and an observation can predate a later ownership change; per
 alone does not recall a push already in flight.
 
 This source guard is a prerequisite for owned public exposure, not proof of relay
-commissioning. Signed V2 producer binding is implemented; current environment-link,
-subscription and activity reauthorization before delivery remains pending. V1 is
-retained for legacy consumption only, and owned consumption rejects all V1.
+commissioning. Signed V2 producer binding and current account environment-link,
+subscription and activity reauthorization are implemented and fixture-verified.
+Legacy anonymous V2 retains the source-key/current-state limitations above. V1 is
+retained for legacy consumption only, and owned consumption rejects every verified V1.
 
 The shared queue identifies the delivery kind as `web_push_notification`; the
 APNs fields remain present for API compatibility, while Web Push status/reason
@@ -267,8 +299,9 @@ explicitly reset browser push and then enable it with a separate tap.
    target.
 3. On a legacy deployment, use **Remote test** from Notifications on this device. Owned
    deployments report anonymous remote push unavailable; local preview and cleanup remain reachable.
-   Remote test queues only a test for the selected installation. The intermediate V2 consumer
-   does not deliver it; resume transport checks only after current-authority delivery is implemented.
+   Remote test queues an explicit test for the selected installation. The source consumer
+   rechecks its current ownership/incarnation/target and uses fixed generic copy; automated
+   event preferences do not veto a manual test. Commissioned device delivery remains unverified.
 4. Check the relay Web Push queue/dead-letter queue and delivery attempts for
    transient failures or `404`/`410` cleanup.
 5. When testing a production change on iPhone/iPad, remove any old malformed

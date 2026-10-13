@@ -1,7 +1,6 @@
 import type {
   RelayAgentActivityState,
   RelayPwaWebPushSubscriptionRegistrationRequest,
-  RelayWebPushPreferences,
   RelayWebPushSubscriptionRegistrationRequest,
 } from "@t3tools/contracts/relay";
 import * as Context from "effect/Context";
@@ -24,6 +23,13 @@ import {
   relayWebPushSubscriptions,
   relayWebPushSubscriptionStates,
 } from "../persistence/schema.ts";
+
+import {
+  notificationKind,
+  notificationCopy,
+  wantsNotification,
+  stateVersion,
+} from "./webPushNotifications.ts";
 
 import type { WebPushNotificationKind, WebPushActivityPayloadV2 } from "./webPushDeliveryJobs.ts";
 
@@ -77,6 +83,11 @@ export class WebPushSubscriptions extends Context.Service<
       readonly userId: string;
       readonly subscriptionId: string;
     }) => Effect.Effect<boolean, WebPushSubscriptionPersistenceError>;
+    readonly removeIfCurrent: (input: {
+      readonly userId: string;
+      readonly subscriptionId: string;
+      readonly subscriptionIncarnationId: string;
+    }) => Effect.Effect<boolean, WebPushSubscriptionPersistenceError>;
     readonly get: (input: {
       readonly userId: string;
       readonly subscriptionId: string;
@@ -110,64 +121,6 @@ export class WebPushSubscriptions extends Context.Service<
     }) => Effect.Effect<ReadonlyArray<WebPushNotification>, WebPushSubscriptionPersistenceError>;
   }
 >()("t3code-relay/agentActivity/WebPushSubscriptions") {}
-
-function wantsNotification(preferences: RelayWebPushPreferences, kind: string): boolean {
-  if (!preferences.enabled) return false;
-  switch (kind) {
-    case "plan_ready":
-      return preferences.notifyOnPlanReady;
-    case "input_required":
-      return preferences.notifyOnInput;
-    case "agent_completed":
-      return preferences.notifyOnCompletion;
-    case "agent_failed":
-      return preferences.notifyOnFailure;
-    default:
-      return false;
-  }
-}
-
-function notificationKind(
-  previous: { readonly phase: string; readonly hasActionableProposedPlan: boolean },
-  next: RelayAgentActivityState,
-): WebPushNotificationKind | null {
-  if (!previous.hasActionableProposedPlan && next.hasActionableProposedPlan) return "plan_ready";
-  if (
-    (next.phase === "waiting_for_approval" || next.phase === "waiting_for_input") &&
-    previous.phase !== next.phase
-  ) {
-    return "input_required";
-  }
-  if (next.phase === "completed" && previous.phase !== "completed") return "agent_completed";
-  if (next.phase === "failed" && previous.phase !== "failed") return "agent_failed";
-  return null;
-}
-
-function notificationCopy(input: {
-  readonly state: RelayAgentActivityState;
-  readonly kind: string;
-  readonly names: boolean;
-}) {
-  if (!input.names) {
-    return { title: "Arcwright Code", body: "Agent activity needs your attention." };
-  }
-  switch (input.kind) {
-    case "plan_ready":
-      return { title: input.state.threadTitle, body: `Plan ready · ${input.state.projectTitle}` };
-    case "input_required":
-      return {
-        title: input.state.threadTitle,
-        body: `${input.state.headline} · ${input.state.projectTitle}`,
-      };
-    case "agent_completed":
-      return {
-        title: input.state.threadTitle,
-        body: `Agent completed · ${input.state.projectTitle}`,
-      };
-    default:
-      return { title: input.state.threadTitle, body: `Agent failed · ${input.state.projectTitle}` };
-  }
-}
 
 function hashInstallationSecret(crypto: Crypto.Crypto, secret: string) {
   return Effect.gen(function* () {
@@ -429,6 +382,29 @@ export const make = Effect.gen(function* () {
           .where(eq(relayWebPushSubscriptionStates.subscriptionId, input.subscriptionId));
         return true;
       }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.remove")),
+    removeIfCurrent: Effect.fn("relay.web_push_subscriptions.remove_if_current")(function* (input) {
+      return yield* db.$client
+        .withTransaction(
+          Effect.gen(function* () {
+            const deleted = yield* db
+              .delete(relayWebPushSubscriptions)
+              .where(
+                and(
+                  eq(relayWebPushSubscriptions.userId, input.userId),
+                  eq(relayWebPushSubscriptions.id, input.subscriptionId),
+                  eq(relayWebPushSubscriptions.incarnationId, input.subscriptionIncarnationId),
+                ),
+              )
+              .returning({ id: relayWebPushSubscriptions.id });
+            if (deleted.length === 0) return false;
+            yield* db
+              .delete(relayWebPushSubscriptionStates)
+              .where(eq(relayWebPushSubscriptionStates.subscriptionId, input.subscriptionId));
+            return true;
+          }),
+        )
+        .pipe(mapPersistenceError);
+    }),
     get: (input) =>
       Effect.gen(function* () {
         const rows = yield* db
@@ -516,11 +492,7 @@ export const make = Effect.gen(function* () {
                 environmentId: state.environmentId,
                 threadId: state.threadId,
                 notificationKind: kind,
-                stateVersion: {
-                  updatedAt: state.updatedAt,
-                  phase: state.phase,
-                  hasActionableProposedPlan: state.hasActionableProposedPlan ?? false,
-                },
+                stateVersion: stateVersion(state),
               },
               eventId: `web:${subscription.id}:${state.environmentId}:${state.threadId}:${kind}:${state.updatedAt}`,
               deepLink: state.deepLink,
@@ -607,11 +579,7 @@ export const make = Effect.gen(function* () {
                 environmentId: state.environmentId,
                 threadId: state.threadId,
                 notificationKind: kind,
-                stateVersion: {
-                  updatedAt: state.updatedAt,
-                  phase: state.phase,
-                  hasActionableProposedPlan: state.hasActionableProposedPlan ?? false,
-                },
+                stateVersion: stateVersion(state),
               },
               eventId: `web:${subscription.id}:${state.environmentId}:${state.threadId}:${kind}:${state.updatedAt}`,
               deepLink: state.deepLink,

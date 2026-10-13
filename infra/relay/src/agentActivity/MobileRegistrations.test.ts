@@ -96,6 +96,7 @@ function makeAgentActivityRows(
       };
       return Effect.succeed([activeState]);
     },
+    getForNotification: () => Effect.succeed(null),
     getForUserThread: () => Effect.succeed(null),
     ...overrides,
   };

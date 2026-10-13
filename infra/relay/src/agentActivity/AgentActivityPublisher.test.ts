@@ -78,6 +78,7 @@ function makeAgentActivityRows(
     remove: () => Effect.void,
     pruneTerminal: () => Effect.void,
     listForUser: () => Effect.succeed([state]),
+    getForNotification: () => Effect.succeed(null),
     getForUserThread: () => Effect.succeed(state),
     ...overrides,
   };

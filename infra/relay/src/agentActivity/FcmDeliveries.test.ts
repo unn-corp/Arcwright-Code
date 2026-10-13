@@ -144,6 +144,7 @@ function harness() {
               )
             : [],
         ),
+      getForNotification: () => Effect.succeed(null),
       getForUserThread: (input) =>
         Effect.sync(() =>
           current.linked

@@ -890,8 +890,19 @@ and explicitly opted-in disposable PostgreSQL conversion/rollback/concurrency fi
 source boundary. V2 producer binding uses WebCrypto and explicit activity/test contracts;
 all five producers select the subscription incarnation, and activity includes the verified
 environment key and account link incarnation (explicit null only for legacy anonymous jobs).
-The intermediate consumer permanently drops all V2 before subscription/claim/transport
-work and owned mode rejects all V1. Current-authority delivery remains pending; no
-production deployment may admit this intermediate V2-unavailable source. Native installation credentials and historical release/recovery
+The source consumer verifies HMAC/TTL before policy or reads, then revalidates current
+subscription ownership/incarnation/target and activity preferences on every retry. Account activity
+uses the exact notification-enabled active account/key/thread/link incarnation and current
+state/version/age; copy comes from that authorized row and names require queued and current
+permission. Explicit manual tests use fixed generic copy and `/` despite automated preferences.
+Owned mode rejects verified V1 and anonymous V2; legacy V1 retains historical copy. Legacy
+anonymous V2 stays generic and checks current installation/environment/preferences plus signed
+kind/age, with no current source-key/state projection; those changes can remain invisible until
+TTL or phase age expires. Denials write no attempts. Conditional transactional 404/410 cleanup
+preserves replacement incarnations and their baselines. Fresh database observations admit a send
+without a network lock; later changes may race it, and every retry reauthorizes. Focused signed
+queue/adapter and PostgreSQL race fixtures establish local source behavior, not browser rendering
+or device arrival. Production migration, broader Worker assembly and owned commissioning remain
+pending. Native installation credentials and historical release/recovery
 rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its
 own live validation.

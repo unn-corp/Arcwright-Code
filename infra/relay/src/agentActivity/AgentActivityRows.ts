@@ -83,6 +83,13 @@ export class AgentActivityRows extends Context.Service<
       ReadonlyArray<RelayAgentActivityState>,
       AgentActivityRowListPersistenceError
     >;
+    readonly getForNotification: (input: {
+      readonly userId: string;
+      readonly environmentId: string;
+      readonly environmentPublicKey: string;
+      readonly threadId: string;
+      readonly linkIncarnationId: string;
+    }) => Effect.Effect<RelayAgentActivityState | null, AgentActivityRowListPersistenceError>;
     readonly getForUserThread: (input: {
       readonly userId: string;
       readonly environmentId: string;
@@ -238,6 +245,56 @@ export const make = Effect.gen(function* () {
           ),
         );
     }),
+
+    getForNotification: Effect.fn("relay.agent_activity_rows.get_for_notification")(
+      function* (input) {
+        const rows = yield* db
+          .select({
+            environmentId: relayAgentActivityRows.environmentId,
+            threadId: relayAgentActivityRows.threadId,
+            updatedAt: relayAgentActivityRows.updatedAt,
+            stateJson: relayAgentActivityRows.stateJson,
+          })
+          .from(relayAgentActivityRows)
+          .innerJoin(
+            relayEnvironmentLinks,
+            and(
+              eq(relayEnvironmentLinks.environmentId, relayAgentActivityRows.environmentId),
+              eq(
+                relayEnvironmentLinks.environmentPublicKey,
+                relayAgentActivityRows.environmentPublicKey,
+              ),
+            ),
+          )
+          .where(
+            and(
+              eq(relayEnvironmentLinks.userId, input.userId),
+              eq(relayAgentActivityRows.environmentId, input.environmentId),
+              eq(relayAgentActivityRows.environmentPublicKey, input.environmentPublicKey),
+              eq(relayAgentActivityRows.threadId, input.threadId),
+              eq(relayEnvironmentLinks.incarnationId, input.linkIncarnationId),
+              isNull(relayEnvironmentLinks.revokedAt),
+              eq(relayEnvironmentLinks.notificationsEnabled, true),
+            ),
+          )
+          .limit(1)
+          .pipe(
+            Effect.mapError(
+              (cause) => new AgentActivityRowListPersistenceError({ userId: input.userId, cause }),
+            ),
+          );
+        const row = rows[0];
+        if (!row) return null;
+        const decoded = decodeRelayAgentActivityState(row.stateJson);
+        if (Option.isNone(decoded)) return null;
+        const state = decoded.value;
+        return state.environmentId === row.environmentId &&
+          state.threadId === row.threadId &&
+          state.updatedAt === row.updatedAt
+          ? state
+          : null;
+      },
+    ),
 
     getForUserThread: Effect.fn("relay.agent_activity_rows.get_for_user_thread")(function* (input) {
       return yield* db
