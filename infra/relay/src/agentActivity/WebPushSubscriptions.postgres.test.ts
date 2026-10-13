@@ -1,16 +1,9 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import * as PgClient from "@effect/sql-pg/PgClient";
 import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { eq } from "drizzle-orm";
 import * as Effect from "effect/Effect";
-import * as Data from "effect/Data";
-import * as FileSystem from "effect/FileSystem";
-import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import * as Schema from "effect/Schema";
 
 import { RelayConfiguration } from "../Config.ts";
 import * as RelayDb from "../db.ts";
@@ -20,119 +13,8 @@ import {
 } from "../persistence/schema.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
 
-// Explicit opt-in only: never infer an ambient relay/database connection.
-const fixtureFile = process.env.RELAY_PWA_TEST_FIXTURE_FILE;
-class FixtureConfigurationRejected extends Data.TaggedError("FixtureConfigurationRejected") {}
-const FixtureConnection = Schema.Struct({
-  fixtureOnly: Schema.Literal(true),
-  internalDockerOnly: Schema.Literal(true),
-  host: Schema.String.pipe(Schema.check(Schema.isPattern(/^192\.168\.\d+\.\d+$/))),
-  port: Schema.Literal(5432),
-  database: Schema.String.pipe(
-    Schema.check(Schema.isPattern(/^arcwright_connect_[a-z0-9_]*fixture[a-z0-9_]*$/)),
-  ),
-  username: Schema.String,
-  password: Schema.String,
-  ssl: Schema.Literal(false),
-  prepare: Schema.Literal(false),
-  containerId: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
-  networkId: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
-  image: Schema.Literal(
-    "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
-  ),
-});
-const decodeFixtureConnection = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(FixtureConnection),
-);
-const decodeFixtureReceipt = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Struct({
-      fixtureOnly: Schema.Literal(true),
-      productionTarget: Schema.Literal(false),
-      internalDockerOnly: Schema.Literal(true),
-      hostPublishedPorts: Schema.Literal(0),
-      host: Schema.String,
-      port: Schema.Number,
-      containerId: Schema.String,
-      networkId: Schema.String,
-      image: Schema.String,
-    }),
-  ),
-);
+import { fixtureFile, layerPersistence } from "./incarnationPostgresFixture.ts";
 
-const layerDb = Layer.unwrap(
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    if (!fixtureFile) return yield* Effect.die("Explicit disposable fixture file is required.");
-    const connection = yield* decodeFixtureConnection(yield* fs.readFileString(fixtureFile)).pipe(
-      Effect.mapError(() => new FixtureConfigurationRejected()),
-    );
-    const receipt = yield* decodeFixtureReceipt(
-      yield* fs.readFileString(
-        `${fixtureFile.slice(0, fixtureFile.lastIndexOf("/"))}/owned-resources.json`,
-      ),
-    );
-    if (
-      receipt.host !== connection.host ||
-      receipt.port !== connection.port ||
-      receipt.containerId !== connection.containerId ||
-      receipt.networkId !== connection.networkId ||
-      receipt.image !== connection.image
-    ) {
-      return yield* Effect.die(
-        "Disposable fixture connection does not match its ownership receipt.",
-      );
-    }
-    return Layer.effect(
-      RelayDb.RelayDb,
-      Effect.gen(function* () {
-        const db = yield* PgDrizzle.makeWithDefaults();
-        yield* db.$client.unsafe("CREATE SCHEMA IF NOT EXISTS task4c_web_push");
-        const tables = yield* db.$client.unsafe<{ exists: string | null }>(
-          "SELECT to_regclass('task4c_web_push.relay_web_push_subscriptions')::text AS exists",
-        );
-        if (!tables[0]?.exists) {
-          for (const file of [
-            "infra/relay/migrations/postgres/20260802000000_web_push_subscriptions/migration.sql",
-            "infra/relay/migrations/postgres/20260803000000_anonymous_pwa_web_push/migration.sql",
-          ]) {
-            const migration = yield* fs.readFileString(file);
-            for (const statement of migration.split("--> statement-breakpoint")) {
-              if (statement.trim()) yield* db.$client.unsafe(statement);
-            }
-          }
-        }
-        yield* db.$client.unsafe(
-          "DROP TRIGGER IF EXISTS task4c_reject_baseline_delete ON relay_web_push_subscription_states",
-        );
-        yield* db.$client.unsafe("DROP FUNCTION IF EXISTS task4c_reject_baseline_delete()");
-        // The schema contains only this test's fixtures; no production table or migration is touched.
-        yield* db.$client.unsafe(
-          "TRUNCATE relay_web_push_subscriptions, relay_web_push_subscription_states",
-        );
-        return db;
-      }),
-    ).pipe(
-      Layer.provide(
-        PgClient.layer({
-          host: connection.host,
-          port: connection.port,
-          database: connection.database,
-          username: connection.username,
-          password: Redacted.make(connection.password),
-          ssl: false,
-          prepare: false,
-          startupParameters: { search_path: "task4c_web_push,public" },
-          maxConnections: 8,
-        }),
-      ),
-    );
-  }),
-).pipe(Layer.provide(NodeFileSystem.layer));
-const layerSubscriptions = WebPushSubscriptions.layer.pipe(
-  Layer.provideMerge(layerDb),
-  Layer.provide(NodeCrypto.layer),
-);
 const preferences = {
   enabled: true,
   notifyOnCompletion: true,
@@ -162,7 +44,7 @@ const running = {
 function fixture<A, E>(
   effect: Effect.Effect<A, E, RelayDb.RelayDb | WebPushSubscriptions.WebPushSubscriptions>,
 ) {
-  return effect.pipe(Effect.provide(layerSubscriptions));
+  return effect.pipe(Effect.provide(layerPersistence));
 }
 
 describe.runIf(fixtureFile !== undefined)(
@@ -314,6 +196,10 @@ describe.runIf(fixtureFile !== undefined)(
           const old = yield* subscriptions.registerPwa({
             payload: { ...payload, installation, environmentId: running.environmentId },
           });
+          const before = yield* subscriptions.getPwa({
+            ...installation,
+            subscriptionId: old.subscriptionId,
+          });
           yield* subscriptions.transitionEnvironment({
             environmentId: running.environmentId,
             state: running,
@@ -332,6 +218,7 @@ describe.runIf(fixtureFile !== undefined)(
               ...installation,
               subscriptionId: old.subscriptionId,
             });
+            expect(oldRow?.incarnationId).toBe(before?.incarnationId);
             expect(oldRow).toMatchObject({
               userId: `pwa:${installation.installationId}`,
               environmentId: running.environmentId,

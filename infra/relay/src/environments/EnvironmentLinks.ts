@@ -20,6 +20,7 @@ export interface RelayLinkedEnvironmentRecord extends RelayClientEnvironmentReco
 
 export interface AgentAwarenessDeliveryUserRecord {
   readonly userId: string;
+  readonly linkIncarnationId: string;
   readonly notificationsEnabled: boolean;
   readonly liveActivitiesEnabled: boolean;
 }
@@ -195,6 +196,11 @@ const make = Effect.gen(function* () {
           AND other.hold_webhooks_while_offline
       )`;
       const { endpoint } = input;
+      // Both identities use the locked conflict row, so retries cannot undo a
+      // revocation, key replacement, or renewed managed-tunnel activation.
+      const rotatesIncarnation = sql`${relayEnvironmentLinks.revokedAt} IS NOT NULL
+        OR ${relayEnvironmentLinks.environmentPublicKey} IS DISTINCT FROM ${proof.environmentPublicKey}
+        OR (NOT ${relayEnvironmentLinks.managedTunnelsEnabled} AND ${request.managedTunnelsEnabled})`;
       yield* db
         .insert(relayEnvironmentLinks)
         .values({
@@ -211,12 +217,19 @@ const make = Effect.gen(function* () {
           managedTunnelsEnabled: request.managedTunnelsEnabled,
           createdByDeviceId: request.deviceId ?? null,
           revokedAt: null,
+          linkedAt: now,
           createdAt: now,
           updatedAt: now,
         })
         .onConflictDoUpdate({
           target: [relayEnvironmentLinks.userId, relayEnvironmentLinks.environmentId],
           set: {
+            incarnationId: sql`CASE WHEN ${rotatesIncarnation} THEN gen_random_uuid()
+              ELSE ${relayEnvironmentLinks.incarnationId} END`,
+            linkedAt: sql`CASE WHEN ${rotatesIncarnation} THEN to_char(
+              GREATEST(${now}::timestamptz, ${relayEnvironmentLinks.linkedAt}::timestamptz + interval '1 millisecond')
+                AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+              ELSE ${relayEnvironmentLinks.linkedAt} END`,
             environmentPublicKey: proof.environmentPublicKey,
             environmentLabel: proof.descriptor.label,
             endpointHttpBaseUrl: endpoint.httpBaseUrl,
@@ -251,6 +264,7 @@ const make = Effect.gen(function* () {
       return yield* db
         .select({
           userId: relayEnvironmentLinks.userId,
+          linkIncarnationId: relayEnvironmentLinks.incarnationId,
           notificationsEnabled: relayEnvironmentLinks.notificationsEnabled,
           liveActivitiesEnabled: relayEnvironmentLinks.liveActivitiesEnabled,
         })
@@ -260,6 +274,7 @@ const make = Effect.gen(function* () {
           Effect.map((rows) =>
             rows.map((row) => ({
               userId: row.userId,
+              linkIncarnationId: row.linkIncarnationId,
               notificationsEnabled: row.notificationsEnabled,
               liveActivitiesEnabled: row.liveActivitiesEnabled,
             })),
@@ -282,7 +297,7 @@ const make = Effect.gen(function* () {
           endpointHttpBaseUrl: relayEnvironmentLinks.endpointHttpBaseUrl,
           endpointWsBaseUrl: relayEnvironmentLinks.endpointWsBaseUrl,
           endpointProviderKind: relayEnvironmentLinks.endpointProviderKind,
-          createdAt: relayEnvironmentLinks.createdAt,
+          linkedAt: relayEnvironmentLinks.linkedAt,
         })
         .from(relayEnvironmentLinks)
         .where(
@@ -303,7 +318,7 @@ const make = Effect.gen(function* () {
                 providerKind:
                   row.endpointProviderKind as RelayClientEnvironmentRecord["endpoint"]["providerKind"],
               },
-              linkedAt: row.createdAt,
+              linkedAt: row.linkedAt,
             })),
           ),
           Effect.mapError(
@@ -328,7 +343,7 @@ const make = Effect.gen(function* () {
           endpointHttpBaseUrl: relayEnvironmentLinks.endpointHttpBaseUrl,
           endpointWsBaseUrl: relayEnvironmentLinks.endpointWsBaseUrl,
           endpointProviderKind: relayEnvironmentLinks.endpointProviderKind,
-          createdAt: relayEnvironmentLinks.createdAt,
+          linkedAt: relayEnvironmentLinks.linkedAt,
         })
         .from(relayEnvironmentLinks)
         .where(
@@ -356,7 +371,7 @@ const make = Effect.gen(function* () {
                       row.endpointProviderKind as RelayClientEnvironmentRecord["endpoint"]["providerKind"],
                   },
                   environmentPublicKey: row.environmentPublicKey,
-                  linkedAt: row.createdAt,
+                  linkedAt: row.linkedAt,
                 }
               : null;
           }),
@@ -384,7 +399,7 @@ const make = Effect.gen(function* () {
           endpointHttpBaseUrl: relayEnvironmentLinks.endpointHttpBaseUrl,
           endpointWsBaseUrl: relayEnvironmentLinks.endpointWsBaseUrl,
           endpointProviderKind: relayEnvironmentLinks.endpointProviderKind,
-          createdAt: relayEnvironmentLinks.createdAt,
+          linkedAt: relayEnvironmentLinks.linkedAt,
           holdWebhooksWhileOffline: relayEnvironmentLinks.holdWebhooksWhileOffline,
         })
         .from(relayEnvironmentLinks)
@@ -415,7 +430,7 @@ const make = Effect.gen(function* () {
                   row.endpointProviderKind as RelayClientEnvironmentRecord["endpoint"]["providerKind"],
               },
               environmentPublicKey: row.environmentPublicKey,
-              linkedAt: row.createdAt,
+              linkedAt: row.linkedAt,
               holdWebhooksWhileOffline: row.holdWebhooksWhileOffline,
             })),
           ),

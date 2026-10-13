@@ -162,6 +162,7 @@ function harness() {
             ? [
                 {
                   userId: "user",
+                  linkIncarnationId: "00000000-0000-4000-8000-000000000001",
                   notificationsEnabled: !current.mutedEnvironments.includes(input.environmentId),
                   liveActivitiesEnabled: !current.notificationOnlyEnvironments.includes(
                     input.environmentId,

@@ -138,8 +138,11 @@ failed. The initial state, replayed state, unchanged state, and stale state are
 suppressed. Per-installation event toggles and privacy mode are evaluated before
 the job is queued.
 
-A reused browser endpoint is transferred within the installation upsert and
-its old transition baseline is removed. This lets a removed/reinstalled Home
+A reused browser endpoint is transferred in one transaction, with the installation
+and endpoint rows locked in ID order, and its old transition baseline is removed.
+Registration serializes stable endpoint identity in both account and installation paths,
+and installation identity in the latter, before locking rows. Credential checks observe
+the locked installation. This lets a removed/reinstalled Home
 Screen app take ownership without delivering future notifications to the old
 installation.
 
@@ -181,6 +184,24 @@ the old transition baseline in that same transaction. A clean same-owner update
 preserves its baseline. Transition writers hold the subscription row lock, so an old
 owner cannot recreate a baseline across conversion. The old installation credential
 cannot get, test, or remove the account row.
+
+Environment links and browser subscriptions have internal durable incarnation UUIDs.
+A link's incarnation changes on reactivation after revocation, proof-key replacement,
+or enabling managed tunnels again. Public `linkedAt` describes this activation and
+advances even with a frozen or backward clock; `createdAt` retains original creation
+provenance. Subscription ownership/installation/environment or push credential target
+changes rotate its incarnation, including A → B → A changes. Preferences-only updates
+retain it. Credential-only changes also retain the existing transition baseline so
+re-registration does not replay prior alerts.
+
+The ordered `20261013030258_delivery_incarnations` migration validates historical link
+dates, backfills `linkedAt` from the exact original `createdAt`, and assigns fresh UUIDs
+to existing rows. It uses PostgreSQL's builtin UUID function and requires no extension.
+Production application of this migration is pending.
+
+These checks authorize the database observation. Concurrent cleanup may require a
+registration retry, and an observation can predate a later ownership change; persistence
+alone does not recall a push already in flight.
 
 This source guard is a prerequisite for owned public exposure, not proof of relay
 commissioning. Signed authenticated job binding and current environment-link

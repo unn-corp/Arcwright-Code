@@ -92,6 +92,7 @@ function makeEnvironmentLinks(
       Effect.succeed([
         {
           userId: "dev:julius",
+          linkIncarnationId: "00000000-0000-4000-8000-000000000001",
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
         },
@@ -323,6 +324,7 @@ describe("AgentActivityPublisher", () => {
                         return [
                           {
                             userId: "dev:julius",
+                            linkIncarnationId: "00000000-0000-4000-8000-000000000001",
                             notificationsEnabled: true,
                             liveActivitiesEnabled: true,
                           },
@@ -518,6 +520,7 @@ describe("AgentActivityPublisher", () => {
                       Effect.succeed([
                         {
                           userId: "dev:julius",
+                          linkIncarnationId: "00000000-0000-4000-8000-000000000001",
                           notificationsEnabled: true,
                           liveActivitiesEnabled: false,
                         },
@@ -631,6 +634,7 @@ describe("AgentActivityPublisher", () => {
                         Effect.succeed([
                           {
                             userId: "dev:julius",
+                            linkIncarnationId: "00000000-0000-4000-8000-000000000001",
                             notificationsEnabled: true,
                             liveActivitiesEnabled: false,
                           },
@@ -900,6 +904,7 @@ describe("authenticated publisher anonymous shutdown", () => {
         body: "Fixture",
         subscription: {
           id: `subscription-${userId}`,
+          incarnationId: "00000000-0000-4000-8000-000000000001",
           userId,
           environmentId: null,
           installationId: null,

@@ -259,7 +259,11 @@ old signed anonymous jobs and direct Web Push sends enforce the same boundary. O
 explicit `legacy` policy preserves existing anonymous clients; there is no owned enable override.
 Authenticated registration atomically clears installation authority and obsolete transition
 baselines when transferring an endpoint to an account. Authenticated account notifications remain
-separate. These source and fixture checks do not deploy or commission the owned relay; signed
+separate. Link `linkedAt` now records the current activation while the original creation date
+is preserved; internal link and subscription incarnation UUIDs rotate on authority or push-target
+replacement. Preferences-only registration retains the UUID and alert baseline. The ordered
+`20261013030258_delivery_incarnations` database migration is tested only on a disposable fixture
+and remains pending in production. These source and fixture checks do not deploy or commission the owned relay; signed
 account-job binding and current link reauthorization still require the subsequent runtime work.
 Native installation authority and historical recovery remain separate pending work.
 

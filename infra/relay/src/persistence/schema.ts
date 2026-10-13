@@ -14,6 +14,7 @@ import {
   primaryKey,
   text,
   uniqueIndex,
+  uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 
@@ -67,6 +68,7 @@ export const relayWebPushSubscriptions = pgTable(
   "relay_web_push_subscriptions",
   {
     id: varchar("id", { length: 64 }).primaryKey(),
+    incarnationId: uuid("incarnation_id").notNull().defaultRandom(),
     userId: varchar("user_id", { length: 255 }).notNull(),
     // Anonymous PWA ownership is deliberately separate from an Arcwright Connect
     // account. Only a one-way hash of the opaque bearer credential is stored.
@@ -100,7 +102,11 @@ export const relayWebPushSubscriptionStates = pgTable(
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.subscriptionId, table.environmentId, table.threadId] }),
+    primaryKey({
+      // PostgreSQL truncated this name in the original handwritten migration.
+      name: "relay_web_push_subscription_states_subscription_id_environment_",
+      columns: [table.subscriptionId, table.environmentId, table.threadId],
+    }),
     index("idx_relay_web_push_subscription_states_subscription").on(table.subscriptionId),
   ],
 );
@@ -110,6 +116,7 @@ export const relayEnvironmentLinks = pgTable(
   {
     userId: varchar("user_id", { length: 191 }).notNull(),
     environmentId: varchar("environment_id", { length: 191 }).notNull(),
+    incarnationId: uuid("incarnation_id").notNull().defaultRandom(),
     environmentLabel: text("environment_label").notNull().default("Arcwright Code Environment"),
     environmentPublicKey: text("environment_public_key").notNull(),
     endpointHttpBaseUrl: text("endpoint_http_base_url").notNull(),
@@ -122,6 +129,7 @@ export const relayEnvironmentLinks = pgTable(
     holdWebhooksWhileOffline: boolean("hold_webhooks_while_offline").notNull().default(false),
     createdByDeviceId: varchar("created_by_device_id", { length: 191 }),
     revokedAt: varchar("revoked_at", { length: 64 }),
+    linkedAt: varchar("linked_at", { length: 64 }).notNull(),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
   },

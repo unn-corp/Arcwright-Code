@@ -812,7 +812,12 @@ policy disables anonymous routes, publisher fanout, transitions, queue productio
 including old anonymous jobs; credential-authenticated installation removal remains cleanup-only.
 [webPushRuntime.ts](../../infra/relay/src/agentActivity/webPushRuntime.ts) captures the Worker configuration.
 Authenticated endpoint conversion locks the actual row and clears installation authority and old
-ownership baselines atomically, retaining a clean same-owner baseline. Focused handler/service tests
+ownership baselines atomically, retaining a clean same-owner baseline. Anonymous registration also
+locks installation/endpoint rows and performs credential checks and endpoint transfer in one transaction.
+Internal durable link/subscription incarnations rotate on authority or target replacement;
+public link activation time advances without rewriting original creation provenance. Preferences
+and same-owner credential replacement preserve the alert baseline. The ordered incarnation migration
+is fixture-verified and pending in production. Focused handler/service tests
 and explicitly opted-in disposable PostgreSQL conversion/rollback/concurrency fixtures cover this
 source boundary. Signed authenticated job binding and current-link authorization remain pending. Native installation credentials and historical release/recovery
 rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its

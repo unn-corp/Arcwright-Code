@@ -1837,6 +1837,7 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
       };
       const subscription: WebPushSubscriptions.WebPushNotification["subscription"] = {
         id: "fixture-subscription",
+        incarnationId: "00000000-0000-4000-8000-000000000001",
         userId: "pwa:fixture-installation",
         environmentId: "fixture-environment",
         installationId: installation.installationId,

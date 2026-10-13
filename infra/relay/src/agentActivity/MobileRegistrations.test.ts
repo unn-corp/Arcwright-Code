@@ -110,6 +110,7 @@ function makeEnvironmentLinks(
       Effect.succeed([
         {
           userId: "dev:julius",
+          linkIncarnationId: "00000000-0000-4000-8000-000000000001",
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
         },
