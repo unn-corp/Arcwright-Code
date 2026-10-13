@@ -4,6 +4,7 @@ import { resolveMessageParticipant, type Participant } from "@t3tools/client-run
 import { observeResize } from "~/lib/observeResize";
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 import { ParticipantChip } from "./ParticipantChip";
+import { isAndroidPwa } from "../../env";
 
 export interface TimelineParticipantGroup {
   readonly rowId: string;
@@ -83,6 +84,7 @@ export function PinnedTimelineParticipant({
   const headerRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState<ReturnType<typeof pinnedParticipant>>(null);
   useLayoutEffect(() => {
+    if (isAndroidPwa) return;
     const refresh = () => {
       const list = listRef.current;
       const state = list?.getState();
@@ -127,10 +129,10 @@ export function PinnedTimelineParticipant({
     refreshRef.current();
     return observeResize(headerRef.current, () => refreshRef.current());
   }, [pinned?.group, refreshRef]);
-  if (!pinned) return null;
+  if (isAndroidPwa || !pinned) return null;
   return (
     <div
-      className="chat-pinned-participant pointer-events-none absolute inset-0 z-20 overflow-hidden"
+      className="chat-pinned-participant pointer-events-none absolute inset-0 z-20 hidden overflow-hidden sm:block"
       data-pinned-participant={pinned.group.participant.id}
       aria-hidden="true"
       inert

@@ -346,6 +346,10 @@ specification does not count; every required file must have run at least one tes
 passed (none skipped). Removing or renaming a required test fails publication until the list is
 changed in a reviewed commit.
 
+The desktop updater suite uses one test worker so Windows dependency initialization
+does not compete across workers while materializing Electron files. Every required
+file still runs, and missing or failed tests continue to block publication.
+
 **What this does not prove.** The package rows are external operations (dpkg, the NSIS installer,
 `adb`, archive replacement). They show the shipped bytes install, upgrade in place, and roll back.
 They are never the whole proof: no check can be true on them alone. The in-product path (stopped

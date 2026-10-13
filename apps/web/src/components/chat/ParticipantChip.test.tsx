@@ -32,6 +32,20 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   state.settings = null;
 });
+it("shows the default human label once without a duplicate initials badge", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  await act(async () => {
+    renderer = create(
+      <ParticipantChip
+        participant={{ kind: "human", id: "legacy-user", name: "You", photo: null }}
+      />,
+    );
+  });
+  const chip = renderer!.root.findByProps({ "data-participant-kind": "User" });
+  expect(chip.findAll((node) => node.children.includes("YO"))).toHaveLength(0);
+  expect(chip.findAll((node) => node.children.includes("You"))).toHaveLength(1);
+});
+
 it("falls back after a broken photo and retries a replacement", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const participant = {

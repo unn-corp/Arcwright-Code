@@ -42,6 +42,12 @@ export function ParticipantChip({
     participant.kind === "agent" ? participantColor(participant.id, override) : undefined;
   const photo =
     participant.kind === "human" && participant.photo !== failedPhoto ? participant.photo : null;
+  const showAvatar =
+    participant.kind !== "human" ||
+    participant.name !== "You" ||
+    photo !== null ||
+    variant === "avatar" ||
+    variant === "expanded";
   const ModelIcon =
     model && /^(?:gpt|o[1-9]|codex)(?:[- .]|$)/i.test(model)
       ? OpenAI
@@ -60,51 +66,53 @@ export function ParticipantChip({
         variant === "expanded" && "gap-3",
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-muted text-xs font-medium text-foreground",
-          variant === "expanded"
-            ? "size-12"
-            : variant === "compact" || variant === "avatar"
-              ? "size-6"
-              : "size-7",
-        )}
-        style={
-          color
-            ? {
-                backgroundColor: `color-mix(in srgb, ${color} 24%, var(--color-background))`,
-                borderColor: color,
-              }
-            : undefined
-        }
-      >
-        {photo ? (
-          <img
-            src={photo}
-            alt=""
-            className="size-full object-cover"
-            referrerPolicy="no-referrer"
-            onError={() => setFailedPhoto(photo)}
-          />
-        ) : participant.kind === "human" ? (
-          participantInitials(participant.name)
-        ) : participant.kind === "system" ? (
-          <InfoIcon className="size-4" />
-        ) : ModelIcon ? (
-          <ModelIcon className="size-4" />
-        ) : participant.driver ? (
-          <ProviderInstanceIcon
-            driverKind={participant.driver}
-            displayName={participant.name}
-            acpRegistryIconUrl={participant.iconUrl}
-            className="z-auto"
-            iconClassName="size-4"
-          />
-        ) : (
-          <BotIcon className="size-4" />
-        )}
-      </span>
+      {showAvatar && (
+        <span
+          aria-hidden
+          className={cn(
+            "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/50 bg-muted text-xs font-medium text-foreground",
+            variant === "expanded"
+              ? "size-12"
+              : variant === "compact" || variant === "avatar"
+                ? "size-6"
+                : "size-7",
+          )}
+          style={
+            color
+              ? {
+                  backgroundColor: `color-mix(in srgb, ${color} 24%, var(--color-background))`,
+                  borderColor: color,
+                }
+              : undefined
+          }
+        >
+          {photo ? (
+            <img
+              src={photo}
+              alt=""
+              className="size-full object-cover"
+              referrerPolicy="no-referrer"
+              onError={() => setFailedPhoto(photo)}
+            />
+          ) : participant.kind === "human" ? (
+            participantInitials(participant.name)
+          ) : participant.kind === "system" ? (
+            <InfoIcon className="size-4" />
+          ) : ModelIcon ? (
+            <ModelIcon className="size-4" />
+          ) : participant.driver ? (
+            <ProviderInstanceIcon
+              driverKind={participant.driver}
+              displayName={participant.name}
+              acpRegistryIconUrl={participant.iconUrl}
+              className="z-auto"
+              iconClassName="size-4"
+            />
+          ) : (
+            <BotIcon className="size-4" />
+          )}
+        </span>
+      )}
       {variant !== "avatar" && (
         <span className="min-w-0 text-sm">
           <span className="block truncate font-medium">{participant.name}</span>

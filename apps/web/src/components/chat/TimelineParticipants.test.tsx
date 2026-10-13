@@ -6,7 +6,17 @@ import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { LegendListRef } from "@legendapp/list/react";
 import { MessageId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+const viewport = vi.hoisted(() => ({ android: false }));
+vi.mock("../../env", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../env")>()),
+  get isAndroidPwa() {
+    return viewport.android;
+  },
+}));
+afterEach(() => {
+  viewport.android = false;
+});
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 import {
   PinnedTimelineParticipant,
@@ -54,6 +64,32 @@ function message(
 }
 
 describe("timeline participant grouping", () => {
+  it("does not pin an identity over the Android feed or subscribe to its scrolling", async () => {
+    viewport.android = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const readViewport = vi.fn();
+    const listRef = createRef<LegendListRef | null>();
+    listRef.current = { getScrollableNode: readViewport } as unknown as LegendListRef;
+    try {
+      await act(async () =>
+        root.render(
+          <PinnedTimelineParticipant
+            groups={timelineParticipantGroups([message("agent", "assistant")], "thread", [], [])}
+            listRef={listRef}
+            refreshRef={{ current: () => {} }}
+          />,
+        ),
+      );
+      expect(container.querySelector("[data-pinned-participant]")).toBeNull();
+      expect(readViewport).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("groups by identity, including distinct humans and agent instances", () => {
     const rows = [
       message("a", "user"),

@@ -7,6 +7,7 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { ParticipantChip } from "./ParticipantChip";
 import { Button } from "../ui/button";
+import { isAndroidPwa } from "../../env";
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 
 export interface SubagentActivityMember {
@@ -114,10 +115,10 @@ export function ActiveSubagentChips({
   onOpenThread: (id: ThreadId) => void;
 }) {
   const active = members.filter((agent) => isActiveSubagentStatus(agent.status));
-  if (active.length === 0) return null;
+  if (isAndroidPwa || active.length === 0) return null;
   return (
     <div
-      className="relative z-10 flex flex-wrap items-center gap-2 px-3 py-2"
+      className="relative z-10 hidden flex-wrap items-center gap-2 px-3 py-2 sm:flex"
       aria-label="Active subagents"
       role="group"
       data-active-subagents

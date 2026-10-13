@@ -314,6 +314,11 @@ If nothing on the device can show a format, save or share it to open it elsewher
 
 ## Images and videos in messages
 
+Pictures attached from another device are available when you open the chat on the
+same connection, including pictures selected through a file picker.
+Images an agent links from the connected machine also load there. If an image becomes
+unavailable after reconnecting, select **Retry image** to request a fresh preview.
+
 Select an image or video attachment or link to preview it. Playback support depends
 on your browser or device; save an unsupported video to open it in another app.
 

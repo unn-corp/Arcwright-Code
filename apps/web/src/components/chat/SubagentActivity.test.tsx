@@ -10,7 +10,17 @@ import {
   RunId,
   type OrchestrationV2Subagent,
 } from "@t3tools/contracts";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+const viewport = vi.hoisted(() => ({ android: false }));
+vi.mock("../../env", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../env")>()),
+  get isAndroidPwa() {
+    return viewport.android;
+  },
+}));
+afterEach(() => {
+  viewport.android = false;
+});
 import {
   ActiveSubagentChips,
   SubagentMilestone,
@@ -51,6 +61,33 @@ function agent(
 }
 
 describe("subagent activity", () => {
+  it("keeps Android agent activity in the feed instead of covering the composer", async () => {
+    viewport.android = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const members = subagentActivityMembers([agent("review", "running")], []);
+    const marker = withSubagentMilestones([], members)[0];
+    try {
+      await act(async () =>
+        root.render(
+          <>
+            <ActiveSubagentChips members={members} onOpenThread={vi.fn()} />
+            {marker?.kind === "subagent-milestone" ? (
+              <SubagentMilestone row={marker} onOpenThread={vi.fn()} />
+            ) : null}
+          </>,
+        ),
+      );
+      expect(container.querySelector("[data-active-subagents]")).toBeNull();
+      expect(container.querySelector('[data-subagent-milestone="started"]')).not.toBeNull();
+      expect(container.textContent).toContain("review");
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps active workers from every run visible and removes each one when it finishes", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");

@@ -300,8 +300,14 @@ AI message bubbles default on when no preference is saved; saved opt-outs are pr
 Web timelines place chips outside bubbles, show one per consecutive sender group, and pin that
 identity while its group scrolls past. Preserve this through row recycling and disclosure changes;
 agent reply controls belong beside their messages. Agent deliveries use the left side even when
-their transport role is user; human messages remain on the right. Active subagent chips stay above the
-composer across parent turns and scrolling; recorded starts and finishes remain in the timeline. `TimelineParticipants.test.tsx` and the timeline
+their transport role is user; human messages remain on the right. In the fork Android app and on narrow mobile screens,
+participant identities and subagent starts, activity, and finishes remain in the feed; duplicate
+pinned identity tabs and the subagent row above the composer are hidden. Wider screens retain
+those shortcuts across parent turns and scrolling. Collapsed repository groups and Working,
+Snoozed, and Settled shelves summarize input/approval, failure/limit, and unread completion
+with an icon per status and a multiplier above one. Counts use shell summaries and the same
+server-authoritative read watermarks as thread rows, without opening hidden thread details.
+`TimelineParticipants.test.tsx`, `CollapsedThreadStatusIndicators.test.tsx`, and the timeline
 component tests cover these boundaries.
 
 Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,
@@ -491,6 +497,11 @@ limits cover T3-owned commands; provider shells and other applications have sepa
 Conversation evidence media uses chat-read authorization and signed exact-file URLs on the
 connected environment, including Tailscale. The server validates the physical per-conversation
 directory before signing; other host media continues to require filesystem-read permission.
+Agent image paths beginning with `~/` resolve on the environment host. Hosted image failures
+refresh their signed URL once and expose manual retry instead of waiting for the periodic refresh;
+repeated failures must not cause a request loop or bypass file permissions. Raster pictures stored
+as file-picker attachments serve inline by default, including to older receiving clients; explicit
+downloads and other file formats retain their existing disposition.
 Keep these boundaries covered in `AssetAccess.test.ts`, `RpcAuthorization.test.ts`, and
 the client's asset URL and media routing tests.
 
