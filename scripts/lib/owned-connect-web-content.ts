@@ -120,10 +120,10 @@ export function renderOwnedPublicPages({
   const privacy = jsonObject(data.privacy);
   const preparing = jsonObject(about.before_commissioning_replacements);
   function sections(page: Record<string, unknown>, isPrivacy: boolean) {
-    if (!Array.isArray(page.sections) || (isPrivacy && page.sections.length !== 14))
+    if (!Array.isArray(page.sections))
       throw new Error("Require complete reviewed policy sections.");
     const ids = new Set<string>();
-    return page.sections
+    const rendered = page.sections
       .map((section) => {
         const row = jsonObject(section);
         const id = publicText(row.id);
@@ -147,6 +147,27 @@ export function renderOwnedPublicPages({
         return `<section id="${id}"><h2>${escapeHtml(publicText(row.heading))}</h2>${paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("")}</section>`;
       })
       .join("");
+    if (
+      isPrivacy &&
+      [
+        "purpose",
+        "identity",
+        "connections",
+        "content",
+        "local",
+        "uses",
+        "sharing",
+        "retention",
+        "deletion",
+        "security",
+        "international",
+        "children",
+        "changes",
+      ].some((id) => !ids.has(id))
+    ) {
+      throw new Error("Require complete reviewed policy sections.");
+    }
+    return rendered;
   }
   function page(title: unknown, canonical: unknown, introduction: string, body: string) {
     return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${escapeHtml(publicText(title))}</title><link rel="canonical" href="${escapeHtml(link(canonical, origin))}"><link rel="icon" href="/favicon.ico"><style>${stylesheet}</style></head><body><header><strong>Arcwright Connect</strong><nav aria-label="Public pages">${nav}</nav></header><main><h1>${escapeHtml(publicText(title))}</h1>${status === "preparing" ? '<p class="status">Being prepared for public signup. Managed environment access is not yet commissioned.</p>' : ""}<p>${escapeHtml(introduction)}</p>${body}</main><footer>${escapeHtml(operator)} · Effective ${escapeHtml(publicText(cfg.effectiveDate))} · <a href="mailto:theunnamed@theunnamed.dev">Contact</a></footer></body></html>\n`;

@@ -156,7 +156,6 @@ function content() {
         "international",
         "children",
         "changes",
-        "contact",
       ].map(section),
       provider_links: [{ label: "Clerk Privacy", href: "https://clerk.com/legal/privacy" }],
     },
@@ -165,6 +164,19 @@ function content() {
 }
 
 describe("public hosted pages and headers", () => {
+  it("requires all reviewed policy topics instead of an invented numeric section count", () => {
+    const input = content();
+    expect(input.draft.privacy.sections).toHaveLength(13);
+    expect(renderOwnedPublicPages({ ...input, status: "preparing" }).privacy).toContain(
+      'id="identity"',
+    );
+    input.draft.privacy.sections = input.draft.privacy.sections.filter(
+      (section) => section.id !== "identity",
+    );
+    expect(() => renderOwnedPublicPages({ ...input, status: "preparing" })).toThrow(/complete/);
+    input.draft.privacy.sections.push(input.draft.privacy.sections[0]!);
+    expect(() => renderOwnedPublicPages({ ...input, status: "preparing" })).toThrow(/identifier/);
+  });
   it("escapes all content and includes only the public contact and no scripts", () => {
     const pages = renderOwnedPublicPages({ ...content(), status: "preparing" });
     expect(pages.privacy).toContain("Heading &lt;identity&gt;");
