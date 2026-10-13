@@ -2,7 +2,7 @@
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 
-export const STORAGE_MIGRATION_VERSION = 1;
+export const STORAGE_MIGRATION_VERSION = 2;
 export interface StorageMigrationStatus {
   readonly version: number;
   readonly state: "pending" | "complete" | "legacy";
@@ -42,9 +42,11 @@ export function readStorageMigrationStatus(home: string): StorageMigrationStatus
         ? undefined
         : (db
             .prepare(
-              "SELECT state,before_bytes,after_bytes FROM arcwright_storage_migrations WHERE version=?",
+              `SELECT state,before_bytes,after_bytes FROM arcwright_storage_migrations
+               WHERE version=? OR (version<? AND state='pending')
+               ORDER BY CASE WHEN state='pending' THEN 0 ELSE 1 END,version DESC LIMIT 1`,
             )
-            .get(STORAGE_MIGRATION_VERSION) as
+            .get(STORAGE_MIGRATION_VERSION, STORAGE_MIGRATION_VERSION) as
             | {
                 state: "pending" | "complete";
                 before_bytes: number | null;

@@ -126,6 +126,7 @@ import {
 import Migration0104 from "./Migrations/059_McpAppModelContext.ts";
 import Migration0105 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 import Migration0106 from "./Migrations/061_PullRequestReviewGuides.ts";
+import Migration0107 from "./Migrations/107_CompactHistoryBlocks.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -244,6 +245,7 @@ export const migrationEntries = [
   [104, "McpAppModelContext", Migration0104],
   [105, "ThreadSnapshotWindowIndexes", Migration0105],
   [106, "PullRequestReviewGuides", Migration0106],
+  [107, "CompactHistoryBlocks", Migration0107],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

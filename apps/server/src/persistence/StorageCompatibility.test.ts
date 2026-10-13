@@ -15,7 +15,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
-import { compressText, PAYLOAD_PREFIX } from "@t3tools/shared/forkStorageCodec";
+import {
+  compressText,
+  compressHistoryBlock,
+  historyBlockReference,
+  PAYLOAD_PREFIX,
+} from "@t3tools/shared/forkStorageCodec";
 import * as SqlitePersistence from "./Sqlite.ts";
 import * as Events from "./OrchestrationEventStore.ts";
 import * as Receipts from "./OrchestrationCommandReceipts.ts";
@@ -194,40 +199,57 @@ layer("lossless storage compatibility", (it) => {
       }),
   );
 
-  it.effect("returns an archived receipt and refuses to admit its command again", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const repository = yield* Receipts.OrchestrationCommandReceiptRepository;
-      const commandId = CommandId.make("archived-command");
-      const row = {
-        command_id: commandId,
-        aggregate_kind: "thread",
-        aggregate_id: "storage-receipt",
-        command_type: "legacy",
-        accepted_at: "2026-01-01T00:00:00.000Z",
-        result_sequence: 99,
-        status: "rejected",
-        error: "original refusal",
-      };
-      const blob = compressText(JSON.stringify(row));
-      yield* sql`INSERT INTO arcwright_history_rows(source,row_key,thread_id,sequence,digest,raw_bytes,compressed)
-      VALUES('orchestration_command_receipts',${commandId},'storage-receipt',NULL,${blob.digest},${blob.rawBytes},${blob.compressed})`;
-      const receipt = {
-        commandId,
-        aggregateKind: "thread" as const,
-        aggregateId: ThreadId.make("storage-receipt"),
-        commandType: "legacy",
-        acceptedAt: IsoDateTime.make(row.accepted_at),
-        resultSequence: 99,
-        status: "rejected" as const,
-        error: row.error,
-      };
-      assert.deepEqual(Option.getOrThrow(yield* repository.getByCommandId({ commandId })), receipt);
-      assert.isFalse(
-        yield* repository.insertIfAbsent({ ...receipt, status: "accepted", error: null }),
-      );
-      yield* repository.upsert({ ...receipt, status: "accepted", error: null });
-      assert.deepEqual(Option.getOrThrow(yield* repository.getByCommandId({ commandId })), receipt);
-    }),
+  it.effect.each(["gzip", "block"])(
+    "returns a %s archived receipt and refuses to admit its command again",
+    (encoding) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const repository = yield* Receipts.OrchestrationCommandReceiptRepository;
+        const commandId = CommandId.make(`archived-command-${encoding}`);
+        const row = {
+          command_id: commandId,
+          aggregate_kind: "thread",
+          aggregate_id: "storage-receipt",
+          command_type: "legacy",
+          accepted_at: "2026-01-01T00:00:00.000Z",
+          result_sequence: 99,
+          status: "rejected",
+          error: "original refusal",
+        };
+        const blob = compressText(JSON.stringify(row));
+        let stored = blob.compressed;
+        if (encoding === "block") {
+          const bytes = Buffer.alloc(blob.rawBytes + 4);
+          bytes.writeUInt32BE(blob.rawBytes, 0);
+          bytes.write(JSON.stringify(row), 4);
+          const block = compressHistoryBlock(bytes);
+          yield* sql`INSERT INTO arcwright_history_blocks VALUES(${block.digest},${block.rawBytes},${block.compressed})`;
+          stored = historyBlockReference(block.digest, 0);
+        }
+        yield* sql`INSERT INTO arcwright_history_rows(source,row_key,thread_id,sequence,digest,raw_bytes,compressed)
+      VALUES('orchestration_command_receipts',${commandId},'storage-receipt',NULL,${blob.digest},${blob.rawBytes},${stored})`;
+        const receipt = {
+          commandId,
+          aggregateKind: "thread" as const,
+          aggregateId: ThreadId.make("storage-receipt"),
+          commandType: "legacy",
+          acceptedAt: IsoDateTime.make(row.accepted_at),
+          resultSequence: 99,
+          status: "rejected" as const,
+          error: row.error,
+        };
+        assert.deepEqual(
+          Option.getOrThrow(yield* repository.getByCommandId({ commandId })),
+          receipt,
+        );
+        assert.isFalse(
+          yield* repository.insertIfAbsent({ ...receipt, status: "accepted", error: null }),
+        );
+        yield* repository.upsert({ ...receipt, status: "accepted", error: null });
+        assert.deepEqual(
+          Option.getOrThrow(yield* repository.getByCommandId({ commandId })),
+          receipt,
+        );
+      }),
   );
 });

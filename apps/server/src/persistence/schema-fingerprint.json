@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "5413f5d4507661987187d93d87ab0abb0815989d367b036d0a5e04b625358e2a",
+  "schemaSha256": "54640508ea04ff04af5e3a886b2723a14ba66f958f35898b6e9e9f429f6414f0",
   "objects": [
     {
       "type": "index",
@@ -895,6 +895,12 @@
       "name": "organization_work_transitions_by_work",
       "tbl_name": "organization_work_transitions",
       "sql": "CREATE INDEX organization_work_transitions_by_work\n    ON organization_work_transitions(work_id, created_at)"
+    },
+    {
+      "type": "table",
+      "name": "arcwright_history_blocks",
+      "tbl_name": "arcwright_history_blocks",
+      "sql": "CREATE TABLE arcwright_history_blocks (\n  digest TEXT PRIMARY KEY, raw_bytes INTEGER NOT NULL, compressed BLOB NOT NULL\n)"
     },
     {
       "type": "table",

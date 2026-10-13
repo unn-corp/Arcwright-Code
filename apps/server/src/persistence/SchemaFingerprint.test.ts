@@ -63,7 +63,7 @@ it.effect(
         ),
       );
       assert.deepEqual(yield* sql`SELECT * FROM arcwright_schema_fingerprint`, fingerprint);
-      assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations`, [
+      assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations WHERE version=1`, [
         { state: "pending" },
       ]);
     }).pipe(Effect.provide(layer)),

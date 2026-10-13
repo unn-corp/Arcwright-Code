@@ -51,6 +51,10 @@ Supported desktop, WSL and managed-service launchers perform it during native ma
 older service launchers hold it pending until refreshed. Migration 103 binds a fast schema
 and ledger SHA check to the compiled schema contract; matching future loads skip migration
 execution. Completed bulk cleanup is tracked separately and is not rerun.
+Migration 107 upgrades both original and previously optimized homes to storage migration 2:
+cold rows share bounded, checksummed Brotli blocks, with indexed access and exact record
+verification. Mixed gzip/block readers preserve command tombstones and archived exports.
+Packing is resumable and stays in the admitted worker; no historical row is discarded.
 The exact journal, native snapshots, worker parent/child identities, fencing, capacity
 checks and final health receipts govern the entire operation. Worker ownership survives
 an unexpected parent exit; recovery must not race a recorded storage worker.
@@ -58,6 +62,7 @@ an unexpected parent exit; recovery must not race a recorded storage worker.
 The implementation is owned by [payload storage](../../apps/server/src/persistence/PayloadStorage.ts),
 [the codec](../../packages/shared/src/forkStorageCodec.ts),
 [legacy archives](../../packages/shared/src/forkStorageArchive.ts),
+[compact history blocks](../../packages/shared/src/forkStorageBlocks.ts),
 [maintenance admission](../../packages/shared/src/forkStorageMaintenance.ts), and
 [the CLI worker](../../apps/server/src/maintenance/storageWorker.ts). Preserve the
 storage compatibility and maintenance regression suites when merging upstream. Populated databases from older builds queue a durable one-time shrink; it uses the same

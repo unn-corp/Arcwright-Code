@@ -18,6 +18,7 @@ import {
 } from "./forkStorageArchive.ts";
 import { deduplicateEvidence } from "./forkEvidenceDedup.ts";
 import { STORAGE_MIGRATION_VERSION } from "./forkStorageMigration.ts";
+import { compactHistoryBlocks } from "./forkStorageBlocks.ts";
 
 export interface StorageOptimizationInput {
   readonly home: string;
@@ -131,8 +132,14 @@ export async function optimizeStorageHome(
       .get(input.transactionId) as
       | { completed_at: string | null; report_json: string | null }
       | undefined;
-    if (prior?.completed_at !== null && prior?.completed_at !== undefined)
-      return JSON.parse(prior.report_json!);
+    if (prior?.completed_at !== null && prior?.completed_at !== undefined) {
+      const report = JSON.parse(prior.report_json!);
+      if (report.storageMigrationVersion !== STORAGE_MIGRATION_VERSION)
+        throw new Error(
+          "A newer storage migration requires a fresh admitted transaction and restore point.",
+        );
+      return report;
+    }
     const startedAt = new Date().toISOString();
     db.prepare(
       "INSERT INTO arcwright_storage_runs(transaction_id,started_at) VALUES(?,?) ON CONFLICT(transaction_id) DO NOTHING",
@@ -150,6 +157,7 @@ export async function optimizeStorageHome(
     // Ninety days bounds the hot legacy-receipt store. Archived IDs and exact responses remain indefinitely.
     const cutoff = new Date(Date.now() - 90 * 86400_000).toISOString();
     const archived = await archiveLegacyHistory(db, cutoff, pause);
+    const historyBlocks = await compactHistoryBlocks(db, pause);
     const compressedEvents = await compressEventHistory(db, pause);
     const compressedTurnItems = await compressTurnItemHistory(db, pause);
     const evidence = await deduplicateEvidence(
@@ -170,9 +178,11 @@ export async function optimizeStorageHome(
         "Repacked database failed verification; admission stays fenced for recovery.",
       );
     const report = {
+      storageMigrationVersion: STORAGE_MIGRATION_VERSION,
       beforeBytes,
       afterBytes: (await NodeFSP.stat(database)).size,
       archived,
+      historyBlocks,
       compressedEvents,
       compressedTurnItems,
       evidence,
@@ -183,7 +193,7 @@ export async function optimizeStorageHome(
       "UPDATE arcwright_storage_runs SET completed_at=?,report_json=? WHERE transaction_id=?",
     ).run(new Date().toISOString(), JSON.stringify(report), input.transactionId);
     db.prepare(
-      "UPDATE arcwright_storage_migrations SET state='complete',completed_at=?,before_bytes=?,after_bytes=? WHERE version=?",
+      "UPDATE arcwright_storage_migrations SET state='complete',completed_at=?,before_bytes=?,after_bytes=? WHERE version<=? AND state='pending'",
     ).run(new Date().toISOString(), beforeBytes, report.afterBytes, STORAGE_MIGRATION_VERSION);
     db.exec("COMMIT");
     return report;

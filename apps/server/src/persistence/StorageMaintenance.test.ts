@@ -86,7 +86,7 @@ function fixture() {
       }
       db.prepare(`INSERT INTO projection_thread_messages(message_id,thread_id,role,text,is_streaming,created_at,updated_at)
     VALUES('reasoning','complete','reasoning','preserved reasoning',0,'2026-01-01','2026-01-01')`).run();
-      db.exec("UPDATE arcwright_storage_migrations SET state='pending' WHERE version=1");
+      db.exec("UPDATE arcwright_storage_migrations SET state='pending'");
       db.close();
       const store = await CoordinatorStore.open(NodePath.join(root, "coordinator"));
       await store.register(
@@ -269,6 +269,9 @@ describe("admitted lossless storage optimization", () => {
       const db = new NodeSqlite.DatabaseSync(f.database);
       registerStorageFunctions(db);
       expect(
+        db.prepare("SELECT state FROM arcwright_storage_migrations ORDER BY version").all(),
+      ).toEqual([{ state: "complete" }, { state: "complete" }]);
+      expect(
         db
           .prepare(
             "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_orch_events_correlation_id','idx_orch_command_receipts_aggregate','idx_orch_command_receipts_sequence')",
@@ -392,6 +395,22 @@ describe("admitted lossless storage optimization", () => {
     },
   );
 
+  storageTest("requires a fresh admitted transaction for a newer storage migration", async (f) => {
+    const db = new NodeSqlite.DatabaseSync(f.database);
+    db.prepare(
+      "INSERT INTO arcwright_storage_runs(transaction_id,started_at,completed_at,report_json) VALUES(?,?,?,?)",
+    ).run(
+      f.journal.id,
+      "2026-01-01",
+      "2026-01-01",
+      JSON.stringify({ beforeBytes: 10000, afterBytes: 5000 }),
+    );
+    db.close();
+    await expect(
+      optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
+    ).rejects.toThrow("fresh admitted transaction");
+    expect(readStorageMigrationStatus(f.home).state).toBe("pending");
+  });
   storageTest("detects a conflicting archive before deleting its source row", async (f) => {
     const db = new NodeSqlite.DatabaseSync(f.database);
     archiveRow(db, "projection_thread_activities", "activity-complete", "complete", {

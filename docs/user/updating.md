@@ -313,6 +313,10 @@ a one-time shrink. It waits for idle maintenance admission and a cancellable cou
 then verifies a restore point and repacks the database in a background worker. Running
 chats continue and hold cleanup until they finish. Later launches use a small schema fingerprint check and do not repeat completed cleanup.
 
+Newer storage upgrades can reduce old history further even if an earlier cleanup completed.
+They preserve every historical record and use the same idle maintenance and recovery checks.
+Each storage upgrade runs once; ordinary launches do not repeatedly repack your database.
+
 This data upgrade keeps your installed version and pin, independently of the automatic
 binary-update setting. If a managed server reports an older service launcher, refresh it
 with `t3 service install` during its maintenance window so the queued cleanup can run.

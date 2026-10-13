@@ -25,6 +25,9 @@ it.effect.each([1, 56, 99, 100, 101])(
       assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations WHERE version=1`, [
         { state: "pending" },
       ]);
+      assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations WHERE version=2`, [
+        { state: "pending" },
+      ]);
       // The startup migration only records the request; heavyweight rewrites require native admission.
       assert.equal(
         (yield* sql`SELECT payload_json FROM orchestration_events`)[0]!.payload_json,
@@ -33,7 +36,7 @@ it.effect.each([1, 56, 99, 100, 101])(
       yield* sql`UPDATE arcwright_storage_migrations SET state='complete',before_bytes=10000,after_bytes=1000 WHERE version=1`;
       assert.deepEqual(yield* runMigrations(), []);
       assert.deepEqual(
-        yield* sql`SELECT state,before_bytes,after_bytes FROM arcwright_storage_migrations`,
+        yield* sql`SELECT state,before_bytes,after_bytes FROM arcwright_storage_migrations WHERE version=1`,
         [{ state: "complete", before_bytes: 10000, after_bytes: 1000 }],
       );
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
@@ -43,7 +46,8 @@ it.effect("fresh databases skip historical shrink instead of scheduling repeated
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* runMigrations();
-    assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations`, [
+    assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations ORDER BY version`, [
+      { state: "complete" },
       { state: "complete" },
     ]);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

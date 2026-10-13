@@ -4,6 +4,12 @@ This guide records the measured audit and the lossless storage implementation in
 migration 101. The measurements below describe the pre-optimization database, not claimed
 production savings. Historical rewrites require an explicitly requested, admitted update.
 
+The first full-data isolated rehearsal reduced the 26.49 GiB recovery database to **16.48 GiB**
+(37.79%). SHA-256 comparisons preserved all 32 projects, 1,503 conversations, 120,862 messages,
+152,587 graph nodes and 1,025,849 V2 events. These are fixture savings; the running database
+has not been rewritten. Its cold archive still occupied 10.33 GiB, including 3.20 GiB unused
+inside allocated pages, which motivated the compact block format below.
+
 ## Measured local database, 2026-10-12
 
 The running `userdata/statev2.sqlite` was approximately **26.55 GiB**, with 4 KiB pages,
@@ -93,6 +99,30 @@ Fresh empty homes start complete because their new writes already use the storag
 The request stays pending until native maintenance succeeds; normal startup does only
 small indexed lookups. Completed migrations are not repeated on subsequent launches.
 
+Migration 107 adds compact history blocks and storage migration version 2. Both earlier
+populated databases and homes that already completed the original shrink can upgrade.
+Startup creates the small schema and records pending work, without scanning or rewriting
+history. Empty homes start complete. A matching schema/ledger fingerprint and completed
+version-2 marker skip repeated migration and cleanup on later launches.
+
+During admitted maintenance, related cold rows share Brotli-compressed blocks targeting
+256 KiB of original data. A larger record occupies its own block within the existing 64 MiB
+record limit. The row-key and thread indexes remain intact; each row retains its original
+SHA-256 and byte length and points to a checksummed block. Ordinary SQLite rowid storage
+for the large block bodies avoids the original archive table's overflow-page waste.
+Readers support both gzip rows and block references, including archived command receipts.
+They validate the stored block, record boundary, length and checksum before returning JSON.
+The read cache holds at most one ordinary block and rechecks stored compressed bytes, so
+damaged or deleted blocks cannot be concealed by earlier reads. Normal event writes keep
+their existing fast compression; stronger block compression is confined to maintenance.
+
+Packing follows the existing source/thread/row-key index in bounded batches. Every batch
+atomically stores verified blocks and switches row references, so interruption preserves
+original rows or complete readable replacements. Retries verify and skip packed records.
+Tiny or incompressible groups keep gzip when block storage plus metadata would be larger.
+An earlier completed transaction cannot certify version 2: it needs fresh native admission
+and a restore point. Version 2 is complete only after repack and integrity verification.
+
 The admitted optimization:
 
 1. Records legacy boundaries only for completed imports whose user/assistant message counts
@@ -109,7 +139,7 @@ The admitted optimization:
    conservative metadata allowance is smaller. Small receipts remain inexpensive permanent
    idempotency records. Archived command IDs and exact results remain readable indefinitely;
    insert/upsert cannot re-admit a retired command. Current non-legacy receipts remain intact.
-4. Compresses old event and tool-projection bodies in bounded batches. Each body is round-trip
+4. Packs archived rows into compact blocks, then compresses old event and tool-projection bodies in bounded batches. Each body is round-trip
    verified before replacement; archives exceeding the 64 MiB bound remain in their source.
 5. Deduplicates equal evidence files with **forced copy-on-write clones**, preserving every path,
    its bytes, ownership, permissions and modification/access timestamps. Copies retain independent inodes and future edits.

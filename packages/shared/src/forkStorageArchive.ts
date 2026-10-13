@@ -3,7 +3,7 @@
 import type * as NodeSqlite from "node:sqlite";
 import {
   compressText,
-  expandBlob,
+  createHistoryDecoder,
   parsePayloadReference,
   payloadReference,
   PAYLOAD_INLINE_BYTES,
@@ -18,6 +18,10 @@ export const HISTORY_SOURCES = [
 ] as const;
 export type HistorySource = (typeof HISTORY_SOURCES)[number];
 type Row = Record<string, string | number | null>;
+const historyDecoders = new WeakMap<
+  NodeSqlite.DatabaseSync,
+  ReturnType<typeof createHistoryDecoder>
+>();
 
 export function archiveRow(
   db: NodeSqlite.DatabaseSync,
@@ -53,11 +57,15 @@ export function readArchivedRow(
       "SELECT digest,raw_bytes,compressed FROM arcwright_history_rows WHERE source=? AND row_key=?",
     )
     .get(source, key) as { digest: string; raw_bytes: number; compressed: Uint8Array } | undefined;
-  return row === undefined
-    ? null
-    : (JSON.parse(
-        expandBlob({ digest: row.digest, rawBytes: row.raw_bytes, compressed: row.compressed }),
-      ) as Row);
+  if (row === undefined) return null;
+  let decode = historyDecoders.get(db);
+  if (decode === undefined) {
+    decode = createHistoryDecoder(db);
+    historyDecoders.set(db, decode);
+  }
+  return JSON.parse(
+    decode({ digest: row.digest, rawBytes: row.raw_bytes, compressed: row.compressed }),
+  ) as Row;
 }
 
 export function storePayloadSync(db: NodeSqlite.DatabaseSync, json: string): string {

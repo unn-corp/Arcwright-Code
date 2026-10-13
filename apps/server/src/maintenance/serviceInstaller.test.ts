@@ -184,24 +184,30 @@ async function device() {
 }
 
 describe("launcher-managed service installer", () => {
-  it("keeps old launcher migrations queued until extended storage trials are supported", async () => {
-    const d = await device();
-    const db = new NodeSqlite.DatabaseSync(d.input.dbPath);
-    db.exec(
-      "CREATE TABLE arcwright_storage_migrations(version INTEGER PRIMARY KEY,state TEXT,before_bytes INTEGER,after_bytes INTEGER); INSERT INTO arcwright_storage_migrations VALUES(1,'pending',NULL,NULL)",
-    );
-    db.close();
-    expect(await createServiceInstaller(d.input).storageMigrationNeeded?.()).toBe(true);
-    expect(await createServiceInstaller(d.input).storageOptimizationUnavailable?.()).toContain(
-      "t3 service install",
-    );
-    expect(
-      await createServiceInstaller({
-        ...d.input,
-        launcher: { ...d.input.launcher, supportsStorageOptimization: true },
-      }).storageOptimizationUnavailable?.(),
-    ).toBeNull();
-  });
+  it.each([1, 2])(
+    "keeps storage migration %i queued until extended trials are supported",
+    async (version) => {
+      const d = await device();
+      const db = new NodeSqlite.DatabaseSync(d.input.dbPath);
+      db.exec(
+        "CREATE TABLE arcwright_storage_migrations(version INTEGER PRIMARY KEY,state TEXT,before_bytes INTEGER,after_bytes INTEGER)",
+      );
+      db.prepare("INSERT INTO arcwright_storage_migrations VALUES(?,'pending',NULL,NULL)").run(
+        version,
+      );
+      db.close();
+      expect(await createServiceInstaller(d.input).storageMigrationNeeded?.()).toBe(true);
+      expect(await createServiceInstaller(d.input).storageOptimizationUnavailable?.()).toContain(
+        "t3 service install",
+      );
+      expect(
+        await createServiceInstaller({
+          ...d.input,
+          launcher: { ...d.input.launcher, supportsStorageOptimization: true },
+        }).storageOptimizationUnavailable?.(),
+      ).toBeNull();
+    },
+  );
   it("is unavailable, with the reason, on an unsupported platform, an old launcher, or without a retained runtime", async () => {
     const d = await device();
     expect(
