@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -175,7 +176,14 @@ export const make = DesktopLifecycle.of({
         return;
       }
       yield* electronApp.relaunch({
-        execPath: process.execPath,
+        // Extracted AppImages have immutable payload paths. Restart through
+        // the stable launcher so a newly selected image is actually used.
+        execPath:
+          environment.platform === "linux" && Option.isSome(environment.appImagePath)
+            ? Option.getOrElse(environment.urlHandlerExecTarget, () =>
+                Option.getOrElse(environment.appImagePath, () => process.execPath),
+              )
+            : process.execPath,
         args: process.argv.slice(1),
       });
       yield* electronApp.exit(0);

@@ -609,6 +609,8 @@ published version for different bytes. An already installed preview keeps its re
 until the next admitted nightly replacement; renaming it does not make it that nightly.
 The app derives its name at every launch, including its Linux menu entry; package IDs, WM class,
 URL scheme, pairing, and data-home identity stay stable.
+Linux restarts use the configured stable launcher or AppImage path rather than an immutable
+extracted payload, so changing the installed image also changes the next restarted build.
 
 Every installation must go through the device maintenance coordinator with normal activity,
 idle-window, snapshot, trial, and health checks. A local build is not permission to bypass those
