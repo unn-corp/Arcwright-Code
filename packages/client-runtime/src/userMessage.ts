@@ -57,3 +57,16 @@ export function resolveUserMessagePresentation(message: {
     scheduledTaskId: undefined,
   };
 }
+
+/** Agent deliveries retain the user role for input processing, but belong on the agent side. */
+export function isUserMessageRightAligned(
+  message: Parameters<typeof resolveUserMessagePresentation>[0] & {
+    readonly senderThreadId?: string | undefined;
+  },
+): boolean {
+  return (
+    message.role === "user" &&
+    !message.senderThreadId &&
+    resolveUserMessagePresentation(message).attribution !== "agent"
+  );
+}

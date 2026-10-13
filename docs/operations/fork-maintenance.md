@@ -299,7 +299,8 @@ snapshots. Profile edits do not rewrite message history or other principals.
 AI message bubbles default on when no preference is saved; saved opt-outs are preserved.
 Web timelines place chips outside bubbles, show one per consecutive sender group, and pin that
 identity while its group scrolls past. Preserve this through row recycling and disclosure changes;
-agent reply controls belong beside their messages. Active subagent chips stay above the
+agent reply controls belong beside their messages. Agent deliveries use the left side even when
+their transport role is user; human messages remain on the right. Active subagent chips stay above the
 composer across parent turns and scrolling; recorded starts and finishes remain in the timeline. `TimelineParticipants.test.tsx` and the timeline
 component tests cover these boundaries.
 

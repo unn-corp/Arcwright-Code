@@ -3015,6 +3015,15 @@ describe("timeline sender groups", () => {
       buildUserTimelineEntry("Second user message"),
       buildAssistantTimelineEntry("First agent message"),
       buildAssistantTimelineEntry("Second agent message"),
+      {
+        ...buildUserTimelineEntry("Other agent message"),
+        message: {
+          ...buildUserTimelineEntry("Other agent message").message,
+          createdBy: "agent" as const,
+          creationSource: "provider" as const,
+          senderThreadId: ThreadId.make("other-agent"),
+        },
+      },
       buildUserTimelineEntry("Next user message"),
     ].map((entry, index) => ({
       ...entry,
@@ -3047,6 +3056,7 @@ describe("timeline sender groups", () => {
         true,
         false,
         true,
+        true,
       ]);
       expect(rows[0]?.querySelector(".bg-message [data-participant-id]")).toBeNull();
       for (const [index, row] of Array.from(rows).entries()) {
@@ -3062,15 +3072,21 @@ describe("timeline sender groups", () => {
         expect(style.position).toBe("absolute");
         expect(style.top).toBe("50%");
         expect(style.transform).toBe("translateY(-50%)");
-        const fromUser = index !== 2 && index !== 3;
+        const fromUser = index === 0 || index === 1 || index === 5;
+        if (row.querySelector("h3 [data-participant-id]")) {
+          expect(row.querySelector("h3")?.classList.contains("justify-end")).toBe(fromUser);
+        }
+        if (entries[index]?.message.role === "user") {
+          expect(bubble.parentElement?.classList.contains("items-end")).toBe(fromUser);
+        }
         expect(style.getPropertyValue(fromUser ? "inset-inline-end" : "inset-inline-start")).toBe(
           "calc(100% + 4px)",
         );
         await act(async () => reply.click());
       }
-      expect(onReply).toHaveBeenCalledTimes(5);
+      expect(onReply).toHaveBeenCalledTimes(6);
       for (const entry of entries) expect(onReply).toHaveBeenCalledWith(entry.message);
-      expect(container.querySelectorAll("h3")).toHaveLength(5);
+      expect(container.querySelectorAll("h3")).toHaveLength(6);
     } finally {
       await act(async () => root.unmount());
       container.remove();

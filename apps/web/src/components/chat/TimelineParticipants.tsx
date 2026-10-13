@@ -139,7 +139,10 @@ export function PinnedTimelineParticipant({
         className="chat-content-lane flex items-start"
         style={{
           transform: `translateY(${pinned.offset}px)`,
-          justifyContent: pinned.group.role === "user" ? "flex-end" : "flex-start",
+          justifyContent:
+            pinned.group.role === "user" && pinned.group.participant.kind !== "agent"
+              ? "flex-end"
+              : "flex-start",
         }}
       >
         <div ref={headerRef} className="chat-pinned-participant-tab">

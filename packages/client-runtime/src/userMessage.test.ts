@@ -1,7 +1,7 @@
 import { ScheduledTaskId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveUserMessagePresentation } from "./userMessage.ts";
+import { isUserMessageRightAligned, resolveUserMessagePresentation } from "./userMessage.ts";
 
 describe("resolveUserMessagePresentation", () => {
   const legacyText = "[Triggered by schedule task: Daily audit]\n\nCheck for crashes.\n";
@@ -88,4 +88,14 @@ describe("resolveUserMessagePresentation", () => {
       });
     }
   });
+});
+
+it("puts main and delivering agents on the left while keeping human input on the right", () => {
+  const human = { role: "user", text: "Hello" };
+  expect(isUserMessageRightAligned(human)).toBe(true);
+  expect(isUserMessageRightAligned({ ...human, role: "assistant" })).toBe(false);
+  expect(
+    isUserMessageRightAligned({ ...human, createdBy: "agent", creationSource: "provider" }),
+  ).toBe(false);
+  expect(isUserMessageRightAligned({ ...human, senderThreadId: "other-thread" })).toBe(false);
 });

@@ -1,3 +1,4 @@
+import { isUserMessageRightAligned } from "@t3tools/client-runtime/user-message";
 import { ParticipantChip } from "./ParticipantChip";
 import { useClientSettings } from "../../hooks/useSettings";
 import { agentInstanceId, resolveHumanParticipant } from "@t3tools/client-runtime/participants";
@@ -49,7 +50,7 @@ export function MessageReplyActions({
   const target = message.context?.replyTo;
   return (
     <div
-      className={`flex min-w-0 items-center gap-1 ${message.role === "user" ? "justify-end" : ""}`}
+      className={`flex min-w-0 items-center gap-1 ${isUserMessageRightAligned(message) ? "justify-end" : ""}`}
     >
       {showChain && target && (
         <Button

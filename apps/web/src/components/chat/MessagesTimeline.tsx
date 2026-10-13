@@ -50,7 +50,10 @@ import {
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { environmentThreadDetails } from "../../state/threads";
-import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import {
+  isUserMessageRightAligned,
+  resolveUserMessagePresentation,
+} from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
@@ -2428,7 +2431,7 @@ function MessageAuthorHeading({
     <h3
       className={
         showChip
-          ? cn("mb-2 flex min-w-0 select-none", message.role === "user" && "justify-end")
+          ? cn("mb-2 flex min-w-0 select-none", isUserMessageRightAligned(message) && "justify-end")
           : "sr-only"
       }
     >
@@ -2442,12 +2445,12 @@ function MessageBubbleReply({ message }: { message: ChatMessage }) {
   if (!ctx.onReplyToMessage) return null;
   return (
     <div
-      data-bubble-reply-side={message.role === "user" ? "left" : "right"}
+      data-bubble-reply-side={isUserMessageRightAligned(message) ? "left" : "right"}
       style={{
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
-        ...(message.role === "user"
+        ...(isUserMessageRightAligned(message)
           ? { insetInlineEnd: "calc(100% + 0.25rem)" }
           : { insetInlineStart: "calc(100% + 0.25rem)" }),
       }}
@@ -2635,7 +2638,12 @@ function UserTimelineRow({
   );
 
   return (
-    <div className="group flex flex-col items-end gap-1">
+    <div
+      className={cn(
+        "group flex flex-col gap-1",
+        isUserMessageRightAligned(row.message) ? "items-end" : "items-start",
+      )}
+    >
       {userMessage.attribution === "automation" ? (
         <p
           className="me-1 text-2xs text-muted-foreground/70"
@@ -2804,7 +2812,12 @@ function UserTimelineRow({
           </span>
         </div>
       ) : null}
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+      <div
+        className={cn(
+          "flex w-full max-w-[80%] items-center pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
+          isUserMessageRightAligned(row.message) ? "justify-end" : "justify-start",
+        )}
+      >
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
