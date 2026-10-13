@@ -5180,6 +5180,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isComposerResting =
     isComposerCollapsedMobile ||
     shouldUseRestingComposerLayout({
+      alwaysCompact: settings.alwaysCompactComposer,
       isExistingThread: routeKind === "server" && activeThreadId !== null,
       isMobileViewport,
       isScrollCollapsed: isComposerScrollCollapsed,

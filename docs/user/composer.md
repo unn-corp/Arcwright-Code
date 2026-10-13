@@ -3,6 +3,10 @@
 Give the agent a task in the composer. Add files, quote a previous response, or
 include a skill when the task needs more context.
 
+In **Settings → Appearance**, enable **Always compact composer** to keep the
+compact input in new and existing chats. It expands for multiline drafts, errors,
+and open drawers, then returns to compact. Turn it off to restore automatic sizing.
+
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
 

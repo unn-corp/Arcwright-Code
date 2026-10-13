@@ -1526,3 +1526,18 @@ describe("server model preferences", () => {
     });
   });
 });
+
+describe("ClientSettings always compact composer", () => {
+  it("preserves automatic layout for existing settings", () => {
+    expect(decodeClientSettings({}).alwaysCompactComposer).toBe(false);
+  });
+  it.each([true, false])("round trips the saved preference: %s", (alwaysCompactComposer) => {
+    expect(decodeClientSettings({ alwaysCompactComposer }).alwaysCompactComposer).toBe(
+      alwaysCompactComposer,
+    );
+    expect(decodeClientSettingsPatch({ alwaysCompactComposer })).toEqual({ alwaysCompactComposer });
+  });
+  it("rejects non-boolean preferences", () => {
+    expect(() => decodeClientSettingsPatch({ alwaysCompactComposer: "yes" })).toThrow();
+  });
+});
