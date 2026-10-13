@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 import { layerMemory as SqlitePersistenceMemory } from "../persistence/Sqlite.ts";
-import { TeamSpaces } from "./TeamSpaces.ts";
+import { TeamSpaces, makeTeamSpaces } from "./TeamSpaces.ts";
 import type { TeamIdentity } from "@t3tools/contracts/teamSpaces";
 
 const identity = (userId: string, verifiedEmails: string[] = []): TeamIdentity => ({
@@ -159,5 +159,39 @@ it.effect("shared snapshots never expose parked cloud runs", () =>
     yield* sql`INSERT INTO team_runs(run_id,space_id,user_id,provider,state,created_at) VALUES('parked',${spaceId},'owner','codex','running',0)`;
     expect((yield* service.snapshot(owner.userId, spaceId)).runs).toEqual([]);
     expect(yield* sql`SELECT run_id FROM team_runs WHERE run_id='parked'`).toHaveLength(1);
+  }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect("only project owners delete a project, and former members learn it was deleted", () =>
+  Effect.gen(function* () {
+    const service = yield* TeamSpaces;
+    const one = yield* create(service, "One");
+    const invitation = yield* invite(service, one.spaceId);
+    yield* service.execute(team, { action: "accept", token: invitation.token! });
+    expect(
+      (yield* Effect.flip(service.execute(team, { action: "deleteProject", spaceId: one.spaceId })))
+        .reason,
+    ).toBe("project_access_denied");
+    const mine = yield* service.execute(team, { action: "create", name: "Mine" });
+    yield* service.execute(team, { action: "deleteProject", spaceId: mine.spaceId });
+    yield* service.execute(owner, { action: "deleteProject", spaceId: one.spaceId });
+    expect(yield* service.list(owner.userId)).toEqual([]);
+    expect(yield* service.list(team.userId)).toEqual([]);
+    expect((yield* Effect.flip(service.snapshot(team.userId, one.spaceId))).reason).toBe(
+      "project_deleted",
+    );
+    expect(
+      (yield* Effect.flip(
+        service.execute(owner, { action: "deleteProject", spaceId: one.spaceId }),
+      )).reason,
+    ).toBe("project_deleted");
+    const sql = yield* SqlClient.SqlClient;
+    expect(
+      yield* sql`SELECT kind FROM team_events WHERE space_id=${one.spaceId} ORDER BY sequence`,
+    ).toEqual([{ kind: "project.created" }, { kind: "project.deleted" }]);
+    const restarted = yield* makeTeamSpaces;
+    expect((yield* Effect.flip(restarted.requireRole(owner.userId, one.spaceId))).reason).toBe(
+      "project_deleted",
+    );
   }).pipe(Effect.provide(testLayer)),
 );

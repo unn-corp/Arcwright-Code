@@ -25,7 +25,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { EnvironmentRegistry } from "../connection/registry.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
-import { createEnvironmentRpcCommand } from "./runtime.ts";
+import { createEnvironmentCommand, createEnvironmentRpcCommand } from "./runtime.ts";
 
 vi.mock("./session.ts", () => ({
   createEnvironmentSessionAtoms: () => ({ sessionStateAtom: sessions }),
@@ -328,3 +328,51 @@ it.effect(
       }),
     ),
 );
+
+it("authorizes protected calls nested in an ordinary command against the live grant", async () => {
+  // thread.create saves the Teams sharing choice through a guarded call first.
+  let writes = 0;
+  const session = {
+    client: {
+      [LOCAL_TEAM_METHODS.control]: () =>
+        Effect.sync(() => {
+          writes++;
+          return { state: null };
+        }),
+    },
+  } as unknown as RpcSession;
+  const command = createEnvironmentCommand(runtime, {
+    label: "test.thread.create",
+    execute: () =>
+      Effect.gen(function* () {
+        const supervisor = {
+          target: { environmentId: env, label: "target" },
+          session: yield* SubscriptionRef.make(Option.some(session)),
+        } as unknown as EnvironmentSupervisor["Service"];
+        return yield* requestGuarded(LOCAL_TEAM_METHODS.control, {
+          action: "intent",
+          commandId: "command",
+          threadId: "thread",
+          projectId: "project",
+          generation: "generation",
+          shared: true,
+        } as never).pipe(Effect.provideService(EnvironmentSupervisor, supervisor));
+      }),
+  });
+  const registry = AtomRegistry.make();
+  const unmount = registry.mount(sessions(env));
+  try {
+    registry.set(sessions(env), AsyncResult.success(grant(true)));
+    expect((await command.run(registry, { environmentId: env, input: undefined }))._tag).toBe(
+      "Success",
+    );
+    registry.set(sessions(env), AsyncResult.success(grant(false)));
+    expect((await command.run(registry, { environmentId: env, input: undefined }))._tag).toBe(
+      "Failure",
+    );
+    expect(writes).toBe(1);
+  } finally {
+    unmount();
+    registry.dispose();
+  }
+});

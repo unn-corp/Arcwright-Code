@@ -23,13 +23,13 @@ const { files, account, access } = vi.hoisted(() => ({
 vi.mock("./useTeamAccess", () => ({ useTeamAccess: () => access }));
 vi.mock("../../state/localTeamAccount", () => ({ localTeamAccountCommand: "account" }));
 vi.mock("../../state/teamProjects", () => ({
-  teamProjects: { files: "files" },
+  teamProjects: { files: "files", state: () => "links" },
   sharedProjectSourceScope: vi.fn(),
 }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: (command: string) => (command === "files" ? files : account),
 }));
-vi.mock("../../state/query", () => ({ useEnvironmentQuery: vi.fn() }));
+vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: [] }) }));
 vi.mock("../../state/environments", () => ({
   useEnvironments: () => ({
     environments: ["preview-environment", "second-environment"].map((environmentId) => ({

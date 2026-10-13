@@ -43,3 +43,17 @@ it.each(["relative/project", "/tmp/project/", "/tmp/../project"])(
     });
   },
 );
+
+it("explains that an existing checkout folder must be empty", async () => {
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "team-destination-"));
+  try {
+    const destination = NodePath.join(root, "project");
+    await NodeFSP.mkdir(NodePath.join(destination, ".git"), { recursive: true });
+    await expect(validateDestination(destination)).rejects.toMatchObject({
+      reason: "destination",
+      message: "The local project folder isn't empty. Choose an empty folder, or create a new one.",
+    });
+  } finally {
+    await NodeFSP.rm(root, { recursive: true, force: true });
+  }
+});

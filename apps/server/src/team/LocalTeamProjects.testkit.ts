@@ -154,6 +154,13 @@ export const makeLocalSource = Effect.gen(function* () {
         case "thread.publication.message":
         case "thread.turn.start":
           return yield* message(command);
+        case "thread.settle":
+        case "thread.unsettle":
+          return yield* orchestrator.dispatch(
+            command.type === "thread.settle"
+              ? { type: "thread.settle", commandId: command.commandId, threadId: command.threadId }
+              : command,
+          );
         case "thread.revert.complete": {
           const now = DateTime.makeUnsafe(command.createdAt);
           yield* eventSink.write({

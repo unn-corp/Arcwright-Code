@@ -192,6 +192,21 @@ const setup = Effect.gen(function* () {
   });
   const transport = TeamProjectTransport.of({
     membership: () => Effect.die("unused"),
+    deleteProject: (_credential, spaceId) =>
+      spaces
+        .execute(viewer ? { ...principal, userId: "viewer" } : principal, {
+          action: "deleteProject",
+          spaceId,
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            localTeamError(
+              error instanceof TeamDenied && error.reason === "project_deleted"
+                ? "deleted"
+                : "access",
+            ),
+          ),
+        ),
     create: () => {
       createCalls++;
       return allowCloudCreate
@@ -338,6 +353,7 @@ const setup = Effect.gen(function* () {
     message,
     secrets,
     remoteSpace,
+    spaces,
     offline: (value: boolean) => {
       offline = value;
     },
@@ -1797,4 +1813,124 @@ it.effect(
         expect((yield* restarted.state)[0]?.publications).toHaveLength(1);
       }),
     ).pipe(Effect.provide(layers)),
+);
+
+it.effect(
+  "deletes a shared project for everyone only as its owner, keeping the local project",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const f = yield* setup;
+        yield* f.service.control({
+          action: "link",
+          projectId: f.projectId,
+          sharedProjectId: f.remoteSpace.spaceId,
+        });
+        f.viewer(true);
+        yield* f.service.flush(f.projectId);
+        expect(
+          yield* f.service
+            .control({ action: "delete-shared", projectId: f.projectId })
+            .pipe(Effect.flip),
+        ).toMatchObject({
+          reason: "access",
+          message: "Only the shared project's owner can delete it for everyone.",
+        });
+        expect((yield* f.spaces.list(principal.userId)).map((space) => space.id)).toContain(
+          f.remoteSpace.spaceId,
+        );
+        f.viewer(false);
+        yield* f.service.flush(f.projectId);
+        expect(
+          yield* f.service.control({ action: "delete-shared", projectId: f.projectId }),
+        ).toEqual({ state: null });
+        expect(yield* f.service.state).toEqual([]);
+        expect(
+          (yield* f.spaces.snapshot(principal.userId, f.remoteSpace.spaceId).pipe(Effect.flip))
+            .reason,
+        ).toBe("project_deleted");
+        expect((yield* f.source.query.getSnapshot()).threads.map((thread) => thread.id)).toEqual([
+          f.threadId,
+        ]);
+      }),
+    ).pipe(Effect.provide(layers)),
+);
+
+it.effect("deletes a published conversation for everyone as its owner and stops syncing it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* setup;
+      yield* f.message("Shared answer", false);
+      yield* f.service.control({
+        action: "link",
+        projectId: f.projectId,
+        sharedProjectId: f.remoteSpace.spaceId,
+      });
+      yield* f.service.control({
+        action: "publish",
+        projectId: f.projectId,
+        threadId: f.threadId,
+      });
+      yield* f.service.flush(f.projectId);
+      const cloud = (yield* f.remote.query.getSnapshot()).threads[0]!;
+      f.viewer(true);
+      expect(
+        yield* f.service
+          .control({ action: "delete-shared-thread", projectId: f.projectId, threadId: f.threadId })
+          .pipe(Effect.flip),
+      ).toMatchObject({ reason: "access" });
+      f.viewer(false);
+      const result = yield* f.service.control({
+        action: "delete-shared-thread",
+        projectId: f.projectId,
+        threadId: f.threadId,
+      });
+      expect(result.state?.publications[0]).toMatchObject({ status: "deleted", paused: true });
+      expect(Option.isNone(yield* f.remote.query.getThreadShellById(cloud.id))).toBe(true);
+      yield* f.message("Later local reply", false);
+      yield* f.service.flush(f.projectId);
+      expect((yield* f.service.state)[0]?.link.status).toBe("synced");
+      expect(
+        (yield* f.source.query.getSnapshot()).threads.find((thread) => thread.id === f.threadId),
+      ).toBeDefined();
+    }),
+  ).pipe(Effect.provide(layers)),
+);
+
+it.effect("reports settling a shared conversation to teammates, and un-settling it again", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* setup;
+      yield* f.message("Done", false);
+      yield* f.service.control({
+        action: "link",
+        projectId: f.projectId,
+        sharedProjectId: f.remoteSpace.spaceId,
+      });
+      yield* f.service.control({ action: "publish", projectId: f.projectId, threadId: f.threadId });
+      yield* f.service.flush(f.projectId);
+      const cloudId = (yield* f.remote.query.getSnapshot()).threads[0]!.id;
+      const settledAt = () =>
+        f.remote.query
+          .getThreadShellById(cloudId)
+          .pipe(Effect.map((shell) => Option.getOrThrow(shell).settledAt));
+      expect(yield* settledAt()).toBeNull();
+      yield* f.source.engine.dispatch({
+        type: "thread.settle",
+        commandId: f.commandId(),
+        threadId: f.threadId,
+      });
+      yield* f.service.flush(f.projectId);
+      expect(yield* settledAt()).not.toBeNull();
+      yield* f.source.engine.dispatch({
+        type: "thread.unsettle",
+        commandId: f.commandId(),
+        threadId: f.threadId,
+        reason: "user",
+      });
+      yield* f.service.flush(f.projectId);
+      expect(yield* settledAt()).toBeNull();
+      expect((yield* f.service.state)[0]?.link.status).toBe("synced");
+    }),
+  ).pipe(Effect.provide(layers)),
 );
