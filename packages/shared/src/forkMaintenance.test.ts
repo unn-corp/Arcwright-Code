@@ -157,6 +157,32 @@ describe("fork version precedence", () => {
 describe("target selection", () => {
   const nightly = release("1.0.1-nightly.20261005.1", { id: 2, commitSeed: "2" });
   const stable = release("1.0.1", { id: 3, commitSeed: "3" });
+  it.each(["0.0.45-preview.20261009.591", "0.0.45-fork.4"])(
+    "offers a verified release to a historical installation (%s)",
+    (installedVersion) => {
+      expect(select({ installedVersion, releases: [nightly] })?.manifest.version).toBe(
+        nightly.manifest!.version,
+      );
+      expect(select({ installedVersion, releases: [nightly], pinnedBuild: sha("1") })).toBeNull();
+      expect(
+        select({
+          installedVersion,
+          releases: [nightly],
+          memory: { failedArtifactSha256: [sha("b")] },
+        }),
+      ).toBeNull();
+      expect(
+        select({ installedVersion, releases: [release("1.0.1", { checks: false })] }),
+      ).toBeNull();
+    },
+  );
+  it("keeps unsupported versions and preview release artifacts outside the release namespace", () => {
+    expect(() => select({ installedVersion: "1.0.1-beta.1", releases: [nightly] })).toThrow(
+      "not a fork release version",
+    );
+    const preview = release("0.0.45-preview.20261009.591");
+    expect(classifyForkRelease(preview, [preview]).eligible).toBe(false);
+  });
   it("never selects a downgrade or the installed version", () => {
     expect(select({ releases: [nightly], installedVersion: "1.0.1" })).toBeNull();
     expect(
@@ -612,7 +638,13 @@ describe("parity with the publisher's eligibility rules", () => {
   });
   it("selects the same candidate for every channel and installed version", () => {
     for (const channel of ["stable", "nightly"] as const) {
-      for (const installedVersion of ["1.0.0", "1.0.1-nightly.20261004.1", "1.0.2"]) {
+      for (const installedVersion of [
+        "0.0.45-preview.20261009.591",
+        "0.0.45-fork.4",
+        "1.0.0",
+        "1.0.1-nightly.20261004.1",
+        "1.0.2",
+      ]) {
         const mine = select({ channel, installedVersion, releases: all })?.manifest.version ?? null;
         const theirs =
           publisherSelect({ channel, installedVersion, releases: all.map(toPublisher) })?.manifest

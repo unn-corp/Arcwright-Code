@@ -116,7 +116,13 @@ const CURRENT: ForkBuildIdentity = {
   artifactSha256: sha("1"),
 };
 
-async function harness(options: { channel?: "stable" | "nightly"; autoInstall?: boolean } = {}) {
+async function harness(
+  options: {
+    channel?: "stable" | "nightly";
+    autoInstall?: boolean;
+    currentBuild?: ForkBuildIdentity;
+  } = {},
+) {
   const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-controller-test-"));
   directories.push(directory);
   const table = new Map<number, string>([
@@ -226,7 +232,7 @@ async function harness(options: { channel?: "stable" | "nightly"; autoInstall?: 
     },
     authorizationRequired: () =>
       behaviour.authorization ? "Installing the Debian package needs your authorization." : null,
-    currentBuild: CURRENT,
+    currentBuild: options.currentBuild ?? CURRENT,
     storageMigrationNeeded: async () => behaviour.storagePending,
     storageOptimizationUnavailable: async () => behaviour.storageUnavailable,
     stage: async (selection) => {
@@ -373,6 +379,25 @@ async function harness(options: { channel?: "stable" | "nightly"; autoInstall?: 
 }
 
 describe("fork maintenance controller", () => {
+  it("checks and stages from a historical preview while active agents still block installation", async () => {
+    const h = await harness({
+      autoInstall: true,
+      currentBuild: { ...CURRENT, version: "0.0.45-preview.20261009.591", channel: "nightly" },
+    });
+    await h.idleRuntimes([
+      { participantId: "chat", reason: "active-agents", label: "Chat is running" },
+    ]);
+    const checked = await h.controller.check();
+    expect(checked.lastError).toBeNull();
+    expect(checked.targetBuild?.version).toBe("1.0.1");
+    const staged = await h.controller.stage();
+    expect(staged.phase).toBe("waiting");
+    expect(h.events).toContain("stage");
+    expect(staged.installable).toBe(false);
+    expect(staged.blockers).toContainEqual(expect.objectContaining({ reason: "active-agents" }));
+    expect((await h.controller.tick()).countdown).toBeNull();
+    expect(h.events).not.toContain("startTrial");
+  });
   it("automatically shrinks an older database once idle, even with binary updates disabled and a version pin", async () => {
     const h = await harness();
     const record = releaseRecord("1.0.0", { id: 1, digest: sha("1") });

@@ -614,6 +614,9 @@ installer ordering and fork release availability. Maintain provenance when integ
 and retain immutable historical installer identities. See
 [version provenance and history](./fork-releases.md#version-provenance-and-history) for build
 ownership, label tests, and release-title cleanup rules.
+Target selection recognizes historical `0.0.x-preview` and `0.0.x-fork` installed identities
+without admitting their artifacts into the release feed. This compatibility does not bypass
+coordinator bootstrap, activity admission, or recovery requirements.
 
 **Implementation and commissioning.** Coordinator services, multi-home transactions, desktop
 and Android controllers, shared UI controls, native recovery, external recovery helpers, and fork

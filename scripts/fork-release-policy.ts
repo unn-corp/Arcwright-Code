@@ -339,13 +339,19 @@ export const selectUpdateCandidate = (input: {
   readonly installedVersion: string;
   readonly releases: ReadonlyArray<ReleaseRecord>;
 }): ReleaseRecord | null => {
+  // Match device-side selection without admitting historical preview artifacts
+  // into the published release namespace.
+  const installedVersion =
+    /^(0\.0\.(?:0|[1-9]\d*))-(?:preview\.\d{8}\.[1-9]\d*|fork\.[1-9]\d*)$/.exec(
+      input.installedVersion,
+    )?.[1] ?? input.installedVersion;
   let best: ReleaseRecord | null = null;
   for (const record of eligibleReleases(input.releases)) {
     const manifest = record.manifest!;
     // Stable devices ignore nightlies. Nightly devices follow nightlies but take a stable
     // release once it outranks them, which semver precedence already expresses.
     if (input.channel === "stable" && manifest.channel !== "stable") continue;
-    if (compareForkVersions(manifest.version, input.installedVersion) <= 0) continue;
+    if (compareForkVersions(manifest.version, installedVersion) <= 0) continue;
     if (!best || compareForkVersions(manifest.version, best.manifest!.version) > 0) best = record;
   }
   return best;
