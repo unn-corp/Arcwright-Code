@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { isBoundedDpopProof } from "../http/publicRelayInputBounds.ts";
 import { lt } from "drizzle-orm";
 
 import { DpopVerificationFailureCode, verifyDpopProof } from "@t3tools/shared/dpop";
@@ -104,6 +105,8 @@ const make = Effect.gen(function* () {
       "relay.dpop.expected_thumbprint_present": input.expectedThumbprint !== undefined,
       "relay.dpop.expected_access_token_present": input.expectedAccessToken !== undefined,
     });
+    if (input.proof !== undefined && !isBoundedDpopProof(input.proof))
+      return yield* new DpopProofRejected({ code: "malformed_proof" });
     const result = verifyDpopProof({
       proof: input.proof,
       method: input.method,

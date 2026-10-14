@@ -1170,6 +1170,65 @@ describe("releaseManagedTunnelOnShutdown", () => {
   });
 
   it.effect(
+    "actual applyRelayConfig waits at leastRetryAfter before retrying recovery registration429",
+    () => {
+      const { store } = makeMemorySecretStore();
+      const applyConfigCalls: Array<unknown> = [];
+      const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+      return Effect.gen(function* () {
+        const first = yield* Deferred.make<void>();
+        return yield* Effect.gen(function* () {
+          const link = yield* CloudLink.CloudLink;
+          const keys = NodeCrypto.generateKeyPairSync("ed25519", {
+            publicKeyEncoding: { format: "pem", type: "spki" },
+            privateKeyEncoding: { format: "pem", type: "pkcs8" },
+          });
+          const fiber = yield* link
+            .applyRelayConfig({
+              relayUrl: "https://relay.example.test",
+              relayIssuer: "https://relay.example.test",
+              cloudUserId: "user-123",
+              environmentCredential: "synthetic-environment-credential",
+              cloudMintPublicKey: keys.publicKey,
+              endpointRuntime: {
+                providerKind: "cloudflare_tunnel",
+                tunnelId: "synthetic-tunnel",
+                connectorToken: "synthetic-connector",
+              },
+            })
+            .pipe(Effect.forkChild);
+          // HttpClient responds through a barrier only after the actual caller issues its first request.
+          yield* Deferred.await(first);
+          yield* TestClock.adjust("59 seconds");
+          expect(requests).toHaveLength(1);
+          yield* TestClock.adjust("1 second");
+          expect((yield* Fiber.join(fiber)).ok).toBe(true);
+          expect(requests).toHaveLength(2);
+        }).pipe(
+          provideReleaseHarness({
+            store,
+            applyConfigCalls,
+            requests,
+            onRequest: () => Deferred.succeed(first, undefined),
+            respond: () =>
+              requests.length === 1
+                ? Response.json(
+                    {
+                      _tag: "RelayRateLimitExceededError",
+                      code: "relay_rate_limited",
+                      retryAfterSeconds: 60,
+                      traceId: "synthetic-rate-trace",
+                    },
+                    { status: 429, headers: { "retry-after": "60" } },
+                  )
+                : Response.json({ status: "ready" }),
+          }),
+        );
+      });
+    },
+  );
+
+  it.effect(
     "installs an owned fresh link with an OAuth authority stamp and refuses another realm on the same relay",
     () => {
       const { store, values } = makeMemorySecretStore();

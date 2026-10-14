@@ -36,6 +36,27 @@ export function environmentMismatchError(input: {
 
 function relayProtectedError(error: RelayProtectedError): ConnectionAttemptError {
   switch (error._tag) {
+    case "RelayRateLimitExceededError":
+      return new ConnectionTransientError({
+        reason: "relay-unavailable",
+        detail: relayProtectedErrorMessage(error),
+        traceId: error.traceId,
+        retryAfterSeconds: error.retryAfterSeconds,
+      });
+    case "RelayServiceUnavailableError":
+      return new ConnectionTransientError({
+        reason: "relay-unavailable",
+        detail: relayProtectedErrorMessage(error),
+        traceId: error.traceId,
+      });
+    case "RelayRequestInvalidError":
+    case "RelayRequestTooLargeError":
+    case "RelayRequestHeadersTooLargeError":
+      return new ConnectionBlockedError({
+        reason: "configuration",
+        detail: relayProtectedErrorMessage(error),
+        traceId: error.traceId,
+      });
     case "RelayAuthInvalidError":
     case "RelayEnvironmentLinkProofExpiredError":
     case "RelayAgentActivityPublishProofExpiredError":

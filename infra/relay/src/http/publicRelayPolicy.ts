@@ -1,0 +1,176 @@
+import * as FindMyWay from "effect/http/FindMyWay";
+
+/** Public HTTP admission policy. Hook namespaces 1001/1002 are independent. */
+export const publicRelayBuckets = {
+  provision: { namespaceId: 1101, limit: 30, period: 60 },
+  challenge: { namespaceId: 1102, limit: 120, period: 60 },
+  connect: { namespaceId: 1102, limit: 120, period: 60 },
+  status: { namespaceId: 1103, limit: 240, period: 60 },
+  registration: { namespaceId: 1104, limit: 60, period: 60 },
+  "push-test": { namespaceId: 1105, limit: 10, period: 60 },
+  activity: { namespaceId: 1103, limit: 240, period: 60 },
+  "anonymous-registration": { namespaceId: 1104, limit: 60, period: 60 },
+  // The edge-only config route has this proposed ceiling, but its mandatory ingress gate is120/IP+class.
+  "anonymous-config": { namespaceId: 1103, limit: 240, period: 60 },
+  health: { namespaceId: 1106, limit: 120, period: 60 },
+} as const;
+
+export type PublicRelayClass = keyof typeof publicRelayBuckets;
+export const publicRelayOperations = {
+  linkEnvironment: ["POST", "/v1/client/environment-links", "provision"],
+  recoverManagedEndpoint: ["POST", "/v1/environments/:environmentId/tunnel", "provision"],
+  registerManagedEndpointRecovery: [
+    "POST",
+    "/v1/environments/:environmentId/tunnel/recovery",
+    "provision",
+  ],
+  unlinkEnvironment: ["DELETE", "/v1/client/environment-links/:environmentId", "provision"],
+  releaseEnvironmentTunnel: [
+    "DELETE",
+    "/v1/client/environment-links/:environmentId/tunnel",
+    "provision",
+  ],
+  createEnvironmentLinkChallenge: ["POST", "/v1/client/environment-link-challenges", "challenge"],
+  exchangeDpopAccessToken: ["POST", "/v1/client/dpop-token", "challenge"],
+  connectEnvironment: ["POST", "/v1/environments/:environmentId/connect", "connect"],
+  getEnvironmentStatus: ["POST", "/v1/environments/:environmentId/status", "status"],
+  listEnvironments: ["GET", "/v1/environments", "status"],
+  listDevices: ["GET", "/v1/client/devices", "status"],
+  listDevicesV2: ["GET", "/v2/client/devices", "status"],
+  getAgentActivitySnapshot: ["GET", "/v1/mobile/agent-activity", "status"],
+  getWebPushConfig: ["GET", "/v1/client/web-push/config", "status"],
+  registerDevice: ["POST", "/v1/mobile/devices", "registration"],
+  registerLiveActivity: ["POST", "/v1/mobile/live-activities", "registration"],
+  unregisterDevice: ["DELETE", "/v1/mobile/devices/:deviceId", "registration"],
+  registerWebPushSubscription: ["PUT", "/v1/client/web-push/subscriptions", "registration"],
+  unregisterWebPushSubscription: [
+    "DELETE",
+    "/v1/client/web-push/subscriptions/:subscriptionId",
+    "registration",
+  ],
+  updateLinkPreferences: [
+    "POST",
+    "/v1/environments/:environmentId/link-preferences",
+    "registration",
+  ],
+  wakeHeldHooks: ["POST", "/v1/environments/:environmentId/hooks/wake", "registration"],
+  testWebPushSubscription: [
+    "POST",
+    "/v1/client/web-push/subscriptions/:subscriptionId/test",
+    "push-test",
+  ],
+  testPwaWebPushSubscription: [
+    "POST",
+    "/v1/pwa/web-push/subscriptions/:subscriptionId/test",
+    "push-test",
+  ],
+  publishAgentActivity: [
+    "POST",
+    "/v1/environments/:environmentId/threads/:threadId/agent-activity",
+    "activity",
+  ],
+  publishPwaAgentActivity: [
+    "POST",
+    "/v1/pwa/environments/:environmentId/threads/:threadId/agent-activity",
+    "activity",
+  ],
+  registerPwaWebPushSubscription: [
+    "PUT",
+    "/v1/pwa/web-push/subscriptions",
+    "anonymous-registration",
+  ],
+  removePwaWebPushSubscription: [
+    "POST",
+    "/v1/pwa/web-push/subscriptions/:subscriptionId/remove",
+    "anonymous-registration",
+  ],
+  getPwaWebPushConfig: ["GET", "/v1/pwa/web-push/config", "anonymous-config"],
+  health: ["GET", "/health", "health"],
+} as const satisfies Record<string, readonly [string, string, PublicRelayClass]>;
+export type PublicRelayOperation = keyof typeof publicRelayOperations;
+
+export const publicRelayBounds = {
+  bodyBytes: 65_536,
+  urlCharacters: 8_192,
+  headersBytes: 32_768,
+  authorizationBytes: 16_384,
+  dpopBytes: 8_192,
+  headerBytes: 8_192,
+  contentTypeBytes: 256,
+  contentLengthBytes: 128,
+  traceparentBytes: 128,
+} as const;
+
+const headerEncoder = new TextEncoder();
+export function publicRelayHeaderFailure(headers: Readonly<Record<string, string>>): boolean {
+  let total = 0;
+  for (const [name, value] of Object.entries(headers)) {
+    const bytes = headerEncoder.encode(value).byteLength;
+    const max =
+      name === "authorization"
+        ? publicRelayBounds.authorizationBytes
+        : name === "dpop"
+          ? publicRelayBounds.dpopBytes
+          : name === "content-type"
+            ? publicRelayBounds.contentTypeBytes
+            : name === "content-length"
+              ? publicRelayBounds.contentLengthBytes
+              : name === "traceparent"
+                ? publicRelayBounds.traceparentBytes
+                : publicRelayBounds.headerBytes;
+    total += headerEncoder.encode(name).byteLength + bytes;
+    if (bytes > max || total > publicRelayBounds.headersBytes) return true;
+  }
+  return false;
+}
+
+type PolicyRoute =
+  | { readonly operation: PublicRelayOperation; readonly kind: PublicRelayClass }
+  | { readonly kind: "hook" };
+const routeClassifier = FindMyWay.make<PolicyRoute | undefined>({ maxParamLength: 512 });
+for (const [operation, [method, template, kind]] of Object.entries(publicRelayOperations))
+  routeClassifier.on(method, template, { operation: operation as PublicRelayOperation, kind });
+for (const method of ["POST", "PUT", "PATCH", "GET"])
+  routeClassifier.on(method, "/v1/hooks/:endpointKey/:hookId/:token", { kind: "hook" });
+// Match the production catch-all, including its effect on HEAD -> GET fallback.
+routeClassifier.all("/*", undefined);
+export function classifyPublicRelayRoute(
+  method: string,
+  url: string,
+): Exclude<PolicyRoute, { readonly kind: "hook" }> | undefined {
+  const result =
+    routeClassifier.find(method, url) ??
+    (method === "HEAD" ? routeClassifier.find("GET", url) : undefined);
+  return result?.handler?.kind === "hook" ? undefined : result?.handler;
+}
+
+export function isRelayHookRequest(method: string, url: string): boolean {
+  return (
+    url.length <= publicRelayBounds.urlCharacters &&
+    routeClassifier.find(method, url)?.handler?.kind === "hook"
+  );
+}
+
+export function relayHookTraceUrl(method: string, url: string): string {
+  const hook =
+    url.length <= publicRelayBounds.urlCharacters ? routeClassifier.find(method, url) : undefined;
+  if (hook?.handler?.kind !== "hook") return "/v1/hooks/redacted";
+  return `/v1/hooks/${encodeURIComponent(hook.params.endpointKey ?? "redacted")}/${encodeURIComponent(hook.params.hookId ?? "redacted")}/redacted`;
+}
+
+/** Only a single canonical address supplied by the fetch adapter is trusted. */
+export function canonicalEdgeIp(value: string | null): string | undefined {
+  if (!value || value.length > 64 || /[\s,%\[\]]/.test(value)) return undefined;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(value)) {
+    const octets = value.split(".");
+    if (octets.some((part) => part.length > 3 || Number(part) > 255)) return undefined;
+    return octets.map(Number).join(".");
+  }
+  if (!value.includes(":") || !/^[0-9a-fA-F:.]+$/.test(value)) return undefined;
+  try {
+    const hostname = new URL(`http://[${value}]/`).hostname;
+    return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : undefined;
+  } catch {
+    return undefined;
+  }
+}

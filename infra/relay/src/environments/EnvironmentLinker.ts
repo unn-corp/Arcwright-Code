@@ -1,3 +1,4 @@
+import { inspectBoundedJwt, assertPublicSpki } from "../http/publicRelayInputBounds.ts";
 import {
   RelayEnvironmentLinkProofPayload,
   RelayEnvironmentLinkProofInvalidReason,
@@ -147,7 +148,10 @@ const make = Effect.gen(function* () {
       const now = yield* DateTime.now;
       const nowSeconds = Math.floor(now.epochMilliseconds / 1_000);
       const unverified = yield* Effect.try({
-        try: () => decodeRelayJwt(input.request.proof),
+        try: () => {
+          inspectBoundedJwt(input.request.proof);
+          return decodeRelayJwt(input.request.proof);
+        },
         catch: (cause) =>
           new EnvironmentLinkProofInvalid({
             userId: input.userId,
@@ -184,14 +188,27 @@ const make = Effect.gen(function* () {
       }
       const issuer = `t3-env:${candidate.environmentId}`;
       const relayIssuer = normalizeRelayIssuer(config.relayIssuer);
-      const verified = yield* verifyRelayJwt({
-        publicKey: candidate.environmentPublicKey,
-        token: input.request.proof,
-        typ: RELAY_LINK_PROOF_TYP,
-        issuer,
-        audience: relayIssuer,
-        nowEpochSeconds: nowSeconds,
+      const verified = yield* Effect.try({
+        try: () => assertPublicSpki(candidate.environmentPublicKey),
+        catch: (cause) =>
+          new EnvironmentLinkProofInvalid({
+            userId: input.userId,
+            environmentId: candidate.environmentId,
+            reason: "invalid_signature_or_scope",
+            stage: "verify_proof",
+            cause,
+          }),
       }).pipe(
+        Effect.andThen(
+          verifyRelayJwt({
+            publicKey: candidate.environmentPublicKey,
+            token: input.request.proof,
+            typ: RELAY_LINK_PROOF_TYP,
+            issuer,
+            audience: relayIssuer,
+            nowEpochSeconds: nowSeconds,
+          }),
+        ),
         Effect.flatMap(decodeProof),
         Effect.mapError(
           (cause) =>

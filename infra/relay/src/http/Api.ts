@@ -20,6 +20,17 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as HttpTraceContext from "effect/http/HttpTraceContext";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as HttpApiError from "effect/http-api/HttpApiError";
+import * as HttpApiScalar from "effect/http-api/HttpApiScalar";
+import * as Etag from "effect/http/Etag";
+import * as HttpPlatform from "effect/http/HttpPlatform";
+import * as PublicRelayRateLimits from "./PublicRelayRateLimits.ts";
+import { inspectBoundedJwt, assertPublicSpki } from "./publicRelayInputBounds.ts";
+import {
+  publicRelayBounds,
+  publicRelayHeaderFailure,
+  isRelayHookRequest,
+  relayHookTraceUrl,
+} from "./publicRelayPolicy.ts";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
 import * as HttpObservability from "@t3tools/shared/httpObservability";
 
@@ -52,6 +63,8 @@ import {
   RelayManagedEndpointRecoveryProofPayload,
   type RelayDpopAccessTokenScope,
   RelayInternalError,
+  RelayRateLimitExceededError,
+  RelayServiceUnavailableError,
 } from "@t3tools/contracts/relay";
 import {
   normalizeRelayIssuer,
@@ -89,7 +102,7 @@ import {
 import { withSpanAttributes } from "../observability.ts";
 
 export { verifyRelayClientBearerToken } from "../auth/ClerkClientAuth.ts";
-import { isRelayHookPath, redactRelayHookUrl } from "../hooks/HookForwarder.ts";
+import { isRelayHookPath } from "../hooks/HookForwarder.ts";
 import * as RelayDb from "../db.ts";
 
 // Delegated thread IDs carry escaped command provenance and exceed the router's
@@ -134,31 +147,46 @@ const appendRelayTraceContextResponseHeader = Effect.gen(function* () {
   );
 }).pipe(Effect.ignore);
 
-const relayCorsMiddleware = HttpMiddleware.cors({
-  allowedMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-  allowedHeaders: ["authorization", "b3", "traceparent", "content-type", "dpop"],
-  exposedHeaders: ["traceparent", "www-authenticate"],
-  maxAge: 86_400,
+/** Hook-aware outer CORS; pre-response headers also cover deadlines and early errors. */
+export const relayCors = Effect.fnUntraced(function* <E, R>(
+  httpEffect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  if (isRelayHookPath(request.url) || isRelayHookRequest(request.method, request.url))
+    return yield* httpEffect;
+  yield* appendRelayCredentialResponseHeaders;
+  yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+    Effect.succeed(
+      HttpServerResponse.setHeaders(response, {
+        "access-control-allow-origin": "*",
+        "access-control-expose-headers": "traceparent,www-authenticate,retry-after",
+        ...(response.status === 429 ? { "retry-after": "60" } : {}),
+        ...(request.method === "OPTIONS"
+          ? {
+              "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+              "access-control-allow-headers": "authorization,b3,traceparent,content-type,dpop",
+              "access-control-max-age": "86400",
+            }
+          : {}),
+      }),
+    ),
+  );
+  return yield* httpEffect;
 });
 
-// The CORS headers come from a pre-response handler, so they reach every response
-// the request sends: handler failures and defects, and the deadline 504 that
-// `traceRelayHttpRequest` produces outside the router.
+// Compatibility for existing route fixtures. Production uses the callable outer wrapper.
 export const layerCors = HttpRouter.middleware(
-  Effect.fnUntraced(function* <E, R>(
-    httpEffect: Effect.Effect<
-      HttpServerResponse.HttpServerResponse,
-      E,
-      HttpServerRequest.HttpServerRequest | R
-    >,
-  ) {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    // Public webhook forwarding is server-to-server: no preflight, no CORS grants.
-    if (isRelayHookPath(request.url)) {
-      return yield* httpEffect;
-    }
-    return yield* relayCorsMiddleware(httpEffect);
-  }),
+  <E, R>(httpEffect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
+    relayCors(
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        return request.method === "OPTIONS" &&
+          !isRelayHookPath(request.url) &&
+          !isRelayHookRequest(request.method, request.url)
+          ? HttpServerResponse.empty({ status: 204 })
+          : yield* httpEffect;
+      }),
+    ),
   { global: true },
 );
 
@@ -234,11 +262,36 @@ export const traceRelayHttpRequest = <E, R>(
 ) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const traced = appendRelayTraceContextResponseHeader.pipe(
-      Effect.andThen(relayRequestDeadline(httpEffect)),
-    );
-    if (!isRelayHookPath(request.url)) {
-      return yield* HttpMiddleware.tracer(traced).pipe(
+    const oversized =
+      request.url.length > publicRelayBounds.urlCharacters ||
+      request.originalUrl.length > publicRelayBounds.urlCharacters ||
+      publicRelayHeaderFailure(request.headers);
+    const traceHeaders = oversized
+      ? Headers.fromInput({ host: "relay.invalid" })
+      : Headers.removeMany(
+          request.headers,
+          Object.keys(request.headers).filter((name) =>
+            /^(cf-connecting-ip|cf-connecting-ipv6|cf-pseudo-ipv4|x-forwarded-for|x-real-ip|forwarded|true-client-ip|x-client-ip)$/i.test(
+              name,
+            ),
+          ),
+        );
+    const safeTraceRequest = request.modify({
+      ...(oversized ? { url: "/__relay_rejected_request__" } : {}),
+      headers: traceHeaders,
+      remoteAddress: Option.none(),
+    });
+    if (!isRelayHookPath(request.url) && !isRelayHookRequest(request.method, request.url)) {
+      return yield* HttpMiddleware.tracer(
+        appendRelayTraceContextResponseHeader.pipe(
+          Effect.andThen(
+            relayRequestDeadline(
+              httpEffect.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request)),
+            ),
+          ),
+        ),
+      ).pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, safeTraceRequest),
         // The worker turns its own request span off; this one is ours.
         Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => false),
         // HttpMiddleware finalizes its span on the dispatcher; do not close a request-scoped exporter first.
@@ -249,10 +302,12 @@ export const traceRelayHttpRequest = <E, R>(
     // request, while the route itself still receives the original. A webhook
     // sender's trace context is dropped, so it cannot pick the trace our relay
     // and environment spans land in.
-    const redacted = request.modify({
-      url: redactRelayHookUrl(request.url),
+    const redacted = safeTraceRequest.modify({
+      url: oversized
+        ? "/__relay_rejected_request__"
+        : relayHookTraceUrl(request.method, request.url),
       headers: Headers.removeMany(
-        request.headers,
+        traceHeaders,
         Object.keys(request.headers).filter((name) => SENDER_TRACE_HEADER.test(name)),
       ),
     });
@@ -560,6 +615,13 @@ export const verifyEnvironmentTunnelRecoveryProof = Effect.fn(
 )(function* (input: EnvironmentTunnelRecoveryProofInput) {
   const config = yield* RelayConfiguration.RelayConfiguration;
   const now = yield* DateTime.now;
+  yield* Effect.try({
+    try: () => {
+      inspectBoundedJwt(input.proof);
+      assertPublicSpki(input.environmentPublicKey);
+    },
+    catch: () => new HttpApiError.Unauthorized({}),
+  });
   const verified = yield* verifyRelayJwt({
     publicKey: input.environmentPublicKey,
     token: input.proof,
@@ -1569,11 +1631,21 @@ const isRelayCommonPersistenceError = Schema.is(RelayCommonPersistenceError);
 type MapRelayCommonApiError<E> =
   | Exclude<
       E,
-      HttpApiError.Unauthorized | DpopProofs.DpopProofRejected | RelayCommonPersistenceError
+      | HttpApiError.Unauthorized
+      | DpopProofs.DpopProofRejected
+      | RelayCommonPersistenceError
+      | PublicRelayRateLimits.PublicRelayRateLimited
+      | PublicRelayRateLimits.PublicRelayLimiterUnavailable
     >
   | (Extract<E, HttpApiError.Unauthorized> extends never ? never : RelayAuthInvalidError)
   | (Extract<E, DpopProofs.DpopProofRejected> extends never ? never : RelayAuthInvalidError)
-  | (Extract<E, RelayCommonPersistenceError> extends never ? never : RelayInternalError);
+  | (Extract<E, RelayCommonPersistenceError> extends never ? never : RelayInternalError)
+  | (Extract<E, PublicRelayRateLimits.PublicRelayRateLimited> extends never
+      ? never
+      : RelayRateLimitExceededError)
+  | (Extract<E, PublicRelayRateLimits.PublicRelayLimiterUnavailable> extends never
+      ? never
+      : RelayServiceUnavailableError);
 
 export function relayDpopFailureReason(
   code: DpopProofs.DpopProofFailureCode,
@@ -1606,9 +1678,29 @@ function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
   );
 }
 
-function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
+export function relayPublicLimitError(
+  error:
+    | PublicRelayRateLimits.PublicRelayRateLimited
+    | PublicRelayRateLimits.PublicRelayLimiterUnavailable,
+  traceId: string,
+) {
+  return error._tag === "PublicRelayRateLimited"
+    ? new RelayRateLimitExceededError({
+        code: "relay_rate_limited",
+        retryAfterSeconds: 60,
+        traceId,
+      })
+    : new RelayServiceUnavailableError({ code: "relay_unavailable", reason: "internal", traceId });
+}
+
+export function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
   const mapError = Effect.fnUntraced(function* <E>(error: E) {
     const traceId = yield* currentTraceId;
+    if (
+      Schema.is(PublicRelayRateLimits.PublicRelayRateLimited)(error) ||
+      Schema.is(PublicRelayRateLimits.PublicRelayLimiterUnavailable)(error)
+    )
+      return yield* Effect.fail(relayPublicLimitError(error, traceId) as MapRelayCommonApiError<E>);
     if (isDpopProofRejected(error)) {
       yield* Effect.annotateCurrentSpan({
         "relay.dpop.failure_code": error.code,
@@ -1804,3 +1896,30 @@ const relayAuthInvalidError = Effect.fnUntraced(function* (reason: RelayAuthInva
   });
   return yield* new RelayAuthInvalidError({ code: "auth_invalid", reason, traceId });
 });
+
+const layerRelayHttpPlatform = Layer.succeed(HttpPlatform.HttpPlatform, {
+  platform: "web",
+  compression: {
+    algorithms: new Set<HttpPlatform.CompressionAlgorithm>(),
+    compressResponse: (response) => Effect.succeed(response),
+  },
+  fileResponse: () => Effect.die("Relay API does not serve filesystem responses"),
+  fileWebResponse: () => Effect.die("Relay API does not serve file responses"),
+});
+
+/** Production and offline fixtures use the same router, docs, catch-all, and configuration. */
+export const assembleRelayHttpRoutes = <A, E, R>(layerApp: Layer.Layer<A, E, R>) =>
+  Layer.merge(
+    Layer.mergeAll(
+      HttpApiBuilder.layer(RelayApi, { openapiPath: "/openapi.json" }).pipe(
+        Layer.provide(layerApp),
+      ),
+      HttpApiScalar.layer(RelayApi, { path: "/docs" }),
+      layerDocsRedirectRoute,
+    ).pipe(Layer.provide([Etag.layerWeak, layerRelayHttpPlatform])),
+    layerNotFoundRoute,
+  ).pipe(
+    HttpRouter.toHttpEffect,
+    Effect.provideService(HttpRouter.RouterConfig, RELAY_HTTP_ROUTER_CONFIG),
+    withoutCapturedParentSpan,
+  );

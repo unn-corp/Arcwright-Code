@@ -147,3 +147,27 @@ it.effect("leaves successful response bodies available to their decoder", () =>
     expect(yield* result.json).toEqual({ ok: true });
   }),
 );
+
+it.effect("recognized429 carries a boundedRetryAfter with no authorization-reset advice", () =>
+  Effect.gen(function* () {
+    const error = yield* Effect.flip(
+      filterRelayResponse(
+        response(
+          429,
+          {
+            _tag: "RelayRateLimitExceededError",
+            code: "relay_rate_limited",
+            retryAfterSeconds: 60,
+            traceId: "synthetic-rate-trace",
+          },
+          { "retry-after": "120" },
+        ),
+      ),
+    );
+    expect(error).toMatchObject({ rejection: "unavailable", retryAfterSeconds: 120 });
+    expect(shouldRetryRelayRequest(error)).toBe(true);
+    expect(error.message).toContain("Try again in 60 seconds");
+    expect(error.message).not.toMatch(/login|logout|relink/);
+    expect(error.message).toContain("synthetic-rate-trace");
+  }),
+);

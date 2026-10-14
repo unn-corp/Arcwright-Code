@@ -206,11 +206,13 @@ describe("relay client authentication", () => {
         aud: relaySettings.clerkJwtAudience,
       } as never);
 
-      expect(yield* verifyRelayClientBearerToken(relaySettings, "session-token")).toEqual({
+      expect(
+        yield* verifyRelayClientBearerToken(relaySettings, "eyJ0eXAiOiJKV1QifQ.e30.c2lnbmF0dXJl"),
+      ).toEqual({
         sub: "user_session",
         mode: "clerk_session_bearer",
       });
-      expect(verifyToken).toHaveBeenCalledWith("session-token", {
+      expect(verifyToken).toHaveBeenCalledWith("eyJ0eXAiOiJKV1QifQ.e30.c2lnbmF0dXJl", {
         secretKey: "clerk-secret-key",
         audience: relaySettings.clerkJwtAudience,
       });
@@ -1266,11 +1268,11 @@ describe("relay CORS", () => {
       expect(response.status).toBe(204);
       expect(
         response.headers["access-control-allow-methods"]?.split(",").map((method) => method.trim()),
-      ).toEqual(["GET", "POST", "DELETE", "OPTIONS"]);
+      ).toEqual(["GET", "POST", "PUT", "DELETE", "OPTIONS"]);
       expect(response.headers).toMatchObject({
         "access-control-allow-origin": "*",
         "access-control-allow-headers": "authorization,b3,traceparent,content-type,dpop",
-        "access-control-expose-headers": "traceparent,www-authenticate",
+        "access-control-expose-headers": "traceparent,www-authenticate,retry-after",
         "access-control-max-age": "86400",
       });
     }).pipe(Effect.scoped),
@@ -1295,7 +1297,7 @@ describe("relay CORS", () => {
         expect(response.status).toBe(500);
         expect(response.headers["access-control-allow-origin"]).toBe("*");
         expect(response.headers["access-control-expose-headers"]).toBe(
-          "traceparent,www-authenticate",
+          "traceparent,www-authenticate,retry-after",
         );
       }
     }).pipe(Effect.scoped),
@@ -1320,7 +1322,7 @@ describe("relay CORS", () => {
       expect(response.status).toBe(504);
       expect(response.headers["access-control-allow-origin"]).toBe("*");
       expect(response.headers["access-control-expose-headers"]).toBe(
-        "traceparent,www-authenticate",
+        "traceparent,www-authenticate,retry-after",
       );
     }).pipe(Effect.scoped),
   );

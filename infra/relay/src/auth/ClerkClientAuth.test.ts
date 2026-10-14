@@ -376,3 +376,49 @@ describe("owned Clerk bearer policy", () => {
     }),
   );
 });
+
+it.effect.each([
+  { name: "outer", token: "x".repeat(16385) },
+  {
+    name: "header",
+    token: `${Buffer.from(JSON.stringify({ typ: "JWT", padding: "x".repeat(2048) })).toString("base64url")}.e30.c2ln`,
+  },
+  {
+    name: "depth",
+    token: `${Buffer.from('{"typ":"JWT"}').toString("base64url")}.${Buffer.from("[".repeat(33) + "0" + "]".repeat(33)).toString("base64url")}.c2ln`,
+  },
+  {
+    name: "keys",
+    token: `${Buffer.from('{"typ":"JWT"}').toString("base64url")}.${Buffer.from(JSON.stringify(Object.fromEntries(Array.from({ length: 129 }, (_, i) => [String(i), 0])))).toString("base64url")}.c2ln`,
+  },
+  {
+    name: "audience",
+    token: `${Buffer.from('{"typ":"JWT"}').toString("base64url")}.${Buffer.from(JSON.stringify({ aud: Array.from({ length: 17 }, () => "relay") })).toString("base64url")}.c2ln`,
+  },
+])("actual Clerk entry rejects bounded $name violations before SDK", ({ token }) =>
+  Effect.gen(function* () {
+    const error = yield* Effect.flip(verifyRelayClientBearerToken(ownedSettings, token));
+    expect(error._tag).toBe("ClerkTokenVerificationFailed");
+    expect(verifyToken).not.toHaveBeenCalled();
+    expect(createClerkClient).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  }),
+);
+
+it.effect("ordinary Clerk JWT header extensions do not inherit the DPoP public-key policy", () =>
+  Effect.gen(function* () {
+    vi.mocked(verifyToken).mockResolvedValue(sessionClaims as never);
+    const token = jwt({
+      typ: "JWT",
+      alg: "RS256",
+      jwk: { kty: "RSA", n: "bounded-public-modulus", e: "AQAB" },
+      harmless_extension: { enabled: true },
+    });
+    expect(yield* verifyRelayClientBearerToken(ownedSettings, token)).toMatchObject({
+      sub: sessionClaims.sub,
+      mode: "clerk_session_bearer",
+    });
+    expect(verifyToken).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  }),
+);

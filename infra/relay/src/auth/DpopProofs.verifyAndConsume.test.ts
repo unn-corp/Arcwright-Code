@@ -255,3 +255,50 @@ describe("DpopProofReplay.verifyAndConsume", () => {
     }).pipe(Effect.provide(layer(consumeEachProofOnce())));
   });
 });
+
+it.effect(
+  "actual DPoP precheck rejects oversizedjti and private/oversizedJWK without replay insertion",
+  () => {
+    let inserts = 0;
+    const now = DateTime.makeUnsafe("2026-05-25T12:00:00.000Z");
+    const original = makeDpopProof({
+      method: "POST",
+      url: "https://relay.example.test/v1/environments/env/connect",
+      jti: "x".repeat(256),
+      iat: Math.floor(now.epochMilliseconds / 1000),
+    });
+    return Effect.gen(function* () {
+      const replay = yield* DpopProofs.DpopProofReplay;
+      const parts = original.proof.split(".");
+      const header = JSON.parse(Buffer.from(parts[0]!, "base64url").toString()) as {
+        jwk: Record<string, unknown>;
+      };
+      const variants = [
+        original.proof,
+        `${Buffer.from(JSON.stringify({ ...header, jwk: { ...header.jwk, d: "private" } })).toString("base64url")}.${parts[1]}.${parts[2]}`,
+        `${Buffer.from(JSON.stringify({ ...header, jwk: { ...header.jwk, x: "x".repeat(44) } })).toString("base64url")}.${parts[1]}.${parts[2]}`,
+      ];
+      for (const proof of variants) {
+        const error = yield* Effect.flip(
+          replay.verifyAndConsume({
+            proof,
+            method: "POST",
+            url: "https://relay.example.test/v1/environments/env/connect",
+            now,
+          }),
+        );
+        expect(error).toMatchObject({ _tag: "DpopProofRejected", code: "malformed_proof" });
+      }
+      expect(inserts).toBe(0);
+    }).pipe(
+      Effect.provide(
+        layer((values) =>
+          Effect.sync(() => {
+            inserts++;
+            return [{ jti: values.jti }];
+          }),
+        ),
+      ),
+    );
+  },
+);

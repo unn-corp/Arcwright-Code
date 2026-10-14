@@ -706,3 +706,96 @@ it("a reload fences persisted registration admission and old acknowledged work c
   await newRequest;
   expect(fresh.getPwaPushRemovalState()).toBe("none");
 });
+
+function rateLimitedResponse(
+  value: unknown = {
+    _tag: "RelayRateLimitExceededError",
+    code: "relay_rate_limited",
+    retryAfterSeconds: 60,
+    traceId: "synthetic-trace",
+  },
+  origin = "https://relay.example.test",
+) {
+  const response = Response.json(value, { status: 429, headers: { "retry-after": "60" } });
+  Object.defineProperty(response, "url", { value: `${origin}/v1/pwa/web-push/subscriptions` });
+  return response;
+}
+it("settles only an exact current structured429 registration marker, retains authority and permits explicit later retry", async () => {
+  vi.useFakeTimers();
+  await register();
+  const before = [...values];
+  const installation = pwaPushInstallation();
+  fetchMock.mockResolvedValueOnce(rateLimitedResponse());
+  await expect(register()).rejects.toThrow(/temporarily rate limited.*60 seconds/);
+  expect([...values]).toEqual(before);
+  expect(pwaPushInstallation()).toEqual(installation);
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+  expect(getPwaPushRemovalState()).toBe("none");
+  expect(canSyncPwaPushSubscription(subscription(), "AQID")).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await register();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+it("structured429 removal settles its marker without deleting subscription/credentials or disabling renewal", async () => {
+  await register();
+  const before = [...values];
+  const installation = pwaPushInstallation();
+  fetchMock.mockResolvedValueOnce(rateLimitedResponse());
+  await expect(removePwaPushSubscription("subscription-1")).rejects.toThrow(
+    /temporarily rate limited/,
+  );
+  expect([...values]).toEqual(before);
+  expect(pwaPushInstallation()).toEqual(installation);
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+  expect(getPwaPushRemovalState()).toBe("none");
+  expect(canSyncPwaPushSubscription(subscription(), "AQID")).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+it.each(["malformed", "wrong-origin", "status-only", "oversized"])(
+  "keeps durable uncertainty after %s429 registration",
+  async (kind) => {
+    await register();
+    fetchMock.mockResolvedValueOnce(
+      kind === "wrong-origin"
+        ? rateLimitedResponse(undefined, "https://other.example.test")
+        : kind === "status-only"
+          ? new Response(null, { status: 429 })
+          : rateLimitedResponse(
+              kind === "oversized" ? { padding: "x".repeat(4097) } : { code: "relay_rate_limited" },
+            ),
+    );
+    await expect(register()).rejects.toThrow(/rate limited/);
+    expect(getPwaPushRemovalState()).toBe("uncertain");
+    expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+    const requests = fetchMock.mock.calls.length;
+    await expect(register()).rejects.toThrow(/uncertain outcome/);
+    expect(fetchMock).toHaveBeenCalledTimes(requests);
+  },
+);
+it("a structured429 never clears a newer registration marker or changed authority", async () => {
+  await register();
+  fetchMock.mockImplementationOnce(async () => {
+    const key = [...values.keys()].find((value) =>
+      value.startsWith("t3code.pwaPushRegistrationPending.v1:"),
+    )!;
+    values.set(key, "newer-operation");
+    return rateLimitedResponse();
+  });
+  await expect(register()).rejects.toThrow(/rate limited/);
+  expect([...values.values()]).toContain("newer-operation");
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+});
+it("storage failure while settling429 retains the exact uncertain marker", async () => {
+  await register();
+  window.localStorage.removeItem = (key) => {
+    if (key.startsWith("t3code.pwaPushRegistrationPending.v1:"))
+      throw new Error("synthetic-storage-failure");
+    values.delete(key);
+  };
+  fetchMock.mockResolvedValueOnce(rateLimitedResponse());
+  await expect(register()).rejects.toThrow(/rate limited/);
+  expect(getPwaPushRemovalState()).toBe("uncertain");
+  expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+});

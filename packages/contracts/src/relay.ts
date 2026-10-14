@@ -16,6 +16,23 @@ import {
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 
+// Input-only aliases retain brands and leave shared direct-connection/output schemas unchanged.
+const RelayEnvironmentIdInput = EnvironmentId.check(Schema.isMaxLength(191));
+const RelayThreadIdInput = ThreadId.check(Schema.isMaxLength(512));
+const RelayAnonymousThreadIdInput = ThreadId.check(Schema.isMaxLength(191));
+const boundedString = (max: number) => TrimmedNonEmptyString.check(Schema.isMaxLength(max));
+const RelayEndpointInput = Schema.Struct({
+  httpBaseUrl: boundedString(4096),
+  wsBaseUrl: boundedString(4096),
+  providerKind: Schema.Literals(["manual", "cloudflare_tunnel", "t3_relay"]),
+});
+const RelayDescriptorInput = Schema.Struct({
+  ...ExecutionEnvironmentDescriptor.fields,
+  environmentId: RelayEnvironmentIdInput,
+  label: boundedString(512),
+  serverVersion: boundedString(64),
+});
+
 export const RelayAgentAwarenessPlatform = Schema.Literals(["ios", "android"]);
 export type RelayAgentAwarenessPlatform = typeof RelayAgentAwarenessPlatform.Type;
 
@@ -52,13 +69,13 @@ export const RelayWebPushPreferences = Schema.Struct({
 export type RelayWebPushPreferences = typeof RelayWebPushPreferences.Type;
 
 export const RelayWebPushSubscriptionKeys = Schema.Struct({
-  p256dh: TrimmedNonEmptyString,
-  auth: TrimmedNonEmptyString,
+  p256dh: boundedString(256),
+  auth: boundedString(256),
 });
 export type RelayWebPushSubscriptionKeys = typeof RelayWebPushSubscriptionKeys.Type;
 
 export const RelayWebPushSubscriptionRegistrationRequest = Schema.Struct({
-  endpoint: TrimmedNonEmptyString.check(Schema.isPattern(/^https:\/\//u)),
+  endpoint: boundedString(4096).check(Schema.isPattern(/^https:\/\//u)),
   keys: RelayWebPushSubscriptionKeys,
   preferences: RelayWebPushPreferences,
 });
@@ -70,16 +87,16 @@ export type RelayWebPushSubscriptionRegistrationRequest =
  * no relation to a Clerk account or Arcwright Connect identity.
  */
 export const RelayPwaInstallationCredentials = Schema.Struct({
-  installationId: TrimmedNonEmptyString,
-  installationSecret: TrimmedNonEmptyString,
+  installationId: boundedString(128),
+  installationSecret: boundedString(512),
 });
 export type RelayPwaInstallationCredentials = typeof RelayPwaInstallationCredentials.Type;
 
 export const RelayPwaWebPushSubscriptionRegistrationRequest = Schema.Struct({
-  endpoint: TrimmedNonEmptyString.check(Schema.isPattern(/^https:\/\//u)),
+  endpoint: boundedString(4096).check(Schema.isPattern(/^https:\/\//u)),
   keys: RelayWebPushSubscriptionKeys,
   preferences: RelayWebPushPreferences,
-  environmentId: EnvironmentId,
+  environmentId: RelayEnvironmentIdInput,
   installation: RelayPwaInstallationCredentials,
 });
 export type RelayPwaWebPushSubscriptionRegistrationRequest =
@@ -97,7 +114,7 @@ export const RelayWebPushConfigResponse = Schema.Struct({
 export type RelayWebPushConfigResponse = typeof RelayWebPushConfigResponse.Type;
 
 export const RelayWebPushSubscriptionParams = Schema.Struct({
-  subscriptionId: TrimmedNonEmptyString,
+  subscriptionId: boundedString(64),
 });
 export type RelayWebPushSubscriptionParams = typeof RelayWebPushSubscriptionParams.Type;
 
@@ -105,20 +122,20 @@ export const RelayApnsEnvironment = Schema.Literals(["sandbox", "production"]);
 export type RelayApnsEnvironment = typeof RelayApnsEnvironment.Type;
 
 export const RelayDeviceRegistrationRequest = Schema.Struct({
-  deviceId: TrimmedNonEmptyString,
-  label: TrimmedNonEmptyString,
+  deviceId: boundedString(255),
+  label: boundedString(256),
   platform: RelayAgentAwarenessPlatform,
   iosMajorVersion: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(18))),
   androidApiLevel: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(24))),
-  appVersion: Schema.optional(TrimmedNonEmptyString),
+  appVersion: Schema.optional(boundedString(64)),
   // APNs routing for this install: the topic must match the app's bundle id
   // (dev/preview/prod variants differ) and development-signed builds receive
   // sandbox tokens. Optional so older app builds keep registering; the relay
   // falls back to its configured defaults.
-  bundleId: Schema.optional(TrimmedNonEmptyString),
+  bundleId: Schema.optional(boundedString(255)),
   apsEnvironment: Schema.optional(RelayApnsEnvironment),
-  pushToken: Schema.optional(TrimmedNonEmptyString),
-  pushToStartToken: Schema.optional(TrimmedNonEmptyString),
+  pushToken: Schema.optional(boundedString(4096)),
+  pushToStartToken: Schema.optional(boundedString(4096)),
   preferences: RelayAgentAwarenessPreferences,
 }).check(
   Schema.makeFilter((device) =>
@@ -170,13 +187,13 @@ export const RelayListDevicesResponseV1 = Schema.Struct({
 });
 
 export const RelayLiveActivityRegistrationRequest = Schema.Struct({
-  deviceId: TrimmedNonEmptyString,
-  activityPushToken: TrimmedNonEmptyString,
+  deviceId: boundedString(255),
+  activityPushToken: boundedString(4096),
 });
 export type RelayLiveActivityRegistrationRequest = typeof RelayLiveActivityRegistrationRequest.Type;
 
 export const RelayDeviceUnregistrationParams = Schema.Struct({
-  deviceId: TrimmedNonEmptyString,
+  deviceId: boundedString(255),
 });
 export type RelayDeviceUnregistrationParams = typeof RelayDeviceUnregistrationParams.Type;
 
@@ -194,6 +211,20 @@ export const RelayAgentActivityState = Schema.Struct({
   hasActionableProposedPlan: Schema.optional(Schema.Boolean),
 });
 export type RelayAgentActivityState = typeof RelayAgentActivityState.Type;
+
+const RelayActivityStateInput = Schema.Struct({
+  environmentId: RelayEnvironmentIdInput,
+  threadId: RelayThreadIdInput,
+  projectTitle: boundedString(512),
+  threadTitle: boundedString(512),
+  phase: RelayAgentAwarenessPhase,
+  headline: boundedString(512),
+  detail: Schema.optional(boundedString(4096)),
+  modelTitle: boundedString(512),
+  updatedAt: boundedString(64),
+  deepLink: boundedString(4096),
+  hasActionableProposedPlan: Schema.optional(Schema.Boolean),
+});
 
 export const RelayAgentActivityAggregateRow = Schema.Struct({
   environmentId: EnvironmentId,
@@ -240,6 +271,11 @@ export const RelayManagedEndpointOrigin = Schema.Struct({
 });
 export type RelayManagedEndpointOrigin = typeof RelayManagedEndpointOrigin.Type;
 
+const RelayManagedEndpointOriginInput = Schema.Struct({
+  ...RelayManagedEndpointOrigin.fields,
+  localHttpHost: boundedString(253),
+});
+
 export const RelayManagedEndpointRuntimeConfig = Schema.Struct({
   providerKind: RelayManagedEndpointProviderKind,
   connectorToken: TrimmedNonEmptyString,
@@ -249,17 +285,17 @@ export const RelayManagedEndpointRuntimeConfig = Schema.Struct({
 export type RelayManagedEndpointRuntimeConfig = typeof RelayManagedEndpointRuntimeConfig.Type;
 
 export const RelayManagedEndpointRecoveryRequest = Schema.Struct({
-  cloudUserId: TrimmedNonEmptyString,
-  origin: RelayManagedEndpointOrigin,
-  proof: TrimmedNonEmptyString,
+  cloudUserId: boundedString(191),
+  origin: RelayManagedEndpointOriginInput,
+  proof: boundedString(49152),
 });
 export type RelayManagedEndpointRecoveryRequest = typeof RelayManagedEndpointRecoveryRequest.Type;
 
 export const RelayManagedEndpointRecoveryRegistrationRequest = Schema.Struct({
-  cloudUserId: TrimmedNonEmptyString,
-  tunnelId: TrimmedNonEmptyString,
-  origin: RelayManagedEndpointOrigin,
-  proof: TrimmedNonEmptyString,
+  cloudUserId: boundedString(191),
+  tunnelId: boundedString(191),
+  origin: RelayManagedEndpointOriginInput,
+  proof: boundedString(49152),
 });
 export type RelayManagedEndpointRecoveryRegistrationRequest =
   typeof RelayManagedEndpointRecoveryRegistrationRequest.Type;
@@ -295,10 +331,10 @@ export const RelayEnvironmentConfigRequest = Schema.Struct({
 export type RelayEnvironmentConfigRequest = typeof RelayEnvironmentConfigRequest.Type;
 
 const RelaySignedJwtRegisteredClaims = {
-  iss: TrimmedNonEmptyString,
-  aud: TrimmedNonEmptyString,
-  sub: TrimmedNonEmptyString,
-  jti: TrimmedNonEmptyString,
+  iss: boundedString(4096),
+  aud: boundedString(4096),
+  sub: boundedString(191),
+  jti: boundedString(255),
   iat: Schema.Int,
   exp: Schema.Int,
 } as const;
@@ -307,17 +343,17 @@ export const RelayManagedEndpointRecoveryProofPayload = Schema.Union([
   Schema.Struct({
     ...RelaySignedJwtRegisteredClaims,
     action: Schema.Literal("register"),
-    environmentId: EnvironmentId,
-    cloudUserId: TrimmedNonEmptyString,
-    tunnelId: TrimmedNonEmptyString,
-    origin: RelayManagedEndpointOrigin,
+    environmentId: RelayEnvironmentIdInput,
+    cloudUserId: boundedString(191),
+    tunnelId: boundedString(191),
+    origin: RelayManagedEndpointOriginInput,
   }),
   Schema.Struct({
     ...RelaySignedJwtRegisteredClaims,
     action: Schema.Literal("recover"),
-    environmentId: EnvironmentId,
-    cloudUserId: TrimmedNonEmptyString,
-    origin: RelayManagedEndpointOrigin,
+    environmentId: RelayEnvironmentIdInput,
+    cloudUserId: boundedString(191),
+    origin: RelayManagedEndpointOriginInput,
   }),
 ]);
 export type RelayManagedEndpointRecoveryProofPayload =
@@ -325,19 +361,19 @@ export type RelayManagedEndpointRecoveryProofPayload =
 
 export const RelayAgentActivityPublishProofPayload = Schema.Struct({
   ...RelaySignedJwtRegisteredClaims,
-  environmentId: EnvironmentId,
-  threadId: ThreadId,
-  state: Schema.NullOr(RelayAgentActivityState),
+  environmentId: RelayEnvironmentIdInput,
+  threadId: RelayThreadIdInput,
+  state: Schema.NullOr(RelayActivityStateInput),
 });
 export type RelayAgentActivityPublishProofPayload =
   typeof RelayAgentActivityPublishProofPayload.Type;
 export type RelayAgentActivityPublishProof = string;
 
 export const RelayAgentActivityPublishRequest = Schema.Struct({
-  state: Schema.NullOr(RelayAgentActivityState).annotate({
+  state: Schema.NullOr(RelayActivityStateInput).annotate({
     description: "Current agent-awareness state, or null to remove the published state.",
   }),
-  proof: TrimmedNonEmptyString.annotate({
+  proof: boundedString(49152).annotate({
     description: "Environment-signed JWT covering this published activity state.",
   }),
 }).annotate({ description: "Publishes a signed agent-awareness update from an environment." });
@@ -351,17 +387,17 @@ export type RelayEnvironmentLinkScope = typeof RelayEnvironmentLinkScope.Type;
 
 export const RelayEnvironmentLinkProofPayload = Schema.Struct({
   ...RelaySignedJwtRegisteredClaims,
-  challenge: TrimmedNonEmptyString,
-  descriptor: ExecutionEnvironmentDescriptor,
-  environmentId: EnvironmentId,
-  environmentPublicKey: TrimmedNonEmptyString,
-  endpoint: RelayManagedEndpoint,
-  origin: RelayManagedEndpointOrigin,
-  scopes: Schema.Array(RelayEnvironmentLinkScope),
+  challenge: boundedString(16384),
+  descriptor: RelayDescriptorInput,
+  environmentId: RelayEnvironmentIdInput,
+  environmentPublicKey: boundedString(2048),
+  endpoint: RelayEndpointInput,
+  origin: RelayManagedEndpointOriginInput,
+  scopes: Schema.Array(RelayEnvironmentLinkScope).check(Schema.isMaxLength(8)),
 });
 export type RelayEnvironmentLinkProofPayload = typeof RelayEnvironmentLinkProofPayload.Type;
 
-export const RelayEnvironmentLinkProof = TrimmedNonEmptyString;
+export const RelayEnvironmentLinkProof = boundedString(49152);
 export type RelayEnvironmentLinkProof = typeof RelayEnvironmentLinkProof.Type;
 
 export const RelayEnvironmentLinkChallengeRequest = Schema.Struct({
@@ -386,7 +422,7 @@ export type RelayEnvironmentLinkChallengeResponse =
 
 export const RelayEnvironmentLinkRequest = Schema.Struct({
   deviceId: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    boundedString(191).annotate({
       description: "Optional client device identifier associated with this link.",
     }),
   ),
@@ -654,7 +690,83 @@ export class RelayInternalError extends Schema.TaggedError<RelayInternalError>()
   }
 }
 
+export class RelayRateLimitExceededError extends Schema.TaggedError<RelayRateLimitExceededError>()(
+  "RelayRateLimitExceededError",
+  {
+    code: Schema.Literal("relay_rate_limited"),
+    retryAfterSeconds: Schema.Literal(60),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 429 },
+) {
+  override get message(): string {
+    return "Too many relay requests.";
+  }
+}
+
+export class RelayServiceUnavailableError extends Schema.TaggedError<RelayServiceUnavailableError>()(
+  "RelayServiceUnavailableError",
+  {
+    code: Schema.Literal("relay_unavailable"),
+    reason: Schema.Literal("internal"),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 503 },
+) {
+  override get message(): string {
+    return "The relay is temporarily unavailable.";
+  }
+}
+
+export class RelayRequestTooLargeError extends Schema.TaggedError<RelayRequestTooLargeError>()(
+  "RelayRequestTooLargeError",
+  {
+    code: Schema.Literal("relay_request_too_large"),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 413 },
+) {
+  override get message(): string {
+    return "The relay request is too large.";
+  }
+}
+
+export class RelayRequestInvalidError extends Schema.TaggedError<RelayRequestInvalidError>()(
+  "RelayRequestInvalidError",
+  {
+    code: Schema.Literal("relay_request_invalid"),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 400 },
+) {
+  override get message(): string {
+    return "The relay request is invalid.";
+  }
+}
+
+export class RelayRequestHeadersTooLargeError extends Schema.TaggedError<RelayRequestHeadersTooLargeError>()(
+  "RelayRequestHeadersTooLargeError",
+  {
+    code: Schema.Literal("relay_request_headers_too_large"),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 431 },
+) {
+  override get message(): string {
+    return "The relay request headers are too large.";
+  }
+}
+
+export const CommonRelayPublicBoundaryErrors = [
+  RelayRateLimitExceededError,
+  RelayServiceUnavailableError,
+  RelayRequestTooLargeError,
+  RelayRequestInvalidError,
+  RelayRequestHeadersTooLargeError,
+] as const;
+
 export const RelayProtectedError = Schema.Union([
+  ...CommonRelayPublicBoundaryErrors,
   RelayAuthInvalidError,
   RelayEnvironmentLinkProofExpiredError,
   RelayEnvironmentLinkProofInvalidError,
@@ -670,9 +782,14 @@ export const RelayProtectedError = Schema.Union([
 ]);
 export type RelayProtectedError = typeof RelayProtectedError.Type;
 
-const RelayAuthAndInternalErrors = [RelayAuthInvalidError, RelayInternalError] as const;
+const RelayAuthAndInternalErrors = [
+  ...CommonRelayPublicBoundaryErrors,
+  RelayAuthInvalidError,
+  RelayInternalError,
+] as const;
 
 const RelayEnvironmentLinkErrors = [
+  ...CommonRelayPublicBoundaryErrors,
   RelayAuthInvalidError,
   RelayEnvironmentLinkProofExpiredError,
   RelayEnvironmentLinkProofInvalidError,
@@ -683,6 +800,7 @@ const RelayEnvironmentLinkErrors = [
 ] as const;
 
 const RelayEnvironmentConnectErrors = [
+  ...CommonRelayPublicBoundaryErrors,
   RelayAuthInvalidError,
   RelayEnvironmentConnectNotAuthorizedError,
   RelayEnvironmentEndpointUnavailableError,
@@ -691,6 +809,7 @@ const RelayEnvironmentConnectErrors = [
 ] as const;
 
 const RelayAgentActivityPublishErrors = [
+  ...CommonRelayPublicBoundaryErrors,
   RelayAuthInvalidError,
   RelayAgentActivityPublishProofExpiredError,
   RelayAgentActivityPublishProofInvalidError,
@@ -775,17 +894,17 @@ export type RelayListEnvironmentsResponse = typeof RelayListEnvironmentsResponse
 
 export const RelayEnvironmentConnectRequest = Schema.Struct({
   deviceId: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    boundedString(191).annotate({
       description: "Optional client device identifier requesting the connection.",
     }),
   ),
   clientKeyThumbprint: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    boundedString(128).annotate({
       description: "Deprecated alias for clientProofKeyThumbprint.",
     }),
   ),
   clientProofKeyThumbprint: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    boundedString(128).annotate({
       description: "JWK thumbprint that the minted environment credential must be bound to.",
     }),
   ),
@@ -813,15 +932,15 @@ export const RelayWebClientId = "t3-web" as const;
 
 export const RelayDpopAccessTokenRequest = Schema.Struct({
   grant_type: Schema.Literal(RelayDpopTokenExchangeGrantType),
-  subject_token: TrimmedNonEmptyString.annotate({
+  subject_token: boundedString(16384).annotate({
     description: "Clerk bearer token for the signed-in cloud user.",
   }),
   subject_token_type: Schema.Literal(RelayJwtSubjectTokenType),
   requested_token_type: Schema.Literal(RelayAccessTokenType),
-  resource: TrimmedNonEmptyString.annotate({
+  resource: boundedString(4096).annotate({
     description: "Relay issuer URL that will receive the DPoP-bound access token.",
   }),
-  scope: TrimmedNonEmptyString.annotate({
+  scope: boundedString(512).annotate({
     description: "Space-separated relay scopes requested by the client.",
   }),
   client_id: RelayPublicClientId,
@@ -840,16 +959,16 @@ export const RelayDpopAccessTokenResponse = Schema.Struct({
 export type RelayDpopAccessTokenResponse = typeof RelayDpopAccessTokenResponse.Type;
 
 export const RelayBearerRequestHeaders = Schema.Struct({
-  authorization: TrimmedNonEmptyString,
+  authorization: boundedString(16384),
 });
 
 export const RelayDpopProofRequestHeaders = Schema.Struct({
-  dpop: TrimmedNonEmptyString,
+  dpop: boundedString(8192),
 });
 
 export const RelayDpopRequestHeaders = Schema.Struct({
-  authorization: TrimmedNonEmptyString,
-  dpop: TrimmedNonEmptyString,
+  authorization: boundedString(16384),
+  dpop: boundedString(8192),
 });
 
 export const RelayAuthorizationServerMetadata = Schema.Struct({
@@ -870,7 +989,7 @@ export const RelayProtectedResourceMetadata = Schema.Struct({
 });
 
 export const RelayEnvironmentUnlinkParams = Schema.Struct({
-  environmentId: EnvironmentId,
+  environmentId: RelayEnvironmentIdInput,
 });
 export type RelayEnvironmentUnlinkParams = typeof RelayEnvironmentUnlinkParams.Type;
 
@@ -1038,7 +1157,7 @@ const RelayHealthGroup = HttpApiGroup.make("health")
   .add(
     HttpApiEndpoint.get("health", "/health", {
       success: RelayHealthResponse,
-      error: RelayInternalError,
+      error: [...CommonRelayPublicBoundaryErrors, RelayInternalError],
     }).annotate(OpenApi.Summary, "Check relay health"),
   )
   .annotate(OpenApi.Description, "Service health and readiness.");
@@ -1047,9 +1166,11 @@ const RelayMetadataGroup = HttpApiGroup.make("metadata")
   .add(
     HttpApiEndpoint.get("authorizationServer", "/.well-known/oauth-authorization-server", {
       success: RelayAuthorizationServerMetadata,
+      error: CommonRelayPublicBoundaryErrors,
     }).annotate(OpenApi.Summary, "Read OAuth authorization-server metadata"),
     HttpApiEndpoint.get("protectedResource", "/.well-known/oauth-protected-resource", {
       success: RelayProtectedResourceMetadata,
+      error: CommonRelayPublicBoundaryErrors,
     }).annotate(OpenApi.Summary, "Read OAuth protected-resource metadata"),
   )
   .annotate(OpenApi.Description, "OAuth and DPoP discovery metadata.");
@@ -1246,7 +1367,7 @@ export const RelayConnectEnvironmentEndpoint = HttpApiEndpoint.post(
   {
     headers: RelayDpopRequestHeaders,
     params: Schema.Struct({
-      environmentId: EnvironmentId,
+      environmentId: RelayEnvironmentIdInput,
     }),
     payload: RelayEnvironmentConnectRequest,
     success: RelayEnvironmentConnectResponse,
@@ -1260,7 +1381,7 @@ export const RelayGetEnvironmentStatusEndpoint = HttpApiEndpoint.post(
   {
     headers: RelayDpopRequestHeaders,
     params: Schema.Struct({
-      environmentId: EnvironmentId,
+      environmentId: RelayEnvironmentIdInput,
     }),
     success: RelayEnvironmentStatusResponse,
     error: RelayEnvironmentConnectErrors,
@@ -1291,28 +1412,28 @@ const RelayServerGroup = HttpApiGroup.make("server")
       "/v1/environments/:environmentId/tunnel/recovery",
       {
         params: Schema.Struct({
-          environmentId: EnvironmentId,
+          environmentId: RelayEnvironmentIdInput,
         }),
         payload: RelayManagedEndpointRecoveryRegistrationRequest,
         success: RelayManagedEndpointRecoveryRegistrationResponse,
-        error: RelayAuthAndInternalErrors,
+        error: [...RelayAuthAndInternalErrors, RelayEnvironmentLinkLimitExceededError],
       },
     ).annotate(OpenApi.Summary, "Register managed tunnel recovery without provisioning"),
     HttpApiEndpoint.post("recoverManagedEndpoint", "/v1/environments/:environmentId/tunnel", {
       params: Schema.Struct({
-        environmentId: EnvironmentId,
+        environmentId: RelayEnvironmentIdInput,
       }),
       payload: RelayManagedEndpointRecoveryRequest,
       success: RelayManagedEndpointRecoveryResponse,
-      error: RelayAuthAndInternalErrors,
+      error: [...RelayAuthAndInternalErrors, RelayEnvironmentLinkLimitExceededError],
     }).annotate(OpenApi.Summary, "Recover an environment's managed tunnel"),
     HttpApiEndpoint.post(
       "publishAgentActivity",
       "/v1/environments/:environmentId/threads/:threadId/agent-activity",
       {
         params: Schema.Struct({
-          environmentId: EnvironmentId,
-          threadId: ThreadId,
+          environmentId: RelayEnvironmentIdInput,
+          threadId: RelayThreadIdInput,
         }),
         payload: RelayAgentActivityPublishRequest,
         success: RelayPublishResponse,
@@ -1323,14 +1444,14 @@ const RelayServerGroup = HttpApiGroup.make("server")
       "updateLinkPreferences",
       "/v1/environments/:environmentId/link-preferences",
       {
-        params: Schema.Struct({ environmentId: EnvironmentId }),
+        params: Schema.Struct({ environmentId: RelayEnvironmentIdInput }),
         payload: RelayEnvironmentLinkPreferencesRequest,
         success: RelayEnvironmentLinkPreferencesRequest,
         error: RelayAuthAndInternalErrors,
       },
     ).annotate(OpenApi.Summary, "Update an environment's link preferences"),
     HttpApiEndpoint.post("wakeHeldHooks", "/v1/environments/:environmentId/hooks/wake", {
-      params: Schema.Struct({ environmentId: EnvironmentId }),
+      params: Schema.Struct({ environmentId: RelayEnvironmentIdInput }),
       success: RelayWakeHeldHooksResponse,
       error: RelayAuthAndInternalErrors,
     }).annotate(
@@ -1351,14 +1472,16 @@ export const RelayPwaWebPushConfigEndpoint = HttpApiEndpoint.get(
   "/v1/pwa/web-push/config",
   {
     success: RelayWebPushConfigResponse,
-    error: [RelayInternalError],
+    error: [...CommonRelayPublicBoundaryErrors, RelayInternalError],
   },
 ).annotate(OpenApi.Summary, "Read the PWA Web Push application server key");
 
 export const RelayPwaAgentActivityPublishRequest = Schema.Struct({
-  environmentPublicKey: TrimmedNonEmptyString,
-  state: Schema.NullOr(RelayAgentActivityState),
-  proof: TrimmedNonEmptyString,
+  environmentPublicKey: boundedString(2048),
+  state: Schema.NullOr(
+    Schema.Struct({ ...RelayActivityStateInput.fields, threadId: RelayAnonymousThreadIdInput }),
+  ),
+  proof: boundedString(49152),
 });
 export type RelayPwaAgentActivityPublishRequest = typeof RelayPwaAgentActivityPublishRequest.Type;
 
@@ -1366,10 +1489,14 @@ export const RelayPublishPwaAgentActivityEndpoint = HttpApiEndpoint.post(
   "publishPwaAgentActivity",
   "/v1/pwa/environments/:environmentId/threads/:threadId/agent-activity",
   {
-    params: Schema.Struct({ environmentId: EnvironmentId, threadId: ThreadId }),
+    params: Schema.Struct({
+      environmentId: RelayEnvironmentIdInput,
+      threadId: RelayAnonymousThreadIdInput,
+    }),
     payload: RelayPwaAgentActivityPublishRequest,
     success: RelayPublishResponse,
     error: [
+      ...CommonRelayPublicBoundaryErrors,
       RelayAgentActivityPublishProofExpiredError,
       RelayAgentActivityPublishProofInvalidError,
       RelayInternalError,
@@ -1383,7 +1510,7 @@ export const RelayRegisterPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.put(
   {
     payload: RelayPwaWebPushSubscriptionRegistrationRequest,
     success: RelayWebPushSubscriptionRegistrationResponse,
-    error: [RelayInternalError],
+    error: [...CommonRelayPublicBoundaryErrors, RelayInternalError],
   },
 ).annotate(OpenApi.Summary, "Register an anonymous installed-PWA subscription");
 
@@ -1398,7 +1525,7 @@ export const RelayRemovePwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
     params: RelayWebPushSubscriptionParams,
     payload: RelayPwaWebPushSubscriptionMutation,
     success: RelayOkResponse,
-    error: [RelayInternalError],
+    error: [...CommonRelayPublicBoundaryErrors, RelayInternalError],
   },
 ).annotate(OpenApi.Summary, "Remove an anonymous installed-PWA subscription");
 
@@ -1409,7 +1536,7 @@ export const RelayTestPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
     params: RelayWebPushSubscriptionParams,
     payload: RelayPwaWebPushSubscriptionMutation,
     success: RelayOkResponse,
-    error: [RelayInternalError],
+    error: [...CommonRelayPublicBoundaryErrors, RelayInternalError],
   },
 ).annotate(OpenApi.Summary, "Queue a test for an anonymous installed-PWA subscription");
 

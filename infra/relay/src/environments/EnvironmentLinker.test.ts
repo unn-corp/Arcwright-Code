@@ -361,3 +361,37 @@ describe("EnvironmentLinker", () => {
     }).pipe(Effect.provide(layerTest({ consume: () => Effect.succeed(false) }))),
   );
 });
+
+it.effect(
+  "a bounded malformed nested challenge retains its ordinary challenge-invalid category",
+  () => {
+    let writes = 0;
+    return Effect.gen(function* () {
+      const { request, payload } = yield* makeRequest;
+      const proof = signTestJwt(
+        { ...payload, challenge: "bounded-invalid-challenge" },
+        RELAY_LINK_PROOF_TYP,
+        environmentKeyPair.privateKey,
+      );
+      const linker = yield* EnvironmentLinker.EnvironmentLinker;
+      const error = yield* Effect.flip(
+        linker.link({ userId: "user_123", request: { ...request, proof } }),
+      );
+      expect(error).toMatchObject({
+        _tag: "EnvironmentLinkProofInvalid",
+        reason: "challenge_invalid",
+        stage: "verify_challenge",
+      });
+      expect(writes).toBe(0);
+    }).pipe(
+      Effect.provide(
+        layerTest({
+          upsert: () =>
+            Effect.sync(() => {
+              writes++;
+            }),
+        }),
+      ),
+    );
+  },
+);

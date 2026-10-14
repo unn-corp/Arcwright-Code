@@ -1,3 +1,4 @@
+import { isBoundedJwt } from "../http/publicRelayInputBounds.ts";
 import {
   RelayDpopAccessTokenScope,
   RelayEnvironmentConnectScope,
@@ -76,6 +77,7 @@ function resolveDpopAccessTokenScopes(input: {
   readonly clientId: RelayPublicClientId;
   readonly scope: string;
 }): ReadonlyArray<RelayDpopAccessTokenScope> | null {
+  if (input.scope.length > 512) return null;
   return parseAllowedOAuthScope({
     value: input.scope,
     allowedScopes: allowedScopesByClientId[input.clientId],
@@ -141,28 +143,30 @@ const make = Effect.gen(function* () {
   const verifyLinkChallenge: RelayTokens["Service"]["verifyLinkChallenge"] = Effect.fn(
     "relay.tokens.verify_link_challenge",
   )((input) =>
-    verifyRelayJwt({
-      publicKey: config.cloudMintPublicKey,
-      token: input.token,
-      typ: LINK_CHALLENGE_TYP,
-      issuer,
-      audience: issuer,
-      nowEpochSeconds: input.nowEpochSeconds,
-    }).pipe(
-      Effect.flatMap(decodeLinkChallengeClaims),
-      Effect.map((claims) => {
-        if (
-          claims.sub !== input.userId ||
-          (input.request.notificationsEnabled && claims.notificationsEnabled !== true) ||
-          (input.request.liveActivitiesEnabled && claims.liveActivitiesEnabled !== true) ||
-          (input.request.managedTunnelsEnabled && claims.managedTunnelsEnabled !== true)
-        ) {
-          return null;
-        }
-        return claims;
-      }),
-      Effect.orElseSucceed(() => null),
-    ),
+    !isBoundedJwt(input.token, 16384)
+      ? Effect.succeed(null)
+      : verifyRelayJwt({
+          publicKey: config.cloudMintPublicKey,
+          token: input.token,
+          typ: LINK_CHALLENGE_TYP,
+          issuer,
+          audience: issuer,
+          nowEpochSeconds: input.nowEpochSeconds,
+        }).pipe(
+          Effect.flatMap(decodeLinkChallengeClaims),
+          Effect.map((claims) => {
+            if (
+              claims.sub !== input.userId ||
+              (input.request.notificationsEnabled && claims.notificationsEnabled !== true) ||
+              (input.request.liveActivitiesEnabled && claims.liveActivitiesEnabled !== true) ||
+              (input.request.managedTunnelsEnabled && claims.managedTunnelsEnabled !== true)
+            ) {
+              return null;
+            }
+            return claims;
+          }),
+          Effect.orElseSucceed(() => null),
+        ),
   );
 
   const issueDpopAccessToken: RelayTokens["Service"]["issueDpopAccessToken"] = Effect.fn(
@@ -188,31 +192,33 @@ const make = Effect.gen(function* () {
   const verifyDpopAccessToken: RelayTokens["Service"]["verifyDpopAccessToken"] = Effect.fn(
     "relay.tokens.verify_dpop_access_token",
   )((input) =>
-    verifyRelayJwt({
-      publicKey: config.cloudMintPublicKey,
-      token: input.token,
-      typ: ACCESS_TOKEN_TYP,
-      issuer,
-      audience: issuer,
-      nowEpochSeconds: input.nowEpochSeconds,
-      maxTokenAge: RELAY_DPOP_ACCESS_TOKEN_TTL,
-    }).pipe(
-      Effect.tapError((error) =>
-        Effect.annotateCurrentSpan(
-          "relay.tokens.verification_failure",
-          RelayJwtError.diagnosticCode(error),
+    !isBoundedJwt(input.token, 16384)
+      ? Effect.succeed(null)
+      : verifyRelayJwt({
+          publicKey: config.cloudMintPublicKey,
+          token: input.token,
+          typ: ACCESS_TOKEN_TYP,
+          issuer,
+          audience: issuer,
+          nowEpochSeconds: input.nowEpochSeconds,
+          maxTokenAge: RELAY_DPOP_ACCESS_TOKEN_TTL,
+        }).pipe(
+          Effect.tapError((error) =>
+            Effect.annotateCurrentSpan(
+              "relay.tokens.verification_failure",
+              RelayJwtError.diagnosticCode(error),
+            ),
+          ),
+          Effect.flatMap(decodeDpopAccessTokenClaims),
+          Effect.map((claims): RelayDpopAccessTokenClaims | null => {
+            const scopes = resolveDpopAccessTokenScopes({
+              clientId: claims.client_id,
+              scope: claims.scope,
+            });
+            return scopes === null ? null : { ...claims, scope: scopes };
+          }),
+          Effect.orElseSucceed(() => null),
         ),
-      ),
-      Effect.flatMap(decodeDpopAccessTokenClaims),
-      Effect.map((claims): RelayDpopAccessTokenClaims | null => {
-        const scopes = resolveDpopAccessTokenScopes({
-          clientId: claims.client_id,
-          scope: claims.scope,
-        });
-        return scopes === null ? null : { ...claims, scope: scopes };
-      }),
-      Effect.orElseSucceed(() => null),
-    ),
   );
 
   return RelayTokens.of({

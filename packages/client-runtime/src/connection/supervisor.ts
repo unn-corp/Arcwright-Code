@@ -850,21 +850,27 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     return outcome;
   }, Effect.ensuring(clearLease));
 
-  const waitForRetrySignal = Effect.fnUntraced(function* (delayMs: number) {
+  const waitForRetrySignal = Effect.fnUntraced(function* (delayMs: number, notBefore = 0) {
     // @effect-diagnostics-next-line raceFirstWithSleepToTimeout:off - the sleep is the retry delay (false), not a timeout around the signal loop
     return yield* Effect.raceFirst(
       Effect.sleep(delayMs).pipe(Effect.as(false)),
       Effect.gen(function* () {
         for (;;) {
           const next = yield* Queue.take(signals);
+          const minimumActive = (yield* Clock.currentTimeMillis) < notBefore;
           switch (next._tag) {
             case "Wakeup":
-              return ConnectionWakeups.resetsRetryBackoff(next.reason);
-            case "ConnectRequested":
+              if (!minimumActive) return ConnectionWakeups.resetsRetryBackoff(next.reason);
+              break;
             case "DisconnectRequested":
-            case "RetryRequested":
-            case "NetworkChanged":
               return false;
+            case "NetworkChanged":
+              if (!minimumActive || next.network === "offline") return false;
+              break;
+            case "ConnectRequested":
+            case "RetryRequested":
+              if (!minimumActive) return false;
+              break;
             case "BetterRouteAvailable":
               break;
           }
@@ -885,6 +891,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     let failureCount = 0;
     let generation = 0;
     let latestFailure: ConnectionAttemptError | null = null;
+    // Retain the server's minimum across wakeups, explicit retry and offline/online transitions.
+    let relayRetryNotBefore = 0;
     let pendingRetry = Option.none<PendingRetryTrace>();
     const resetRetryLadder = () => {
       failureCount = 0;
@@ -922,6 +930,21 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         continue;
       }
 
+      const remainingRelayDelay = relayRetryNotBefore - (yield* Clock.currentTimeMillis);
+      if (remainingRelayDelay > 0) {
+        yield* setState({
+          desired: currentIntent.desired,
+          network: currentIntent.network,
+          phase: "backoff",
+          stage: null,
+          attempt: failureCount + 1,
+          generation,
+          lastFailure: latestFailure,
+          retryAt: relayRetryNotBefore,
+        });
+        yield* waitForRetrySignal(remainingRelayDelay, relayRetryNotBefore);
+        continue;
+      }
       const attempt = failureCount + 1;
       const nextGeneration = generation + 1;
       const outcome: AttemptOutcome = yield* Effect.scoped(
@@ -968,7 +991,13 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         continue;
       }
 
-      if (failedProbe) {
+      if (error.retryAfterSeconds !== undefined) {
+        relayRetryNotBefore = Math.max(
+          relayRetryNotBefore,
+          (yield* Clock.currentTimeMillis) + error.retryAfterSeconds * 1000,
+        );
+      }
+      if (failedProbe && relayRetryNotBefore <= (yield* Clock.currentTimeMillis)) {
         // A probe found a dead transport, or the transport closed while a probe
         // waited for an answer (the user returned to the app, asked to retry,
         // or the network changed), so reconnect immediately instead
@@ -980,7 +1009,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       }
 
       failureCount += 1;
-      const delayMs = retryDelayMs(failureCount - 1, yield* Random.next);
+      const delayMs = Math.max(
+        retryDelayMs(failureCount - 1, yield* Random.next),
+        relayRetryNotBefore - (yield* Clock.currentTimeMillis),
+      );
       pendingRetry = Option.map(attemptSpan, (previousAttempt) => ({
         previousAttempt,
         failureCount,
@@ -998,7 +1030,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         lastFailure: error,
         retryAt: (yield* Clock.currentTimeMillis) + delayMs,
       });
-      const applicationActivated = yield* waitForRetrySignal(delayMs);
+      const applicationActivated = yield* waitForRetrySignal(delayMs, relayRetryNotBefore);
       if (applicationActivated) {
         resetRetryLadder();
       }

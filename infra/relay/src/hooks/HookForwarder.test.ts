@@ -32,6 +32,8 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as RelayConfiguration from "../Config.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
+import * as PublicRelayRateLimits from "../http/PublicRelayRateLimits.ts";
+import { wrapPublicRelayHttp } from "../http/PublicRelayBoundary.ts";
 import { RELAY_HTTP_ROUTER_CONFIG, traceRelayHttpRequestWith } from "../http/Api.ts";
 import * as RelayHttpApi from "../http/Api.ts";
 import * as HookForwarder from "./HookForwarder.ts";
@@ -182,13 +184,18 @@ function makeHarness(options: Harness = {}) {
     Effect.gen(function* () {
       const handler = yield* httpEffect;
       const sent = yield* Deferred.make<HttpServerResponse.HttpServerResponse>();
-      yield* HttpEffect.toHandled(handler, (_request, response) =>
+      yield* HttpEffect.toHandled(wrapPublicRelayHttp(handler), (_request, response) =>
         Deferred.succeed(sent, response),
       ).pipe(
         Effect.provideService(
           HttpServerRequest.HttpServerRequest,
           HttpServerRequest.fromWeb(request),
         ),
+        Effect.provideService(PublicRelayRateLimits.TrustedEdgeIdentity, { status: "unavailable" }),
+        Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, {
+          admit: () => Effect.die("hooks must not enter public admission"),
+        }),
+        Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
       );
       return yield* Deferred.await(sent);
     });
@@ -256,6 +263,20 @@ describe("HookForwarder", () => {
       expect(harness.rateLimitKeys).toHaveLength(1);
       expect(harness.rateLimitKeys[0]).toMatch(/^[0-9a-f]{64}$/);
     }),
+  );
+
+  it.effect.each(["/V1/HOOKS/", "/%76%31/hooks/"])(
+    "recognized hook alias%s retains raw bytes, noCORS and separate25s deadline",
+    (prefix) =>
+      Effect.gen(function* () {
+        const harness = makeHarness();
+        const url = hookUrl().replace("/v1/hooks/", prefix);
+        const body = new Uint8Array(65537).fill(42);
+        const response = yield* harness.send(new Request(url, { method: "POST", body }));
+        expect(response.status).toBe(200);
+        expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+        expect(requestBytes(harness.sent[0]!)).toEqual(body);
+      }),
   );
 
   it.effect("signs each forward for the environment, replacing any copy a sender sent", () =>

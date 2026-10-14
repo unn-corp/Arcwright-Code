@@ -2106,3 +2106,42 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 });
+
+it.effect(
+  "actual relay supervisor honors429 minimum across wake/retry/network while disconnect stays responsive",
+  () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 1
+            ? Effect.fail(
+                new ConnectionTransientError({
+                  reason: "relay-unavailable",
+                  detail: "Too many relay requests",
+                  retryAfterSeconds: 60,
+                }),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(1);
+      yield* harness.wake("application-active");
+      yield* supervisor.retryNow;
+      yield* harness.setNetworkStatus("offline");
+      yield* awaitState(supervisor.state, (state) => state.phase === "offline");
+      yield* harness.setNetworkStatus("online");
+      yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+      yield* TestClock.adjust("59 seconds");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(1);
+      yield* harness.wake("application-active");
+      yield* supervisor.retryNow;
+      yield* TestClock.adjust("1 second");
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+      yield* supervisor.disconnect;
+      yield* awaitState(supervisor.state, (state) => state.phase === "available");
+    }).pipe(Effect.provide(TestClock.layer())),
+);

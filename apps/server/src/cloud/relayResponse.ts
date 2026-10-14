@@ -15,6 +15,9 @@ export class RelayRequestError extends Schema.TaggedError<RelayRequestError>()(
   {
     rejection: Schema.Literals(["unauthorized", "forbidden", "rejected", "unavailable"]),
     description: Schema.String,
+    retryAfterSeconds: Schema.optionalKey(
+      Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(3600)),
+    ),
   },
 ) {
   override get message(): string {
@@ -39,6 +42,8 @@ export const shouldRetryRelayRequest = (error: unknown): boolean =>
 
 function recoveryHint(error: RelayProtectedError): string {
   switch (error._tag) {
+    case "RelayRateLimitExceededError":
+      return `Too many relay requests. Try again in ${error.retryAfterSeconds} seconds.`;
     case "RelayEnvironmentLinkLimitExceededError":
       return "Unlink an unused environment in Arcwright Connect, then restart Arcwright Code on this machine.";
     case "RelayAuthInvalidError":
@@ -79,5 +84,24 @@ export const filterRelayResponse = Effect.fn("cloud.filter_relay_response")(func
   ) {
     return yield* new RelayRequestError({ rejection: "rejected", description });
   }
-  return yield* new RelayRequestError({ rejection: "unavailable", description });
+  const retryHeader = response.headers["retry-after"];
+  const headerSeconds =
+    retryHeader && /^\d{1,4}$/.test(retryHeader) ? Number(retryHeader) : undefined;
+  const retryAfterSeconds =
+    response.status === 429
+      ? Math.max(
+          60,
+          Option.isSome(decoded) && decoded.value._tag === "RelayRateLimitExceededError"
+            ? decoded.value.retryAfterSeconds
+            : 0,
+          headerSeconds !== undefined && headerSeconds > 0 && headerSeconds <= 3600
+            ? headerSeconds
+            : 0,
+        )
+      : undefined;
+  return yield* new RelayRequestError({
+    rejection: "unavailable",
+    description,
+    ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+  });
 });

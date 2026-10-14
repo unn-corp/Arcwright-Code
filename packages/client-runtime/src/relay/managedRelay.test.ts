@@ -14,6 +14,8 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ManagedRelay from "./managedRelay.ts";
 import * as RpcHttp from "../rpc/http.ts";
+import { mapManagedRelayError } from "../connection/errors.ts";
+import { relayProtectedErrorMessage } from "./errorPresentation.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 
 const encodeRelayError = Schema.encodeEffect(ManagedRelay.ManagedRelayClientError);
@@ -706,3 +708,84 @@ describe("ManagedRelayClient", () => {
     }).pipe(Effect.provide(layerManagedRelayTest(fetchFn)));
   });
 });
+
+it.effect(
+  "generated relay client decodes429, preserves cachedDPoP authorization and performs no exchange/retry",
+  () => {
+    let exchanges = 0;
+    let requests = 0;
+    let saves = 0;
+    let clears = 0;
+    const entries: ReadonlyArray<ManagedRelay.ManagedRelayAccessTokenCacheEntry> = [
+      {
+        accountId: "user-1",
+        clientId: "t3-mobile",
+        relayUrl: "https://relay.example.test",
+        thumbprint: "client-thumbprint",
+        scopes: [RelayEnvironmentStatusScope],
+        accessToken: "usable-relay-token",
+        expiresAtMillis: Number.MAX_SAFE_INTEGER,
+      },
+    ];
+    const store: ManagedRelay.ManagedRelayAccessTokenStore = {
+      load: Effect.succeed(entries),
+      save: () =>
+        Effect.sync(() => {
+          saves++;
+        }),
+      clear: Effect.sync(() => {
+        clears++;
+      }),
+    };
+    const fetchFn = ((input, init) => {
+      if (String(input).endsWith("/v1/client/dpop-token")) {
+        exchanges++;
+        return Promise.reject(new Error("unexpected token exchange"));
+      }
+      requests++;
+      expect(new Headers(init?.headers).get("authorization")).toBe("DPoP usable-relay-token");
+      return Promise.resolve(
+        Response.json(
+          {
+            _tag: "RelayRateLimitExceededError",
+            code: "relay_rate_limited",
+            retryAfterSeconds: 60,
+            traceId: "rate-trace",
+          },
+          { status: 429, headers: { "retry-after": "60" } },
+        ),
+      );
+    }) satisfies typeof globalThis.fetch;
+    return Effect.gen(function* () {
+      const relay = yield* ManagedRelay.ManagedRelayClient;
+      const input = {
+        clerkToken: clerkToken("user-1", "session-1"),
+        scopes: [RelayEnvironmentStatusScope],
+        environmentId: EnvironmentId.make("env-1"),
+      };
+      const first = yield* Effect.flip(relay.getEnvironmentStatus(input));
+      expect(first._tag).toBe("ManagedRelayRequestFailedError");
+      if (first._tag === "ManagedRelayRequestFailedError") {
+        expect(first.relayError?._tag).toBe("RelayRateLimitExceededError");
+        expect(mapManagedRelayError(first)).toMatchObject({
+          _tag: "ConnectionTransientError",
+          reason: "relay-unavailable",
+          traceId: "rate-trace",
+        });
+        if (first.relayError)
+          expect(relayProtectedErrorMessage(first.relayError)).toBe(
+            "Too many relay requests. Try again in 60 seconds.",
+          );
+      }
+      expect(requests).toBe(1);
+      expect(exchanges).toBe(0);
+      expect(clears).toBe(0);
+      expect(saves).toBe(0);
+      yield* Effect.flip(relay.getEnvironmentStatus(input));
+      expect(requests).toBe(2);
+      expect(exchanges).toBe(0);
+      expect(clears).toBe(0);
+      expect(saves).toBe(0);
+    }).pipe(Effect.provide(layerManagedRelayTest(fetchFn, undefined, store)));
+  },
+);

@@ -80,6 +80,9 @@ export class ConnectionTransientError extends Schema.TaggedError<ConnectionTrans
   {
     reason: ConnectionTransientReason,
     detail: Schema.String,
+    retryAfterSeconds: Schema.optionalKey(
+      Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(3600)),
+    ),
     traceId: Schema.optionalKey(Schema.String),
   },
 ) {

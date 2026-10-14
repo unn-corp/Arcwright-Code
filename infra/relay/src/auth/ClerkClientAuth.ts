@@ -4,6 +4,8 @@ import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
+import { isBoundedJwt } from "../http/publicRelayInputBounds.ts";
+
 import * as RelayConfiguration from "../Config.ts";
 
 class ClerkTokenVerificationFailed extends Schema.TaggedError<ClerkTokenVerificationFailed>()(
@@ -21,13 +23,19 @@ export function hasExpectedClerkAudience(audience: unknown, expectedAudience: st
   return typeof audience === "string"
     ? audience === expectedAudience
     : Array.isArray(audience) &&
-        audience.some((entry) => typeof entry === "string" && entry === expectedAudience);
+        audience.length <= 16 &&
+        audience.some(
+          (entry) =>
+            typeof entry === "string" && entry.length <= 4096 && entry === expectedAudience,
+        );
 }
 
 function verifyClerkBearerToken(
   config: RelayConfiguration.RelayConfiguration["Service"],
   token: string,
 ) {
+  if (!isBoundedJwt(token, 16384))
+    return Effect.fail(invalidClerkCredential("invalid_session_token"));
   return Effect.tryPromise({
     try: () =>
       verifyToken(token, {
@@ -76,6 +84,8 @@ export function verifyRelaySessionBearerToken(
   config: RelayConfiguration.RelayConfiguration["Service"],
   token: string,
 ) {
+  if (token.length > 16384 || new TextEncoder().encode(token).byteLength > 16384)
+    return Effect.fail(invalidClerkCredential("invalid_token_length"));
   return RelayConfiguration.resolveClerkAuthPolicy(config).pipe(
     Effect.mapError(() => invalidClerkCredential("invalid_auth_policy")),
     Effect.flatMap((policy) => {
@@ -92,7 +102,7 @@ function verifyOwnedClerkSessionBearerToken(
   policy: Extract<RelayConfiguration.ClerkAuthPolicy, { mode: "owned" }>,
   token: string,
 ) {
-  if (!isSessionJwt(token)) {
+  if (!isBoundedJwt(token, 16384) || !isSessionJwt(token)) {
     return Effect.fail(invalidClerkCredential("invalid_session_kind"));
   }
   return Effect.tryPromise({
@@ -144,8 +154,12 @@ function verifyOwnedClerkOAuthBearerToken(
         if (
           clientId !== policy.cliClientId ||
           !isClerkUserSubject(subject) ||
+          (typeof subject === "string" && subject.length > 191) ||
           !Array.isArray(scopes) ||
-          !scopes.every((scope) => typeof scope === "string" && scope.length > 0) ||
+          scopes.length > 64 ||
+          !scopes.every(
+            (scope) => typeof scope === "string" && scope.length > 0 && scope.length <= 256,
+          ) ||
           !["openid", "profile", "email"].every((scope) => scopes.includes(scope)) ||
           revoked !== false ||
           expired !== false ||
@@ -192,6 +206,8 @@ export function verifyRelayClientBearerToken(
   config: RelayConfiguration.RelayConfiguration["Service"],
   token: string,
 ) {
+  if (token.length > 16384 || new TextEncoder().encode(token).byteLength > 16384)
+    return Effect.fail(invalidClerkCredential("invalid_token_length"));
   return RelayConfiguration.resolveClerkAuthPolicy(config).pipe(
     Effect.mapError(() => invalidClerkCredential("invalid_auth_policy")),
     Effect.flatMap((policy) =>

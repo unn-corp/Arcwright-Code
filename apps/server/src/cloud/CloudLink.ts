@@ -1277,6 +1277,15 @@ const make = Effect.gen(function* () {
         ).pipe(
           Effect.retry({
             times: 2,
+            schedule: Schedule.recurs(2).pipe(
+              Schedule.addDelay(({ input }) =>
+                Effect.succeed(
+                  Duration.seconds(
+                    input._tag === "RelayRequestError" ? (input.retryAfterSeconds ?? 0) : 0,
+                  ),
+                ),
+              ),
+            ),
             while: (error) =>
               shouldRetryCloudLink(error) && error._tag !== "CloudLinkEndpointUnavailableError",
           }),

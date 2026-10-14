@@ -43,6 +43,80 @@ export class PwaPushUnavailableError extends Error {
     this.name = "PwaPushUnavailableError";
   }
 }
+class PwaPushRateLimitedError extends Error {
+  readonly retryAfterSeconds: number;
+  constructor(retryAfterSeconds: number) {
+    super(
+      `The notification service is temporarily rate limited. Try again in ${retryAfterSeconds} seconds.`,
+    );
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+// Only a bounded, structured rejection from the current relay proves no mutation ran.
+async function rateLimitRejection(
+  response: Response,
+  profile: Extract<PwaPushRelayProfile, { type: "available" }>,
+): Promise<PwaPushRateLimitedError | undefined> {
+  const current = getPwaPushRelayProfile();
+  if (
+    current.type !== "available" ||
+    current.mode !== profile.mode ||
+    current.relayOrigin !== profile.relayOrigin
+  )
+    return;
+  try {
+    if (new URL(response.url).origin !== profile.relayOrigin || !response.body) return;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        if (chunk.value.byteLength > 4096 - size) {
+          void reader.cancel().catch(() => {});
+          return;
+        }
+        size += chunk.value.byteLength;
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("_tag" in value) ||
+      value._tag !== "RelayRateLimitExceededError" ||
+      !("code" in value) ||
+      value.code !== "relay_rate_limited" ||
+      !("retryAfterSeconds" in value) ||
+      value.retryAfterSeconds !== 60 ||
+      !("traceId" in value) ||
+      typeof value.traceId !== "string" ||
+      value.traceId.length === 0 ||
+      value.traceId.length > 128
+    )
+      return;
+    const header = response.headers.get("retry-after");
+    const delay =
+      header && /^\d{1,4}$/.test(header) && Number(header) <= 3600
+        ? Math.max(60, Number(header))
+        : 60;
+    return new PwaPushRateLimitedError(delay);
+  } catch {
+    return;
+  }
+}
+
 export class PwaPushRemovalPendingError extends Error {
   constructor(recoveryRequired = false) {
     super(
@@ -429,6 +503,13 @@ async function json<T>(
       "The notification service is temporarily unavailable. Try again when connected.",
     );
   }
+  if (response.status === 429) {
+    const rejection = await rateLimitRejection(response, profile);
+    if (rejection) throw rejection;
+    throw new Error(
+      "The notification service is temporarily rate limited. Try again in 60 seconds.",
+    );
+  }
   if (response.status === 404 || response.status === 503) throw new PwaPushUnavailableError();
   if (!response.ok) throw new Error(`PWA push service returned ${response.status}.`);
   try {
@@ -446,6 +527,44 @@ export async function getPwaPushConfig(): Promise<string> {
     throw new PwaPushUnavailableError();
   return result.applicationServerKey;
 }
+function settleRejectedOperation(
+  profile: Extract<PwaPushRelayProfile, { type: "available" }>,
+  installation: Installation,
+  snapshot: string | null,
+  generation: number,
+  markerKey: string,
+  marker: string,
+): boolean {
+  try {
+    const current = getPwaPushRelayProfile();
+    if (
+      current.type !== "available" ||
+      current.mode !== profile.mode ||
+      current.relayOrigin !== profile.relayOrigin
+    )
+      return false;
+    const active =
+      profile.mode === "owned"
+        ? readRecord(profile.relayOrigin)?.installation
+        : {
+            installationId: window.localStorage.getItem(INSTALLATION_ID_KEY),
+            installationSecret: window.localStorage.getItem(INSTALLATION_SECRET_KEY),
+          };
+    if (
+      active?.installationId !== installation.installationId ||
+      active.installationSecret !== installation.installationSecret ||
+      authoritySnapshot(profile) !== snapshot ||
+      (registrationGenerations.get(authorityScope(profile)) ?? 0) !== generation ||
+      window.localStorage.getItem(markerKey) !== marker
+    )
+      return false;
+    window.localStorage.removeItem(markerKey);
+    return window.localStorage.getItem(markerKey) === null;
+  } catch {
+    return false;
+  }
+}
+
 async function registerCurrentSubscription(input: {
   readonly environmentId: string;
   readonly subscription: PushSubscription;
@@ -562,6 +681,14 @@ async function registerCurrentSubscription(input: {
       );
     }
     return result.subscriptionId;
+  } catch (error) {
+    if (
+      error instanceof PwaPushRateLimitedError &&
+      !controller.signal.aborted &&
+      !input.signal?.aborted
+    )
+      settleRejectedOperation(profile, installation, snapshot, generation, markerKey, marker);
+    throw error;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     input.signal?.removeEventListener("abort", cancel);
@@ -667,7 +794,13 @@ export function removePwaPushSubscription(subscriptionId: string): Promise<void>
           window.localStorage.removeItem(markerKey);
         if (pendingRemovals.get(scope) === operation) pendingRemovals.delete(scope);
       } catch (error) {
-        if (!removalStarted && !controller.signal.aborted) {
+        if (
+          error instanceof PwaPushRateLimitedError &&
+          !controller.signal.aborted &&
+          settleRejectedOperation(profile, installation, snapshot, generation, markerKey, marker)
+        ) {
+          if (pendingRemovals.get(scope) === operation) pendingRemovals.delete(scope);
+        } else if (!removalStarted && !controller.signal.aborted) {
           if (window.localStorage.getItem(markerKey) === marker)
             window.localStorage.removeItem(markerKey);
           if (pendingRemovals.get(scope) === operation) pendingRemovals.delete(scope);

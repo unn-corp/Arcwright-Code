@@ -11,21 +11,14 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
-import * as Etag from "effect/http/Etag";
 import * as HttpMiddleware from "effect/http/HttpMiddleware";
-import * as HttpPlatform from "effect/http/HttpPlatform";
-import * as HttpRouter from "effect/http/HttpRouter";
-import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
-import * as HttpApiScalar from "effect/http-api/HttpApiScalar";
 
-import { RelayApi } from "@t3tools/contracts/relay";
-
+import { pwaApi } from "./http/Api.ts";
+import * as PublicRelayRateLimits from "./http/PublicRelayRateLimits.ts";
 import {
-  pwaApi,
-  RELAY_HTTP_ROUTER_CONFIG,
-  traceRelayHttpRequestWith,
-  withoutCapturedParentSpan,
-} from "./http/Api.ts";
+  wrapPublicRelayHttp,
+  withCloudflarePublicRelayIdentity,
+} from "./http/PublicRelayBoundary.ts";
 import * as RelayHttpApi from "./http/Api.ts";
 import { ManagedEndpointZone, RelayApiZone, RelayDeploymentConfig } from "./zone.ts";
 import { RelayObservability } from "./observability.ts";
@@ -89,16 +82,6 @@ const layerWebcrypto = Layer.succeed(
       }),
   }),
 );
-
-const layerHttpPlatformNotSupported = Layer.succeed(HttpPlatform.HttpPlatform, {
-  platform: "web",
-  compression: {
-    algorithms: new Set<HttpPlatform.CompressionAlgorithm>(),
-    compressResponse: (response) => Effect.succeed(response),
-  },
-  fileResponse: () => Effect.die("Relay API does not serve filesystem responses"),
-  fileWebResponse: () => Effect.die("Relay API does not serve file responses"),
-});
 
 const layerRelayApi = Layer.mergeAll(
   RelayHttpApi.layerHealthApi,
@@ -221,6 +204,30 @@ export const layer = Api.make(
         limit: HookForwarder.RELAY_HOOK_ENDPOINT_RATE_LIMIT.limit,
         period: HookForwarder.RELAY_HOOK_ENDPOINT_RATE_LIMIT.periodSeconds,
       },
+    });
+    const public30 = yield* Cloudflare.RateLimit("PUBLIC_RELAY_30", {
+      namespaceId: 1101,
+      simple: { limit: 30, period: 60 },
+    });
+    const public120 = yield* Cloudflare.RateLimit("PUBLIC_RELAY_120", {
+      namespaceId: 1102,
+      simple: { limit: 120, period: 60 },
+    });
+    const public240 = yield* Cloudflare.RateLimit("PUBLIC_RELAY_240", {
+      namespaceId: 1103,
+      simple: { limit: 240, period: 60 },
+    });
+    const public60 = yield* Cloudflare.RateLimit("PUBLIC_RELAY_60", {
+      namespaceId: 1104,
+      simple: { limit: 60, period: 60 },
+    });
+    const public10 = yield* Cloudflare.RateLimit("PUBLIC_RELAY_10", {
+      namespaceId: 1105,
+      simple: { limit: 10, period: 60 },
+    });
+    const publicEdge = yield* Cloudflare.RateLimit("PUBLIC_RELAY_EDGE", {
+      namespaceId: 1106,
+      simple: { limit: 120, period: 60 },
     });
     const hookInboxes = yield* HookInboxObject.HookInboxObject;
 
@@ -494,23 +501,27 @@ export const layer = Api.make(
       ),
     );
 
-    const fetch = Layer.merge(
-      Layer.mergeAll(
-        HttpApiBuilder.layer(RelayApi, { openapiPath: "/openapi.json" }).pipe(
-          Layer.provide(layerApp),
-        ),
-        HttpApiScalar.layer(RelayApi, { path: "/docs" }),
-        RelayHttpApi.layerDocsRedirectRoute,
-      ).pipe(
-        Layer.provide([Etag.layerWeak, layerHttpPlatformNotSupported, RelayHttpApi.layerCors]),
-      ),
-      RelayHttpApi.layerNotFoundRoute,
-    ).pipe(
-      HttpRouter.toHttpEffect,
-      Effect.provideService(HttpRouter.RouterConfig, RELAY_HTTP_ROUTER_CONFIG),
-      withoutCapturedParentSpan,
+    const configuredPublicBinding = (binding: typeof public30) => ({
+      limit: (options: { readonly key: string }) =>
+        binding
+          .limit(options)
+          .pipe(Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext)),
+    });
+    const publicLimiterLayer = PublicRelayRateLimits.layerCloudflare(
+      { issuer: relayPublicOrigin, stage },
+      {
+        30: configuredPublicBinding(public30),
+        120: configuredPublicBinding(public120),
+        240: configuredPublicBinding(public240),
+        60: configuredPublicBinding(public60),
+        10: configuredPublicBinding(public10),
+        edge: configuredPublicBinding(publicEdge),
+      },
+    );
+    const fetch = RelayHttpApi.assembleRelayHttpRoutes(layerApp).pipe(
       Effect.map((httpEffect) =>
-        traceRelayHttpRequestWith(httpEffect, Layer.empty).pipe(
+        withCloudflarePublicRelayIdentity(wrapPublicRelayHttp(httpEffect)).pipe(
+          Effect.provide(publicLimiterLayer),
           Observability.withSchemaErrorSpanAttributes,
         ),
       ),

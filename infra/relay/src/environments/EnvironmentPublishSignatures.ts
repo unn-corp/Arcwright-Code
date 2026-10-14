@@ -1,3 +1,4 @@
+import { inspectBoundedJwt, assertPublicSpki } from "../http/publicRelayInputBounds.ts";
 import {
   RelayAgentActivityPublishProofPayload,
   RelayAgentActivityPublishProofInvalidReason,
@@ -115,7 +116,11 @@ const make = Effect.gen(function* () {
       });
       const now = yield* DateTime.now;
       const decoded = yield* Effect.try({
-        try: () => decodeRelayJwt(input.request.proof),
+        try: () => {
+          inspectBoundedJwt(input.request.proof);
+          assertPublicSpki(input.environmentPublicKey);
+          return decodeRelayJwt(input.request.proof);
+        },
         catch: (cause) =>
           new EnvironmentPublishSignatureInvalid({
             environmentId: input.environmentId,

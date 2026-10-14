@@ -23,6 +23,15 @@ export function dpopFailureMessage(message: string, reason: DpopFailureReason | 
 
 export function relayProtectedErrorMessage(error: RelayProtectedError): string {
   switch (error._tag) {
+    case "RelayRateLimitExceededError":
+      return `Too many relay requests. Try again in ${error.retryAfterSeconds} seconds.`;
+    case "RelayServiceUnavailableError":
+      return "The relay is temporarily unavailable. Try again later.";
+    case "RelayRequestTooLargeError":
+    case "RelayRequestHeadersTooLargeError":
+      return "The relay request is too large. Check the connection configuration.";
+    case "RelayRequestInvalidError":
+      return "The relay request is invalid. Check the connection configuration.";
     case "RelayAuthInvalidError":
       switch (error.reason) {
         case "missing_bearer":
