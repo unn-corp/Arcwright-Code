@@ -30,6 +30,7 @@ import {
   publicRelayHeaderFailure,
   isRelayHookRequest,
   isRelayHookTraceRequest,
+  relayTracePathDecodeFails,
   relayHookTraceUrl,
 } from "./publicRelayPolicy.ts";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
@@ -278,7 +279,7 @@ export const traceRelayHttpRequest = <E, R>(
           ),
         );
     const safeTraceRequest = request.modify({
-      ...(oversized
+      ...(oversized || relayTracePathDecodeFails(request.url)
         ? { url: "/__relay_rejected_request__" }
         : isRelayHookTraceRequest(request.method, request.url)
           ? { url: relayHookTraceUrl(request.method, request.url) }

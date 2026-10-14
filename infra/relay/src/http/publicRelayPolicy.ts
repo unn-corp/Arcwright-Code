@@ -155,14 +155,31 @@ export function classifyPublicRelayRoute(
 
 // The installed matcher splits query/fragment/semicolon suffixes. Bound only the path
 // before giving it to that matcher, preserving previously exempt genuine long queries.
-function hookRoute(method: string, url: string) {
+function boundedRelayPath(url: string): string | undefined {
   for (let index = 0; index <= publicRelayBounds.urlCharacters; index++) {
     const char = url[index];
     if (char === undefined || char === "?" || char === "#" || char === ";")
-      return routeClassifier.find(method, url.slice(0, index));
+      return url.slice(0, index);
   }
   return undefined;
 }
+function hookRoute(method: string, url: string) {
+  const path = boundedRelayPath(url);
+  return path === undefined ? undefined : routeClassifier.find(method, path);
+}
+
+/** Failed URI decoding selects a safe trace view, never route admission. */
+export function relayTracePathDecodeFails(url: string): boolean {
+  const path = boundedRelayPath(url);
+  if (path === undefined) return true;
+  try {
+    decodeURI(path);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export function isRelayHookRequest(method: string, url: string): boolean {
   return hookRoute(method, url)?.handler?.kind === "hook";
 }
