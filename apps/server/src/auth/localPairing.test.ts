@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "@effect/vitest";
 import { AuthStandardClientScopes } from "@t3tools/contracts";
 import { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as Option from "effect/Option";
 import { createLivePairingLink, LocalPairingError } from "./localPairing.ts";
 import { issueOperatorToken, OPERATOR_TOKEN_HEADER } from "../maintenance/operatorAuth.ts";
@@ -87,7 +88,8 @@ describe("pairing through a running server", () => {
         );
         expect(Option.isSome(issued) && issued.value.id).toBe("issued-by-live-server");
         expect(requests).toEqual([{ scopes: AuthStandardClientScopes, label: "SSH client" }]);
-        const status = yield* Effect.promise(() => store.status(Date.now()));
+        const now = yield* Clock.currentTimeMillis;
+        const status = yield* Effect.promise(() => store.status(now));
         expect(status.participants.map((p) => p.id)).toEqual(["live-server"]);
         expect(
           yield* Effect.promise(() => NodeFSP.readdir(NodePath.join(home, "userdata"))),
