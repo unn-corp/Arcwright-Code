@@ -249,8 +249,9 @@ Do not delete an allocation merely to make room while its external resources may
 Public relay admission returns `429 relay_rate_limited` with `Retry-After: 60` for a temporary
 denial. A limiter outage returns `503 relay_unavailable` and fails closed. The existing
 `403 environment_link_limit_exceeded` still means the user's managed allocation quota is full.
-Clients retain bearer, DPoP and installation credentials after 429; mutations are not retried
-automatically.
+Clients retain bearer, DPoP and installation credentials after 429. A rate-limit response does not
+add automatic retries to mutation calls; existing managed recovery registration retries wait at
+least `Retry-After` before trying again.
 
 Admission follows the [per-operation policy](../../infra/relay/src/http/publicRelayPolicy.ts) for
 verified users, environment keys and authenticated installations, with a mandatory canonical
