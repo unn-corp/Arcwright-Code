@@ -1,4 +1,5 @@
 import * as Cloudflare from "alchemy/Cloudflare";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -160,13 +161,14 @@ function validBodyInput(bytes: Uint8Array, contentTypeHeader: string | undefined
   }
 }
 
-const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
+const boundedBoundary = <E, R>(
+  router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+  request: HttpServerRequest.HttpServerRequest,
+  original: Request | undefined,
+  aborted: Deferred.Deferred<void>,
+) =>
   Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    // Hook byte limits and raw forwarding belong to HookForwarder, without reconstruction.
-    if (isRelayHookRequest(request.method, request.url)) return yield* router;
     const traceId = yield* currentTraceId;
-    const original = request.source instanceof Request ? request.source : undefined;
     const early = (status: BoundaryStatus) => {
       if (original) cancelBody(original);
       return rejected(status, traceId);
@@ -192,6 +194,7 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
       if (original) cancelBody(original);
       return yield* router;
     }
+    if (original?.signal.aborted) return early(400);
     const identity = yield* PublicRelayRateLimits.TrustedEdgeIdentity;
     const canonicalIp = identity.status === "available" ? canonicalEdgeIp(identity.ip) : undefined;
     if (canonicalIp === undefined || !original) {
@@ -209,6 +212,9 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
       Effect.map(() => Option.none<HttpServerResponse.HttpServerResponse>()),
       Effect.catch((error) =>
         Effect.succeedSome(responseFor(relayPublicLimitError(error, traceId))),
+      ),
+      Effect.raceFirst(
+        Deferred.await(aborted).pipe(Effect.as(Option.some(rejected(400, traceId)))),
       ),
     );
     if (Option.isSome(limited)) {
@@ -236,6 +242,35 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
     });
     return yield* router.pipe(
       Effect.provideService(HttpServerRequest.HttpServerRequest, boundedEffect),
+    );
+  });
+
+const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    // Hook byte limits and raw forwarding belong to HookForwarder, without reconstruction.
+    if (isRelayHookRequest(request.method, request.url)) return yield* router;
+    const original = request.source instanceof Request ? request.source : undefined;
+    const aborted = Deferred.makeUnsafe<void>();
+    // An active reader owns its cancellation/release; this bracket owns unread ingress.
+    const cancelUnread = () => {
+      if (original && !original.bodyUsed && !original.body?.locked) cancelBody(original);
+    };
+    const abort = () => {
+      cancelUnread();
+      Deferred.doneUnsafe(aborted, Effect.void);
+    };
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => {
+        original?.signal.addEventListener("abort", abort, { once: true });
+        if (original?.signal.aborted) abort();
+      }),
+      () => boundedBoundary(router, request, original, aborted),
+      () =>
+        Effect.sync(() => {
+          original?.signal.removeEventListener("abort", abort);
+          cancelUnread();
+        }),
     );
   });
 

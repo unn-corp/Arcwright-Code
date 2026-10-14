@@ -1,4 +1,5 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -223,6 +224,21 @@ function rawRequest(
   } as RequestInit);
   return { request, read: () => read, cancelled: () => cancelled };
 }
+const expectUnreadBodyClosed = Effect.fnUntraced(function* (raw: ReturnType<typeof rawRequest>) {
+  expect(raw.read()).toBe(0);
+  expect(raw.cancelled()).toBe(1);
+  expect(raw.request.bodyUsed).toBe(true);
+  expect(raw.request.body?.locked).toBe(false);
+  const reader = raw.request.body!.getReader();
+  try {
+    expect(yield* Effect.promise(() => reader.read())).toEqual({ done: true, value: undefined });
+  } finally {
+    reader.releaseLock();
+  }
+  expect(raw.read()).toBe(0);
+  expect(raw.cancelled()).toBe(1);
+  expect(raw.request.body?.locked).toBe(false);
+});
 const send = <E, R>(
   effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
   request: Request,
@@ -349,6 +365,201 @@ describe("production public relay boundary and route assembly", () => {
         expect(calls.auth).toBe(0);
         expect(calls.business).toBe(0);
       }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(["never", "reject"] as const)(
+    "closes unread ingress when admission reaches the outer deadline with %s cancellation",
+    (cancellation) =>
+      Effect.gen(function* () {
+        const calls = counts();
+        const entered = yield* Deferred.make<void>();
+        const stopped = yield* Deferred.make<void>();
+        const endpoint = yield* withBoundary(calls, () =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Deferred.succeed(stopped, undefined)),
+          ),
+        );
+        const raw = rawRequest([encode("{}")], {
+          neverCancel: cancellation === "never",
+          rejectCancel: cancellation === "reject",
+        });
+        const add = vi.spyOn(raw.request.signal, "addEventListener");
+        const remove = vi.spyOn(raw.request.signal, "removeEventListener");
+        try {
+          const fiber = yield* send(endpoint, raw.request).pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          expect(raw.read()).toBe(0);
+          expect(raw.cancelled()).toBe(0);
+          yield* TestClock.adjust("9 seconds");
+          const response = yield* Fiber.join(fiber);
+          yield* Deferred.await(stopped);
+          expect(response.status).toBe(504);
+          expect(yield* Effect.promise(() => response.json())).toEqual({
+            error: "relay_request_deadline_exceeded",
+          });
+          expect(response.headers.get("cache-control")).toBe("no-store");
+          expect(response.headers.get("access-control-allow-origin")).toBe("*");
+          expect(response.headers.get("traceparent")).toMatch(/^00-/);
+          yield* expectUnreadBodyClosed(raw);
+          expect(calls).toEqual({ auth: 0, business: 0, limiter: 1 });
+          const listener = add.mock.calls.find(([type]) => type === "abort")?.[1];
+          expect(listener).toBeDefined();
+          expect(remove).toHaveBeenCalledWith("abort", listener);
+        } finally {
+          add.mockRestore();
+          remove.mockRestore();
+        }
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(["never", "reject"] as const)(
+    "closes unread ingress on explicit admission fiber interruption with %s cancellation",
+    (cancellation) =>
+      Effect.gen(function* () {
+        const calls = counts();
+        const entered = yield* Deferred.make<void>();
+        const stopped = yield* Deferred.make<void>();
+        const endpoint = yield* withBoundary(calls, () =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Deferred.succeed(stopped, undefined)),
+          ),
+        );
+        const raw = rawRequest([encode("{}")], {
+          neverCancel: cancellation === "never",
+          rejectCancel: cancellation === "reject",
+        });
+        const fiber = yield* send(endpoint.pipe(Effect.interruptible), raw.request).pipe(
+          Effect.forkChild,
+        );
+        yield* Deferred.await(entered);
+        yield* Fiber.interrupt(fiber);
+        yield* Deferred.await(stopped);
+        const exit = fiber.pollUnsafe();
+        expect(exit?._tag).toBe("Failure");
+        if (exit?._tag === "Failure") expect(Cause.hasInterrupts(exit.cause)).toBe(true);
+        yield* expectUnreadBodyClosed(raw);
+        expect(calls).toEqual({ auth: 0, business: 0, limiter: 1 });
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(
+    ["before", "during"].flatMap((timing) =>
+      ["never", "reject"].map((cancellation) => ({ timing, cancellation })),
+    ),
+  )(
+    "closes unread ingress aborted $timing admission with $cancellation cancellation",
+    ({ timing, cancellation }) =>
+      Effect.gen(function* () {
+        const calls = counts();
+        const entered = yield* Deferred.make<void>();
+        const stopped = yield* Deferred.make<void>();
+        const endpoint = yield* withBoundary(calls, () =>
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Deferred.succeed(stopped, undefined)),
+          ),
+        );
+        const controller = new AbortController();
+        const raw = rawRequest([encode("{}")], {
+          signal: controller.signal,
+          neverCancel: cancellation === "never",
+          rejectCancel: cancellation === "reject",
+        });
+        const add = vi.spyOn(raw.request.signal, "addEventListener");
+        const remove = vi.spyOn(raw.request.signal, "removeEventListener");
+        try {
+          if (timing === "before") controller.abort();
+          const fiber = yield* send(endpoint, raw.request).pipe(Effect.forkChild);
+          if (timing === "during") {
+            yield* Deferred.await(entered);
+            controller.abort();
+          }
+          const response = yield* Fiber.join(fiber);
+          if (timing === "during") yield* Deferred.await(stopped);
+          expect(response.status).toBe(400);
+          expect(yield* Effect.promise(() => response.json())).toMatchObject({
+            _tag: "RelayRequestInvalidError",
+            code: "relay_request_invalid",
+          });
+          yield* expectUnreadBodyClosed(raw);
+          expect(calls).toEqual({
+            auth: 0,
+            business: 0,
+            limiter: timing === "before" ? 0 : 1,
+          });
+          const listener = add.mock.calls.find(([type]) => type === "abort")?.[1];
+          expect(listener).toBeDefined();
+          expect(remove).toHaveBeenCalledWith("abort", listener);
+        } finally {
+          add.mockRestore();
+          remove.mockRestore();
+        }
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "releases public ingress listeners after admitted EOF and retains the original signal",
+    () =>
+      Effect.gen(function* () {
+        const calls = counts();
+        const controller = new AbortController();
+        const entered = yield* Deferred.make<void>();
+        const admitted = yield* Deferred.make<void>();
+        const endpoint = yield* withBoundary(calls, () =>
+          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(admitted))),
+        );
+        const raw = rawRequest([encode("{}")], { signal: controller.signal });
+        const add = vi.spyOn(raw.request.signal, "addEventListener");
+        const remove = vi.spyOn(raw.request.signal, "removeEventListener");
+        try {
+          const fiber = yield* send(endpoint, raw.request).pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          const listeners = add.mock.calls.filter(([type]) => type === "abort");
+          expect(listeners).toHaveLength(1);
+          const listener = listeners[0]?.[1];
+          expect(listener).toBeDefined();
+          yield* Deferred.succeed(admitted, undefined);
+          expect((yield* Fiber.join(fiber)).status).toBe(200);
+          expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+          expect(raw.read()).toBe(2);
+          expect(raw.cancelled()).toBe(0);
+          expect(raw.request.body?.locked).toBe(false);
+          const actual = routeViews.at(-1)!;
+          expect(actual.source).toBeInstanceOf(Request);
+          if (actual.source instanceof Request)
+            expect(actual.source.signal).toBe(raw.request.signal);
+          expect(remove).toHaveBeenCalledWith("abort", listener);
+          controller.abort();
+          expect(raw.cancelled()).toBe(0);
+        } finally {
+          add.mockRestore();
+          remove.mockRestore();
+        }
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("leaves genuine raw-hook ingress ownership and listeners with its forwarder", () =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const endpoint = yield* withBoundary(calls, () => Effect.never);
+      const raw = rawRequest([encode("{}")], {
+        url: "https://relay.test/v1/hooks/endpoint/hook/private-token?sender=" + "q".repeat(9000),
+      });
+      const add = vi.spyOn(raw.request.signal, "addEventListener");
+      try {
+        const response = yield* send(endpoint, raw.request);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("access-control-allow-origin")).toBeNull();
+        expect(routeViews.at(-1)?.source).toBe(raw.request);
+        expect(raw.cancelled()).toBe(0);
+        expect(calls).toEqual({ auth: 0, business: 1, limiter: 0 });
+        expect(add.mock.calls.filter(([type]) => type === "abort")).toHaveLength(0);
+      } finally {
+        add.mockRestore();
+      }
+    }).pipe(Effect.scoped),
   );
 
   it.effect("bounds headers/URLs before trace capture and removes all raw IP attributes", () =>

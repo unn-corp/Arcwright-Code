@@ -257,11 +257,17 @@ describe("DpopProofReplay.verifyAndConsume", () => {
 });
 
 it.effect(
-  "actual DPoP precheck rejects oversizedjti and private/oversizedJWK without replay insertion",
+  "actual DPoP precheck isolates oversizedjti/private/oversizedJWK and accepts a bounded signed proof",
   () => {
     let inserts = 0;
     const now = DateTime.makeUnsafe("2026-05-25T12:00:00.000Z");
     const original = makeDpopProof({
+      method: "POST",
+      url: "https://relay.example.test/v1/environments/env/connect",
+      jti: "bounded-jti",
+      iat: Math.floor(now.epochMilliseconds / 1000),
+    });
+    const oversizedJti = makeDpopProof({
       method: "POST",
       url: "https://relay.example.test/v1/environments/env/connect",
       jti: "x".repeat(256),
@@ -274,7 +280,7 @@ it.effect(
         jwk: Record<string, unknown>;
       };
       const variants = [
-        original.proof,
+        oversizedJti.proof,
         `${Buffer.from(JSON.stringify({ ...header, jwk: { ...header.jwk, d: "private" } })).toString("base64url")}.${parts[1]}.${parts[2]}`,
         `${Buffer.from(JSON.stringify({ ...header, jwk: { ...header.jwk, x: "x".repeat(44) } })).toString("base64url")}.${parts[1]}.${parts[2]}`,
       ];
@@ -290,6 +296,15 @@ it.effect(
         expect(error).toMatchObject({ _tag: "DpopProofRejected", code: "malformed_proof" });
       }
       expect(inserts).toBe(0);
+      expect(
+        yield* replay.verifyAndConsume({
+          proof: original.proof,
+          method: "POST",
+          url: "https://relay.example.test/v1/environments/env/connect",
+          now,
+        }),
+      ).toBe(original.thumbprint);
+      expect(inserts).toBe(1);
     }).pipe(
       Effect.provide(
         layer((values) =>
