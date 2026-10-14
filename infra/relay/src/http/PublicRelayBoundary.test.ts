@@ -5,6 +5,7 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 import * as TestClock from "effect/testing/TestClock";
 import * as HttpServer from "effect/http/HttpServer";
@@ -20,6 +21,7 @@ import {
   RelayEnvironmentAuth,
   RelayClientPrincipal,
   RelayEnvironmentPrincipal,
+  RelayRequestHeadersTooLargeError,
 } from "@t3tools/contracts/relay";
 import { mapRelayCommonApiErrors } from "./Api.ts";
 import {
@@ -950,4 +952,154 @@ it.effect(
       expect(isBoundedJwt(token(Array.from({ length: 8 }, () => "extension")), 16384)).toBe(true);
       expect(isBoundedJwt(token(Array.from({ length: 9 }, () => "extension")), 16384)).toBe(false);
     }),
+);
+
+it.effect.each([
+  { label: "name-heavy", name: "x".repeat(8191), value: "v" },
+  { label: "split name/value", name: "x".repeat(4096), value: "v".repeat(4096) },
+  { label: "encoded value bytes", name: "x".repeat(4096), value: "é".repeat(2048) },
+])(
+  "generic individual $label header accepts8192 and rejects8193 before admission/capture",
+  ({ name, value }) =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const endpoint = yield* withBoundary(calls);
+      const spans: Tracer.NativeSpan[] = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      expect(encode(name).byteLength + encode(value).byteLength).toBe(8192);
+      const admitted = rawRequest([encode("{}")], { headers: { [name]: value } });
+      expect(
+        (yield* send(endpoint, admitted.request).pipe(
+          Effect.provideService(Tracer.Tracer, tracer),
+          Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+        )).status,
+      ).toBe(200);
+      yield* Effect.yieldNow;
+      expect(spans.at(-1)?.attributes.get(`http.request.header.${name}`)).toBe(value);
+      expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+      const rejected = rawRequest([encode("{}")], {
+        headers: { [name]: value + "x" },
+        neverCancel: true,
+      });
+      const response = yield* send(endpoint, rejected.request).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+      );
+      expect(response.status).toBe(431);
+      const body = yield* Schema.decodeUnknownEffect(RelayRequestHeadersTooLargeError)(
+        yield* Effect.promise(() => response.json()),
+      );
+      expect(body).toMatchObject({
+        _tag: "RelayRequestHeadersTooLargeError",
+        code: "relay_request_headers_too_large",
+        traceId: expect.any(String),
+      });
+      expect(response.headers.get("traceparent")).toContain(body.traceId);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(response.headers.get("access-control-expose-headers")).toContain("retry-after");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("pragma")).toBe("no-cache");
+      expect(response.headers.get("www-authenticate")).toBeNull();
+      expect(rejected.read()).toBe(0);
+      expect(rejected.cancelled()).toBe(1);
+      expect(rejected.request.body?.locked).toBe(false);
+      expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+      yield* Effect.yieldNow;
+      expect(spans.at(-1)?.attributes.get(`http.request.header.${name}`)).toBeUndefined();
+      expect(spans.at(-1)?.attributes.get("url.path")).toBe("/__relay_rejected_request__");
+    }).pipe(Effect.scoped),
+);
+it.effect("generic name8193 itself is rejected before trace capture or downstream work", () =>
+  Effect.gen(function* () {
+    const calls = counts();
+    const endpoint = yield* withBoundary(calls);
+    const name = "x".repeat(8193);
+    const spans: Tracer.NativeSpan[] = [];
+    const tracer = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options);
+        spans.push(span);
+        return span;
+      },
+    });
+    const raw = rawRequest([encode("{}")], { headers: { [name]: "v" }, rejectCancel: true });
+    expect(
+      (yield* send(endpoint, raw.request).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+      )).status,
+    ).toBe(431);
+    expect(raw.read()).toBe(0);
+    expect(raw.cancelled()).toBe(1);
+    expect(calls).toEqual({ auth: 0, business: 0, limiter: 0 });
+    yield* Effect.yieldNow;
+    expect(spans.at(-1)?.attributes.get(`http.request.header.${name}`)).toBeUndefined();
+    expect(spans.at(-1)?.attributes.get("url.path")).toBe("/__relay_rejected_request__");
+  }).pipe(Effect.scoped),
+);
+it.effect.each([
+  { name: "authorization", value: "x".repeat(16384) },
+  { name: "dpop", value: "x".repeat(8192) },
+  {
+    name: "content-type",
+    value: "application/json;" + "x".repeat(256 - "application/json;".length),
+  },
+  { name: "content-length", value: "0".repeat(128) },
+  { name: "traceparent", value: "x".repeat(128) },
+])("special $name ceiling remains value-only in the real boundary", ({ name, value }) =>
+  Effect.gen(function* () {
+    const calls = counts();
+    const endpoint = yield* withBoundary(calls);
+    expect(
+      (yield* send(endpoint, rawRequest([encode("{}")], { headers: { [name]: value } }).request))
+        .status,
+    ).toBe(200);
+    const raw = rawRequest([encode("{}")], {
+      headers: { [name]: value + (name === "content-length" ? "0" : "x") },
+    });
+    expect((yield* send(endpoint, raw.request)).status).toBe(431);
+    expect(raw.read()).toBe(0);
+    expect(raw.cancelled()).toBe(1);
+    expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+  }).pipe(Effect.scoped),
+);
+it.effect(
+  "aggregate32768 still counts names and values independently of the generic individual limit",
+  () =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const endpoint = yield* withBoundary(calls);
+      const headers = Object.fromEntries(
+        [0, 1, 2].map((index) => {
+          const name = `x-aggregate-${index}`;
+          return [name, "x".repeat(8192 - encode(name).byteLength)];
+        }),
+      );
+      const admitted = rawRequest([encode("{}")], {
+        headers: { ...headers, "x-aggregate-final": "" },
+      });
+      const total = [...admitted.request.headers].reduce(
+        (sum, [name, value]) => sum + encode(name).byteLength + encode(value).byteLength,
+        0,
+      );
+      admitted.request.headers.set("x-aggregate-final", "x".repeat(32768 - total));
+      expect((yield* send(endpoint, admitted.request)).status).toBe(200);
+      const rejected = rawRequest([encode("{}")], {
+        headers: Object.fromEntries(admitted.request.headers),
+      });
+      rejected.request.headers.set(
+        "x-aggregate-final",
+        rejected.request.headers.get("x-aggregate-final") + "x",
+      );
+      expect((yield* send(endpoint, rejected.request)).status).toBe(431);
+      expect(rejected.read()).toBe(0);
+      expect(rejected.cancelled()).toBe(1);
+      expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+    }).pipe(Effect.scoped),
 );

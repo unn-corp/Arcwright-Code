@@ -105,6 +105,7 @@ const headerEncoder = new TextEncoder();
 export function publicRelayHeaderFailure(headers: Readonly<Record<string, string>>): boolean {
   let total = 0;
   for (const [name, value] of Object.entries(headers)) {
+    const nameBytes = headerEncoder.encode(name).byteLength;
     const bytes = headerEncoder.encode(value).byteLength;
     const max =
       name === "authorization"
@@ -117,8 +118,9 @@ export function publicRelayHeaderFailure(headers: Readonly<Record<string, string
               ? publicRelayBounds.contentLengthBytes
               : name === "traceparent"
                 ? publicRelayBounds.traceparentBytes
-                : publicRelayBounds.headerBytes;
-    total += headerEncoder.encode(name).byteLength + bytes;
+                : publicRelayBounds.headerBytes - nameBytes;
+    // Named ceilings apply to values; generic individual and aggregate limits include names.
+    total += nameBytes + bytes;
     if (bytes > max || total > publicRelayBounds.headersBytes) return true;
   }
   return false;
