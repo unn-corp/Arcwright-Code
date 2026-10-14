@@ -6,6 +6,8 @@ import * as NodeOS from "node:os";
 import * as NodeChildProcess from "node:child_process";
 import { ForkMaintenanceError, type ForkUpdateStatus } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import { MaintenanceWorkHeld, WorkAdmission, withWork } from "./WorkAdmission.ts";
 import { HttpRouter } from "effect/http";
 import * as Layer from "effect/Layer";
 import { makeOperatorRoute } from "./MaintenanceOperatorHttp.ts";
@@ -61,9 +63,13 @@ function service(calls: string[]): MaintenanceService["Service"] {
     recoverySupported: true,
   };
 }
-async function handlerFor(token: string, calls: string[]) {
+async function handlerFor(
+  token: string,
+  calls: string[],
+  pairing?: Parameters<typeof makeOperatorRoute>[2],
+) {
   const { handler, dispose } = HttpRouter.toWebHandler(
-    Layer.mergeAll(makeOperatorRoute(token, service(calls))),
+    Layer.mergeAll(makeOperatorRoute(token, service(calls), pairing)),
     { disableLogger: true },
   );
   const post = (
@@ -117,6 +123,66 @@ describe("local operator credential", () => {
 });
 
 describe("operator HTTP route", () => {
+  it("issues through the live auth service only after authenticating the local operator", async () => {
+    const inputs: unknown[] = [];
+    const { post, dispose } = await handlerFor("secret", [], (input) =>
+      Effect.sync(() => {
+        inputs.push(input);
+        return {
+          id: "pair",
+          credential: "TESTPAIRCODE",
+          scopes: input.scopes,
+          subject: "one-time-token",
+          ...(input.label === undefined ? {} : { label: input.label }),
+          createdAt: DateTime.makeUnsafe("2026-01-01T00:00:00Z"),
+          expiresAt: DateTime.makeUnsafe("2026-01-01T00:05:00Z"),
+        };
+      }),
+    );
+    try {
+      const body = { scopes: ["orchestration:read"], label: "SSH client", ttlMs: 300000 };
+      expect((await post("pairing", body, {})).status).toBe(401);
+      expect(inputs).toEqual([]);
+      const issued = await post("pairing", body);
+      expect(issued.status).toBe(200);
+      expect(await issued.json()).toMatchObject({
+        credential: "TESTPAIRCODE",
+        scopes: body.scopes,
+        expiresAt: "2026-01-01T00:05:00.000Z",
+      });
+      expect(inputs).toEqual([body]);
+      expect((await post("pairing", { scopes: [], ttlMs: 0 })).status).toBe(400);
+      expect(inputs).toHaveLength(1);
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("does not issue pairing when device maintenance holds the write", async () => {
+    let issued = false;
+    const { post, dispose } = await handlerFor("secret", [], () =>
+      withWork(
+        Effect.sync(() => {
+          issued = true;
+          throw new Error("Issuance must not run while fenced.");
+        }),
+      ).pipe(
+        Effect.provideService(WorkAdmission, {
+          acquire: Effect.fail(new MaintenanceWorkHeld({ cause: new Error("fenced") })),
+          acquirePassive: Effect.succeed(() => Effect.void),
+          check: Effect.void,
+          checkAutomation: Effect.void,
+        }),
+      ),
+    );
+    try {
+      expect((await post("pairing", { scopes: ["orchestration:read"] })).status).toBe(409);
+      expect(issued).toBe(false);
+    } finally {
+      await dispose();
+    }
+  });
+
   it("refuses a request without the operator credential before touching the controller", async () => {
     const calls: string[] = [];
     const { post, dispose } = await handlerFor("secret", calls);

@@ -37,6 +37,7 @@ import { Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { createLivePairingLink } from "../auth/localPairing.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
@@ -433,6 +434,12 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
   readonly ttl: Option.Option<Duration.Duration>;
   readonly label: Option.Option<string>;
 }) {
+  const live = yield* createLivePairingLink(input.config, {
+    scopes: input.scopes,
+    ...(Option.isSome(input.ttl) ? { ttl: input.ttl.value } : {}),
+    ...(Option.isSome(input.label) ? { label: input.label.value } : { label: "t3 pair" }),
+  });
+  if (Option.isSome(live)) return live.value;
   return yield* Effect.gen(function* () {
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
     return yield* environmentAuth.createPairingLink({

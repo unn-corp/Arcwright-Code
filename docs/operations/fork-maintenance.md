@@ -740,6 +740,8 @@ home's operator credential and maintenance controller. It cannot install from an
 index, repoint a launcher independently, or use a legacy service restart as a fallback. Maintain
 [`CLI admission tests`](../../apps/server/src/cli/update.test.ts) in the host-runtime release suite.
 
+CLI pairing against a live home uses the existing server’s owner-authenticated local pairing route. It never registers a second runtime or opens the live database. A maintenance fence refuses issuance; a live server without this API must be updated rather than falling back to offline issuance. Offline `auth pairing create` retains ordinary startup admission when no server is running.
+
 **Delivery.** Implemented in source; desktop and APK release delivery has not been commissioned.
 
 **Behavior and entry.** Settings → Source control → Space-efficient worktrees is an opt-in
