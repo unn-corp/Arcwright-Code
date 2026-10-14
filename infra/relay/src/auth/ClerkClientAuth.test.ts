@@ -379,6 +379,10 @@ describe("owned Clerk bearer policy", () => {
 
 it.effect.each([
   { name: "outer", token: "x".repeat(16385) },
+  ...[["x".repeat(257)], [123]].map((crit, index) => ({
+    name: `crit-${index}`,
+    token: `${Buffer.from(JSON.stringify({ typ: "JWT", alg: "RS256", crit })).toString("base64url")}.e30.c2ln`,
+  })),
   {
     name: "header",
     token: `${Buffer.from(JSON.stringify({ typ: "JWT", padding: "x".repeat(2048) })).toString("base64url")}.e30.c2ln`,

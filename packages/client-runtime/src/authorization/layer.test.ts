@@ -5,6 +5,7 @@ import {
 } from "@t3tools/contracts";
 import {
   RelayEnvironmentConnectScope,
+  RelayRateLimitExceededError,
   type RelayEnvironmentConnectResponse,
 } from "@t3tools/contracts/relay";
 import { describe, expect, it } from "@effect/vitest";
@@ -16,6 +17,11 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
+import * as ConnectionDriver from "../connection/driver.ts";
+import { BearerConnectionProfile, type ConnectionCatalogEntry } from "../connection/catalog.ts";
+import { BearerConnectionTarget } from "../connection/model.ts";
+import type * as RpcSession from "../rpc/session.ts";
 import * as TestClock from "effect/testing/TestClock";
 
 import { DPOP_UNKNOWN_HINT } from "../relay/errorPresentation.ts";
@@ -1127,3 +1133,181 @@ describe("RemoteEnvironmentAuthorization", () => {
     }),
   );
 });
+
+const rateLimitedBootstrap = (traceId: string) =>
+  new ManagedRelay.ManagedRelayRequestFailedError({
+    action: "connect relay environment",
+    cause: null,
+    relayError: new RelayRateLimitExceededError({
+      code: "relay_rate_limited",
+      retryAfterSeconds: 60,
+      traceId,
+    }),
+  });
+const LEARNED_TARGET = new BearerConnectionTarget({
+  environmentId: ENVIRONMENT_ID,
+  label: "Learned direct",
+  connectionId: "learned-lan",
+});
+const LEARNED_DIRECT: ConnectionCatalogEntry = {
+  target: LEARNED_TARGET,
+  profile: Option.some(
+    new BearerConnectionProfile({
+      connectionId: LEARNED_TARGET.connectionId,
+      environmentId: ENVIRONMENT_ID,
+      label: "Learned direct",
+      httpBaseUrl: "http://192.168.1.10:3773/",
+      wsBaseUrl: "ws://192.168.1.10:3773/",
+      authorization: "t3-connect",
+      learned: true,
+    }),
+  ),
+  enabled: true,
+};
+const connectLearnedDirect = (
+  remote: RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization["Service"],
+) =>
+  ConnectionDriver.connectOverRoutes(
+    LEARNED_DIRECT,
+    () => Effect.succeed("answered"),
+    () =>
+      remote
+        .authorizeDpop({
+          expectedEnvironmentId: ENVIRONMENT_ID,
+          directEndpoint: {
+            httpBaseUrl: "http://192.168.1.10:3773/",
+            wsBaseUrl: "ws://192.168.1.10:3773/",
+          },
+        })
+        .pipe(
+          Effect.map((authorized) => ({
+            prepared: { ...authorized, target: LEARNED_TARGET },
+            session: {
+              client: {} as RpcSession.RpcSession["client"],
+              initialConfig: Effect.die("Unused test config"),
+              subscribeServerConfig: () => Stream.empty,
+              ready: Effect.void,
+              probe: Effect.void,
+              closed: Effect.never,
+            } satisfies RpcSession.RpcSession,
+          })),
+        ),
+  );
+it.effect(
+  "learned-direct driver cache misses honor the actual relay dispatch floor while usable cached authorization remains available",
+  () =>
+    Effect.gen(function* () {
+      let deny = true;
+      const harness = yield* makeHarness({
+        beforeBootstrap: Effect.suspend(() =>
+          deny ? Effect.fail(rateLimitedBootstrap("relay-delay-trace")) : Effect.void,
+        ),
+        responses: [
+          Response.json(DESCRIPTOR),
+          websocketTicket("cached-direct"),
+          Response.json(DESCRIPTOR),
+          Response.json(DESCRIPTOR),
+          accessToken("fresh-access"),
+          websocketTicket("fresh-direct"),
+        ],
+      });
+      yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        expect(yield* Effect.flip(connectLearnedDirect(remote))).toMatchObject({
+          _tag: "ConnectionTransientError",
+          retryAfterSeconds: 60,
+          traceId: "relay-delay-trace",
+        });
+        deny = false;
+        expect(yield* Effect.flip(connectLearnedDirect(remote))).toMatchObject({
+          _tag: "ConnectionTransientError",
+          retryAfterSeconds: 60,
+        });
+        expect(yield* Ref.get(harness.bootstrapCalls)).toBe(1);
+        yield* Ref.set(harness.tokens, new Map([[ENVIRONMENT_ID, persistedToken()]]));
+        const cached = yield* connectLearnedDirect(remote);
+        expect(cached.prepared.socketUrl).toContain("wsTicket=cached-direct");
+        expect(cached.prepared.httpBaseUrl).toBe("http://192.168.1.10:3773/");
+        expect(yield* Ref.get(harness.bootstrapCalls)).toBe(1);
+        yield* Ref.set(harness.tokens, new Map());
+        yield* TestClock.adjust("59 seconds");
+        expect(yield* Effect.flip(connectLearnedDirect(remote))).toMatchObject({
+          _tag: "ConnectionTransientError",
+          retryAfterSeconds: 1,
+        });
+        expect(yield* Ref.get(harness.bootstrapCalls)).toBe(1);
+        yield* TestClock.adjust("1 second");
+        const fresh = yield* connectLearnedDirect(remote);
+        expect(fresh.prepared.httpAuthorization).toMatchObject({ accessToken: "fresh-access" });
+        expect(yield* Ref.get(harness.bootstrapCalls)).toBe(2);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(TestClock.layer())),
+);
+it.effect("a new actual session identity does not borrow the previous relay dispatch floor", () =>
+  Effect.gen(function* () {
+    let deny = true;
+    const harness = yield* makeHarness({
+      beforeBootstrap: Effect.suspend(() =>
+        deny ? Effect.fail(rateLimitedBootstrap("old-session-trace")) : Effect.void,
+      ),
+      responses: [Response.json(DESCRIPTOR), accessToken("new-session-access")],
+    });
+    yield* Effect.gen(function* () {
+      const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+      expect(
+        yield* Effect.flip(remote.authorizeDpopHttp({ expectedEnvironmentId: ENVIRONMENT_ID })),
+      ).toMatchObject({ retryAfterSeconds: 60 });
+      deny = false;
+      yield* Ref.set(harness.session, Option.some({ accountId: "account-1" }));
+      expect(
+        (yield* remote.authorizeDpopHttp({ expectedEnvironmentId: ENVIRONMENT_ID }))
+          .httpAuthorization.accessToken,
+      ).toBe("new-session-access");
+      expect(yield* Ref.get(harness.bootstrapCalls)).toBe(2);
+    }).pipe(Effect.provide(harness.layer));
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+it.effect(
+  "a late old-session429 cannot install a dispatch floor for the replacement identity",
+  () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      let bootstrap = 0;
+      const harness = yield* makeHarness({
+        beforeBootstrap: Effect.gen(function* () {
+          bootstrap++;
+          if (bootstrap !== 1) return;
+          yield* Deferred.succeed(started, undefined);
+          yield* Deferred.await(release);
+          return yield* rateLimitedBootstrap("stale-trace");
+        }),
+        responses: [
+          Response.json(DESCRIPTOR),
+          accessToken("replacement-token"),
+          Response.json(DESCRIPTOR),
+          accessToken("next-token"),
+        ],
+      });
+      yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        const old = yield* remote
+          .authorizeDpopHttp({ expectedEnvironmentId: ENVIRONMENT_ID })
+          .pipe(Effect.result, Effect.forkChild);
+        yield* Deferred.await(started);
+        yield* Ref.set(harness.session, Option.some({ accountId: "replacement-account" }));
+        expect(
+          (yield* remote.authorizeDpopHttp({ expectedEnvironmentId: ENVIRONMENT_ID }))
+            .httpAuthorization.accessToken,
+        ).toBe("replacement-token");
+        yield* Deferred.succeed(release, undefined);
+        expect((yield* Fiber.join(old))._tag).toBe("Failure");
+        yield* Ref.set(harness.tokens, new Map());
+        expect(
+          (yield* remote.authorizeDpopHttp({ expectedEnvironmentId: ENVIRONMENT_ID }))
+            .httpAuthorization.accessToken,
+        ).toBe("next-token");
+        expect(yield* Ref.get(harness.bootstrapCalls)).toBe(3);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(TestClock.layer())),
+);

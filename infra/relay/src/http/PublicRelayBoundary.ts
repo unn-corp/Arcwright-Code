@@ -13,7 +13,12 @@ import {
   CommonRelayPublicBoundaryErrors,
 } from "@t3tools/contracts/relay";
 import { isRelayHookPath } from "../hooks/HookForwarder.ts";
-import { relayCors, traceRelayHttpRequestWith, relayPublicLimitError } from "./Api.ts";
+import {
+  relayCors,
+  traceRelayHttpRequestWith,
+  relayPublicLimitError,
+  assembleRelayHttpRoutes,
+} from "./Api.ts";
 import * as Layer from "effect/Layer";
 import * as PublicRelayRateLimits from "./PublicRelayRateLimits.ts";
 import {
@@ -238,6 +243,15 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
 export const wrapPublicRelayHttp = <E, R>(
   router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
 ) => traceRelayHttpRequestWith(relayCors(boundary(router)), Layer.empty);
+
+/** Reuse the configured limiter for captured HTTP service construction and outer admission. */
+export const assemblePublicRelayHttp = <A, E, R>(
+  layerApp: Layer.Layer<A, E, R>,
+  limiter: Layer.Layer<PublicRelayRateLimits.PublicRelayRateLimits>,
+) =>
+  assembleRelayHttpRoutes(layerApp.pipe(Layer.provideMerge(limiter))).pipe(
+    Effect.map((router) => wrapPublicRelayHttp(router).pipe(Effect.provide(limiter))),
+  );
 
 /** Production fetch adapter: the Workers request is fetched per execution, never memoized. */
 export const withCloudflarePublicRelayIdentity = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

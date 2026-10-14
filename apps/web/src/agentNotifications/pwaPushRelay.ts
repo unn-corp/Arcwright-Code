@@ -43,21 +43,29 @@ export class PwaPushUnavailableError extends Error {
     this.name = "PwaPushUnavailableError";
   }
 }
-class PwaPushRateLimitedError extends Error {
+class PwaPushTemporaryError extends Error {
+  readonly traceId: string;
+  constructor(message: string, traceId: string) {
+    super(message);
+    this.traceId = traceId;
+  }
+}
+class PwaPushRateLimitedError extends PwaPushTemporaryError {
   readonly retryAfterSeconds: number;
-  constructor(retryAfterSeconds: number) {
+  constructor(retryAfterSeconds: number, traceId: string) {
     super(
       `The notification service is temporarily rate limited. Try again in ${retryAfterSeconds} seconds.`,
+      traceId,
     );
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
-// Only a bounded, structured rejection from the current relay proves no mutation ran.
-async function rateLimitRejection(
+// Only validated429 proves pre-mutation rejection. Temporary503 retains mutation uncertainty.
+async function publicRelayRejection(
   response: Response,
   profile: Extract<PwaPushRelayProfile, { type: "available" }>,
-): Promise<PwaPushRateLimitedError | undefined> {
+): Promise<PwaPushTemporaryError | undefined> {
   const current = getPwaPushRelayProfile();
   if (
     current.type !== "available" ||
@@ -94,16 +102,33 @@ async function rateLimitRejection(
     if (
       !value ||
       typeof value !== "object" ||
+      !("traceId" in value) ||
+      typeof value.traceId !== "string" ||
+      value.traceId.length === 0 ||
+      value.traceId.length > 128
+    )
+      return;
+    if (
+      response.status === 503 &&
+      "_tag" in value &&
+      value._tag === "RelayServiceUnavailableError" &&
+      "code" in value &&
+      value.code === "relay_unavailable" &&
+      "reason" in value &&
+      value.reason === "internal"
+    )
+      return new PwaPushTemporaryError(
+        "The notification service is temporarily unavailable. Try again when connected.",
+        value.traceId,
+      );
+    if (
+      response.status !== 429 ||
       !("_tag" in value) ||
       value._tag !== "RelayRateLimitExceededError" ||
       !("code" in value) ||
       value.code !== "relay_rate_limited" ||
       !("retryAfterSeconds" in value) ||
-      value.retryAfterSeconds !== 60 ||
-      !("traceId" in value) ||
-      typeof value.traceId !== "string" ||
-      value.traceId.length === 0 ||
-      value.traceId.length > 128
+      value.retryAfterSeconds !== 60
     )
       return;
     const header = response.headers.get("retry-after");
@@ -111,7 +136,7 @@ async function rateLimitRejection(
       header && /^\d{1,4}$/.test(header) && Number(header) <= 3600
         ? Math.max(60, Number(header))
         : 60;
-    return new PwaPushRateLimitedError(delay);
+    return new PwaPushRateLimitedError(delay, value.traceId);
   } catch {
     return;
   }
@@ -504,13 +529,18 @@ async function json<T>(
     );
   }
   if (response.status === 429) {
-    const rejection = await rateLimitRejection(response, profile);
+    const rejection = await publicRelayRejection(response, profile);
     if (rejection) throw rejection;
     throw new Error(
       "The notification service is temporarily rate limited. Try again in 60 seconds.",
     );
   }
-  if (response.status === 404 || response.status === 503) throw new PwaPushUnavailableError();
+  if (response.status === 503) {
+    const rejection = await publicRelayRejection(response, profile);
+    if (rejection) throw rejection;
+    throw new PwaPushUnavailableError();
+  }
+  if (response.status === 404) throw new PwaPushUnavailableError();
   if (!response.ok) throw new Error(`PWA push service returned ${response.status}.`);
   try {
     return (await response.json()) as T;

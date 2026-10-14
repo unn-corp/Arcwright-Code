@@ -30,6 +30,7 @@ import * as RpcSession from "../rpc/session.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
 import {
   connectionRouteId,
   connectionRoutes,
@@ -298,6 +299,50 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // fresh by each attempt and check instead of being fixed at creation.
   const currentEntry = yield* Ref.make(entry);
   const currentRoutes = Ref.get(currentEntry).pipe(Effect.map(connectionRoutes));
+  const relayRetryDeadlines = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
+  const relayRetryOwner = yield* Ref.make<ClientCapabilities.CloudSessionIdentity | undefined>(
+    undefined,
+  );
+  const refreshRelayRetryOwner = Effect.gen(function* () {
+    const cloudSession = yield* Effect.serviceOption(ClientCapabilities.CloudSession);
+    const identity = Option.isSome(cloudSession)
+      ? Option.getOrUndefined(yield* cloudSession.value.identity)
+      : undefined;
+    if ((yield* Ref.get(relayRetryOwner)) !== identity) {
+      yield* Ref.set(relayRetryOwner, identity);
+      yield* Ref.set(relayRetryDeadlines, new Map());
+    }
+  });
+  const relayRetry: ConnectionDriver.RelayRetryPolicy = {
+    owner: refreshRelayRetryOwner.pipe(Effect.andThen(Ref.get(relayRetryOwner))),
+    notBefore: (route) =>
+      refreshRelayRetryOwner.pipe(
+        Effect.andThen(Ref.get(relayRetryDeadlines)),
+        Effect.map((deadlines) => deadlines.get(connectionRouteId(route.target)) ?? 0),
+      ),
+    rateLimited: (route, seconds, owner) =>
+      refreshRelayRetryOwner.pipe(
+        Effect.andThen(Clock.currentTimeMillis),
+        Effect.flatMap((now) =>
+          Effect.gen(function* () {
+            if ((yield* Ref.get(relayRetryOwner)) !== owner) return;
+            yield* Ref.update(relayRetryDeadlines, (deadlines) => {
+              const key = connectionRouteId(route.target);
+              return new Map(deadlines).set(
+                key,
+                Math.max(deadlines.get(key) ?? 0, now + seconds * 1000),
+              );
+            });
+          }),
+        ),
+      ),
+  };
+  // Direct routes remain eligible during a relay delay. Only a relay-only entry sleeps on it.
+  const relayOnlyNotBefore = Effect.gen(function* () {
+    const routes = yield* currentRoutes;
+    if (routes.some((route) => route.target._tag !== "RelayConnectionTarget")) return 0;
+    return Math.max(0, ...(yield* Effect.forEach(routes, relayRetry.notBefore)));
+  });
   // Set when a better route answered while connected over a worse one; the
   // replacement attempt tries it first. Cleared once an attempt starts.
   const preferredRouteId = yield* Ref.make(Option.none<string>());
@@ -446,8 +491,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     generation: number,
     lastFailure: ConnectionAttemptError | null,
   ) {
-    return yield* driver.connect(yield* attemptEntry, (progress) =>
-      reportProgress(attempt, generation, lastFailure, progress),
+    return yield* driver.connect(
+      yield* attemptEntry,
+      (progress) => reportProgress(attempt, generation, lastFailure, progress),
+      relayRetry,
     );
   });
 
@@ -857,7 +904,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       Effect.gen(function* () {
         for (;;) {
           const next = yield* Queue.take(signals);
-          const minimumActive = (yield* Clock.currentTimeMillis) < notBefore;
+          const minimumActive =
+            notBefore > 0 && (yield* Clock.currentTimeMillis) < (yield* relayOnlyNotBefore);
           switch (next._tag) {
             case "Wakeup":
               if (!minimumActive) return ConnectionWakeups.resetsRetryBackoff(next.reason);
@@ -891,8 +939,6 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     let failureCount = 0;
     let generation = 0;
     let latestFailure: ConnectionAttemptError | null = null;
-    // Retain the server's minimum across wakeups, explicit retry and offline/online transitions.
-    let relayRetryNotBefore = 0;
     let pendingRetry = Option.none<PendingRetryTrace>();
     const resetRetryLadder = () => {
       failureCount = 0;
@@ -930,6 +976,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         continue;
       }
 
+      const relayRetryNotBefore = yield* relayOnlyNotBefore;
       const remainingRelayDelay = relayRetryNotBefore - (yield* Clock.currentTimeMillis);
       if (remainingRelayDelay > 0) {
         yield* setState({
@@ -991,13 +1038,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         continue;
       }
 
-      if (error.retryAfterSeconds !== undefined) {
-        relayRetryNotBefore = Math.max(
-          relayRetryNotBefore,
-          (yield* Clock.currentTimeMillis) + error.retryAfterSeconds * 1000,
-        );
-      }
-      if (failedProbe && relayRetryNotBefore <= (yield* Clock.currentTimeMillis)) {
+      const nextRelayNotBefore = yield* relayOnlyNotBefore;
+      if (failedProbe && nextRelayNotBefore <= (yield* Clock.currentTimeMillis)) {
         // A probe found a dead transport, or the transport closed while a probe
         // waited for an answer (the user returned to the app, asked to retry,
         // or the network changed), so reconnect immediately instead
@@ -1011,7 +1053,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       failureCount += 1;
       const delayMs = Math.max(
         retryDelayMs(failureCount - 1, yield* Random.next),
-        relayRetryNotBefore - (yield* Clock.currentTimeMillis),
+        nextRelayNotBefore - (yield* Clock.currentTimeMillis),
       );
       pendingRetry = Option.map(attemptSpan, (previousAttempt) => ({
         previousAttempt,
@@ -1030,7 +1072,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         lastFailure: error,
         retryAt: (yield* Clock.currentTimeMillis) + delayMs,
       });
-      const applicationActivated = yield* waitForRetrySignal(delayMs, relayRetryNotBefore);
+      const applicationActivated = yield* waitForRetrySignal(delayMs, nextRelayNotBefore);
       if (applicationActivated) {
         resetRetryLadder();
       }

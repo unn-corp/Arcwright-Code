@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  PwaPushUnavailableError,
   canSyncPwaPushSubscription,
   getPwaPushConfig,
   getPwaPushRelayProfile,
@@ -799,3 +800,83 @@ it("storage failure while settling429 retains the exact uncertain marker", async
   expect(getPwaPushRemovalState()).toBe("uncertain");
   expect(getPwaPushSubscriptionId()).toBe("subscription-1");
 });
+
+function serviceUnavailableResponse(
+  value: unknown = {
+    _tag: "RelayServiceUnavailableError",
+    code: "relay_unavailable",
+    reason: "internal",
+    traceId: "temporary-trace",
+  },
+  origin = "https://relay.example.test",
+) {
+  const response = Response.json(value, { status: 503 });
+  Object.defineProperty(response, "url", { value: `${origin}/v1/pwa/web-push/config` });
+  return response;
+}
+it.each(["config", "registration", "removal"])(
+  "current-origin structured503 is temporary with trace metadata and retains %s mutation uncertainty",
+  async (operation) => {
+    if (operation !== "config") await register();
+    const before = [...values];
+    const installation = operation === "config" ? undefined : pwaPushInstallation();
+    fetchMock.mockResolvedValueOnce(serviceUnavailableResponse());
+    const task =
+      operation === "config"
+        ? getPwaPushConfig()
+        : operation === "registration"
+          ? register()
+          : removePwaPushSubscription("subscription-1");
+    const error = await task.catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(PwaPushUnavailableError);
+    expect(error).toMatchObject({
+      traceId: "temporary-trace",
+      message: expect.stringMatching(/temporarily unavailable/),
+    });
+    if (operation === "config") expect(values.size).toBe(0);
+    else {
+      for (const [key, value] of before) expect(values.get(key)).toBe(value);
+      expect(pwaPushInstallation()).toEqual(installation);
+      expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+      expect(getPwaPushRemovalState()).toBe("uncertain");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  },
+);
+it.each(["malformed", "wrong-origin", "status-only", "oversized"])(
+  "unvalidated %s503 retains disabled config semantics and mutation uncertainty",
+  async (kind) => {
+    const response = () =>
+      kind === "status-only"
+        ? new Response(null, { status: 503 })
+        : kind === "wrong-origin"
+          ? serviceUnavailableResponse(undefined, "https://other.example.test")
+          : serviceUnavailableResponse(
+              kind === "oversized" ? { padding: "x".repeat(4097) } : { code: "relay_unavailable" },
+            );
+    fetchMock.mockResolvedValueOnce(response());
+    await expect(getPwaPushConfig()).rejects.toBeInstanceOf(PwaPushUnavailableError);
+    await register();
+    fetchMock.mockResolvedValueOnce(response());
+    await expect(removePwaPushSubscription("subscription-1")).rejects.toBeInstanceOf(
+      PwaPushUnavailableError,
+    );
+    expect(getPwaPushRemovalState()).toBe("uncertain");
+    expect(getPwaPushSubscriptionId()).toBe("subscription-1");
+  },
+);
+it.each(["config", "registration", "removal"])(
+  "structured429 retains its validated trace for actual %s",
+  async (operation) => {
+    if (operation !== "config") await register();
+    fetchMock.mockResolvedValueOnce(rateLimitedResponse());
+    const task =
+      operation === "config"
+        ? getPwaPushConfig()
+        : operation === "registration"
+          ? register()
+          : removePwaPushSubscription("subscription-1");
+    await expect(task).rejects.toMatchObject({ traceId: "synthetic-trace", retryAfterSeconds: 60 });
+  },
+);

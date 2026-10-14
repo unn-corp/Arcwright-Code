@@ -16,7 +16,7 @@ import * as HttpMiddleware from "effect/http/HttpMiddleware";
 import { pwaApi } from "./http/Api.ts";
 import * as PublicRelayRateLimits from "./http/PublicRelayRateLimits.ts";
 import {
-  wrapPublicRelayHttp,
+  assemblePublicRelayHttp,
   withCloudflarePublicRelayIdentity,
 } from "./http/PublicRelayBoundary.ts";
 import * as RelayHttpApi from "./http/Api.ts";
@@ -518,10 +518,9 @@ export const layer = Api.make(
         edge: configuredPublicBinding(publicEdge),
       },
     );
-    const fetch = RelayHttpApi.assembleRelayHttpRoutes(layerApp).pipe(
+    const fetch = assemblePublicRelayHttp(layerApp, publicLimiterLayer).pipe(
       Effect.map((httpEffect) =>
-        withCloudflarePublicRelayIdentity(wrapPublicRelayHttp(httpEffect)).pipe(
-          Effect.provide(publicLimiterLayer),
+        withCloudflarePublicRelayIdentity(httpEffect).pipe(
           Observability.withSchemaErrorSpanAttributes,
         ),
       ),

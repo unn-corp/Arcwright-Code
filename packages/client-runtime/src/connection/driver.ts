@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -38,6 +39,17 @@ export interface EnvironmentConnectionLease {
  */
 export type RouteCheck = "answered" | "silent" | "unchecked";
 
+/** The supervisor retains relay admission delays even when another route succeeds. */
+export interface RelayRetryPolicy {
+  readonly owner: Effect.Effect<object | undefined>;
+  readonly notBefore: (route: ConnectionRoute) => Effect.Effect<number>;
+  readonly rateLimited: (
+    route: ConnectionRoute,
+    seconds: number,
+    owner: object | undefined,
+  ) => Effect.Effect<void>;
+}
+
 /** How long a direct route has to answer before it counts as unreachable from here. */
 const ROUTE_CHECK_TIMEOUT_MS = 2_500;
 
@@ -47,6 +59,7 @@ export class ConnectionDriver extends Context.Service<
     readonly connect: (
       entry: ConnectionCatalogEntry,
       reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
+      relayRetry?: RelayRetryPolicy,
     ) => Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, Scope.Scope>;
     /** Whether a direct route answers as the entry's environment, without credentials. */
     readonly checkRoute: (
@@ -85,6 +98,7 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   connectRoute: (
     route: ConnectionRoute,
   ) => Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, R | Scope.Scope>,
+  relayRetry?: RelayRetryPolicy,
 ) {
   const routes = connectionRoutes(entry);
   const checks =
@@ -96,6 +110,19 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   let blocked: ConnectionAttemptError | undefined;
   // Each route gets its own scope so a half-open session closes before the next try.
   const attempt = Effect.fnUntraced(function* (route: ConnectionRoute) {
+    if (route.target._tag === "RelayConnectionTarget" && relayRetry) {
+      const remaining = (yield* relayRetry.notBefore(route)) - (yield* Clock.currentTimeMillis);
+      if (remaining > 0) {
+        const failure = new ConnectionTransientError({
+          reason: "relay-unavailable",
+          detail: `Too many relay requests. Try again in ${Math.ceil(remaining / 1000)} seconds.`,
+          retryAfterSeconds: Math.ceil(remaining / 1000),
+        });
+        transient ??= failure;
+        return yield* Effect.fail(failure).pipe(Effect.result);
+      }
+    }
+    const owner = relayRetry ? yield* relayRetry.owner : undefined;
     const routeScope = yield* Scope.fork(attemptScope);
     const result = yield* connectRoute(route).pipe(
       Scope.provide(routeScope),
@@ -103,6 +130,14 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
       Effect.result,
     );
     if (result._tag === "Failure") {
+      if (
+        route.target._tag === "RelayConnectionTarget" &&
+        result.failure._tag === "ConnectionTransientError" &&
+        result.failure.retryAfterSeconds !== undefined
+      )
+        yield* (
+          relayRetry?.rateLimited(route, result.failure.retryAfterSeconds, owner) ?? Effect.void
+        );
       if (result.failure._tag === "ConnectionTransientError") transient ??= result.failure;
       else blocked ??= result.failure;
     }
@@ -164,6 +199,7 @@ export const make = Effect.gen(function* () {
   const connect = Effect.fn("ConnectionDriver.connect")(function* (
     entry: ConnectionCatalogEntry,
     reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
+    relayRetry?: RelayRetryPolicy,
   ) {
     const target = entry.target;
     yield* Effect.annotateCurrentSpan({
@@ -183,6 +219,7 @@ export const make = Effect.gen(function* () {
         yield* session.ready;
         return { prepared, session } satisfies EnvironmentConnectionLease;
       }),
+      relayRetry,
     );
   });
 

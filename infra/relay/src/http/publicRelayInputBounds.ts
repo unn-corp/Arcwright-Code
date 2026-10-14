@@ -115,7 +115,12 @@ export function inspectBoundedJwt(
   const header = decodedJson(parts[0], 2048);
   const payload = decodedJson(parts[1], 32_768);
   if (!record(header) || !record(payload)) invalid();
-  if (header.crit !== undefined && (!Array.isArray(header.crit) || header.crit.length > 8))
+  if (
+    header.crit !== undefined &&
+    (!Array.isArray(header.crit) ||
+      header.crit.length > 8 ||
+      header.crit.some((item) => typeof item !== "string" || item.length > 256))
+  )
     invalid();
   if (payload.aud !== undefined) {
     const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];

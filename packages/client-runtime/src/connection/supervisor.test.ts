@@ -226,10 +226,14 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
   const connect = Effect.fn("TestConnectionDriver.connect")(function* (
     entry: ConnectionCatalogEntry,
     reportProgress: (progress: ConnectionDriver.ConnectionDriverProgress) => Effect.Effect<void>,
+    relayRetry?: ConnectionDriver.RelayRetryPolicy,
   ) {
     yield* reportProgress({ stage: "preparing" });
-    return yield* ConnectionDriver.connectOverRoutes(entry, checkRoute, (route) =>
-      connectRoute(route.target, reportProgress),
+    return yield* ConnectionDriver.connectOverRoutes(
+      entry,
+      checkRoute,
+      (route) => connectRoute(route.target, reportProgress),
+      relayRetry,
     );
   });
 
@@ -2143,5 +2147,198 @@ it.effect(
       expect(yield* Ref.get(harness.prepareCount)).toBe(2);
       yield* supervisor.disconnect;
       yield* awaitState(supervisor.state, (state) => state.phase === "available");
+    }).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect(
+  "a later relay429 survives the earlier displayed direct failure without blocking direct attempts",
+  () =>
+    Effect.gen(function* () {
+      let relayCalls = 0;
+      let directCalls = 0;
+      const secondRelay = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        checkRoute: () => Effect.succeed("answered"),
+        prepare: (_attempt, target) => {
+          if (target._tag === "RelayConnectionTarget") {
+            relayCalls++;
+            return (relayCalls === 2 ? Deferred.succeed(secondRelay, undefined) : Effect.void).pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new ConnectionTransientError({
+                    reason: "relay-unavailable",
+                    detail: "rate limited",
+                    retryAfterSeconds: 60,
+                  }),
+                ),
+              ),
+            );
+          }
+          directCalls++;
+          return Effect.fail(transient("direct network failed"));
+        },
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 1,
+      );
+      expect((yield* SubscriptionRef.get(supervisor.state)).lastFailure).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "transport",
+      });
+      yield* TestClock.adjust("2 seconds");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 2,
+      );
+      expect(directCalls).toBe(2);
+      expect(relayCalls).toBe(1);
+      yield* harness.wake("network-changed");
+      yield* supervisor.retryNow;
+      yield* TestClock.adjust("57 seconds");
+      expect(relayCalls).toBe(1);
+      yield* TestClock.adjust("1 second");
+      yield* supervisor.retryNow;
+      yield* Deferred.await(secondRelay);
+      expect(relayCalls).toBe(2);
+    }).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect("a selected relay429 allows a newly usable direct route on an early wake/retry", () =>
+  Effect.gen(function* () {
+    let directReady = false;
+    let relayCalls = 0;
+    const harness = yield* makeHarness({
+      checkRoute: (route) =>
+        Effect.succeed(route.target._tag === "RelayConnectionTarget" ? "unchecked" : "silent"),
+      prepare: (_attempt, target) => {
+        if (target._tag === "RelayConnectionTarget") {
+          relayCalls++;
+          return Effect.fail(
+            new ConnectionTransientError({
+              reason: "relay-unavailable",
+              detail: "rate limited",
+              retryAfterSeconds: 60,
+            }),
+          );
+        }
+        return directReady
+          ? Effect.succeed(preparedFor(target))
+          : Effect.fail(transient("direct not reachable"));
+      },
+    });
+    const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+      initiallyDesired: true,
+    }).pipe(Effect.provide(harness.dependencies));
+    yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+    expect((yield* SubscriptionRef.get(supervisor.state)).lastFailure).toMatchObject({
+      _tag: "ConnectionTransientError",
+      retryAfterSeconds: 60,
+    });
+    directReady = true;
+    yield* harness.wake("network-changed");
+    yield* supervisor.retryNow;
+    yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+    expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
+      "BearerConnectionTarget",
+    );
+    expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+    expect(relayCalls).toBe(1);
+    yield* supervisor.disconnect;
+    yield* awaitState(supervisor.state, (state) => state.phase === "available");
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect(
+  "relay429 observed before a later direct success survives an early direct reconnect",
+  () =>
+    Effect.gen(function* () {
+      let directReady = true;
+      let relayCalls = 0;
+      const secondRelay = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        checkRoute: (route) =>
+          Effect.succeed(route.target._tag === "RelayConnectionTarget" ? "unchecked" : "silent"),
+        prepare: (_attempt, target) => {
+          if (target._tag === "RelayConnectionTarget") {
+            relayCalls++;
+            return (relayCalls === 2 ? Deferred.succeed(secondRelay, undefined) : Effect.void).pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new ConnectionTransientError({
+                    reason: "relay-unavailable",
+                    detail: "rate limited",
+                    retryAfterSeconds: 60,
+                  }),
+                ),
+              ),
+            );
+          }
+          return directReady
+            ? Effect.succeed(preparedFor(target))
+            : Effect.fail(transient("direct unavailable again"));
+        },
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      expect(relayCalls).toBe(1);
+      directReady = false;
+      yield* harness.closeLatestSession();
+      yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+      yield* supervisor.retryNow;
+      yield* harness.setNetworkStatus("offline");
+      yield* awaitState(supervisor.state, (state) => state.phase === "offline");
+      yield* harness.setNetworkStatus("online");
+      yield* harness.wake("network-changed");
+      yield* TestClock.adjust("59 seconds");
+      expect(relayCalls).toBe(1);
+      yield* TestClock.adjust("1 second");
+      yield* supervisor.retryNow;
+      yield* Deferred.await(secondRelay);
+      expect(relayCalls).toBe(2);
+    }).pipe(Effect.provide(TestClock.layer())),
+);
+
+it.effect(
+  "same-session credential wake retains the relay floor but a new actual identity releases it",
+  () =>
+    Effect.gen(function* () {
+      const identity = yield* Ref.make<ClientCapabilities.CloudSessionIdentity>({
+        accountId: "same-account",
+      });
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 1
+            ? Effect.fail(
+                new ConnectionTransientError({
+                  reason: "relay-unavailable",
+                  detail: "rate limited",
+                  retryAfterSeconds: 60,
+                }),
+              )
+            : Effect.succeed(preparedFor(RELAY_TARGET)),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(ClientCapabilities.CloudSession, {
+          identity: Ref.get(identity).pipe(Effect.asSome),
+          clerkToken: Effect.succeed("clerk-token"),
+        }),
+      );
+      yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+      yield* harness.wake("credentials-changed");
+      yield* TestClock.adjust("1 second");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(1);
+      yield* Ref.set(identity, { accountId: "same-account" });
+      yield* harness.wake("credentials-changed");
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
     }).pipe(Effect.provide(TestClock.layer())),
 );

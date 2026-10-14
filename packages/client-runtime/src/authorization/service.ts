@@ -115,6 +115,17 @@ export const make = Effect.gen(function* () {
   const tokenStore = yield* TokenStore.RemoteDpopAccessTokenStore;
   const httpClient = yield* HttpClient.HttpClient;
   const tokenLock = yield* Semaphore.make(1);
+  // A learned direct route may need the same relay bootstrap on a cache miss.
+  // Keep that dispatch floor below route selection, after usable cache selection.
+  const relayConnectDelays = new Map<
+    EnvironmentId,
+    {
+      readonly identity: ClientCapabilities.CloudSessionIdentity;
+      readonly relayUrl: string;
+      readonly notBefore: number;
+      readonly traceId?: string;
+    }
+  >();
   const tokenOwners = new Map<
     EnvironmentId,
     { readonly accessToken: string; readonly identity: ClientCapabilities.CloudSessionIdentity }
@@ -280,6 +291,24 @@ export const make = Effect.gen(function* () {
     identity: ClientCapabilities.CloudSessionIdentity,
   ) {
     yield* assertSession(identity);
+    const now = yield* Clock.currentTimeMillis;
+    for (const [key, value] of relayConnectDelays)
+      if (
+        value.notBefore <= now ||
+        value.identity !== identity ||
+        value.relayUrl !== relay.relayUrl
+      )
+        relayConnectDelays.delete(key);
+    const delay = relayConnectDelays.get(environmentId);
+    const remaining =
+      delay?.identity === identity && delay.relayUrl === relay.relayUrl ? delay.notBefore - now : 0;
+    if (remaining > 0)
+      return yield* new ConnectionTransientError({
+        reason: "relay-unavailable",
+        detail: `Too many relay requests. Try again in ${Math.ceil(remaining / 1000)} seconds.`,
+        retryAfterSeconds: Math.ceil(remaining / 1000),
+        ...(delay?.traceId === undefined ? {} : { traceId: delay.traceId }),
+      });
     const clerkToken = yield* cloudSession.clerkToken.pipe(
       Effect.withSpan("relay.connection.cloudSessionToken.resolve"),
     );
@@ -294,7 +323,25 @@ export const make = Effect.gen(function* () {
         environmentId,
         ...(Option.isSome(deviceId) ? { deviceId: deviceId.value } : {}),
       })
-      .pipe(Effect.mapError(mapManagedRelayError));
+      .pipe(
+        Effect.mapError(mapManagedRelayError),
+        Effect.tapError((error) => {
+          if (error._tag !== "ConnectionTransientError" || error.retryAfterSeconds === undefined)
+            return Effect.void;
+          const seconds = error.retryAfterSeconds;
+          return Effect.gen(function* () {
+            const current = yield* cloudSession.identity;
+            if (Option.isNone(current) || current.value !== identity) return;
+            const now = yield* Clock.currentTimeMillis;
+            relayConnectDelays.set(environmentId, {
+              identity,
+              relayUrl: relay.relayUrl,
+              notBefore: now + seconds * 1000,
+              ...(error.traceId === undefined ? {} : { traceId: error.traceId }),
+            });
+          });
+        }),
+      );
     if (connected.environmentId !== environmentId) {
       return yield* environmentMismatchError({
         expected: environmentId,

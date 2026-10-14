@@ -21,8 +21,11 @@ import {
   RelayClientPrincipal,
   RelayEnvironmentPrincipal,
 } from "@t3tools/contracts/relay";
-import { assembleRelayHttpRoutes, mapRelayCommonApiErrors } from "./Api.ts";
-import { wrapPublicRelayHttp, withCloudflarePublicRelayIdentity } from "./PublicRelayBoundary.ts";
+import { mapRelayCommonApiErrors } from "./Api.ts";
+import {
+  assemblePublicRelayHttp,
+  withCloudflarePublicRelayIdentity,
+} from "./PublicRelayBoundary.ts";
 import * as RateLimits from "./PublicRelayRateLimits.ts";
 import {
   canonicalEdgeIp,
@@ -31,10 +34,19 @@ import {
   publicRelayBuckets,
 } from "./publicRelayPolicy.ts";
 
+import { isBoundedJwt } from "./publicRelayInputBounds.ts";
+
 const encode = (value: string) => new TextEncoder().encode(value);
 const counts = () => ({ auth: 0, business: 0, limiter: 0 });
 const routeViews: HttpServerRequest.HttpServerRequest[] = [];
-function fixtureRoutes(calls: ReturnType<typeof counts>, routedDenial = false) {
+function fixtureRoutes(
+  calls: ReturnType<typeof counts>,
+  routedDenial = false,
+  construction?: (
+    limiter: Option.Option<RateLimits.PublicRelayRateLimits["Service"]>,
+    identity: Option.Option<RateLimits.TrustedEdgeIdentity["Service"]>,
+  ) => void,
+) {
   const handle = ({ request }: { readonly request: HttpServerRequest.HttpServerRequest }) =>
     Effect.gen(function* () {
       calls.business++;
@@ -55,7 +67,15 @@ function fixtureRoutes(calls: ReturnType<typeof counts>, routedDenial = false) {
       calls.auth++;
     }).pipe(Effect.andThen(effect));
   return Layer.mergeAll(
-    HttpApiBuilder.group(RelayApi, "health", (handlers) => handlers.handleRaw("health", handle)),
+    HttpApiBuilder.group(RelayApi, "health", (handlers) =>
+      Effect.gen(function* () {
+        construction?.(
+          yield* Effect.serviceOption(RateLimits.PublicRelayRateLimits),
+          yield* Effect.serviceOption(RateLimits.TrustedEdgeIdentity),
+        );
+        return handlers.handleRaw("health", handle);
+      }),
+    ),
     HttpApiBuilder.group(RelayApi, "metadata", (handlers) =>
       handlers.handleRaw("authorizationServer", handle).handleRaw("protectedResource", handle),
     ),
@@ -160,6 +180,7 @@ function rawRequest(
     readonly fail?: boolean;
     readonly hold?: boolean;
     readonly neverCancel?: boolean;
+    readonly rejectCancel?: boolean;
     readonly signal?: AbortSignal;
     readonly onPull?: () => void;
   } = {},
@@ -180,7 +201,11 @@ function rawRequest(
       },
       cancel() {
         cancelled++;
-        return options.neverCancel ? new Promise<void>(() => {}) : Promise.resolve();
+        return options.rejectCancel
+          ? Promise.reject(new Error("synthetic cancellation failure"))
+          : options.neverCancel
+            ? new Promise<void>(() => {})
+            : Promise.resolve();
       },
     },
     { highWaterMark: 0 },
@@ -222,19 +247,21 @@ function withBoundary(
   admit: RateLimits.PublicRelayRateLimits["Service"]["admit"] = () => Effect.void,
   routedDenial = false,
 ) {
-  return assembleRelayHttpRoutes(fixtureRoutes(calls, routedDenial)).pipe(
+  return assemblePublicRelayHttp(
+    fixtureRoutes(calls, routedDenial),
+    Layer.succeed(RateLimits.PublicRelayRateLimits, {
+      admit: (op, subject) => {
+        calls.limiter++;
+        return admit(op, subject);
+      },
+    }),
+  ).pipe(
     Effect.provide(HttpServer.layerServices),
-    Effect.map((router) =>
-      wrapPublicRelayHttp(router).pipe(
+    Effect.map((endpoint) =>
+      endpoint.pipe(
         Effect.provideService(RateLimits.TrustedEdgeIdentity, {
           status: "available",
           ip: "192.0.2.1",
-        }),
-        Effect.provideService(RateLimits.PublicRelayRateLimits, {
-          admit: (op, subject) => {
-            calls.limiter++;
-            return admit(op, subject);
-          },
         }),
       ),
     ),
@@ -627,17 +654,14 @@ describe("public policy and Cloudflare adapter", () => {
               return { success: count <= 1 };
             }),
         };
-        const router = yield* assembleRelayHttpRoutes(fixtureRoutes(calls)).pipe(
-          Effect.provide(HttpServer.layerServices),
-        );
-        const shared = withCloudflarePublicRelayIdentity(wrapPublicRelayHttp(router)).pipe(
-          Effect.provide(
-            RateLimits.layerCloudflare(
-              { issuer: "https://relay.test", stage: "synthetic-stage" },
-              { edge: binding },
-            ),
+        const endpoint = yield* assemblePublicRelayHttp(
+          fixtureRoutes(calls),
+          RateLimits.layerCloudflare(
+            { issuer: "https://relay.test", stage: "synthetic-stage" },
+            { edge: binding },
           ),
-        );
+        ).pipe(Effect.provide(HttpServer.layerServices));
+        const shared = withCloudflarePublicRelayIdentity(endpoint);
         for (const [ip, status] of [
           ["192.0.2.1", 200],
           ["192.0.2.1", 429],
@@ -673,17 +697,16 @@ describe("public policy and Cloudflare adapter", () => {
   ])("fails closed for unavailable production identity %s without header fallbacks", (ip) =>
     Effect.gen(function* () {
       const calls = counts();
-      const router = yield* assembleRelayHttpRoutes(fixtureRoutes(calls)).pipe(
-        Effect.provide(HttpServer.layerServices),
-      );
-      const endpoint = withCloudflarePublicRelayIdentity(wrapPublicRelayHttp(router)).pipe(
-        Effect.provideService(RateLimits.PublicRelayRateLimits, {
+      const bounded = yield* assemblePublicRelayHttp(
+        fixtureRoutes(calls),
+        Layer.succeed(RateLimits.PublicRelayRateLimits, {
           admit: () => {
             calls.limiter++;
             return Effect.void;
           },
         }),
-      );
+      ).pipe(Effect.provide(HttpServer.layerServices));
+      const endpoint = withCloudflarePublicRelayIdentity(bounded);
       const ingress = new Request("https://relay.test/v1/client/environment-links", {
         headers: {
           ...(ip === null ? {} : { "cf-connecting-ip": ip }),
@@ -834,3 +857,97 @@ describe("public policy and Cloudflare adapter", () => {
   );
 });
 const fleetCounters = new Map<string, number>();
+
+it.effect.each([
+  { name: "rejecting reader cancel", size: 65537, rejectCancel: true, form: false },
+  { name: "very large single chunk", size: 4 * 1024 * 1024, rejectCancel: false, form: false },
+  { name: "65537 form overflow", size: 65537, rejectCancel: false, form: true },
+])(
+  "real boundary rejects $name with reader cleanup and zero downstream work",
+  ({ size, rejectCancel, form }) =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const endpoint = yield* withBoundary(calls);
+      const formPrefix = "subject_token=fixture";
+      const chunk = form
+        ? encode(formPrefix + "&".repeat(size - formPrefix.length))
+        : new Uint8Array(size);
+      const raw = rawRequest([chunk, encode("unread")], {
+        rejectCancel,
+        ...(form
+          ? {
+              url: "https://relay.test/v1/client/dpop-token",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+            }
+          : {}),
+      });
+      const response = yield* send(endpoint, raw.request);
+      expect(response.status).toBe(413);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        _tag: "RelayRequestTooLargeError",
+        code: "relay_request_too_large",
+      });
+      expect(raw.read()).toBe(1);
+      expect(raw.cancelled()).toBe(1);
+      expect(raw.request.body?.locked).toBe(false);
+      expect(calls).toEqual({ auth: 0, business: 0, limiter: 1 });
+    }).pipe(Effect.scoped),
+);
+it.effect(
+  "production composition provides the configured limiter to construction and outer request admission without capturing identity",
+  () =>
+    Effect.gen(function* () {
+      const calls = counts();
+      let constructionLimiter: RateLimits.PublicRelayRateLimits["Service"] | undefined;
+      let bindingCalls = 0;
+      const limits = RateLimits.layerCloudflare(
+        { issuer: "https://relay.test", stage: "offline" },
+        {
+          edge: {
+            limit: () =>
+              Effect.sync(() => {
+                bindingCalls++;
+                return { success: true };
+              }),
+          },
+        },
+      );
+      const endpoint = yield* assemblePublicRelayHttp(
+        fixtureRoutes(calls, false, (limiter, identity) => {
+          constructionLimiter = Option.getOrUndefined(limiter);
+          expect(Option.isNone(identity)).toBe(true);
+        }),
+        limits,
+      ).pipe(Effect.provide(HttpServer.layerServices));
+      expect(constructionLimiter).toBeDefined();
+      yield* constructionLimiter!.admit("health", { kind: "edge", ip: "192.0.2.2" });
+      const response = yield* send(
+        withCloudflarePublicRelayIdentity(endpoint).pipe(
+          Effect.provideService(
+            Cloudflare.Workers.Request,
+            new Request("https://relay.test/health", {
+              headers: { "cf-connecting-ip": "192.0.2.1" },
+            }),
+          ),
+        ),
+        new Request("https://relay.test/health"),
+      );
+      expect(response.status).toBe(200);
+      expect(bindingCalls).toBe(2);
+      expect(calls.business).toBe(1);
+    }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "local JWT crit precheck enforces item type and 256 boundary while tolerating bounded unknown extensions",
+  () =>
+    Effect.sync(() => {
+      const token = (crit: unknown) =>
+        `${Buffer.from(JSON.stringify({ typ: "JWT", alg: "RS256", crit, harmless: { enabled: true } })).toString("base64url")}.e30.c2ln`;
+      expect(isBoundedJwt(token(["x".repeat(256)]), 16384)).toBe(true);
+      expect(isBoundedJwt(token(["x".repeat(257)]), 16384)).toBe(false);
+      expect(isBoundedJwt(token([123]), 16384)).toBe(false);
+      expect(isBoundedJwt(token(Array.from({ length: 8 }, () => "extension")), 16384)).toBe(true);
+      expect(isBoundedJwt(token(Array.from({ length: 9 }, () => "extension")), 16384)).toBe(false);
+    }),
+);
