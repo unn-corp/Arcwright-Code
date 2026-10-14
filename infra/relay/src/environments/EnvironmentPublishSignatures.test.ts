@@ -98,6 +98,8 @@ function layer(replay?: Partial<DpopProofs.DpopProofReplay["Service"]>) {
       Layer.merge(
         RelayConfiguration.layer(config),
         Layer.succeed(DpopProofs.DpopProofReplay, {
+          verify: () => Effect.die("unexpected stateless DPoP verification"),
+          consumeVerified: () => Effect.die("unexpected DPoP consumption"),
           verifyAndConsume:
             replay?.verifyAndConsume ?? (() => Effect.die("unexpected DPoP proof verification")),
           consume: replay?.consume ?? (() => Effect.succeed(true)),
@@ -331,4 +333,32 @@ it.effect.each(localClaimFixtures)(
       }
       expect((yield* Effect.exit(decode({ ...ordinary, jti: " " })))._tag).toBe("Failure");
     }),
+);
+
+it.effect(
+  "stateless EdDSA publication verification postpones replay persistence until consumeVerified",
+  () => {
+    let consumed = 0;
+    return Effect.gen(function* () {
+      const signatures = yield* EnvironmentPublishSignatures.EnvironmentPublishSignatures;
+      const request = yield* freshRequest;
+      const input = {
+        environmentId: state.environmentId,
+        environmentPublicKey: keyPair.publicKey,
+        threadId: state.threadId,
+        request,
+      };
+      const proof = yield* signatures.verifyStateless(input);
+      expect(yield* signatures.verifyStateless(input)).toEqual(proof);
+      expect(consumed).toBe(0);
+      yield* signatures.consumeVerified(proof);
+      expect(consumed).toBe(1);
+      expect(yield* Effect.flip(signatures.consumeVerified(proof))).toMatchObject({
+        _tag: "EnvironmentPublishSignatureInvalid",
+        reason: "replayed_nonce",
+        stage: "consume_nonce",
+      });
+      expect(consumed).toBe(2);
+    }).pipe(Effect.provide(layer({ consume: () => Effect.sync(() => ++consumed === 1) })));
+  },
 );

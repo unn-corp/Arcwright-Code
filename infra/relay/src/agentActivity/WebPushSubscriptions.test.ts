@@ -16,24 +16,33 @@ it.effect(
     // Isolated DB adapter: exercise registration/removal rather than testing the encoder itself.
     const knownHash = "ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0"; // SHA-256("abc"), unpadded base64url.
     let saved:
-      | { installationSecretHash: string; installationId: string; endpoint: string }
+      | {
+          installationSecretHash: string;
+          installationId: string;
+          endpoint: string;
+          userId: string;
+          incarnationId?: string;
+        }
       | undefined;
     const db = {
       $client: { withTransaction: (effect: Effect.Effect<unknown>) => effect },
       execute: () => Effect.void,
       select: () => ({
         from: () => ({
-          where: () => ({
+          where: (condition: SQL) => ({
             orderBy: () => ({
               for: () => Effect.succeed(saved ? [{ ...saved, id: "subscription-fixture" }] : []),
             }),
             limit: () =>
               Effect.succeed(
-                saved
+                saved &&
+                  new PgDialect()
+                    .sqlToQuery(condition)
+                    .params.includes(saved.installationSecretHash)
                   ? [
                       {
                         id: "subscription-fixture",
-                        installationSecretHash: saved.installationSecretHash,
+                        ...saved,
                       },
                     ]
                   : [],
@@ -46,6 +55,7 @@ it.effect(
           installationSecretHash: string;
           installationId: string;
           endpoint: string;
+          userId: string;
         }) => {
           saved = values;
           return {

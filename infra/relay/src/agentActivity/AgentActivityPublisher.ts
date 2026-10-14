@@ -37,6 +37,13 @@ export type AgentActivityPublishError =
   | WebPushSubscriptions.WebPushSubscriptionPersistenceError
   | WebPushDeliveryQueue.WebPushDeliveryQueueError;
 
+type PublishInput = {
+  readonly environmentId: string;
+  readonly environmentPublicKey: string;
+  readonly threadId: string;
+  readonly state: RelayAgentActivityState | null;
+};
+
 export class AgentActivityPublisher extends Context.Service<
   AgentActivityPublisher,
   {
@@ -46,6 +53,11 @@ export class AgentActivityPublisher extends Context.Service<
       readonly threadId: string;
       readonly state: RelayAgentActivityState | null;
     }) => Effect.Effect<RelayPublishResponse, AgentActivityPublishError>;
+    readonly publishToRecipients: (
+      input: PublishInput & {
+        readonly deliveryUsers: ReadonlyArray<EnvironmentLinks.AgentAwarenessDeliveryUserRecord>;
+      },
+    ) => Effect.Effect<RelayPublishResponse, AgentActivityPublishError>;
     readonly replayForLiveActivityRegistration: (input: {
       readonly userId: string;
       readonly deviceId: string;
@@ -151,6 +163,85 @@ export const make = Effect.gen(function* () {
     return [...deliveriesByTarget.flat(), ...webPushResults];
   });
 
+  const publishToRecipients: AgentActivityPublisher["Service"]["publishToRecipients"] = Effect.fn(
+    "relay.agent_activity_publisher.publish_to_recipients",
+  )(function* (input) {
+    yield* Effect.annotateCurrentSpan({
+      "relay.environment_id": input.environmentId,
+      "relay.thread_id": input.threadId,
+      "relay.agent_activity.phase": input.state?.phase ?? "deleted",
+    });
+    if (input.state) {
+      // Terminal states are persisted too (pruned by the cron after they
+      // age out) so a thread that finishes while other agents are active
+      // stays visible as Done/Failed in subsequent aggregates instead of
+      // silently vanishing from the Live Activity.
+      yield* rows.upsert({
+        environmentPublicKey: input.environmentPublicKey,
+        state: input.state,
+      });
+    } else {
+      yield* rows.remove({
+        environmentId: input.environmentId,
+        environmentPublicKey: input.environmentPublicKey,
+        threadId: input.threadId,
+      });
+    }
+
+    const deliveryUsers = input.deliveryUsers;
+    const now = yield* DateTime.now;
+    const deliveriesByUser = yield* Effect.forEach(
+      deliveryUsers,
+      (deliveryUser) =>
+        publishForDeliveryUser({
+          deliveryUser,
+          environmentId: input.environmentId,
+          environmentPublicKey: input.environmentPublicKey,
+          state: input.state,
+          nowMs: now.epochMilliseconds,
+        }),
+      { concurrency: 4 },
+    );
+    // Anonymous installed PWAs are scoped directly to an environment, not
+    // to an Arcwright Connect user. Their delivery must therefore happen outside
+    // the linked-user fan-out above.
+    const pwaNotifications =
+      anonymousAllowed && Option.isSome(webPushSubscriptions)
+        ? yield* webPushSubscriptions.value.transitionEnvironment({
+            environmentId: input.environmentId,
+            state: input.state,
+          })
+        : [];
+    const pwaDeliveries = Option.isSome(webPushDeliveryQueue)
+      ? yield* Effect.forEach(
+          pwaNotifications,
+          (notification) =>
+            webPushDeliveryQueue.value.enqueue({
+              kind: "activity",
+              userId: notification.subscription.userId,
+              subscriptionId: notification.subscription.id,
+              subscriptionIncarnationId: notification.subscription.incarnationId,
+              provenance: {
+                ...notification.source,
+                environmentId: input.environmentId,
+                environmentPublicKey: input.environmentPublicKey,
+                linkIncarnationId: null,
+              },
+              eventId: notification.eventId,
+              showProjectAndThreadNames: notification.showProjectAndThreadNames,
+            }),
+          { concurrency: 4 },
+        )
+      : [];
+    const deliveries = [...deliveriesByUser.flat(), ...pwaDeliveries];
+    return {
+      ok: true,
+      deliveries: deliveries.filter(
+        (delivery): delivery is RelayDeliveryResult => delivery !== null,
+      ),
+    };
+  });
+
   return AgentActivityPublisher.of({
     replayForLiveActivityRegistration: Effect.fn(
       "relay.agent_activity_publisher.replay_for_live_activity_registration",
@@ -186,85 +277,14 @@ export const make = Effect.gen(function* () {
         replay: true,
       });
     }),
-    publish: Effect.fn("relay.agent_activity_publisher.publish")(function* (input) {
-      yield* Effect.annotateCurrentSpan({
-        "relay.environment_id": input.environmentId,
-        "relay.thread_id": input.threadId,
-        "relay.agent_activity.phase": input.state?.phase ?? "deleted",
-      });
-      if (input.state) {
-        // Terminal states are persisted too (pruned by the cron after they
-        // age out) so a thread that finishes while other agents are active
-        // stays visible as Done/Failed in subsequent aggregates instead of
-        // silently vanishing from the Live Activity.
-        yield* rows.upsert({
-          environmentPublicKey: input.environmentPublicKey,
-          state: input.state,
-        });
-      } else {
-        yield* rows.remove({
+    publishToRecipients,
+    publish: (input) =>
+      links
+        .listDeliveryUsersForEnvironment({
           environmentId: input.environmentId,
           environmentPublicKey: input.environmentPublicKey,
-          threadId: input.threadId,
-        });
-      }
-
-      const deliveryUsers = yield* links.listDeliveryUsersForEnvironment({
-        environmentId: input.environmentId,
-        environmentPublicKey: input.environmentPublicKey,
-      });
-      const now = yield* DateTime.now;
-      const deliveriesByUser = yield* Effect.forEach(
-        deliveryUsers,
-        (deliveryUser) =>
-          publishForDeliveryUser({
-            deliveryUser,
-            environmentId: input.environmentId,
-            environmentPublicKey: input.environmentPublicKey,
-            state: input.state,
-            nowMs: now.epochMilliseconds,
-          }),
-        { concurrency: 4 },
-      );
-      // Anonymous installed PWAs are scoped directly to an environment, not
-      // to an Arcwright Connect user. Their delivery must therefore happen outside
-      // the linked-user fan-out above.
-      const pwaNotifications =
-        anonymousAllowed && Option.isSome(webPushSubscriptions)
-          ? yield* webPushSubscriptions.value.transitionEnvironment({
-              environmentId: input.environmentId,
-              state: input.state,
-            })
-          : [];
-      const pwaDeliveries = Option.isSome(webPushDeliveryQueue)
-        ? yield* Effect.forEach(
-            pwaNotifications,
-            (notification) =>
-              webPushDeliveryQueue.value.enqueue({
-                kind: "activity",
-                userId: notification.subscription.userId,
-                subscriptionId: notification.subscription.id,
-                subscriptionIncarnationId: notification.subscription.incarnationId,
-                provenance: {
-                  ...notification.source,
-                  environmentId: input.environmentId,
-                  environmentPublicKey: input.environmentPublicKey,
-                  linkIncarnationId: null,
-                },
-                eventId: notification.eventId,
-                showProjectAndThreadNames: notification.showProjectAndThreadNames,
-              }),
-            { concurrency: 4 },
-          )
-        : [];
-      const deliveries = [...deliveriesByUser.flat(), ...pwaDeliveries];
-      return {
-        ok: true,
-        deliveries: deliveries.filter(
-          (delivery): delivery is RelayDeliveryResult => delivery !== null,
-        ),
-      };
-    }),
+        })
+        .pipe(Effect.flatMap((deliveryUsers) => publishToRecipients({ ...input, deliveryUsers }))),
   });
 });
 

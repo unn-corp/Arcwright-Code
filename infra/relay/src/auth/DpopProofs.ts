@@ -43,6 +43,13 @@ export class DpopProofRejected extends Schema.TaggedError<DpopProofRejected>()(
   }
 }
 
+export interface VerifiedDpopProof {
+  readonly thumbprint: string;
+  readonly jti: string;
+  readonly iat: number;
+  readonly expiresAt: DateTime.DateTime;
+}
+
 export class DpopProofReplay extends Context.Service<
   DpopProofReplay,
   {
@@ -54,6 +61,17 @@ export class DpopProofReplay extends Context.Service<
       readonly expectedAccessToken?: string;
       readonly now: DateTime.DateTime;
     }) => Effect.Effect<string, DpopProofRejected | DpopProofReplayPersistenceError>;
+    readonly verify: (input: {
+      readonly proof: string | undefined;
+      readonly method: string;
+      readonly url: string;
+      readonly expectedThumbprint?: string;
+      readonly expectedAccessToken?: string;
+      readonly now: DateTime.DateTime;
+    }) => Effect.Effect<VerifiedDpopProof, DpopProofRejected>;
+    readonly consumeVerified: (
+      proof: VerifiedDpopProof,
+    ) => Effect.Effect<string, DpopProofRejected | DpopProofReplayPersistenceError>;
     readonly consume: (input: {
       readonly thumbprint: string;
       readonly jti: string;
@@ -97,43 +115,49 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const verifyAndConsume: DpopProofReplay["Service"]["verifyAndConsume"] = Effect.fn(
-    "relay.dpop_proofs.verify_and_consume",
-  )(function* (input) {
-    yield* Effect.annotateCurrentSpan({
-      "relay.dpop.method": input.method,
-      "relay.dpop.expected_thumbprint_present": input.expectedThumbprint !== undefined,
-      "relay.dpop.expected_access_token_present": input.expectedAccessToken !== undefined,
-    });
-    if (input.proof !== undefined && !isBoundedDpopProof(input.proof))
-      return yield* new DpopProofRejected({ code: "malformed_proof" });
-    const result = verifyDpopProof({
-      proof: input.proof,
-      method: input.method,
-      url: input.url,
-      nowEpochSeconds: Math.floor(input.now.epochMilliseconds / 1_000),
-      ...(input.expectedThumbprint ? { expectedThumbprint: input.expectedThumbprint } : {}),
-      ...(input.expectedAccessToken ? { expectedAccessToken: input.expectedAccessToken } : {}),
-    });
-    if (!result.ok) {
-      yield* Effect.logWarning("relay dpop proof rejected", {
-        code: result.code,
-        reason: result.reason,
+  const verify: DpopProofReplay["Service"]["verify"] = Effect.fn("relay.dpop_proofs.verify")(
+    function* (input) {
+      yield* Effect.annotateCurrentSpan({
+        "relay.dpop.method": input.method,
+        "relay.dpop.expected_thumbprint_present": input.expectedThumbprint !== undefined,
+        "relay.dpop.expected_access_token_present": input.expectedAccessToken !== undefined,
+      });
+      if (input.proof !== undefined && !isBoundedDpopProof(input.proof))
+        return yield* new DpopProofRejected({ code: "malformed_proof" });
+      const result = verifyDpopProof({
+        proof: input.proof,
         method: input.method,
         url: input.url,
-        expectedThumbprintPresent: input.expectedThumbprint !== undefined,
-        expectedAccessTokenPresent: input.expectedAccessToken !== undefined,
+        nowEpochSeconds: Math.floor(input.now.epochMilliseconds / 1_000),
+        ...(input.expectedThumbprint ? { expectedThumbprint: input.expectedThumbprint } : {}),
+        ...(input.expectedAccessToken ? { expectedAccessToken: input.expectedAccessToken } : {}),
       });
-      return yield* new DpopProofRejected({
-        code: result.code,
-      });
-    }
-    const consumed = yield* consume({
-      thumbprint: result.thumbprint,
-      jti: result.jti,
-      iat: result.iat,
-      expiresAt: DateTime.add(input.now, { minutes: 5 }),
-    });
+      if (!result.ok) {
+        yield* Effect.logWarning("relay dpop proof rejected", {
+          code: result.code,
+          reason: result.reason,
+          method: input.method,
+          url: input.url,
+          expectedThumbprintPresent: input.expectedThumbprint !== undefined,
+          expectedAccessTokenPresent: input.expectedAccessToken !== undefined,
+        });
+        return yield* new DpopProofRejected({
+          code: result.code,
+        });
+      }
+      return {
+        thumbprint: result.thumbprint,
+        jti: result.jti,
+        iat: result.iat,
+        expiresAt: DateTime.add(input.now, { minutes: 5 }),
+      };
+    },
+  );
+
+  const consumeVerified: DpopProofReplay["Service"]["consumeVerified"] = Effect.fn(
+    "relay.dpop_proofs.consume_verified",
+  )(function* (result) {
+    const consumed = yield* consume(result);
     if (!consumed) {
       yield* Effect.logWarning("relay dpop proof replay rejected", {
         thumbprint: result.thumbprint,
@@ -170,7 +194,9 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("relay.dpop_proofs.prune_expired"));
 
   return DpopProofReplay.of({
-    verifyAndConsume,
+    verify,
+    consumeVerified,
+    verifyAndConsume: (input) => verify(input).pipe(Effect.flatMap(consumeVerified)),
     consume,
     pruneExpired,
   });

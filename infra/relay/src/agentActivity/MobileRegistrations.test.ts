@@ -120,6 +120,8 @@ function makeEnvironmentLinks(
     getForUser: () => Effect.succeed(null),
     findActiveManagedForEnvironment: () => Effect.succeed([]),
     setHoldWebhooksWhileOffline: () => Effect.void,
+    listActiveForEnvironment: () => Effect.succeed([]),
+    setHoldWebhooksWhileOfflineForLinks: () => Effect.succeed([]),
     revokeForUser: () => Effect.succeed(false),
     ...overrides,
   };
@@ -193,6 +195,7 @@ function makeAgentActivityPublisher(
 ): AgentActivityPublisher.AgentActivityPublisher["Service"] {
   return {
     publish: () => Effect.succeed({ ok: true, deliveries: [] }),
+    publishToRecipients: () => Effect.succeed({ ok: true, deliveries: [] }),
     replayForLiveActivityRegistration: () => Effect.succeed(null),
     ...overrides,
   };

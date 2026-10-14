@@ -215,7 +215,9 @@ const make = Effect.gen(function* () {
               clientId: claims.client_id,
               scope: claims.scope,
             });
-            return scopes === null ? null : { ...claims, scope: scopes };
+            return scopes === null || claims.sub.length === 0 || claims.sub.length > 191
+              ? null
+              : { ...claims, scope: scopes };
           }),
           Effect.orElseSucceed(() => null),
         ),

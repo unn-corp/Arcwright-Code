@@ -74,6 +74,18 @@ export type EnvironmentPublishSignatureError =
   | EnvironmentPublishPublicKeyMissing
   | DpopProofs.DpopProofReplayPersistenceError;
 
+export interface VerifiedEnvironmentPublishProof extends DpopProofs.VerifiedDpopProof {
+  readonly environmentId: string;
+  readonly threadId: string;
+}
+
+type PublishVerificationInput = {
+  readonly environmentId: string;
+  readonly environmentPublicKey: string;
+  readonly threadId: string;
+  readonly request: RelayAgentActivityPublishRequest;
+};
+
 export class EnvironmentPublishSignatures extends Context.Service<
   EnvironmentPublishSignatures,
   {
@@ -83,6 +95,12 @@ export class EnvironmentPublishSignatures extends Context.Service<
       readonly threadId: string;
       readonly request: RelayAgentActivityPublishRequest;
     }) => Effect.Effect<void, EnvironmentPublishSignatureError>;
+    readonly verifyStateless: (
+      input: PublishVerificationInput,
+    ) => Effect.Effect<VerifiedEnvironmentPublishProof, EnvironmentPublishSignatureError>;
+    readonly consumeVerified: (
+      proof: VerifiedEnvironmentPublishProof,
+    ) => Effect.Effect<void, EnvironmentPublishSignatureError>;
   }
 >()("t3code-relay/environments/EnvironmentPublishSignatures") {}
 
@@ -108,119 +126,131 @@ const make = Effect.gen(function* () {
   const config = yield* RelayConfiguration.RelayConfiguration;
   const crypto = yield* Crypto.Crypto;
 
-  return EnvironmentPublishSignatures.of({
-    verify: Effect.fn("relay.environment_publish_signatures.verify")(function* (input) {
-      yield* Effect.annotateCurrentSpan({
-        "relay.environment_id": input.environmentId,
-        "relay.thread_id": input.threadId,
+  const verifyStateless: EnvironmentPublishSignatures["Service"]["verifyStateless"] = Effect.fn(
+    "relay.environment_publish_signatures.verify_stateless",
+  )(function* (input) {
+    yield* Effect.annotateCurrentSpan({
+      "relay.environment_id": input.environmentId,
+      "relay.thread_id": input.threadId,
+    });
+    const now = yield* DateTime.now;
+    const decoded = yield* Effect.try({
+      try: () => {
+        inspectBoundedJwt(input.request.proof);
+        assertPublicSpki(input.environmentPublicKey);
+        return decodeRelayJwt(input.request.proof);
+      },
+      catch: (cause) =>
+        new EnvironmentPublishSignatureInvalid({
+          environmentId: input.environmentId,
+          threadId: input.threadId,
+          reason: "invalid_signature_or_payload",
+          stage: "decode_token",
+          cause,
+        }),
+    });
+    if (
+      typeof decoded.exp === "number" &&
+      decoded.exp <= Math.floor(now.epochMilliseconds / 1_000)
+    ) {
+      return yield* new EnvironmentPublishSignatureExpired({
+        environmentId: input.environmentId,
+        threadId: input.threadId,
+        expiresAt: DateTime.formatIso(DateTime.makeUnsafe(decoded.exp * 1_000)),
       });
-      const now = yield* DateTime.now;
-      const decoded = yield* Effect.try({
-        try: () => {
-          inspectBoundedJwt(input.request.proof);
-          assertPublicSpki(input.environmentPublicKey);
-          return decodeRelayJwt(input.request.proof);
-        },
-        catch: (cause) =>
+    }
+    const proof = yield* verifyRelayJwt({
+      publicKey: input.environmentPublicKey,
+      token: input.request.proof,
+      typ: RELAY_ACTIVITY_PUBLISH_TYP,
+      issuer: `t3-env:${input.environmentId}`,
+      audience: normalizeRelayIssuer(config.relayIssuer),
+      nowEpochSeconds: Math.floor(now.epochMilliseconds / 1_000),
+    }).pipe(
+      Effect.flatMap(decodeProof),
+      Effect.mapError(
+        (cause) =>
           new EnvironmentPublishSignatureInvalid({
             environmentId: input.environmentId,
             threadId: input.threadId,
             reason: "invalid_signature_or_payload",
-            stage: "decode_token",
+            stage: "verify_proof",
             cause,
           }),
+      ),
+    );
+    if (
+      proof.environmentId !== input.environmentId ||
+      proof.threadId !== input.threadId ||
+      proof.sub !== input.environmentId ||
+      stableStringify(proof.state) !== stableStringify(input.request.state) ||
+      (input.request.state !== null &&
+        (input.request.state.environmentId !== input.environmentId ||
+          input.request.state.threadId !== input.threadId))
+    ) {
+      return yield* new EnvironmentPublishSignatureInvalid({
+        environmentId: input.environmentId,
+        threadId: input.threadId,
+        reason: "invalid_signature_or_payload",
+        stage: "validate_claims",
       });
-      if (
-        typeof decoded.exp === "number" &&
-        decoded.exp <= Math.floor(now.epochMilliseconds / 1_000)
-      ) {
-        return yield* new EnvironmentPublishSignatureExpired({
+    }
+    const expiresAt = DateTime.make(proof.exp * 1_000);
+    if (expiresAt._tag === "None") {
+      return yield* new EnvironmentPublishSignatureInvalid({
+        environmentId: input.environmentId,
+        threadId: input.threadId,
+        reason: "invalid_signature_or_payload",
+        stage: "validate_expiration",
+      });
+    }
+    const thumbprint = yield* crypto
+      .digest(
+        "SHA-256",
+        environmentPublishReplayThumbprintData({
           environmentId: input.environmentId,
-          threadId: input.threadId,
-          expiresAt: DateTime.formatIso(DateTime.makeUnsafe(decoded.exp * 1_000)),
-        });
-      }
-      const proof = yield* verifyRelayJwt({
-        publicKey: input.environmentPublicKey,
-        token: input.request.proof,
-        typ: RELAY_ACTIVITY_PUBLISH_TYP,
-        issuer: `t3-env:${input.environmentId}`,
-        audience: normalizeRelayIssuer(config.relayIssuer),
-        nowEpochSeconds: Math.floor(now.epochMilliseconds / 1_000),
-      }).pipe(
-        Effect.flatMap(decodeProof),
+          environmentPublicKey: input.environmentPublicKey,
+        }),
+      )
+      .pipe(
+        Effect.map(formatEnvironmentPublishReplayThumbprint),
         Effect.mapError(
           (cause) =>
             new EnvironmentPublishSignatureInvalid({
               environmentId: input.environmentId,
               threadId: input.threadId,
               reason: "invalid_signature_or_payload",
-              stage: "verify_proof",
+              stage: "generate_replay_thumbprint",
               cause,
             }),
         ),
       );
-      if (
-        proof.environmentId !== input.environmentId ||
-        proof.threadId !== input.threadId ||
-        proof.sub !== input.environmentId ||
-        stableStringify(proof.state) !== stableStringify(input.request.state) ||
-        (input.request.state !== null &&
-          (input.request.state.environmentId !== input.environmentId ||
-            input.request.state.threadId !== input.threadId))
-      ) {
-        return yield* new EnvironmentPublishSignatureInvalid({
-          environmentId: input.environmentId,
-          threadId: input.threadId,
-          reason: "invalid_signature_or_payload",
-          stage: "validate_claims",
-        });
-      }
-      const expiresAt = DateTime.make(proof.exp * 1_000);
-      if (expiresAt._tag === "None") {
-        return yield* new EnvironmentPublishSignatureInvalid({
-          environmentId: input.environmentId,
-          threadId: input.threadId,
-          reason: "invalid_signature_or_payload",
-          stage: "validate_expiration",
-        });
-      }
-      const thumbprint = yield* crypto
-        .digest(
-          "SHA-256",
-          environmentPublishReplayThumbprintData({
-            environmentId: input.environmentId,
-            environmentPublicKey: input.environmentPublicKey,
-          }),
-        )
-        .pipe(
-          Effect.map(formatEnvironmentPublishReplayThumbprint),
-          Effect.mapError(
-            (cause) =>
-              new EnvironmentPublishSignatureInvalid({
-                environmentId: input.environmentId,
-                threadId: input.threadId,
-                reason: "invalid_signature_or_payload",
-                stage: "generate_replay_thumbprint",
-                cause,
-              }),
-          ),
-        );
-      const consumedNonce = yield* proofReplay.consume({
-        thumbprint,
-        jti: proof.jti,
-        iat: proof.iat,
-        expiresAt: expiresAt.value,
+    return {
+      environmentId: input.environmentId,
+      threadId: input.threadId,
+      thumbprint,
+      jti: proof.jti,
+      iat: proof.iat,
+      expiresAt: expiresAt.value,
+    };
+  });
+  const consumeVerified: EnvironmentPublishSignatures["Service"]["consumeVerified"] = Effect.fn(
+    "relay.environment_publish_signatures.consume_verified",
+  )(function* (input) {
+    const consumedNonce = yield* proofReplay.consume(input);
+    if (!consumedNonce) {
+      return yield* new EnvironmentPublishSignatureInvalid({
+        environmentId: input.environmentId,
+        threadId: input.threadId,
+        reason: "replayed_nonce",
+        stage: "consume_nonce",
       });
-      if (!consumedNonce) {
-        return yield* new EnvironmentPublishSignatureInvalid({
-          environmentId: input.environmentId,
-          threadId: input.threadId,
-          reason: "replayed_nonce",
-          stage: "consume_nonce",
-        });
-      }
-    }),
+    }
+  });
+  return EnvironmentPublishSignatures.of({
+    verifyStateless,
+    consumeVerified,
+    verify: (input) => verifyStateless(input).pipe(Effect.flatMap(consumeVerified)),
   });
 });
 

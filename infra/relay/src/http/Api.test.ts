@@ -1,3 +1,4 @@
+import * as PublicLimits from "./PublicRelayRateLimits.ts";
 import * as HttpServer from "effect/http/HttpServer";
 import {
   RelayClientAuth,
@@ -81,6 +82,16 @@ vi.mock("@clerk/backend", () => ({
   verifyToken: vi.fn(),
 }));
 
+const layerTestLimiter = Layer.succeed(PublicLimits.PublicRelayRateLimits, {
+  admit: () => Effect.void,
+});
+const verifiedFixtureProof = {
+  thumbprint: "fixture-thumbprint",
+  jti: "fixture",
+  iat: 0,
+  expiresAt: DateTime.makeUnsafe(300_000),
+};
+
 const relaySettings: RelayConfiguration.RelayConfiguration["Service"] = {
   relayIssuer: "https://relay.example.test",
   apns: {
@@ -127,6 +138,7 @@ describe("device listing compatibility", () => {
       androidApiLevel: 36,
     };
     const layerHandlers = RelayHttpApi.layerClientApi.pipe(
+      Layer.provide(layerTestLimiter),
       HttpRouter.provideRequest(
         Layer.mergeAll(
           Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),
@@ -501,17 +513,21 @@ describe("owned RelayClientAuth boundary", () => {
 
   it.effect("the actual token exchange rejects opaque OAuth before proof verification", () =>
     Effect.gen(function* () {
-      const proof = vi.fn(() => Effect.succeed("fixture-thumbprint"));
+      const proof = vi.fn(() => Effect.succeed(verifiedFixtureProof));
       const issue = vi.fn(() => Effect.succeed("relay-token"));
       const httpEffect = yield* HttpRouter.toHttpEffect(
         HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.token)).pipe(
           Layer.provide(
             RelayHttpApi.layerTokenApi.pipe(
+              Layer.provide(layerTestLimiter),
               Layer.provide(
                 Layer.mergeAll(
                   RelayConfiguration.layer(ownedRelaySettings),
                   NodeCryptoLayer.layer,
-                  Layer.mock(DpopProofs.DpopProofReplay, { verifyAndConsume: proof }),
+                  Layer.mock(DpopProofs.DpopProofReplay, {
+                    verify: proof,
+                    consumeVerified: () => Effect.succeed("fixture-thumbprint"),
+                  }),
                   Layer.mock(RelayTokens.RelayTokens, {
                     resolveDpopAccessTokenScopes: () => ["environment:connect"],
                     issueDpopAccessToken: issue,
@@ -1125,8 +1141,8 @@ describe("relay routing fallback", () => {
           EnvironmentPublishSignatures.EnvironmentPublishSignatures["Service"]["verify"]
         >[0]
       > = [];
-      const layerPublisher = Layer.succeed(AgentActivityPublisher.AgentActivityPublisher, {
-        publish: (input) =>
+      const layerPublisher = Layer.mock(AgentActivityPublisher.AgentActivityPublisher, {
+        publishToRecipients: (input) =>
           Effect.sync(() => {
             published.push(input);
             return { ok: true as const, deliveries: [] };
@@ -1136,9 +1152,16 @@ describe("relay routing fallback", () => {
       const layerSignatures = Layer.succeed(
         EnvironmentPublishSignatures.EnvironmentPublishSignatures,
         {
-          verify: (input) =>
+          verify: () => Effect.void,
+          consumeVerified: () => Effect.void,
+          verifyStateless: (input) =>
             Effect.sync(() => {
               verified.push(input);
+              return {
+                ...verifiedFixtureProof,
+                environmentId: input.environmentId,
+                threadId: input.threadId,
+              };
             }),
         },
       );
@@ -1156,6 +1179,8 @@ describe("relay routing fallback", () => {
       ).pipe(
         Layer.provide(
           RelayHttpApi.layerServerApi.pipe(
+            Layer.provide(layerTestLimiter),
+            Layer.provide(NodeCryptoLayer.layer),
             HttpRouter.provideRequest(
               Layer.mergeAll(
                 Layer.succeed(RelayConfiguration.RelayConfiguration, relaySettings),
@@ -1165,7 +1190,14 @@ describe("relay routing fallback", () => {
                 Layer.mock(ManagedEndpointLifecycle.ManagedEndpointLifecycle, {}),
               ),
             ),
-            Layer.provide([layerPublisher, layerSignatures, Layer.mock(HeldHooks.HeldHooks, {})]),
+            Layer.provide([
+              layerPublisher,
+              layerSignatures,
+              Layer.mock(HeldHooks.HeldHooks, {}),
+              Layer.mock(EnvironmentLinks.EnvironmentLinks, {
+                listDeliveryUsersForEnvironment: () => Effect.succeed([]),
+              }),
+            ]),
           ),
         ),
         Layer.provide(layerAuth),
@@ -1204,6 +1236,7 @@ describe("relay routing fallback", () => {
           environmentPublicKey,
           threadId,
           state: null,
+          deliveryUsers: [],
         })),
       );
       expect(verified.map((input) => input.threadId)).toEqual(threadIds);
@@ -1398,11 +1431,13 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
         updatedAt: "1970-01-01T00:00:00.000Z",
       };
       const layerHandlers = RelayHttpApi.pwaApi.pipe(
+        Layer.provide(layerTestLimiter),
+        Layer.provide(NodeCryptoLayer.layer),
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(RelayConfiguration.RelayConfiguration, config),
             Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {
-              registerPwa: () =>
+              registerPwaPublic: () =>
                 Effect.sync(() => {
                   calls.register++;
                   return { subscriptionId: subscription.id };
@@ -1440,7 +1475,7 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
                   calls.get++;
                   return subscription;
                 }),
-              removePwa: () =>
+              removePwaPublic: () =>
                 Effect.sync(() => {
                   calls.remove++;
                   return true;
@@ -1463,10 +1498,16 @@ describe("anonymous PWA deployment policy at exported HTTP handlers", () => {
                 }),
             }),
             Layer.mock(EnvironmentPublishSignatures.EnvironmentPublishSignatures, {
-              verify: () =>
+              consumeVerified: () => Effect.void,
+              verifyStateless: (input) =>
                 Effect.sync(() => {
                   calls.verify++;
                   verified = true;
+                  return {
+                    ...verifiedFixtureProof,
+                    environmentId: input.environmentId,
+                    threadId: input.threadId,
+                  };
                 }),
             }),
           ),
@@ -1679,6 +1720,7 @@ describe("test Web Push authority and queue acceptance through exported handlers
           }),
       });
       const clientHandlers = RelayHttpApi.layerClientApi.pipe(
+        Layer.provide(layerTestLimiter),
         HttpRouter.provideRequest(
           Layer.mergeAll(
             Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),
@@ -1698,7 +1740,13 @@ describe("test Web Push authority and queue acceptance through exported handlers
               Layer.provide(clientHandlers),
             )
           : HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.pwa)).pipe(
-              Layer.provide(RelayHttpApi.pwaApi.pipe(Layer.provide(deps))),
+              Layer.provide(
+                RelayHttpApi.pwaApi.pipe(
+                  Layer.provide(layerTestLimiter),
+                  Layer.provide(NodeCryptoLayer.layer),
+                  Layer.provide(deps),
+                ),
+              ),
             );
       return Effect.gen(function* () {
         const app = yield* Effect.acquireRelease(

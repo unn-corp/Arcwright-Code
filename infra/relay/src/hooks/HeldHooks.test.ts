@@ -84,6 +84,16 @@ const withService = <A, E>(
           ),
         ),
       setHoldWebhooksWhileOffline: () => Effect.void,
+      setHoldWebhooksWhileOfflineForLinks: (input) =>
+        Effect.succeed(
+          input.links.filter((snapshot) =>
+            links.some(
+              (link) =>
+                link.userId === snapshot.userId &&
+                link.linkIncarnationId === snapshot.linkIncarnationId,
+            ),
+          ),
+        ),
     }),
     Layer.mock(ManagedEndpointAllocations.ManagedEndpointAllocations, {
       get: (input) =>
@@ -159,3 +169,38 @@ describe("HeldHooks", () => {
     ),
   );
 });
+
+it.effect(
+  "public hook snapshots skip recreated incarnations and publish-only owners before endpoint effects",
+  () =>
+    withService({ pendingKeys: [ownKey] }, ({ heldHooks, cleared, woken }) =>
+      Effect.gen(function* () {
+        const valid = { ...linkFor("user_1", ownKey, "own-key"), managedTunnelsEnabled: true };
+        const stale = { ...valid, linkIncarnationId: "retired-incarnation" };
+        const publishOnly = { ...valid, userId: "user_publishonly", managedTunnelsEnabled: false };
+        expect(
+          yield* heldHooks.wakeForLinks({
+            environmentId,
+            environmentPublicKey: "own-key",
+            links: [stale, publishOnly],
+          }),
+        ).toBe(false);
+        expect(woken).toEqual([]);
+        yield* heldHooks.setHoldWhileOfflineForLinks({
+          environmentId,
+          environmentPublicKey: "own-key",
+          links: [stale, publishOnly],
+          holdWebhooksWhileOffline: false,
+        });
+        expect(cleared).toEqual([]);
+        expect(
+          yield* heldHooks.wakeForLinks({
+            environmentId,
+            environmentPublicKey: "own-key",
+            links: [valid],
+          }),
+        ).toBe(true);
+        expect(woken).toEqual([ownKey]);
+      }),
+    ),
+);

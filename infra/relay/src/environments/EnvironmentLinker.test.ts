@@ -119,6 +119,8 @@ function layerTest(input?: {
       Layer.mergeAll(
         RelayConfiguration.layer(config),
         Layer.succeed(DpopProofs.DpopProofReplay, {
+          verify: () => Effect.die("unexpected stateless DPoP verification"),
+          consumeVerified: () => Effect.die("unexpected DPoP consumption"),
           verifyAndConsume: () => Effect.die("unexpected DPoP proof verification"),
           consume: input?.consume ?? (() => Effect.succeed(true)),
           pruneExpired: Effect.void,
@@ -130,6 +132,8 @@ function layerTest(input?: {
           getForUser: () => Effect.succeed(null),
           findActiveManagedForEnvironment: () => Effect.succeed([]),
           setHoldWebhooksWhileOffline: () => Effect.void,
+          listActiveForEnvironment: () => Effect.succeed([]),
+          setHoldWebhooksWhileOfflineForLinks: () => Effect.succeed([]),
           revokeForUser: () => Effect.succeed(false),
         }),
         Layer.succeed(EnvironmentCredentials.EnvironmentCredentials, {

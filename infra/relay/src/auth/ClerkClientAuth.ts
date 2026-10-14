@@ -51,7 +51,9 @@ function verifyClerkBearerToken(
 }
 
 function isClerkUserSubject(subject: unknown): subject is string {
-  return typeof subject === "string" && /^user_[A-Za-z0-9]+$/.test(subject);
+  return (
+    typeof subject === "string" && subject.length <= 191 && /^user_[A-Za-z0-9]+$/.test(subject)
+  );
 }
 
 function isOAuthGrantRecord(value: unknown): value is Record<string, unknown> {
@@ -193,7 +195,7 @@ function verifyClerkOAuthBearerToken(
         { acceptsToken: "oauth_token" },
       );
       const auth = state.toAuth();
-      if (!state.isAuthenticated || !auth.userId) {
+      if (!state.isAuthenticated || !auth.userId || auth.userId.length > 191) {
         throw new Error("Clerk OAuth token is not authenticated.");
       }
       return { sub: auth.userId };
@@ -231,7 +233,9 @@ function verifyLegacyRelayClientBearerToken(
 ) {
   return verifyClerkBearerToken(config, token).pipe(
     Effect.flatMap((verified) =>
-      verified.sub && hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)
+      verified.sub &&
+      verified.sub.length <= 191 &&
+      hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)
         ? Effect.succeed({ sub: verified.sub, mode: "clerk_session_bearer" as const })
         : Effect.fail(new ClerkTokenVerificationFailed({ cause: "missing_relay_audience" })),
     ),

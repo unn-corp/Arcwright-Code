@@ -1,5 +1,7 @@
 import { anonymousPwaAllowed } from "../agentActivity/anonymousPwaPolicy.ts";
 import { sql as drizzleSql } from "drizzle-orm";
+import * as Base64Url from "effect/encoding/Base64Url";
+import type { PublicRelayOperation } from "./publicRelayPolicy.ts";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -81,7 +83,6 @@ import * as DpopProofs from "../auth/DpopProofs.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
 import * as EnvironmentCredentials from "../environments/EnvironmentCredentials.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
-import * as HookForwarder from "../hooks/HookForwarder.ts";
 import * as HeldHooks from "../hooks/HeldHooks.ts";
 import * as HookInbox from "../hooks/HookInbox.ts";
 import * as LiveActivities from "../agentActivity/LiveActivities.ts";
@@ -674,15 +675,18 @@ export const registerEnvironmentTunnelRecovery = Effect.fn(
   readonly userId: string;
   readonly environmentId: string;
   readonly environmentPublicKey: string;
+  readonly expectedLink?: EnvironmentLinks.RelayLinkedEnvironmentRecord;
   readonly tunnelId: string;
   readonly origin: RelayManagedEndpointOrigin;
 }) {
   const links = yield* EnvironmentLinks.EnvironmentLinks;
   const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
-  const link = yield* links.getForUser({
-    userId: input.userId,
-    environmentId: input.environmentId,
-  });
+  const link =
+    input.expectedLink ??
+    (yield* links.getForUser({
+      userId: input.userId,
+      environmentId: input.environmentId,
+    }));
   if (
     link === null ||
     link.environmentPublicKey !== input.environmentPublicKey ||
@@ -713,14 +717,17 @@ export const recoverEnvironmentTunnelRecord = Effect.fn(
   readonly userId: string;
   readonly environmentId: string;
   readonly environmentPublicKey: string;
+  readonly expectedLink?: EnvironmentLinks.RelayLinkedEnvironmentRecord;
   readonly origin: RelayManagedEndpointOrigin;
 }) {
   const links = yield* EnvironmentLinks.EnvironmentLinks;
   const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
-  const link = yield* links.getForUser({
-    userId: input.userId,
-    environmentId: input.environmentId,
-  });
+  const link =
+    input.expectedLink ??
+    (yield* links.getForUser({
+      userId: input.userId,
+      environmentId: input.environmentId,
+    }));
   if (
     link === null ||
     link.environmentPublicKey !== input.environmentPublicKey ||
@@ -750,6 +757,7 @@ export const layerMobileApi = HttpApiBuilder.group(
   RelayApi,
   "mobile",
   Effect.fnUntraced(function* (handlers) {
+    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const registrations = yield* MobileRegistrations.MobileRegistrations;
     const dpopProofs = yield* DpopProofs.DpopProofReplay;
     return handlers
@@ -761,7 +769,12 @@ export const layerMobileApi = HttpApiBuilder.group(
           const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
           yield* requireDpopThumbprint(proofKeyThumbprint, {
             expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+            operation: "registerDevice",
+            userId,
+          }).pipe(
+            Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+            Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+          );
           return yield* registrations.registerDevice({ userId, payload });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       )
@@ -773,7 +786,12 @@ export const layerMobileApi = HttpApiBuilder.group(
           const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
           yield* requireDpopThumbprint(proofKeyThumbprint, {
             expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+            operation: "registerLiveActivity",
+            userId,
+          }).pipe(
+            Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+            Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+          );
           return yield* registrations.registerLiveActivity({ userId, payload });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       )
@@ -784,7 +802,12 @@ export const layerMobileApi = HttpApiBuilder.group(
           const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
           yield* requireDpopThumbprint(proofKeyThumbprint, {
             expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+            operation: "getAgentActivitySnapshot",
+            userId,
+          }).pipe(
+            Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+            Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+          );
           return yield* registrations.getAgentActivitySnapshot({ userId });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       )
@@ -796,7 +819,12 @@ export const layerMobileApi = HttpApiBuilder.group(
           const proofKeyThumbprint = yield* requireDpopPrincipalScope("mobile:registration");
           yield* requireDpopThumbprint(proofKeyThumbprint, {
             expectedAccessToken: token,
-          }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+            operation: "unregisterDevice",
+            userId,
+          }).pipe(
+            Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+            Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+          );
           return yield* registrations.unregisterDevice({ userId, deviceId: params.deviceId });
         }, mapRelayCommonApiErrors("invalid_dpop")),
       );
@@ -807,6 +835,7 @@ export const layerClientApi = HttpApiBuilder.group(
   RelayApi,
   "client",
   Effect.fnUntraced(function* (handlers) {
+    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const config = yield* RelayConfiguration.RelayConfiguration;
     const crypto = yield* Crypto.Crypto;
     const relayTokens = yield* RelayTokens.RelayTokens;
@@ -821,6 +850,7 @@ export const layerClientApi = HttpApiBuilder.group(
         "listEnvironments",
         Effect.fn("relay.api.client.listEnvironments")(function* () {
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("listEnvironments", { kind: "user", userId });
           const environments = yield* links.listForUser({ userId });
           return { environments };
         }, mapRelayCommonApiErrors("not_authorized")),
@@ -830,6 +860,7 @@ export const layerClientApi = HttpApiBuilder.group(
         Effect.fn("relay.api.client.listDevices")(function* () {
           yield* appendRelayCredentialResponseHeaders;
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("listDevices", { kind: "user", userId });
           const registered = yield* devices.listForUser({ userId });
           return {
             devices: registered.flatMap((device) =>
@@ -845,12 +876,15 @@ export const layerClientApi = HttpApiBuilder.group(
         Effect.fn("relay.api.client.listDevicesV2")(function* () {
           yield* appendRelayCredentialResponseHeaders;
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("listDevicesV2", { kind: "user", userId });
           return { devices: yield* devices.listForUser({ userId }) };
         }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
         "getWebPushConfig",
         Effect.fn("relay.api.client.getWebPushConfig")(function* () {
+          const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("getWebPushConfig", { kind: "user", userId });
           if (!config.webPush) return yield* relayInternalErrorResponse("upstream_unavailable");
           const { publicKey } = config.webPush;
           return { applicationServerKey: publicKey };
@@ -860,6 +894,7 @@ export const layerClientApi = HttpApiBuilder.group(
         "registerWebPushSubscription",
         Effect.fn("relay.api.client.registerWebPushSubscription")(function* (args) {
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("registerWebPushSubscription", { kind: "user", userId });
           return yield* webPushSubscriptions
             .register({ userId, payload: args.payload })
             .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
@@ -869,6 +904,7 @@ export const layerClientApi = HttpApiBuilder.group(
         "unregisterWebPushSubscription",
         Effect.fn("relay.api.client.unregisterWebPushSubscription")(function* (args) {
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("unregisterWebPushSubscription", { kind: "user", userId });
           return {
             ok: yield* webPushSubscriptions
               .remove({
@@ -883,6 +919,7 @@ export const layerClientApi = HttpApiBuilder.group(
         "testWebPushSubscription",
         Effect.fn("relay.api.client.testWebPushSubscription")(function* (args) {
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("testWebPushSubscription", { kind: "user", userId });
           const subscription = yield* webPushSubscriptions
             .get({
               userId,
@@ -908,6 +945,7 @@ export const layerClientApi = HttpApiBuilder.group(
             const { payload } = args;
             yield* appendRelayCredentialResponseHeaders;
             const { userId } = yield* RelayClientPrincipal;
+            yield* limiter.admit("linkEnvironment", { kind: "user", userId });
             const result = yield* linker.link({ userId, request: payload });
             return {
               ok: true,
@@ -983,6 +1021,7 @@ export const layerClientApi = HttpApiBuilder.group(
         Effect.fn("relay.api.client.createEnvironmentLinkChallenge")(function* (args) {
           yield* appendRelayCredentialResponseHeaders;
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("createEnvironmentLinkChallenge", { kind: "user", userId });
           const now = yield* DateTime.now;
           const expiresAt = DateTime.add(now, { minutes: 5 });
           const jti = yield* crypto.randomUUIDv4.pipe(
@@ -1005,6 +1044,7 @@ export const layerClientApi = HttpApiBuilder.group(
         Effect.fn("relay.api.client.unlinkEnvironment")(function* (args) {
           const { params } = args;
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("unlinkEnvironment", { kind: "user", userId });
           const unlinked = yield* unlinkEnvironmentRecord({
             userId,
             environmentId: params.environmentId,
@@ -1023,6 +1063,7 @@ export const layerClientApi = HttpApiBuilder.group(
         Effect.fn("relay.api.client.releaseEnvironmentTunnel")(function* (args) {
           const { params } = args;
           const { userId } = yield* RelayClientPrincipal;
+          yield* limiter.admit("releaseEnvironmentTunnel", { kind: "user", userId });
           // ok mirrors whether the connector token is now dead: false means a
           // concurrent provision kept the recorded tunnel alive, so the caller
           // must not discard its runtime config.
@@ -1042,6 +1083,7 @@ export const layerTokenApi = HttpApiBuilder.group(
   RelayApi,
   "token",
   Effect.fnUntraced(function* (handlers) {
+    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const config = yield* RelayConfiguration.RelayConfiguration;
     const crypto = yield* Crypto.Crypto;
     const dpopProofs = yield* DpopProofs.DpopProofReplay;
@@ -1068,11 +1110,19 @@ export const layerTokenApi = HttpApiBuilder.group(
           config,
           args.payload.subject_token,
         ).pipe(Effect.catch(() => relayAuthInvalidError("invalid_bearer")));
-        if (!verified.sub || !hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)) {
+        if (
+          !verified.sub ||
+          verified.sub.length > 191 ||
+          !hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)
+        ) {
           return yield* relayAuthInvalidError("invalid_bearer");
         }
-        const proofKeyThumbprint = yield* requireDpopProof().pipe(
+        const proofKeyThumbprint = yield* requireDpopProof({
+          operation: "exchangeDpopAccessToken",
+          userId: verified.sub,
+        }).pipe(
           Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+          Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
         );
         const now = yield* DateTime.now;
         const expiresAt = DateTime.addDuration(now, RelayTokens.RELAY_DPOP_ACCESS_TOKEN_TTL);
@@ -1105,6 +1155,7 @@ export const layerDpopClientApi = HttpApiBuilder.group(
   RelayApi,
   "dpopClient",
   Effect.fnUntraced(function* (handlers) {
+    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const connector = yield* EnvironmentConnector.EnvironmentConnector;
     const dpopProofs = yield* DpopProofs.DpopProofReplay;
     return handlers
@@ -1122,7 +1173,12 @@ export const layerDpopClientApi = HttpApiBuilder.group(
             }
             const clientProofKeyThumbprint = yield* requireDpopThumbprint(proofKeyThumbprint, {
               expectedAccessToken: token,
-            }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+              operation: "connectEnvironment",
+              userId,
+            }).pipe(
+              Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+              Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+            );
             return yield* connector.connect({
               userId,
               environmentId: params.environmentId,
@@ -1167,7 +1223,12 @@ export const layerDpopClientApi = HttpApiBuilder.group(
             const proofKeyThumbprint = yield* requireDpopPrincipalScope("environment:status");
             yield* requireDpopThumbprint(proofKeyThumbprint, {
               expectedAccessToken: token,
-            }).pipe(Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs));
+              operation: "getEnvironmentStatus",
+              userId,
+            }).pipe(
+              Effect.provideService(DpopProofs.DpopProofReplay, dpopProofs),
+              Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+            );
             return yield* connector.status({
               userId,
               environmentId: params.environmentId,
@@ -1208,6 +1269,26 @@ export const layerServerApi = HttpApiBuilder.group(
   RelayApi,
   "server",
   Effect.fnUntraced(function* (handlers) {
+    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
+    const links = yield* EnvironmentLinks.EnvironmentLinks;
+    const crypto = yield* Crypto.Crypto;
+    const admitEnvironment = (
+      operation: PublicRelayOperation,
+      environmentId: string,
+      environmentPublicKey: string,
+    ) =>
+      environmentAdmissionSubject(crypto, environmentId, environmentPublicKey).pipe(
+        Effect.flatMap((subject) => limiter.admit(operation, subject)),
+      );
+    const admitOwners = (
+      operation: PublicRelayOperation,
+      owners: ReadonlyArray<{ readonly userId: string }>,
+    ) =>
+      Effect.forEach(
+        [...new Set(owners.map((owner) => owner.userId))],
+        (userId) => limiter.admit(operation, { kind: "user", userId }),
+        { discard: true },
+      );
     const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
     const publishSignatures = yield* EnvironmentPublishSignatures.EnvironmentPublishSignatures;
     const heldHooks = yield* HeldHooks.HeldHooks;
@@ -1227,13 +1308,28 @@ export const layerServerApi = HttpApiBuilder.group(
           if (principal.environmentId !== params.environmentId) {
             return yield* new HttpApiError.Unauthorized({});
           }
-          yield* publishSignatures.verify({
+          const proof = yield* publishSignatures.verifyStateless({
             environmentId: params.environmentId,
             environmentPublicKey: principal.environmentPublicKey,
             threadId: params.threadId,
             request: payload,
           });
-          return yield* publisher.publish({
+          const selectedDeliveryUsers = yield* links.listDeliveryUsersForEnvironment({
+            environmentId: params.environmentId,
+            environmentPublicKey: principal.environmentPublicKey,
+          });
+          const deliveryUsers = [
+            ...new Map(selectedDeliveryUsers.map((row) => [row.userId, row])).values(),
+          ];
+          yield* admitEnvironment(
+            "publishAgentActivity",
+            params.environmentId,
+            principal.environmentPublicKey,
+          );
+          yield* admitOwners("publishAgentActivity", deliveryUsers);
+          yield* publishSignatures.consumeVerified(proof);
+          return yield* publisher.publishToRecipients({
+            deliveryUsers,
             environmentId: params.environmentId,
             environmentPublicKey: principal.environmentPublicKey,
             threadId: params.threadId,
@@ -1252,10 +1348,10 @@ export const layerServerApi = HttpApiBuilder.group(
               code: "agent_activity_publish_proof_expired",
               traceId,
             }),
-          EnvironmentPublishSignatureInvalid: (_error, traceId) =>
+          EnvironmentPublishSignatureInvalid: (error, traceId) =>
             new RelayAgentActivityPublishProofInvalidError({
               code: "agent_activity_publish_proof_invalid",
-              reason: "invalid_signature_or_payload",
+              reason: error.reason,
               traceId,
             }),
           DpopProofReplayPersistenceError: (_error, traceId) =>
@@ -1374,6 +1470,11 @@ export const layerServerApi = HttpApiBuilder.group(
             if (principal.environmentId !== params.environmentId) {
               return yield* new HttpApiError.Unauthorized({});
             }
+            yield* admitEnvironment(
+              "registerManagedEndpointRecovery",
+              params.environmentId,
+              principal.environmentPublicKey,
+            );
             yield* verifyEnvironmentTunnelRecoveryProof({
               action: "register",
               proof: payload.proof,
@@ -1383,9 +1484,26 @@ export const layerServerApi = HttpApiBuilder.group(
               tunnelId: payload.tunnelId,
               origin: payload.origin,
             });
+            const [owner] = yield* links.findActiveManagedForEnvironment({
+              environmentId: params.environmentId,
+              environmentPublicKey: principal.environmentPublicKey,
+              userId: payload.cloudUserId,
+            });
+            if (
+              !owner ||
+              owner.userId !== payload.cloudUserId ||
+              owner.environmentPublicKey !== principal.environmentPublicKey ||
+              owner.endpoint.providerKind !== "cloudflare_tunnel"
+            )
+              return yield* new HttpApiError.Unauthorized({});
+            yield* limiter.admit("registerManagedEndpointRecovery", {
+              kind: "user",
+              userId: owner.userId,
+            });
             yield* appendRelayCredentialResponseHeaders;
             return yield* registerEnvironmentTunnelRecovery({
-              userId: payload.cloudUserId,
+              userId: owner.userId,
+              expectedLink: owner,
               environmentId: params.environmentId,
               environmentPublicKey: principal.environmentPublicKey,
               tunnelId: payload.tunnelId,
@@ -1394,11 +1512,20 @@ export const layerServerApi = HttpApiBuilder.group(
           },
           Effect.catchTags({
             ManagedEndpointOriginNotAllowed: () => Effect.fail(new HttpApiError.Unauthorized({})),
-            ManagedEndpointProvisioningNotConfigured: () =>
-              relayInternalErrorResponse("upstream_unavailable"),
-            ManagedEndpointProvisioningFailed: () =>
-              relayInternalErrorResponse("upstream_unavailable"),
-            ManagedTunnelLimitExceeded: () => relayInternalErrorResponse("upstream_unavailable"),
+            ManagedEndpointProvisioningNotConfigured: () => relayUnavailableResponse(),
+            ManagedEndpointProvisioningFailed: () => relayUnavailableResponse(),
+            ManagedTunnelLimitExceeded: (error) =>
+              currentTraceId.pipe(
+                Effect.flatMap((traceId) =>
+                  Effect.fail(
+                    new RelayEnvironmentLinkLimitExceededError({
+                      code: "environment_link_limit_exceeded",
+                      maxTunnels: error.maxTunnels,
+                      traceId,
+                    }),
+                  ),
+                ),
+              ),
           }),
           mapRelayCommonApiErrors("not_authorized"),
         ),
@@ -1411,6 +1538,11 @@ export const layerServerApi = HttpApiBuilder.group(
             if (principal.environmentId !== params.environmentId) {
               return yield* new HttpApiError.Unauthorized({});
             }
+            yield* admitEnvironment(
+              "recoverManagedEndpoint",
+              params.environmentId,
+              principal.environmentPublicKey,
+            );
             yield* verifyEnvironmentTunnelRecoveryProof({
               action: "recover",
               proof: payload.proof,
@@ -1419,9 +1551,23 @@ export const layerServerApi = HttpApiBuilder.group(
               environmentPublicKey: principal.environmentPublicKey,
               origin: payload.origin,
             });
+            const [owner] = yield* links.findActiveManagedForEnvironment({
+              environmentId: params.environmentId,
+              environmentPublicKey: principal.environmentPublicKey,
+              userId: payload.cloudUserId,
+            });
+            if (
+              !owner ||
+              owner.userId !== payload.cloudUserId ||
+              owner.environmentPublicKey !== principal.environmentPublicKey ||
+              owner.endpoint.providerKind !== "cloudflare_tunnel"
+            )
+              return yield* new HttpApiError.Unauthorized({});
+            yield* limiter.admit("recoverManagedEndpoint", { kind: "user", userId: owner.userId });
             yield* appendRelayCredentialResponseHeaders;
             return yield* recoverEnvironmentTunnelRecord({
-              userId: payload.cloudUserId,
+              userId: owner.userId,
+              expectedLink: owner,
               environmentId: params.environmentId,
               environmentPublicKey: principal.environmentPublicKey,
               origin: payload.origin,
@@ -1429,11 +1575,20 @@ export const layerServerApi = HttpApiBuilder.group(
           },
           Effect.catchTags({
             ManagedEndpointOriginNotAllowed: () => Effect.fail(new HttpApiError.Unauthorized({})),
-            ManagedEndpointProvisioningNotConfigured: () =>
-              relayInternalErrorResponse("upstream_unavailable"),
-            ManagedEndpointProvisioningFailed: () =>
-              relayInternalErrorResponse("upstream_unavailable"),
-            ManagedTunnelLimitExceeded: () => relayInternalErrorResponse("upstream_unavailable"),
+            ManagedEndpointProvisioningNotConfigured: () => relayUnavailableResponse(),
+            ManagedEndpointProvisioningFailed: () => relayUnavailableResponse(),
+            ManagedTunnelLimitExceeded: (error) =>
+              currentTraceId.pipe(
+                Effect.flatMap((traceId) =>
+                  Effect.fail(
+                    new RelayEnvironmentLinkLimitExceededError({
+                      code: "environment_link_limit_exceeded",
+                      maxTunnels: error.maxTunnels,
+                      traceId,
+                    }),
+                  ),
+                ),
+              ),
           }),
           mapRelayCommonApiErrors("not_authorized"),
         ),
@@ -1443,7 +1598,18 @@ export const layerServerApi = HttpApiBuilder.group(
         Effect.fn("relay.api.server.updateLinkPreferences")(function* ({ params, payload }) {
           yield* requireOwnEnvironment(params.environmentId);
           const principal = yield* RelayEnvironmentPrincipal;
-          yield* heldHooks.setHoldWhileOffline({
+          const admittedLinks = yield* links.listActiveForEnvironment({
+            environmentId: params.environmentId,
+            environmentPublicKey: principal.environmentPublicKey,
+          });
+          yield* admitEnvironment(
+            "updateLinkPreferences",
+            params.environmentId,
+            principal.environmentPublicKey,
+          );
+          yield* admitOwners("updateLinkPreferences", admittedLinks);
+          yield* heldHooks.setHoldWhileOfflineForLinks({
+            links: admittedLinks,
             environmentId: params.environmentId,
             environmentPublicKey: principal.environmentPublicKey,
             holdWebhooksWhileOffline: payload.holdWebhooksWhileOffline,
@@ -1456,7 +1622,18 @@ export const layerServerApi = HttpApiBuilder.group(
         Effect.fn("relay.api.server.wakeHeldHooks")(function* ({ params }) {
           yield* requireOwnEnvironment(params.environmentId);
           const principal = yield* RelayEnvironmentPrincipal;
-          const pending = yield* heldHooks.wake({
+          const admittedLinks = yield* links.listActiveForEnvironment({
+            environmentId: params.environmentId,
+            environmentPublicKey: principal.environmentPublicKey,
+          });
+          yield* admitEnvironment(
+            "wakeHeldHooks",
+            params.environmentId,
+            principal.environmentPublicKey,
+          );
+          yield* admitOwners("wakeHeldHooks", admittedLinks);
+          const pending = yield* heldHooks.wakeForLinks({
+            links: admittedLinks,
             environmentId: params.environmentId,
             environmentPublicKey: principal.environmentPublicKey,
           });
@@ -1470,6 +1647,8 @@ export const pwaApi = HttpApiBuilder.group(
   RelayApi,
   "pwa",
   Effect.fnUntraced(function* (handlers) {
+    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
+    const crypto = yield* Crypto.Crypto;
     const anonymousAllowed = yield* anonymousPwaAllowed;
     const config = yield* RelayConfiguration.RelayConfiguration;
     const subscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
@@ -1490,12 +1669,19 @@ export const pwaApi = HttpApiBuilder.group(
           function* (args) {
             if (!anonymousAllowed) return yield* relayInternalErrorResponse("upstream_unavailable");
             const { params, payload } = args;
-            yield* publishSignatures.verify({
+            const proof = yield* publishSignatures.verifyStateless({
               environmentId: params.environmentId,
               environmentPublicKey: payload.environmentPublicKey,
               threadId: params.threadId,
               request: { state: payload.state, proof: payload.proof },
             });
+            const subject = yield* environmentAdmissionSubject(
+              crypto,
+              params.environmentId,
+              payload.environmentPublicKey,
+            );
+            yield* limiter.admit("publishPwaAgentActivity", subject);
+            yield* publishSignatures.consumeVerified(proof);
             // This anonymous route is deliberately separate from the account
             // relay projection. It advances only per-installation baselines and
             // does not retain thread activity when nobody installed this PWA.
@@ -1537,10 +1723,10 @@ export const pwaApi = HttpApiBuilder.group(
                 code: "agent_activity_publish_proof_expired",
                 traceId,
               }),
-            EnvironmentPublishSignatureInvalid: (_error, traceId) =>
+            EnvironmentPublishSignatureInvalid: (error, traceId) =>
               new RelayAgentActivityPublishProofInvalidError({
                 code: "agent_activity_publish_proof_invalid",
-                reason: "invalid_signature_or_payload",
+                reason: error.reason,
                 traceId,
               }),
             DpopProofReplayPersistenceError: (_error, traceId) =>
@@ -1550,30 +1736,42 @@ export const pwaApi = HttpApiBuilder.group(
                 traceId,
               }),
           }),
+          mapRelayCommonApiErrors("not_authorized"),
         ),
       )
       .handle(
         "registerPwaWebPushSubscription",
         Effect.fn("relay.api.pwa.register_web_push_subscription")(function* (args) {
           if (!anonymousAllowed) return yield* relayInternalErrorResponse("upstream_unavailable");
-          return yield* subscriptions
-            .registerPwa({ payload: args.payload })
-            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
-        }),
+          return yield* subscriptions.registerPwaPublic({ payload: args.payload }).pipe(
+            Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+            Effect.catchTags({
+              WebPushSubscriptionPersistenceError: () =>
+                relayInternalErrorResponse("internal_error"),
+              AnonymousPwaUnavailable: () => relayUnavailableResponse(),
+            }),
+          );
+        }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
         "removePwaWebPushSubscription",
         Effect.fn("relay.api.pwa.remove_web_push_subscription")(function* (args) {
           return {
             ok: yield* subscriptions
-              .removePwa({
+              .removePwaPublic({
                 subscriptionId: args.params.subscriptionId,
                 installationId: args.payload.installation.installationId,
                 installationSecret: args.payload.installation.installationSecret,
               })
-              .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error"))),
+              .pipe(
+                Effect.provideService(PublicRelayRateLimits.PublicRelayRateLimits, limiter),
+                Effect.catchTags({
+                  WebPushSubscriptionPersistenceError: () =>
+                    relayInternalErrorResponse("internal_error"),
+                }),
+              ),
           };
-        }),
+        }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
         "testPwaWebPushSubscription",
@@ -1587,6 +1785,11 @@ export const pwaApi = HttpApiBuilder.group(
             })
             .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
           if (!subscription) return { ok: false };
+          if (subscription.installationId === null) return { ok: false };
+          yield* limiter.admit("testPwaWebPushSubscription", {
+            kind: "installation",
+            installationId: subscription.installationId,
+          });
           const result = yield* queue
             .enqueue({
               userId: subscription.userId,
@@ -1596,7 +1799,7 @@ export const pwaApi = HttpApiBuilder.group(
             })
             .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
           return { ok: result.ok && result.queued === true };
-        }),
+        }, mapRelayCommonApiErrors("not_authorized")),
       );
   }),
 );
@@ -1674,6 +1877,35 @@ export function relayDpopFailureReason(
     case "invalid_proof":
       return "invalid_proof";
   }
+}
+
+function relayUnavailableResponse() {
+  return currentTraceId.pipe(
+    Effect.flatMap((traceId) =>
+      Effect.fail(
+        new RelayServiceUnavailableError({
+          code: "relay_unavailable",
+          reason: "internal",
+          traceId,
+        }),
+      ),
+    ),
+  );
+}
+
+function environmentAdmissionSubject(
+  crypto: Crypto.Crypto,
+  environmentId: string,
+  environmentPublicKey: string,
+) {
+  return crypto.digest("SHA-256", new TextEncoder().encode(environmentPublicKey)).pipe(
+    Effect.map((digest): PublicRelayRateLimits.PublicRelaySubject => ({
+      kind: "environment",
+      environmentId,
+      keyDigest: Base64Url.encode(digest),
+    })),
+    Effect.catch(() => relayInternalErrorResponse("internal_error")),
+  );
 }
 
 function relayInternalErrorResponse(reason: RelayInternalError["reason"]) {
@@ -1855,7 +2087,9 @@ const requireDpopPrincipalScope = Effect.fn("relay.api.require_dpop_principal_sc
 
 const requireDpopThumbprint = Effect.fn("relay.api.require_dpop_thumbprint")(function* (
   expectedThumbprint: string,
-  options?: {
+  options: {
+    readonly operation: PublicRelayOperation;
+    readonly userId: string;
     readonly expectedAccessToken?: string;
   },
 ) {
@@ -1866,7 +2100,7 @@ const requireDpopThumbprint = Effect.fn("relay.api.require_dpop_thumbprint")(fun
     return yield* new HttpApiError.Unauthorized({});
   }
   const dpopProofs = yield* DpopProofs.DpopProofReplay;
-  return yield* dpopProofs.verifyAndConsume({
+  const proof = yield* dpopProofs.verify({
     proof: request.headers.dpop,
     method: request.method,
     url: url.value.href,
@@ -1874,9 +2108,14 @@ const requireDpopThumbprint = Effect.fn("relay.api.require_dpop_thumbprint")(fun
     expectedThumbprint,
     ...(options?.expectedAccessToken ? { expectedAccessToken: options.expectedAccessToken } : {}),
   });
+  const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
+  yield* limiter.admit(options.operation, { kind: "user", userId: options.userId });
+  return yield* dpopProofs.consumeVerified(proof);
 });
 
-const requireDpopProof = Effect.fn("relay.api.require_dpop_proof")(function* (options?: {
+const requireDpopProof = Effect.fn("relay.api.require_dpop_proof")(function* (options: {
+  readonly operation: PublicRelayOperation;
+  readonly userId: string;
   readonly expectedAccessToken?: string;
 }) {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -1886,13 +2125,16 @@ const requireDpopProof = Effect.fn("relay.api.require_dpop_proof")(function* (op
     return yield* new HttpApiError.Unauthorized({});
   }
   const dpopProofs = yield* DpopProofs.DpopProofReplay;
-  return yield* dpopProofs.verifyAndConsume({
+  const proof = yield* dpopProofs.verify({
     proof: request.headers.dpop,
     method: request.method,
     url: url.value.href,
     now,
     ...(options?.expectedAccessToken ? { expectedAccessToken: options.expectedAccessToken } : {}),
   });
+  const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
+  yield* limiter.admit(options.operation, { kind: "user", userId: options.userId });
+  return yield* dpopProofs.consumeVerified(proof);
 });
 
 const relayAuthInvalidError = Effect.fnUntraced(function* (reason: RelayAuthInvalidReason) {

@@ -175,6 +175,8 @@ function harness() {
       listForUser: () => Effect.succeed([]),
       findActiveManagedForEnvironment: () => Effect.succeed([]),
       setHoldWebhooksWhileOffline: () => Effect.void,
+      listActiveForEnvironment: () => Effect.succeed([]),
+      setHoldWebhooksWhileOfflineForLinks: () => Effect.succeed([]),
       revokeForUser: () => Effect.succeed(false),
       getForUser: (input) =>
         Effect.sync(() =>

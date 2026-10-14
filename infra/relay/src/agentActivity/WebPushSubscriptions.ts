@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 
+import * as PublicLimits from "../http/PublicRelayRateLimits.ts";
 import * as RelayDb from "../db.ts";
 import {
   AnonymousPwaUnavailable,
@@ -52,6 +53,13 @@ export class WebPushSubscriptionPersistenceError extends Schema.TaggedError<WebP
   { cause: Schema.Defect() },
 ) {}
 
+type PublicAdmissionError =
+  | PublicLimits.PublicRelayRateLimited
+  | PublicLimits.PublicRelayLimiterUnavailable;
+const isPublicAdmissionError = Schema.is(
+  Schema.Union([PublicLimits.PublicRelayRateLimited, PublicLimits.PublicRelayLimiterUnavailable]),
+);
+
 export type WebPushSubscriptionError =
   | WebPushSubscriptionPersistenceError
   | AnonymousPwaUnavailable;
@@ -64,13 +72,24 @@ function mapPersistenceError<A, E>(effect: Effect.Effect<A, E>) {
 
 const isAnonymousPwaUnavailable = Schema.is(AnonymousPwaUnavailable);
 
-function mapPwaAccessError<A, E>(effect: Effect.Effect<A, E>) {
+function mapPwaAccessError<A, E, R>(effect: Effect.Effect<A, E, R>) {
   return effect.pipe(
-    Effect.mapError((cause) =>
-      isAnonymousPwaUnavailable(cause) ? cause : new WebPushSubscriptionPersistenceError({ cause }),
+    Effect.mapError((cause): WebPushSubscriptionError | Extract<E, PublicAdmissionError> =>
+      isAnonymousPwaUnavailable(cause)
+        ? cause
+        : isPublicAdmissionError(cause)
+          ? (cause as Extract<E, PublicAdmissionError>)
+          : new WebPushSubscriptionPersistenceError({ cause }),
     ),
   );
 }
+
+type PwaRegistrationInput = { readonly payload: RelayPwaWebPushSubscriptionRegistrationRequest };
+type PwaCredentialInput = {
+  readonly installationId: string;
+  readonly installationSecret: string;
+  readonly subscriptionId: string;
+};
 
 export class WebPushSubscriptions extends Context.Service<
   WebPushSubscriptions,
@@ -102,6 +121,26 @@ export class WebPushSubscriptions extends Context.Service<
     readonly registerPwa: (input: {
       readonly payload: RelayPwaWebPushSubscriptionRegistrationRequest;
     }) => Effect.Effect<{ readonly subscriptionId: string }, WebPushSubscriptionError>;
+    readonly registerPwaPublic: (
+      input: PwaRegistrationInput,
+    ) => Effect.Effect<
+      { readonly subscriptionId: string },
+      WebPushSubscriptionError | PublicAdmissionError,
+      PublicLimits.PublicRelayRateLimits
+    >;
+    readonly removePwaPublic: (
+      input: PwaCredentialInput,
+    ) => Effect.Effect<
+      boolean,
+      WebPushSubscriptionPersistenceError | PublicAdmissionError,
+      PublicLimits.PublicRelayRateLimits
+    >;
+    readonly getPwaForCleanup: (
+      input: PwaCredentialInput,
+    ) => Effect.Effect<
+      typeof relayWebPushSubscriptions.$inferSelect | null,
+      WebPushSubscriptionPersistenceError
+    >;
     readonly removePwa: (input: {
       readonly installationId: string;
       readonly installationSecret: string;
@@ -133,156 +172,225 @@ export const make = Effect.gen(function* () {
   const db = yield* RelayDb.RelayDb;
   const crypto = yield* Crypto.Crypto;
   const anonymousAllowed = yield* anonymousPwaAllowed;
-  return WebPushSubscriptions.of({
-    registerPwa: (input) =>
-      Effect.gen(function* () {
-        if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
-        const now = DateTime.formatIso(yield* DateTime.now);
-        const id = yield* crypto.randomUUIDv4;
-        const installation = input.payload.installation;
-        const installationSecretHash = yield* hashInstallationSecret(
-          crypto,
-          installation.installationSecret,
-        );
-        const values = {
-          id,
-          userId: `pwa:${installation.installationId}`,
-          environmentId: input.payload.environmentId,
-          installationId: installation.installationId,
-          installationSecretHash,
-          endpoint: input.payload.endpoint,
-          p256dh: input.payload.keys.p256dh,
-          auth: input.payload.keys.auth,
-          preferencesJson: input.payload.preferences,
-          createdAt: now,
-          updatedAt: now,
-        };
-        return yield* db.$client.withTransaction(
+  const getPwaForCleanup: WebPushSubscriptions["Service"]["getPwaForCleanup"] = (input) =>
+    Effect.gen(function* () {
+      const installationSecretHash = yield* hashInstallationSecret(
+        crypto,
+        input.installationSecret,
+      );
+      const [row] = yield* db
+        .select()
+        .from(relayWebPushSubscriptions)
+        .where(
+          and(
+            eq(relayWebPushSubscriptions.id, input.subscriptionId),
+            eq(relayWebPushSubscriptions.installationId, input.installationId),
+            eq(relayWebPushSubscriptions.userId, `pwa:${input.installationId}`),
+            eq(relayWebPushSubscriptions.installationSecretHash, installationSecretHash),
+          ),
+        )
+        .limit(1);
+      return row ?? null;
+    }).pipe(mapPersistenceError);
+  const removePwa = <E, R>(
+    input: PwaCredentialInput,
+    admit: (row: typeof relayWebPushSubscriptions.$inferSelect) => Effect.Effect<void, E, R>,
+  ) =>
+    Effect.gen(function* () {
+      const observed = yield* getPwaForCleanup(input);
+      if (!observed) return false;
+      // Public admission is outside the SQL transaction. Removal never gains authority over a replacement.
+      yield* admit(observed);
+      return yield* db.$client
+        .withTransaction(
           Effect.gen(function* () {
-            // Endpoint transfers delete the old row. Serialize the two stable
-            // identities as well as locking existing rows, so a waiting transfer
-            // cannot continue from a row deleted after its SELECT snapshot.
-            for (const identity of [
-              `web-push:endpoint:${values.endpoint}`,
-              `web-push:installation:${values.installationId}`,
-            ].sort()) {
-              yield* db.execute(
-                sql`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`,
-              );
-            }
-            // Establish the unique installation/endpoint before the locked read,
-            // including concurrent first registrations. A rejected credential or
-            // failed baseline cleanup rolls this insertion back too.
-            yield* db.insert(relayWebPushSubscriptions).values(values).onConflictDoNothing();
-            const owners = yield* db
-              .select()
-              .from(relayWebPushSubscriptions)
+            yield* db.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtextextended(${`web-push:installation:${input.installationId}`}, 0))`,
+            );
+            const deleted = yield* db
+              .delete(relayWebPushSubscriptions)
               .where(
-                or(
-                  eq(relayWebPushSubscriptions.installationId, installation.installationId),
-                  eq(relayWebPushSubscriptions.endpoint, input.payload.endpoint),
+                and(
+                  eq(relayWebPushSubscriptions.id, observed.id),
+                  eq(relayWebPushSubscriptions.incarnationId, observed.incarnationId),
+                  eq(relayWebPushSubscriptions.userId, observed.userId),
+                  eq(relayWebPushSubscriptions.installationId, input.installationId),
+                  eq(
+                    relayWebPushSubscriptions.installationSecretHash,
+                    observed.installationSecretHash!,
+                  ),
                 ),
               )
-              .orderBy(relayWebPushSubscriptions.id)
-              .for("update");
-            const existing = owners.find(
-              (row) => row.installationId === installation.installationId,
-            );
-            if (existing && existing.installationSecretHash !== installationSecretHash) {
-              return yield* new WebPushSubscriptionPersistenceError({
-                cause: "installation_credential_mismatch",
-              });
-            }
-            const endpointOwner = owners.find((row) => row.endpoint === input.payload.endpoint);
-            // A retained endpoint may transfer to a new authenticated installation.
-            // Lock both rows in id order before removing the previous ownership.
-            if (endpointOwner && endpointOwner.id !== existing?.id) {
-              yield* db
-                .delete(relayWebPushSubscriptionStates)
-                .where(eq(relayWebPushSubscriptionStates.subscriptionId, endpointOwner.id));
-              yield* db
-                .delete(relayWebPushSubscriptions)
-                .where(eq(relayWebPushSubscriptions.id, endpointOwner.id));
-            }
-            const rotatesIncarnation = sql`${relayWebPushSubscriptions.userId} IS DISTINCT FROM ${values.userId}
+              .returning({ id: relayWebPushSubscriptions.id });
+            if (deleted.length === 0) return false;
+            yield* db
+              .delete(relayWebPushSubscriptionStates)
+              .where(eq(relayWebPushSubscriptionStates.subscriptionId, observed.id));
+            return true;
+          }),
+        )
+        .pipe(mapPersistenceError);
+    });
+  const registerPwa = <E, R>(
+    input: PwaRegistrationInput,
+    admitRenewal: (row: typeof relayWebPushSubscriptions.$inferSelect) => Effect.Effect<void, E, R>,
+  ) =>
+    Effect.gen(function* () {
+      if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const installation = input.payload.installation;
+      const installationSecretHash = yield* hashInstallationSecret(
+        crypto,
+        installation.installationSecret,
+      );
+      const [observed] = yield* db
+        .select()
+        .from(relayWebPushSubscriptions)
+        .where(eq(relayWebPushSubscriptions.installationId, installation.installationId))
+        .limit(1);
+      if (observed) {
+        if (
+          observed.installationSecretHash !== installationSecretHash ||
+          observed.userId !== `pwa:${installation.installationId}`
+        ) {
+          return yield* new WebPushSubscriptionPersistenceError({
+            cause: "installation_credential_mismatch",
+          });
+        }
+        yield* admitRenewal(observed);
+      }
+      const id = yield* crypto.randomUUIDv4;
+      const values = {
+        id,
+        userId: `pwa:${installation.installationId}`,
+        environmentId: input.payload.environmentId,
+        installationId: installation.installationId,
+        installationSecretHash,
+        endpoint: input.payload.endpoint,
+        p256dh: input.payload.keys.p256dh,
+        auth: input.payload.keys.auth,
+        preferencesJson: input.payload.preferences,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return yield* db.$client.withTransaction(
+        Effect.gen(function* () {
+          // Endpoint transfers delete the old row. Serialize the two stable
+          // identities as well as locking existing rows, so a waiting transfer
+          // cannot continue from a row deleted after its SELECT snapshot.
+          for (const identity of [
+            `web-push:endpoint:${values.endpoint}`,
+            `web-push:installation:${values.installationId}`,
+          ].sort()) {
+            yield* db.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
+          }
+          // Establish the unique installation/endpoint before the locked read,
+          // including concurrent first registrations. A rejected credential or
+          // failed baseline cleanup rolls this insertion back too.
+          yield* db.insert(relayWebPushSubscriptions).values(values).onConflictDoNothing();
+          const owners = yield* db
+            .select()
+            .from(relayWebPushSubscriptions)
+            .where(
+              or(
+                eq(relayWebPushSubscriptions.installationId, installation.installationId),
+                eq(relayWebPushSubscriptions.endpoint, input.payload.endpoint),
+              ),
+            )
+            .orderBy(relayWebPushSubscriptions.id)
+            .for("update");
+          const existing = owners.find((row) => row.installationId === installation.installationId);
+          if (
+            observed &&
+            (!existing ||
+              existing.id !== observed.id ||
+              existing.incarnationId !== observed.incarnationId ||
+              existing.userId !== observed.userId)
+          ) {
+            return yield* new WebPushSubscriptionPersistenceError({
+              cause: "installation_ownership_changed",
+            });
+          }
+          if (existing && existing.installationSecretHash !== installationSecretHash) {
+            return yield* new WebPushSubscriptionPersistenceError({
+              cause: "installation_credential_mismatch",
+            });
+          }
+          const endpointOwner = owners.find((row) => row.endpoint === input.payload.endpoint);
+          // A retained endpoint may transfer to a new authenticated installation.
+          // Lock both rows in id order before removing the previous ownership.
+          if (endpointOwner && endpointOwner.id !== existing?.id) {
+            yield* db
+              .delete(relayWebPushSubscriptionStates)
+              .where(eq(relayWebPushSubscriptionStates.subscriptionId, endpointOwner.id));
+            yield* db
+              .delete(relayWebPushSubscriptions)
+              .where(eq(relayWebPushSubscriptions.id, endpointOwner.id));
+          }
+          const rotatesIncarnation = sql`${relayWebPushSubscriptions.userId} IS DISTINCT FROM ${values.userId}
               OR ${relayWebPushSubscriptions.environmentId} IS DISTINCT FROM ${values.environmentId}
               OR ${relayWebPushSubscriptions.installationId} IS DISTINCT FROM ${values.installationId}
               OR ${relayWebPushSubscriptions.installationSecretHash} IS DISTINCT FROM ${installationSecretHash}
               OR ${relayWebPushSubscriptions.endpoint} IS DISTINCT FROM ${values.endpoint}
               OR ${relayWebPushSubscriptions.p256dh} IS DISTINCT FROM ${values.p256dh}
               OR ${relayWebPushSubscriptions.auth} IS DISTINCT FROM ${values.auth}`;
-            const rows = yield* db
-              .insert(relayWebPushSubscriptions)
-              .values(values)
-              .onConflictDoUpdate({
-                target: relayWebPushSubscriptions.installationId,
-                set: {
-                  userId: values.userId,
-                  environmentId: values.environmentId,
-                  installationSecretHash,
-                  endpoint: values.endpoint,
-                  p256dh: values.p256dh,
-                  auth: values.auth,
-                  preferencesJson: values.preferencesJson,
-                  updatedAt: now,
-                  incarnationId: sql`CASE WHEN ${rotatesIncarnation} THEN gen_random_uuid()
+          const rows = yield* db
+            .insert(relayWebPushSubscriptions)
+            .values(values)
+            .onConflictDoUpdate({
+              target: relayWebPushSubscriptions.installationId,
+              set: {
+                userId: values.userId,
+                environmentId: values.environmentId,
+                installationSecretHash,
+                endpoint: values.endpoint,
+                p256dh: values.p256dh,
+                auth: values.auth,
+                preferencesJson: values.preferencesJson,
+                updatedAt: now,
+                incarnationId: sql`CASE WHEN ${rotatesIncarnation} THEN gen_random_uuid()
                     ELSE ${relayWebPushSubscriptions.incarnationId} END`,
-                },
-              })
-              .returning({ id: relayWebPushSubscriptions.id });
-            const row = rows[0];
-            if (!row)
-              return yield* new WebPushSubscriptionPersistenceError({
-                cause: "subscription_missing_after_registration",
-              });
-            return { subscriptionId: row.id };
-          }),
-        );
-      }).pipe(mapPwaAccessError, Effect.withSpan("relay.web_push_subscriptions.register_pwa")),
-    removePwa: (input) =>
-      Effect.gen(function* () {
-        const installationSecretHash = yield* hashInstallationSecret(
-          crypto,
-          input.installationSecret,
-        );
-        const deleted = yield* db
-          .delete(relayWebPushSubscriptions)
-          .where(
-            and(
-              eq(relayWebPushSubscriptions.id, input.subscriptionId),
-              eq(relayWebPushSubscriptions.installationId, input.installationId),
-              eq(relayWebPushSubscriptions.userId, `pwa:${input.installationId}`),
-              eq(relayWebPushSubscriptions.installationSecretHash, installationSecretHash),
-            ),
-          )
-          .returning({ id: relayWebPushSubscriptions.id });
-        if (deleted.length === 0) return false;
-        yield* db
-          .delete(relayWebPushSubscriptionStates)
-          .where(eq(relayWebPushSubscriptionStates.subscriptionId, input.subscriptionId));
-        return true;
-      }).pipe(mapPersistenceError, Effect.withSpan("relay.web_push_subscriptions.remove_pwa")),
+              },
+            })
+            .returning({ id: relayWebPushSubscriptions.id });
+          const row = rows[0];
+          if (!row)
+            return yield* new WebPushSubscriptionPersistenceError({
+              cause: "subscription_missing_after_registration",
+            });
+          return { subscriptionId: row.id };
+        }),
+      );
+    }).pipe(mapPwaAccessError, Effect.withSpan("relay.web_push_subscriptions.register_pwa"));
+
+  return WebPushSubscriptions.of({
+    registerPwa: (input) => registerPwa(input, () => Effect.void),
+    registerPwaPublic: (input) =>
+      registerPwa(input, (row) =>
+        PublicLimits.PublicRelayRateLimits.pipe(
+          Effect.flatMap((limiter) =>
+            limiter.admit("registerPwaWebPushSubscription", {
+              kind: "installation",
+              installationId: row.installationId!,
+            }),
+          ),
+        ),
+      ),
+    removePwa: (input) => removePwa(input, () => Effect.void),
+    removePwaPublic: (input) =>
+      removePwa(input, (row) =>
+        PublicLimits.PublicRelayRateLimits.pipe(
+          Effect.flatMap((limiter) =>
+            limiter.admit("removePwaWebPushSubscription", {
+              kind: "installation",
+              installationId: row.installationId!,
+            }),
+          ),
+        ),
+      ),
+    getPwaForCleanup,
     getPwa: (input) =>
-      Effect.gen(function* () {
-        if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
-        const installationSecretHash = yield* hashInstallationSecret(
-          crypto,
-          input.installationSecret,
-        );
-        const rows = yield* db
-          .select()
-          .from(relayWebPushSubscriptions)
-          .where(
-            and(
-              eq(relayWebPushSubscriptions.id, input.subscriptionId),
-              eq(relayWebPushSubscriptions.installationId, input.installationId),
-              eq(relayWebPushSubscriptions.userId, `pwa:${input.installationId}`),
-              eq(relayWebPushSubscriptions.installationSecretHash, installationSecretHash),
-            ),
-          )
-          .limit(1);
-        return rows[0] ?? null;
-      }).pipe(mapPwaAccessError),
+      anonymousAllowed ? getPwaForCleanup(input) : Effect.fail(new AnonymousPwaUnavailable()),
     register: (input) =>
       Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);

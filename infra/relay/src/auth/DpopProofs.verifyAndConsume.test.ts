@@ -317,3 +317,53 @@ it.effect(
     );
   },
 );
+
+it.effect(
+  "stateless ES256 verification can repeat without replay writes before consumeVerified",
+  () => {
+    let writes = 0;
+    const now = DateTime.makeUnsafe("2026-05-25T12:00:00.000Z");
+    const signed = makeDpopProof({
+      method: "POST",
+      url: "https://relay.example.test/v1/environments/env/connect",
+      jti: "stateless-proof",
+      iat: Math.floor(now.epochMilliseconds / 1000),
+      accessToken: "fixture-access-token",
+    });
+    return Effect.gen(function* () {
+      const replay = yield* DpopProofs.DpopProofReplay;
+      const input = {
+        proof: signed.proof,
+        method: "POST",
+        url: "https://relay.example.test/v1/environments/env/connect",
+        now,
+        expectedThumbprint: signed.thumbprint,
+        expectedAccessToken: "fixture-access-token",
+      };
+      const proof = yield* replay.verify(input);
+      expect(yield* replay.verify(input)).toEqual(proof);
+      expect(writes).toBe(0);
+      expect(proof).toMatchObject({
+        thumbprint: signed.thumbprint,
+        jti: "stateless-proof",
+        iat: Math.floor(now.epochMilliseconds / 1000),
+      });
+      expect(yield* replay.consumeVerified(proof)).toBe(signed.thumbprint);
+      expect(writes).toBe(1);
+      expect(yield* Effect.flip(replay.consumeVerified(proof))).toMatchObject({
+        _tag: "DpopProofRejected",
+        code: "replayed",
+      });
+      expect(writes).toBe(2);
+    }).pipe(
+      Effect.provide(
+        layer((values) =>
+          Effect.sync(() => {
+            writes++;
+            return writes === 1 ? [{ jti: values.jti }] : [];
+          }),
+        ),
+      ),
+    );
+  },
+);

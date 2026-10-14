@@ -52,6 +52,17 @@ export class HeldHooks extends Context.Service<
       readonly environmentPublicKey: string;
       readonly holdWebhooksWhileOffline: boolean;
     }) => Effect.Effect<void, PersistenceError | HookInbox.HookInboxError>;
+    readonly setHoldWhileOfflineForLinks: (input: {
+      readonly environmentId: string;
+      readonly environmentPublicKey: string;
+      readonly holdWebhooksWhileOffline: boolean;
+      readonly links: ReadonlyArray<EnvironmentLinks.ActiveEnvironmentLinkRecord>;
+    }) => Effect.Effect<void, PersistenceError | HookInbox.HookInboxError>;
+    readonly wakeForLinks: (input: {
+      readonly environmentId: string;
+      readonly environmentPublicKey: string;
+      readonly links: ReadonlyArray<EnvironmentLinks.ActiveEnvironmentLinkRecord>;
+    }) => Effect.Effect<boolean, PersistenceError | HookInbox.HookInboxError>;
     /** Delivers what the environment's endpoints hold now; true when anything was waiting. */
     readonly wake: (input: {
       readonly environmentId: string;
@@ -137,7 +148,68 @@ const make = Effect.gen(function* () {
     return pending;
   });
 
-  return HeldHooks.of({ resolveEndpoint, setHoldWhileOffline, wake });
+  // Recheck each admitted incarnation without expanding the admitted owner set.
+  const endpointForLink = Effect.fnUntraced(function* (
+    input: {
+      readonly environmentId: string;
+      readonly environmentPublicKey: string;
+    },
+    link: EnvironmentLinks.ActiveEnvironmentLinkRecord,
+  ) {
+    if (
+      !settings.managedEndpointNamespace ||
+      !link.managedTunnelsEnabled ||
+      link.endpoint.providerKind !== "cloudflare_tunnel"
+    )
+      return null;
+    const [current] = yield* links.findActiveManagedForEnvironment({
+      ...input,
+      userId: link.userId,
+    });
+    if (!current || current.linkIncarnationId !== link.linkIncarnationId) return null;
+    const allocation = yield* allocations.get({
+      userId: link.userId,
+      environmentId: input.environmentId,
+    });
+    const validated = validateManagedEndpoint({
+      link: current,
+      allocation,
+      baseDomain: settings.managedEndpointBaseDomain,
+    });
+    if (Result.isFailure(validated) || !allocation) return null;
+    const endpointKey = endpointKeyForTunnelName(
+      settings.managedEndpointNamespace,
+      allocation.tunnelName,
+    );
+    return endpointKey === null ? null : { endpointKey, baseUrl: validated.success.httpBaseUrl };
+  });
+  const setHoldWhileOfflineForLinks: HeldHooks["Service"]["setHoldWhileOfflineForLinks"] =
+    Effect.fn("relay.hooks.set_hold_for_links")(function* (input) {
+      const affected = yield* links.setHoldWebhooksWhileOfflineForLinks(input);
+      if (input.holdWebhooksWhileOffline) return;
+      for (const link of affected) {
+        const endpoint = yield* endpointForLink(input, link);
+        if (endpoint) yield* inbox.clear({ endpointKey: endpoint.endpointKey });
+      }
+    });
+  const wakeForLinks: HeldHooks["Service"]["wakeForLinks"] = Effect.fn(
+    "relay.hooks.wake_for_links",
+  )(function* (input) {
+    let pending = false;
+    for (const link of input.links) {
+      const endpoint = yield* endpointForLink(input, link);
+      if (endpoint && (yield* inbox.wake(endpoint))) pending = true;
+    }
+    return pending;
+  });
+
+  return HeldHooks.of({
+    resolveEndpoint,
+    setHoldWhileOffline,
+    wake,
+    setHoldWhileOfflineForLinks,
+    wakeForLinks,
+  });
 });
 
 export const layer = Layer.effect(HeldHooks, make);
