@@ -117,6 +117,9 @@ manager logs.
 Each VM has exactly one dedicated NAT network with the
 `t3-ci-windows-egress` host filter. IPv6, host public addresses, private,
 CGNAT, link-local/metadata, multicast, and reserved addresses are denied.
+The provisioner also denies every discovered Docker/connected host subnet,
+including the host's non-RFC1918 `172.32.0.0/16` Docker network. Public
+`172` addresses outside those actual/private ranges remain available to CDNs.
 Only internet HTTP(S) and gateway DNS are permitted. Each dedicated network
 has one explicitly addressed `.2` guest with its exact IP supplied to the
 anti-spoofing filter; no DHCP or address-learning race is required. The manager

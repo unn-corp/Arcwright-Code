@@ -3,6 +3,7 @@
 
 import argparse
 import ipaddress
+import json
 import pathlib
 import secrets
 import subprocess
@@ -22,7 +23,19 @@ def virsh(*arguments):
     return run('virsh', '-c', URI, *arguments)
 
 
-def filter_xml(host_addresses):
+def discover_denied_subnets():
+    ids = run('docker', 'network', 'ls', '--quiet').splitlines()
+    networks = json.loads(run('docker', 'network', 'inspect', *ids)) if ids else []
+    denied = {item['Subnet'] for network in networks
+              for item in (network.get('IPAM', {}).get('Config') or []) if item.get('Subnet')}
+    interfaces = json.loads(run('ip', '-j', '-4', 'address', 'show'))
+    denied.update(str(ipaddress.ip_network(f"{address['local']}/{address['prefixlen']}", strict=False))
+                  for interface in interfaces for address in interface.get('addr_info', [])
+                  if address.get('family') == 'inet')
+    return sorted(value for value in denied if ipaddress.ip_network(value).version == 4)
+
+
+def filter_xml(host_addresses, denied_subnets=()):
     # Only gateway DNS is exempt from private-address denial. Every network
     # owns one VM with an explicit .2 address and matching anti-spoofing IP.
     rules = [
@@ -32,10 +45,10 @@ def filter_xml(host_addresses):
         "<rule action='accept' direction='out' priority='-970'><tcp dstipaddr='$GATEWAY' dstportstart='53'/></rule>",
     ]
     prefixes = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
-                '169.254.0.0/16', '172.0.0.0/8', '192.168.0.0/16', '224.0.0.0/4', '240.0.0.0/4']
+                '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16', '224.0.0.0/4', '240.0.0.0/4']
     prefixes.extend(str(ipaddress.ip_network(address)) for address in host_addresses)
-    for prefix in prefixes:
-        network = ipaddress.ip_network(prefix)
+    prefixes.extend(denied_subnets)
+    for network in ipaddress.collapse_addresses(ipaddress.ip_network(prefix) for prefix in prefixes):
         rules.append(f"<rule action='drop' direction='out' priority='-960'><all dstipaddr='{network.network_address}' dstipmask='{network.prefixlen}'/></rule>")
     rules.extend([
         "<rule action='accept' direction='out' priority='-950'><tcp dstportstart='80'/></rule>",
@@ -71,7 +84,7 @@ def main():
         (root / 'autounattend.xml').write_text(answer)
         (root / 'bootstrap.ps1').write_bytes(pathlib.Path(__file__).with_name('bootstrap.ps1').read_bytes())
         run('xorriso', '-as', 'mkisofs', '-V', 'T3CI_BOOT', '-J', '-R', '-o', str(root / 'answer.iso'), str(root / 'autounattend.xml'), str(root / 'bootstrap.ps1'))
-        (root / 'filter.xml').write_text(filter_xml(args.host_ip))
+        (root / 'filter.xml').write_text(filter_xml(args.host_ip, discover_denied_subnets()))
         virsh('nwfilter-define', str(root / 'filter.xml'))
         network = f"<network><name>{BASE}-net</name><forward mode='nat'/><bridge name='t3ciwinbase' stp='on' delay='0'/><dns><forwarder addr='1.1.1.1'/><forwarder addr='8.8.8.8'/></dns><ip address='192.168.230.1' netmask='255.255.255.0'/></network>"
         (root / 'network.xml').write_text(network)
