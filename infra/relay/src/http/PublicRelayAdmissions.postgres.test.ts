@@ -1,3 +1,6 @@
+import * as PgClient from "@effect/sql-pg/PgClient";
+import * as PgDrizzle from "drizzle-orm/effect-postgres";
+import { EffectLogger } from "drizzle-orm/effect-core";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { RelayManagedEndpointRecoveryRequest } from "@t3tools/contracts/relay";
@@ -453,7 +456,13 @@ describe.runIf(fixtureFile !== undefined)(
             yield* insertLink(db, "user_ungated", { managed: true });
             yield* Deferred.succeed(resume, undefined);
             expect((yield* Fiber.join(fiber)).status).toBe(200);
-            expect(new Set(admitted)).toEqual(new Set(["user_managed", "user_publishonly"]));
+            expect(new Set(admitted)).toEqual(
+              new Set(
+                operation === "wakeHeldHooks"
+                  ? ["user_managed"]
+                  : ["user_managed", "user_publishonly"],
+              ),
+            );
             if (operation === "updateLinkPreferences") {
               const records = yield* db.select().from(relayEnvironmentLinks);
               expect(
@@ -549,6 +558,251 @@ describe.runIf(fixtureFile !== undefined)("real PostgreSQL recovery selector aut
           );
           expect(credited).toEqual(kind === "matching-multiple-owners" ? ["user_verified"] : []);
           expect(c.provider).toBe(kind === "matching-multiple-owners" ? 1 : 0);
+        }),
+      ).pipe(Effect.scoped),
+  );
+});
+
+describe.runIf(fixtureFile !== undefined)("public first-create admission race", () => {
+  it.effect.each(["deny", "outage"] as const)(
+    "%s rejects an empty-preflight request that loses its installation before transaction work",
+    (mode) =>
+      withPg(
+        Effect.gen(function* () {
+          const db = yield* Db.RelayDb;
+          const crypto = yield* Crypto.Crypto;
+          const entered = yield* Deferred.make<void>();
+          const resume = yield* Deferred.make<void>();
+          type Phase = "preflight" | "winner" | "delayed" | "retry";
+          const count = () => ({
+            hash: 0,
+            select: 0,
+            uuid: 0,
+            locks: 0,
+            insert: 0,
+            upsert: 0,
+            delete: 0,
+            update: 0,
+          });
+          const queries = { preflight: count(), winner: count(), delayed: count(), retry: count() };
+          let phase: Phase = "preflight";
+          let uuidCalls = 0;
+          const loggedDb = yield* PgDrizzle.make().pipe(
+            Effect.provideService(PgClient.PgClient, db.$client),
+            Effect.provideService(EffectLogger, {
+              logQuery: (query) =>
+                Effect.sync(() => {
+                  const sql = query.trim().toLowerCase();
+                  // Classify statements only. SQL parameters and credential values are never recorded.
+                  const kind = sql.includes("pg_advisory_xact_lock")
+                    ? "locks"
+                    : sql.startsWith("select")
+                      ? "select"
+                      : sql.startsWith("insert")
+                        ? sql.includes("do update")
+                          ? "upsert"
+                          : "insert"
+                        : sql.startsWith("delete")
+                          ? "delete"
+                          : "update";
+                  queries[phase][kind]++;
+                }),
+            }),
+            Effect.provide(PgDrizzle.DefaultServices),
+          );
+          const service = yield* Subscriptions.make.pipe(
+            Effect.provideService(Db.RelayDb, loggedDb),
+            Effect.provideService(Configuration.RelayConfiguration, legacyConfig),
+            Effect.provideService(Crypto.Crypto, {
+              ...crypto,
+              digest: (...args) =>
+                crypto
+                  .digest(...args)
+                  .pipe(Effect.tap(() => Effect.sync(() => queries[phase].hash++))),
+              randomUUIDv4: Effect.gen(function* () {
+                queries[phase].uuid++;
+                if (++uuidCalls === 1) {
+                  yield* Deferred.succeed(entered, undefined);
+                  yield* Deferred.await(resume);
+                }
+                return yield* crypto.randomUUIDv4;
+              }),
+            }),
+          );
+          const ownershipFailures: unknown[] = [];
+          const subscriptions: Subscriptions.WebPushSubscriptions["Service"] = {
+            ...service,
+            registerPwaPublic: (input) =>
+              service.registerPwaPublic(input).pipe(
+                Effect.tapError((error) =>
+                  Effect.sync(() => {
+                    if (error._tag === "WebPushSubscriptionPersistenceError")
+                      ownershipFailures.push(error.cause);
+                  }),
+                ),
+              ),
+          };
+          const admitted: Limits.PublicRelaySubject[] = [];
+          const endpoint = yield* fixture({
+            counts: counters(),
+            config: legacyConfig,
+            subscriptions,
+            admit: (_, subject) => {
+              admitted.push(subject);
+              return subject.kind === "installation" ? limited(mode) : Effect.void;
+            },
+          });
+          const delayedPayload = {
+            ...registration,
+            endpoint: "https://push.example.test/delayed-replacement",
+            keys: { p256dh: "delayed-key", auth: "delayed-auth" },
+          };
+          const delayed = yield* send(
+            endpoint,
+            yield* requestForOperation("registerPwaWebPushSubscription", {
+              payload: delayedPayload,
+            }),
+          ).pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          expect(queries.preflight).toEqual({
+            hash: 1,
+            select: 1,
+            uuid: 1,
+            locks: 0,
+            insert: 0,
+            upsert: 0,
+            delete: 0,
+            update: 0,
+          });
+          expect(yield* db.select().from(relayWebPushSubscriptions)).toEqual([]);
+          phase = "winner";
+          const winner = yield* send(
+            endpoint,
+            yield* requestForOperation("registerPwaWebPushSubscription", { payload: registration }),
+          );
+          expect(winner.status).toBe(200);
+          const reference = yield* makeSubscriptions(legacyConfig, counters());
+          yield* reference.transitionEnvironment({ environmentId: "env", state });
+          const beforeRows = yield* db.select().from(relayWebPushSubscriptions);
+          const beforeStates = yield* db.select().from(relayWebPushSubscriptionStates);
+          expect(beforeRows).toHaveLength(1);
+          expect(beforeStates).toHaveLength(1);
+          expect(admitted).toEqual([
+            { kind: "edge", ip: "192.0.2.4" },
+            { kind: "edge", ip: "192.0.2.4" },
+          ]);
+          phase = "delayed";
+          yield* Deferred.succeed(resume, undefined);
+          const rejected = yield* Fiber.join(delayed);
+          expect(rejected.status).toBe(500);
+          expect(yield* Effect.promise(() => rejected.json())).toMatchObject({
+            code: "internal_error",
+            reason: "internal_error",
+          });
+          expect(ownershipFailures).toHaveLength(1);
+          expect(ownershipFailures[0]).toMatchObject({ cause: "installation_ownership_changed" });
+          expect(queries.delayed).toEqual({
+            hash: 0,
+            select: 1,
+            uuid: 0,
+            locks: 2,
+            insert: 1,
+            upsert: 0,
+            delete: 0,
+            update: 0,
+          });
+          expect(yield* db.select().from(relayWebPushSubscriptions)).toEqual(beforeRows);
+          expect(yield* db.select().from(relayWebPushSubscriptionStates)).toEqual(beforeStates);
+          phase = "retry";
+          const retry = yield* send(
+            endpoint,
+            yield* requestForOperation("registerPwaWebPushSubscription", {
+              payload: delayedPayload,
+            }),
+          );
+          expect(retry.status).toBe(mode === "deny" ? 429 : 503);
+          expect(queries.retry).toEqual({
+            hash: 1,
+            select: 1,
+            uuid: 0,
+            locks: 0,
+            insert: 0,
+            upsert: 0,
+            delete: 0,
+            update: 0,
+          });
+          expect(admitted.slice(2)).toEqual([
+            { kind: "edge", ip: "192.0.2.4" },
+            { kind: "installation", installationId: installation.installationId },
+          ]);
+          expect(yield* db.select().from(relayWebPushSubscriptions)).toEqual(beforeRows);
+          expect(yield* db.select().from(relayWebPushSubscriptionStates)).toEqual(beforeStates);
+        }),
+      ).pipe(Effect.provide(NodeCrypto.layer), Effect.scoped),
+  );
+  it.effect(
+    "public first-create, admitted renewal and endpoint transfer retain their normal ownership behavior",
+    () =>
+      withPg(
+        Effect.gen(function* () {
+          const db = yield* Db.RelayDb;
+          const subscriptions = yield* makeSubscriptions(legacyConfig, counters());
+          const admitted: Limits.PublicRelaySubject[] = [];
+          const endpoint = yield* fixture({
+            counts: counters(),
+            config: legacyConfig,
+            subscriptions,
+            admit: (_, subject) =>
+              Effect.sync(() => {
+                admitted.push(subject);
+              }),
+          });
+          expect(
+            (yield* send(
+              endpoint,
+              yield* requestForOperation("registerPwaWebPushSubscription", {
+                payload: registration,
+              }),
+            )).status,
+          ).toBe(200);
+          const [created] = yield* db.select().from(relayWebPushSubscriptions);
+          expect(created).toBeDefined();
+          yield* subscriptions.transitionEnvironment({ environmentId: "env", state });
+          expect(
+            (yield* send(
+              endpoint,
+              yield* requestForOperation("registerPwaWebPushSubscription", {
+                payload: registration,
+              }),
+            )).status,
+          ).toBe(200);
+          expect(yield* db.select().from(relayWebPushSubscriptions)).toEqual([created]);
+          expect(yield* db.select().from(relayWebPushSubscriptionStates)).toHaveLength(1);
+          const transferred = {
+            ...registration,
+            installation: {
+              installationId: "installation-transfer",
+              installationSecret: "transfer-secret",
+            },
+          };
+          expect(
+            (yield* send(
+              endpoint,
+              yield* requestForOperation("registerPwaWebPushSubscription", {
+                payload: transferred,
+              }),
+            )).status,
+          ).toBe(200);
+          const [current] = yield* db.select().from(relayWebPushSubscriptions);
+          expect(current?.installationId).toBe("installation-transfer");
+          expect(current?.incarnationId).not.toBe(created?.incarnationId);
+          expect(yield* db.select().from(relayWebPushSubscriptionStates)).toEqual([]);
+          expect(admitted.map((subject) => subject.kind)).toEqual([
+            "edge",
+            "edge",
+            "installation",
+            "edge",
+          ]);
         }),
       ).pipe(Effect.scoped),
   );

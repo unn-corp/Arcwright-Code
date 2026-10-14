@@ -234,6 +234,7 @@ export const make = Effect.gen(function* () {
   const registerPwa = <E, R>(
     input: PwaRegistrationInput,
     admitRenewal: (row: typeof relayWebPushSubscriptions.$inferSelect) => Effect.Effect<void, E, R>,
+    registrationPath: "internal" | "public",
   ) =>
     Effect.gen(function* () {
       if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
@@ -287,7 +288,11 @@ export const make = Effect.gen(function* () {
           // Establish the unique installation/endpoint before the locked read,
           // including concurrent first registrations. A rejected credential or
           // failed baseline cleanup rolls this insertion back too.
-          yield* db.insert(relayWebPushSubscriptions).values(values).onConflictDoNothing();
+          const insert = db.insert(relayWebPushSubscriptions).values(values).onConflictDoNothing();
+          const created =
+            registrationPath === "public"
+              ? yield* insert.returning({ id: relayWebPushSubscriptions.id })
+              : yield* insert.pipe(Effect.as([]));
           const owners = yield* db
             .select()
             .from(relayWebPushSubscriptions)
@@ -300,6 +305,20 @@ export const make = Effect.gen(function* () {
             .orderBy(relayWebPushSubscriptions.id)
             .for("update");
           const existing = owners.find((row) => row.installationId === installation.installationId);
+          // An edge-only public first registration cannot renew a concurrent
+          // winner. A later request must authenticate and admit that installation.
+          // A conflict only on another installation's endpoint can still transfer
+          // it below, creating this request's own row under the same locks.
+          if (
+            registrationPath === "public" &&
+            !observed &&
+            existing &&
+            !created.some((row) => row.id === values.id && row.id === existing.id)
+          ) {
+            return yield* new WebPushSubscriptionPersistenceError({
+              cause: "installation_ownership_changed",
+            });
+          }
           if (
             observed &&
             (!existing ||
@@ -358,23 +377,30 @@ export const make = Effect.gen(function* () {
             return yield* new WebPushSubscriptionPersistenceError({
               cause: "subscription_missing_after_registration",
             });
+          if (registrationPath === "public" && !observed && row.id !== values.id)
+            return yield* new WebPushSubscriptionPersistenceError({
+              cause: "installation_ownership_changed",
+            });
           return { subscriptionId: row.id };
         }),
       );
     }).pipe(mapPwaAccessError, Effect.withSpan("relay.web_push_subscriptions.register_pwa"));
 
   return WebPushSubscriptions.of({
-    registerPwa: (input) => registerPwa(input, () => Effect.void),
+    registerPwa: (input) => registerPwa(input, () => Effect.void, "internal"),
     registerPwaPublic: (input) =>
-      registerPwa(input, (row) =>
-        PublicLimits.PublicRelayRateLimits.pipe(
-          Effect.flatMap((limiter) =>
-            limiter.admit("registerPwaWebPushSubscription", {
-              kind: "installation",
-              installationId: row.installationId!,
-            }),
+      registerPwa(
+        input,
+        (row) =>
+          PublicLimits.PublicRelayRateLimits.pipe(
+            Effect.flatMap((limiter) =>
+              limiter.admit("registerPwaWebPushSubscription", {
+                kind: "installation",
+                installationId: row.installationId!,
+              }),
+            ),
           ),
-        ),
+        "public",
       ),
     removePwa: (input) => removePwa(input, () => Effect.void),
     removePwaPublic: (input) =>

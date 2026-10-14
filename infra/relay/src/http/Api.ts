@@ -1622,10 +1622,14 @@ export const layerServerApi = HttpApiBuilder.group(
         Effect.fn("relay.api.server.wakeHeldHooks")(function* ({ params }) {
           yield* requireOwnEnvironment(params.environmentId);
           const principal = yield* RelayEnvironmentPrincipal;
-          const admittedLinks = yield* links.listActiveForEnvironment({
+          const activeLinks = yield* links.listActiveForEnvironment({
             environmentId: params.environmentId,
             environmentPublicKey: principal.environmentPublicKey,
           });
+          const admittedLinks = activeLinks.filter(
+            (link) =>
+              link.managedTunnelsEnabled && link.endpoint.providerKind === "cloudflare_tunnel",
+          );
           yield* admitEnvironment(
             "wakeHeldHooks",
             params.environmentId,

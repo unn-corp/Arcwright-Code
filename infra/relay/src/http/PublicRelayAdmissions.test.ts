@@ -276,7 +276,7 @@ describe("verified public relay admissions through production assembly", () => {
     }).pipe(Effect.scoped),
   );
   it.effect.each(["publishAgentActivity", "updateLinkPreferences", "wakeHeldHooks"] as const)(
-    "%s awaits all owners and carries only the admitted snapshot",
+    "%s awaits affected owners and carries only the admitted snapshot",
     (operation) =>
       Effect.gen(function* () {
         const c = counters();
@@ -306,7 +306,9 @@ describe("verified public relay admissions through production assembly", () => {
         current = [...current, owner("user_ungated")];
         yield* Deferred.succeed(resume, undefined);
         expect((yield* Fiber.join(fiber)).status).toBe(200);
-        expect(admitted).toEqual(["user_verified", "user_publishonly"]);
+        expect(admitted).toEqual(
+          operation === "wakeHeldHooks" ? ["user_verified"] : ["user_verified", "user_publishonly"],
+        );
         if (operation === "publishAgentActivity") expect(c.recipients).toEqual(admitted);
         if (operation === "updateLinkPreferences") expect(c.affected).toEqual(admitted);
         expect(c.recipients).not.toContain("user_ungated");
@@ -578,6 +580,98 @@ describe("verified public relay admissions through production assembly", () => {
             }),
           )).status,
         ).toBe(200);
+      }).pipe(Effect.scoped),
+  );
+});
+
+describe("wake eligible-owner admission", () => {
+  it.effect.each(["deny", "outage"] as const)(
+    "%s for publish-only owners cannot deny the managed wake snapshot",
+    (mode) =>
+      Effect.gen(function* () {
+        const c = counters();
+        const current = [
+          owner("user_managed"),
+          owner("user_publishonly", false),
+          { ...owner("user_noncloudflare"), endpoint: owner("user_noncloudflare", false).endpoint },
+        ];
+        const subjects: Limits.PublicRelaySubject[] = [];
+        const endpoint = yield* fixture({
+          counts: c,
+          owners: () => current,
+          admit: (_, subject) => {
+            subjects.push(subject);
+            return subject.kind === "user" && subject.userId !== "user_managed"
+              ? reject(mode)
+              : Effect.void;
+          },
+        });
+        const response = yield* send(endpoint, yield* requestForOperation("wakeHeldHooks"));
+        expect(response.status).toBe(200);
+        expect(yield* Effect.promise(() => response.json())).toMatchObject({ pending: false });
+        expect(subjects.filter((subject) => subject.kind === "user")).toEqual([
+          { kind: "user", userId: "user_managed" },
+        ]);
+        expect(c.allocationOwners).toEqual(["user_managed"]);
+        expect(c.writes).toBe(0);
+        expect(c.queues).toBe(0);
+      }).pipe(Effect.scoped),
+  );
+  it.effect.each(["deny", "outage"] as const)(
+    "%s for publish-only preferences still denies before every affected-row write",
+    (mode) =>
+      Effect.gen(function* () {
+        const c = counters();
+        const endpoint = yield* fixture({
+          counts: c,
+          owners: () => [owner("user_publishonly", false)],
+          admit: (_, subject) => (subject.kind === "user" ? reject(mode) : Effect.void),
+        });
+        yield* assertLimited(
+          yield* send(endpoint, yield* requestForOperation("updateLinkPreferences")),
+          mode,
+        );
+        downstreamZero(c);
+      }).pipe(Effect.scoped),
+  );
+  it.effect.each(["deny", "outage"] as const)(
+    "%s for eligible managed wake still denies before endpoint effects",
+    (mode) =>
+      Effect.gen(function* () {
+        const c = counters();
+        const endpoint = yield* fixture({
+          counts: c,
+          owners: () => [owner("user_managed")],
+          admit: (_, subject) => (subject.kind === "user" ? reject(mode) : Effect.void),
+        });
+        yield* assertLimited(
+          yield* send(endpoint, yield* requestForOperation("wakeHeldHooks")),
+          mode,
+        );
+        downstreamZero(c);
+        expect(c.allocationOwners).toEqual([]);
+      }).pipe(Effect.scoped),
+  );
+  it.effect.each(["deny", "outage"] as const)(
+    "%s with no eligible wake owners retains environment admission and invents no user",
+    (mode) =>
+      Effect.gen(function* () {
+        const c = counters();
+        const subjects: Limits.PublicRelaySubject[] = [];
+        const endpoint = yield* fixture({
+          counts: c,
+          owners: () => [owner("user_publishonly", false)],
+          admit: (_, subject) => {
+            subjects.push(subject);
+            return subject.kind === "user" ? reject(mode) : Effect.void;
+          },
+        });
+        const response = yield* send(endpoint, yield* requestForOperation("wakeHeldHooks"));
+        expect(response.status).toBe(200);
+        expect(yield* Effect.promise(() => response.json())).toMatchObject({ pending: false });
+        expect(subjects.map((subject) => subject.kind)).toEqual(["edge", "environment"]);
+        expect(c.allocationOwners).toEqual([]);
+        downstreamZero(c);
       }).pipe(Effect.scoped),
   );
 });
