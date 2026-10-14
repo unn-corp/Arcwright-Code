@@ -29,6 +29,7 @@ import {
   publicRelayBounds,
   publicRelayHeaderFailure,
   isRelayHookRequest,
+  isRelayHookTraceRequest,
   relayHookTraceUrl,
 } from "./publicRelayPolicy.ts";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
@@ -277,7 +278,11 @@ export const traceRelayHttpRequest = <E, R>(
           ),
         );
     const safeTraceRequest = request.modify({
-      ...(oversized ? { url: "/__relay_rejected_request__" } : {}),
+      ...(oversized
+        ? { url: "/__relay_rejected_request__" }
+        : isRelayHookTraceRequest(request.method, request.url)
+          ? { url: relayHookTraceUrl(request.method, request.url) }
+          : {}),
       headers: traceHeaders,
       remoteAddress: Option.none(),
     });
@@ -1693,13 +1698,15 @@ export function relayPublicLimitError(
     : new RelayServiceUnavailableError({ code: "relay_unavailable", reason: "internal", traceId });
 }
 
+const isPublicRelayRateLimited = Schema.is(PublicRelayRateLimits.PublicRelayRateLimited);
+const isPublicRelayLimiterUnavailable = Schema.is(
+  PublicRelayRateLimits.PublicRelayLimiterUnavailable,
+);
+
 export function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
   const mapError = Effect.fnUntraced(function* <E>(error: E) {
     const traceId = yield* currentTraceId;
-    if (
-      Schema.is(PublicRelayRateLimits.PublicRelayRateLimited)(error) ||
-      Schema.is(PublicRelayRateLimits.PublicRelayLimiterUnavailable)(error)
-    )
+    if (isPublicRelayRateLimited(error) || isPublicRelayLimiterUnavailable(error))
       return yield* Effect.fail(relayPublicLimitError(error, traceId) as MapRelayCommonApiError<E>);
     if (isDpopProofRejected(error)) {
       yield* Effect.annotateCurrentSpan({

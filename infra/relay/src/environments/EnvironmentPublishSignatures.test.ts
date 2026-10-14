@@ -1,12 +1,19 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync or sign.
 import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  RelayCloudMintCredentialProofPayload,
+  RelayCloudEnvironmentHealthProofPayload,
+  RelayHookDeliveryProofPayload,
+  RelayEnvironmentHealthResponseProofPayload,
+  RelayEnvironmentMintResponseProofPayload,
+} from "@t3tools/contracts/relay";
 import type {
   RelayAgentActivityPublishProofPayload,
   RelayAgentActivityPublishRequest,
   RelayAgentActivityState,
 } from "@t3tools/contracts/relay";
-import { RELAY_ACTIVITY_PUBLISH_TYP } from "@t3tools/shared/relayJwt";
+import { signRelayJwt, verifyRelayJwt, RELAY_ACTIVITY_PUBLISH_TYP } from "@t3tools/shared/relayJwt";
 import { stableStringify } from "@t3tools/shared/relaySigning";
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
@@ -223,3 +230,105 @@ describe("EnvironmentPublishSignatures", () => {
     }).pipe(Effect.provide(layer({ consume: () => Effect.succeed(false) }))),
   );
 });
+
+const localClaimFixtures: ReadonlyArray<{
+  readonly name: string;
+  readonly decode: (
+    input: unknown,
+  ) => Effect.Effect<
+    { readonly iss: string; readonly aud: string; readonly sub: string; readonly jti: string },
+    Schema.SchemaError
+  >;
+  readonly fields: Readonly<Record<string, unknown>>;
+}> = [
+  {
+    name: "cloud mint",
+    decode: Schema.decodeUnknownEffect(RelayCloudMintCredentialProofPayload),
+    fields: {
+      clientProofKeyThumbprint: "thumb",
+      cnf: { jkt: "thumb" },
+      nonce: "nonce",
+      scope: ["environment:connect"],
+    },
+  },
+  {
+    name: "cloud health",
+    decode: Schema.decodeUnknownEffect(RelayCloudEnvironmentHealthProofPayload),
+    fields: { nonce: "nonce", scope: ["environment:status"] },
+  },
+  {
+    name: "forwarded hook",
+    decode: Schema.decodeUnknownEffect(RelayHookDeliveryProofPayload),
+    fields: { deliveryId: "delivery", receivedAt: "2026-10-14T00:00:00Z", hookId: "hook" },
+  },
+  {
+    name: "health response",
+    decode: Schema.decodeUnknownEffect(RelayEnvironmentHealthResponseProofPayload),
+    fields: {
+      requestNonce: "nonce",
+      status: "online",
+      checkedAt: "2026-10-14T00:00:00Z",
+      descriptor: {
+        environmentId: "env",
+        label: "Fixture",
+        platform: { os: "darwin", arch: "arm64" },
+        serverVersion: "fixture",
+        capabilities: { repositoryIdentity: true },
+      },
+    },
+  },
+  {
+    name: "mint response",
+    decode: Schema.decodeUnknownEffect(RelayEnvironmentMintResponseProofPayload),
+    fields: { clientProofKeyThumbprint: "thumb", requestNonce: "nonce", credential: "credential" },
+  },
+];
+it.effect.each(localClaimFixtures)(
+  "preserves genuinely verified $name proof registered-claim compatibility",
+  ({ decode, fields }) =>
+    Effect.gen(function* () {
+      const ordinary = {
+        iss: "https://relay.test",
+        aud: "t3-env:env",
+        sub: "user",
+        jti: "ordinary",
+        iat: 1791936000,
+        exp: 1791936060,
+        environmentId: "env",
+        ...fields,
+      };
+      const overLimits = {
+        iss: "i".repeat(4097),
+        aud: "a".repeat(4097),
+        sub: "s".repeat(192),
+        jti: "j".repeat(256),
+      };
+      for (const claims of [
+        ordinary,
+        ...Object.entries(overLimits).map(([name, value]) => ({ ...ordinary, [name]: value })),
+        { ...ordinary, ...overLimits },
+      ]) {
+        const token = yield* signRelayJwt({
+          privateKey: keyPair.privateKey,
+          typ: "compatibility-local-proof+jwt",
+          payload: claims,
+        });
+        const verified = yield* verifyRelayJwt({
+          publicKey: keyPair.publicKey,
+          token,
+          typ: "compatibility-local-proof+jwt",
+          issuer: claims.iss,
+          audience: claims.aud,
+          nowEpochSeconds: claims.iat,
+        });
+        const decoded = yield* decode(verified);
+        expect(decoded).toMatchObject({
+          iss: claims.iss,
+          aud: claims.aud,
+          sub: claims.sub,
+          jti: claims.jti,
+        });
+      }
+      expect((yield* Effect.exit(decode({ ...ordinary, jti: " " })))._tag).toBe("Failure");
+    }),
+);

@@ -5,20 +5,19 @@ import * as Schema from "effect/Schema";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import {
-  RelayRateLimitExceededError,
   RelayServiceUnavailableError,
   RelayRequestTooLargeError,
   RelayRequestInvalidError,
   RelayRequestHeadersTooLargeError,
   CommonRelayPublicBoundaryErrors,
 } from "@t3tools/contracts/relay";
-import { isRelayHookPath } from "../hooks/HookForwarder.ts";
 import {
   relayCors,
   traceRelayHttpRequestWith,
   relayPublicLimitError,
   assembleRelayHttpRoutes,
 } from "./Api.ts";
+import { isRelayHookPath } from "../hooks/HookForwarder.ts";
 import * as Layer from "effect/Layer";
 import * as PublicRelayRateLimits from "./PublicRelayRateLimits.ts";
 import {
@@ -165,8 +164,7 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     // Hook byte limits and raw forwarding belong to HookForwarder, without reconstruction.
-    if (isRelayHookPath(request.url) || isRelayHookRequest(request.method, request.url))
-      return yield* router;
+    if (isRelayHookRequest(request.method, request.url)) return yield* router;
     const traceId = yield* currentTraceId;
     const original = request.source instanceof Request ? request.source : undefined;
     const early = (status: BoundaryStatus) => {
@@ -184,7 +182,9 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
     if (publicRelayHeaderFailure(request.headers)) return early(431);
     if (request.method === "OPTIONS") {
       if (original) cancelBody(original);
-      return HttpServerResponse.empty({ status: 204 });
+      return isRelayHookPath(request.url)
+        ? yield* router
+        : HttpServerResponse.empty({ status: 204 });
     }
     const route = classifyPublicRelayRoute(request.method, request.url);
     if (!route) {

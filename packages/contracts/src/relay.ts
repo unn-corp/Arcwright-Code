@@ -331,17 +331,26 @@ export const RelayEnvironmentConfigRequest = Schema.Struct({
 export type RelayEnvironmentConfigRequest = typeof RelayEnvironmentConfigRequest.Type;
 
 const RelaySignedJwtRegisteredClaims = {
-  iss: boundedString(4096),
-  aud: boundedString(4096),
-  sub: boundedString(191),
-  jti: boundedString(255),
+  iss: TrimmedNonEmptyString,
+  aud: TrimmedNonEmptyString,
+  sub: TrimmedNonEmptyString,
+  jti: TrimmedNonEmptyString,
   iat: Schema.Int,
   exp: Schema.Int,
 } as const;
 
+// Bounds belong to public relay inputs, not trusted local/forwarded proof contracts.
+const RelayPublicSignedJwtRegisteredClaims = {
+  ...RelaySignedJwtRegisteredClaims,
+  iss: boundedString(4096),
+  aud: boundedString(4096),
+  sub: boundedString(191),
+  jti: boundedString(255),
+} as const;
+
 export const RelayManagedEndpointRecoveryProofPayload = Schema.Union([
   Schema.Struct({
-    ...RelaySignedJwtRegisteredClaims,
+    ...RelayPublicSignedJwtRegisteredClaims,
     action: Schema.Literal("register"),
     environmentId: RelayEnvironmentIdInput,
     cloudUserId: boundedString(191),
@@ -349,7 +358,7 @@ export const RelayManagedEndpointRecoveryProofPayload = Schema.Union([
     origin: RelayManagedEndpointOriginInput,
   }),
   Schema.Struct({
-    ...RelaySignedJwtRegisteredClaims,
+    ...RelayPublicSignedJwtRegisteredClaims,
     action: Schema.Literal("recover"),
     environmentId: RelayEnvironmentIdInput,
     cloudUserId: boundedString(191),
@@ -360,7 +369,7 @@ export type RelayManagedEndpointRecoveryProofPayload =
   typeof RelayManagedEndpointRecoveryProofPayload.Type;
 
 export const RelayAgentActivityPublishProofPayload = Schema.Struct({
-  ...RelaySignedJwtRegisteredClaims,
+  ...RelayPublicSignedJwtRegisteredClaims,
   environmentId: RelayEnvironmentIdInput,
   threadId: RelayThreadIdInput,
   state: Schema.NullOr(RelayActivityStateInput),
@@ -386,7 +395,7 @@ export const RelayEnvironmentLinkScope = Schema.Literals([
 export type RelayEnvironmentLinkScope = typeof RelayEnvironmentLinkScope.Type;
 
 export const RelayEnvironmentLinkProofPayload = Schema.Struct({
-  ...RelaySignedJwtRegisteredClaims,
+  ...RelayPublicSignedJwtRegisteredClaims,
   challenge: boundedString(16384),
   descriptor: RelayDescriptorInput,
   environmentId: RelayEnvironmentIdInput,

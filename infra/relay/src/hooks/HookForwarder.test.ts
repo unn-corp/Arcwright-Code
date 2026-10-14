@@ -834,3 +834,36 @@ describe("HookForwarder", () => {
     );
   });
 });
+
+it.effect.each(["/v1/hooks/", "/V1/HOOKS/", "/%76%31/hooks/"])(
+  "recognized hook%s preserves raw forwarding with an unbounded query suffix",
+  (prefix) =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      const query = "?sender-secret=" + "q".repeat(9000);
+      const url = hookUrl("hook-1/private-token").replace("/v1/hooks/", prefix) + query;
+      const body = new Uint8Array(65537).fill(42);
+      const spans: Tracer.NativeSpan[] = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      const response = yield* harness.send(new Request(url, { method: "POST", body })).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+      expect(requestBytes(harness.sent[0]!)).toEqual(body);
+      expect(harness.sent[0]!.url).toBe(
+        "https://env.example.test/api/hooks/hook-1/private-token" + query,
+      );
+      const attributes = JSON.stringify(spans.map((span) => Array.from(span.attributes)));
+      expect(attributes).not.toContain("private-token");
+      expect(attributes).not.toContain("sender-secret");
+      expect(attributes).not.toContain("q".repeat(9000));
+    }),
+);

@@ -4,6 +4,8 @@ import * as Schema from "effect/Schema";
 
 import {
   RelayApi,
+  RelayAgentActivityPublishProofPayload,
+  RelayEnvironmentLinkProofPayload,
   RelayDeviceRegistrationRequest,
   RelayEnvironmentConnectRequest,
   RelayAgentActivityPublishRequest,
@@ -14,6 +16,23 @@ import {
   RelayListDevicesResponse,
   RelayListDevicesResponseV1,
 } from "./relay.ts";
+
+const decodeConnect = Schema.decodeUnknownExit(RelayEnvironmentConnectRequest);
+const decodeAgentActivityPublishRequest = Schema.decodeUnknownExit(
+  RelayAgentActivityPublishRequest,
+);
+const decodePwaAgentActivityPublishRequest = Schema.decodeUnknownExit(
+  RelayPwaAgentActivityPublishRequest,
+);
+const decodeManagedEndpointRecoveryRequest = Schema.decodeUnknownExit(
+  RelayManagedEndpointRecoveryRequest,
+);
+const decodeListDevicesResponse = Schema.decodeUnknownExit(RelayListDevicesResponse);
+const decodeListDevicesResponseV1 = Schema.decodeUnknownExit(RelayListDevicesResponseV1);
+const decodeManagedEndpointRecoveryProofPayload = Schema.decodeUnknownExit(
+  RelayManagedEndpointRecoveryProofPayload,
+);
+const decodeLinkProofRequest = Schema.decodeUnknownExit(RelayLinkProofRequest);
 
 const decodeDevice = Schema.decodeUnknownExit(RelayDeviceRegistrationRequest);
 const device = {
@@ -105,7 +124,6 @@ it("bounds input identifiers/tokens without narrowing platform registration or t
       androidApiLevel: 100,
     })._tag,
   ).toBe("Failure");
-  const decodeConnect = Schema.decodeUnknownExit(RelayEnvironmentConnectRequest);
   expect(
     decodeConnect({ deviceId: "x".repeat(191), clientKeyThumbprint: "t".repeat(128) })._tag,
   ).toBe("Success");
@@ -122,25 +140,23 @@ it("bounds input identifiers/tokens without narrowing platform registration or t
     updatedAt: "timestamp",
     deepLink: "https://example.test",
   };
+  expect(decodeAgentActivityPublishRequest({ state, proof: "proof" })._tag).toBe("Success");
   expect(
-    Schema.decodeUnknownExit(RelayAgentActivityPublishRequest)({ state, proof: "proof" })._tag,
-  ).toBe("Success");
-  expect(
-    Schema.decodeUnknownExit(RelayPwaAgentActivityPublishRequest)({
+    decodePwaAgentActivityPublishRequest({
       state,
       proof: "proof",
       environmentPublicKey: "pem",
     })._tag,
   ).toBe("Failure");
   expect(
-    Schema.decodeUnknownExit(RelayPwaAgentActivityPublishRequest)({
+    decodePwaAgentActivityPublishRequest({
       state: { ...state, threadId: "x".repeat(191) },
       proof: "proof",
       environmentPublicKey: "pem",
     })._tag,
   ).toBe("Success");
   expect(
-    Schema.decodeUnknownExit(RelayManagedEndpointRecoveryRequest)({
+    decodeManagedEndpointRecoveryRequest({
       cloudUserId: "x".repeat(192),
       origin: { localHttpHost: "127.0.0.1", localHttpPort: 65535 },
       proof: "proof",
@@ -163,12 +179,12 @@ it("bounds input identifiers/tokens without narrowing platform registration or t
     updatedAt: "timestamp",
   };
   expect(
-    Schema.decodeUnknownExit(RelayListDevicesResponse)({
+    decodeListDevicesResponse({
       devices: Array.from({ length: 129 }, () => record),
     })._tag,
   ).toBe("Success");
   expect(
-    Schema.decodeUnknownExit(RelayListDevicesResponseV1)({
+    decodeListDevicesResponseV1({
       devices: [{ ...record, platform: "android", androidApiLevel: 37, iosMajorVersion: null }],
     })._tag,
   ).toBe("Failure");
@@ -177,7 +193,7 @@ it("bounds input identifiers/tokens without narrowing platform registration or t
 it("bounds public relay origin inputs while preserving the local link-proof transport schema", () => {
   const origin = { localHttpHost: "x".repeat(254), localHttpPort: 65535 };
   expect(
-    Schema.decodeUnknownExit(RelayManagedEndpointRecoveryRequest)({
+    decodeManagedEndpointRecoveryRequest({
       cloudUserId: "user",
       origin,
       proof: "proof",
@@ -195,17 +211,15 @@ it("bounds public relay origin inputs while preserving the local link-proof tran
     cloudUserId: "user",
     origin,
   };
-  expect(Schema.decodeUnknownExit(RelayManagedEndpointRecoveryProofPayload)(proof)._tag).toBe(
-    "Failure",
-  );
+  expect(decodeManagedEndpointRecoveryProofPayload(proof)._tag).toBe("Failure");
   expect(
-    Schema.decodeUnknownExit(RelayManagedEndpointRecoveryProofPayload)({
+    decodeManagedEndpointRecoveryProofPayload({
       ...proof,
       origin: { ...origin, localHttpHost: "x".repeat(253) },
     })._tag,
   ).toBe("Success");
   expect(
-    Schema.decodeUnknownExit(RelayLinkProofRequest)({
+    decodeLinkProofRequest({
       challenge: "challenge",
       relayIssuer: "https://relay.test",
       endpoint: {
@@ -217,3 +231,62 @@ it("bounds public relay origin inputs while preserving the local link-proof tran
     })._tag,
   ).toBe("Success");
 });
+
+const publicClaimFixtures = [
+  {
+    name: "recovery",
+    decode: decodeManagedEndpointRecoveryProofPayload,
+    fields: {
+      action: "recover",
+      environmentId: "env",
+      cloudUserId: "user",
+      origin: { localHttpHost: "127.0.0.1", localHttpPort: 3773 },
+    },
+  },
+  {
+    name: "activity",
+    decode: Schema.decodeUnknownExit(RelayAgentActivityPublishProofPayload),
+    fields: { environmentId: "env", threadId: "thread", state: null },
+  },
+  {
+    name: "link",
+    decode: Schema.decodeUnknownExit(RelayEnvironmentLinkProofPayload),
+    fields: {
+      environmentId: "env",
+      challenge: "challenge",
+      environmentPublicKey: "pem",
+      descriptor: {
+        environmentId: "env",
+        label: "Fixture",
+        platform: { os: "darwin", arch: "arm64" },
+        serverVersion: "fixture",
+        capabilities: { repositoryIdentity: true },
+      },
+      endpoint: {
+        httpBaseUrl: "https://env.test",
+        wsBaseUrl: "wss://env.test",
+        providerKind: "manual",
+      },
+      origin: { localHttpHost: "127.0.0.1", localHttpPort: 3773 },
+      scopes: [],
+    },
+  },
+];
+it.each(publicClaimFixtures)(
+  "keeps exact/excess registered-claim bounds on public $name proofs",
+  ({ decode, fields }) => {
+    const claims = {
+      iss: "i".repeat(4096),
+      aud: "a".repeat(4096),
+      sub: "s".repeat(191),
+      jti: "j".repeat(255),
+      iat: 1,
+      exp: 2,
+      ...fields,
+    };
+    expect(decode(claims)._tag).toBe("Success");
+    for (const name of ["iss", "aud", "sub", "jti"] as const) {
+      expect(decode({ ...claims, [name]: claims[name] + "x" })._tag).toBe("Failure");
+    }
+  },
+);

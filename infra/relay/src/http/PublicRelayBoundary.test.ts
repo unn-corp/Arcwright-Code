@@ -29,14 +29,11 @@ import {
   withCloudflarePublicRelayIdentity,
 } from "./PublicRelayBoundary.ts";
 import * as RateLimits from "./PublicRelayRateLimits.ts";
-import {
-  canonicalEdgeIp,
-  classifyPublicRelayRoute,
-  publicRelayOperations,
-  publicRelayBuckets,
-} from "./publicRelayPolicy.ts";
+import { canonicalEdgeIp, publicRelayOperations, publicRelayBuckets } from "./publicRelayPolicy.ts";
 
 import { isBoundedJwt } from "./publicRelayInputBounds.ts";
+
+const decodeHeadersTooLarge = Schema.decodeUnknownEffect(RelayRequestHeadersTooLargeError);
 
 const encode = (value: string) => new TextEncoder().encode(value);
 const counts = () => ({ auth: 0, business: 0, limiter: 0 });
@@ -992,9 +989,7 @@ it.effect.each([
         Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
       );
       expect(response.status).toBe(431);
-      const body = yield* Schema.decodeUnknownEffect(RelayRequestHeadersTooLargeError)(
-        yield* Effect.promise(() => response.json()),
-      );
+      const body = yield* decodeHeadersTooLarge(yield* Effect.promise(() => response.json()));
       expect(body).toMatchObject({
         _tag: "RelayRequestHeadersTooLargeError",
         code: "relay_request_headers_too_large",
@@ -1155,9 +1150,7 @@ it.effect(
         Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
       );
       expect(response.status).toBe(431);
-      const error = yield* Schema.decodeUnknownEffect(RelayRequestHeadersTooLargeError)(
-        yield* Effect.promise(() => response.json()),
-      );
+      const error = yield* decodeHeadersTooLarge(yield* Effect.promise(() => response.json()));
       expect(error.code).toBe("relay_request_headers_too_large");
       expect(response.headers.get("traceparent")).toContain(error.traceId);
       expect(response.headers.get("access-control-allow-origin")).toBe("*");
@@ -1192,5 +1185,50 @@ it.effect.each([
     expect(raw.read()).toBe(0);
     expect(raw.cancelled()).toBe(1);
     expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+  }).pipe(Effect.scoped),
+);
+
+it.effect.each(
+  (
+    [
+      ["POST", "/v1/hooks/not-a-route"],
+      ["POST", "/V1/HOOKS/not-a-route"],
+      ["POST", "/%76%31/hooks/not-a-route"],
+      ["DELETE", "/v1/hooks/endpoint/hook/private-token"],
+      ["DELETE", "/V1/HOOKS/endpoint/hook/private-token"],
+      ["DELETE", "/%76%31/hooks/endpoint/hook/private-token"],
+      ["POST", "/v1/hooks/endpoint/hook/" + "t".repeat(513)],
+      ["POST", "/v1/hooks/endpoint/hook/private-token/extra"],
+    ] as const
+  ).map(([method, path]) => ({ method, path })),
+)("cancels unknown hook route $method $path without reads or downstream work", ({ method, path }) =>
+  Effect.gen(function* () {
+    const calls = counts();
+    const endpoint = yield* withBoundary(calls);
+    const spans: Tracer.NativeSpan[] = [];
+    const tracer = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options);
+        spans.push(span);
+        return span;
+      },
+    });
+    const raw = rawRequest([encode("raw-body")], {
+      method,
+      url: "https://relay.test" + path + "?sender-secret=private-query",
+      neverCancel: true,
+    });
+    const response = yield* send(endpoint, raw.request).pipe(
+      Effect.provideService(Tracer.Tracer, tracer),
+      Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+    );
+    expect(response.status).toBe(404);
+    expect(raw.read()).toBe(0);
+    expect(raw.cancelled()).toBe(1);
+    expect(raw.request.body?.locked).toBe(false);
+    expect(calls).toEqual({ auth: 0, business: 0, limiter: 0 });
+    const attributes = JSON.stringify(spans.map((span) => Array.from(span.attributes)));
+    expect(attributes).not.toContain("private-token");
+    expect(attributes).not.toContain("private-query");
   }).pipe(Effect.scoped),
 );

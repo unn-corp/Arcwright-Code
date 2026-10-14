@@ -132,41 +132,53 @@ export function publicRelayHeaderFailure(headers: Readonly<Record<string, string
 
 type PolicyRoute =
   | { readonly operation: PublicRelayOperation; readonly kind: PublicRelayClass }
-  | { readonly kind: "hook" };
+  | { readonly kind: "hook" }
+  | { readonly kind: "hook-trace" };
 const routeClassifier = FindMyWay.make<PolicyRoute | undefined>({ maxParamLength: 512 });
 for (const [operation, [method, template, kind]] of Object.entries(publicRelayOperations))
   routeClassifier.on(method, template, { operation: operation as PublicRelayOperation, kind });
 for (const method of ["POST", "PUT", "PATCH", "GET"])
   routeClassifier.on(method, "/v1/hooks/:endpointKey/:hookId/:token", { kind: "hook" });
+// Privacy marker only: malformed/unsupported hook paths cannot confer raw forwarding.
+routeClassifier.all("/v1/hooks/*", { kind: "hook-trace" });
 // Match the production catch-all, including its effect on HEAD -> GET fallback.
 routeClassifier.all("/*", undefined);
 export function classifyPublicRelayRoute(
   method: string,
   url: string,
-): Exclude<PolicyRoute, { readonly kind: "hook" }> | undefined {
+): Extract<PolicyRoute, { readonly operation: PublicRelayOperation }> | undefined {
   const result =
     routeClassifier.find(method, url) ??
     (method === "HEAD" ? routeClassifier.find("GET", url) : undefined);
-  return result?.handler?.kind === "hook" ? undefined : result?.handler;
+  return result?.handler && "operation" in result.handler ? result.handler : undefined;
 }
 
+// The installed matcher splits query/fragment/semicolon suffixes. Bound only the path
+// before giving it to that matcher, preserving previously exempt genuine long queries.
+function hookRoute(method: string, url: string) {
+  for (let index = 0; index <= publicRelayBounds.urlCharacters; index++) {
+    const char = url[index];
+    if (char === undefined || char === "?" || char === "#" || char === ";")
+      return routeClassifier.find(method, url.slice(0, index));
+  }
+  return undefined;
+}
 export function isRelayHookRequest(method: string, url: string): boolean {
-  return (
-    url.length <= publicRelayBounds.urlCharacters &&
-    routeClassifier.find(method, url)?.handler?.kind === "hook"
-  );
+  return hookRoute(method, url)?.handler?.kind === "hook";
 }
-
+export function isRelayHookTraceRequest(method: string, url: string): boolean {
+  const kind = hookRoute(method, url)?.handler?.kind;
+  return kind === "hook" || kind === "hook-trace";
+}
 export function relayHookTraceUrl(method: string, url: string): string {
-  const hook =
-    url.length <= publicRelayBounds.urlCharacters ? routeClassifier.find(method, url) : undefined;
+  const hook = hookRoute(method, url);
   if (hook?.handler?.kind !== "hook") return "/v1/hooks/redacted";
   return `/v1/hooks/${encodeURIComponent(hook.params.endpointKey ?? "redacted")}/${encodeURIComponent(hook.params.hookId ?? "redacted")}/redacted`;
 }
 
 /** Only a single canonical address supplied by the fetch adapter is trusted. */
 export function canonicalEdgeIp(value: string | null): string | undefined {
-  if (!value || value.length > 64 || /[\s,%\[\]]/.test(value)) return undefined;
+  if (!value || value.length > 64 || /[\s,%[\]]/.test(value)) return undefined;
   if (/^\d+\.\d+\.\d+\.\d+$/.test(value)) {
     const octets = value.split(".");
     if (octets.some((part) => part.length > 3 || Number(part) > 255)) return undefined;
