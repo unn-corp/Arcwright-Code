@@ -1,0 +1,50 @@
+{
+  "metadataSources": [
+    "https://dl.google.com/android/repository/repository2-3.xml",
+    "https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml"
+  ],
+  "packages": [
+    {
+      "path": "cmdline-tools/latest",
+      "revision": "19.0",
+      "archiveRoot": "cmdline-tools",
+      "url": "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip",
+      "sha256": "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee"
+    },
+    {
+      "path": "platform-tools",
+      "revision": "37.0.1",
+      "archiveRoot": "platform-tools",
+      "url": "https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip",
+      "sha1": "477254aa5f903c15cf51001717bdf347fb6b53e0"
+    },
+    {
+      "path": "platforms/android-36",
+      "revision": "2",
+      "archiveRoot": "android-36",
+      "url": "https://dl.google.com/android/repository/platform-36_r02.zip",
+      "sha1": "2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576"
+    },
+    {
+      "path": "build-tools/36.0.0",
+      "revision": "36.0.0",
+      "archiveRoot": "android-16",
+      "url": "https://dl.google.com/android/repository/build-tools_r36_linux.zip",
+      "sha1": "b0b6376977657e8ad9b969bacf4093601da2c6fb"
+    },
+    {
+      "path": "emulator",
+      "revision": "37.2.12",
+      "archiveRoot": "emulator",
+      "url": "https://dl.google.com/android/repository/emulator-linux_x64-16428233.zip",
+      "sha1": "cd7362ea55dfb86a418958138dc396e74165dd01"
+    },
+    {
+      "path": "system-images/android-36/google_apis/x86_64",
+      "revision": "7",
+      "archiveRoot": "x86_64",
+      "url": "https://dl.google.com/android/repository/sys-img/google_apis/x86_64-36_r07.zip",
+      "sha1": "c6bf44bdcd885bb902b4ba752d111a073ad7a817"
+    }
+  ]
+}

@@ -38,6 +38,21 @@ The shared `win2022` VM hosts IIS, other repository runner data, and unrelated w
 not an eligible T3 CI worker. Prepare a separate clean template and destroy each job's VM,
 workspace, and runner registration rather than executing T3 jobs on that shared machine.
 
+The dedicated infrastructure lives on **Mothership**, reached through the configured
+`mothership` SSH alias. Dokploy's **T3 Code CI** project owns two Linux slot supervisors and
+one Windows VM supervisor in its production environment. Each job receives a new worker;
+the organization runner names therefore change or re-register between jobs.
+
+Linux slots each have 8 CPUs and 16 GiB RAM, a private workspace, executable temporary storage,
+and KVM access. Their job containers have no Docker daemon or host socket. See the
+[Linux image and supervisor setup](../../infra/ci/linux/README.md) for immutable image builds,
+rendering, network controls, and cleanup. Windows uses a separate `t3-ci-windows-base` template
+and fresh 8-CPU, 16-GiB overlays; see the
+[Windows provisioning and admission procedure](../../infra/ci/windows/README.md).
+
+The `T3 Code` group admits only this fork. The shared `Default` group retains its original
+all-private-repository access and does not admit this public fork.
+
 Use a current GitHub Actions runner compatible with the workflows' Node-based action versions.
 Tool-cache and package-cache directories must be writable. Vite+, Java, Rust, and Gradle setup
 remain in the workflows; these do not supply native OS compilers or emulator hardware.

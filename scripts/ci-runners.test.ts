@@ -466,6 +466,20 @@ describe("fork CI platform capacity", () => {
     expect(admitsJob(android, "unn-corp/t3code")).toBe(true);
   });
 
+  it("uses preinstalled browser OS libraries instead of privileged runtime installation", () => {
+    for (const [file, workflow] of Object.entries(loadWorkflows())) {
+      for (const [name, job] of Object.entries(workflow.jobs)) {
+        for (const step of job.steps ?? []) {
+          if (!step.run?.includes("playwright")) continue;
+          expect(
+            step.run,
+            `${file}/${name}: browser OS dependencies belong in the image`,
+          ).not.toContain("--with-deps");
+        }
+      }
+    }
+  });
+
   it("runs Check's actual gate and permits only intentional skipped jobs", () => {
     const check = loadWorkflows()["ci.yml"]!.jobs.check!;
     const gate = check.steps?.find((step) => step.name === "Require every job to pass");
