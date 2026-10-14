@@ -10,10 +10,12 @@ import {
   check,
   index,
   integer,
+  doublePrecision,
   jsonb,
   pgTable,
   primaryKey,
   text,
+  timestamp,
   uniqueIndex,
   uuid,
   varchar,
@@ -293,5 +295,138 @@ export const relayDpopProofs = pgTable(
   (table) => [
     primaryKey({ columns: [table.thumbprint, table.jti] }),
     index("idx_relay_dpop_proofs_expires_at").on(table.expiresAt),
+  ],
+);
+
+// These isolated D1 tables are not runtime-bound. No old subject-only row is
+// attributed by migration. Identity/progress immutability is also enforced by
+// table-specific migration triggers (Drizzle snapshots represent checks/FKs).
+const accountIdentityCheck = sql.raw(
+  String.raw`length("issuer") BETWEEN 1 AND 2048 AND "issuer" ~ '^https://([a-z0-9]([a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:]+\])(:[1-9][0-9]{0,4})?$' AND (substring("issuer" from ':([0-9]+)$') IS NULL OR (substring("issuer" from ':([0-9]+)$')::integer BETWEEN 1 AND 65535 AND (substring("issuer" from ':([0-9]+)$')::integer <> 443))) AND length("instance_id") BETWEEN 1 AND 191 AND "instance_id" ~ '^[A-Za-z0-9._:-]+$' AND length("user_id") BETWEEN 6 AND 191 AND "user_id" ~ '^user_[A-Za-z0-9]+$'`,
+);
+export const relayAccountAuthorities = pgTable(
+  "relay_account_authorities",
+  {
+    userId: varchar("user_id", { length: 191 }).primaryKey(),
+    issuer: varchar("issuer", { length: 2048 }).notNull(),
+    instanceId: varchar("instance_id", { length: 191 }).notNull(),
+    boundAt: timestamp("bound_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_account_authority_identity").on(table.issuer, table.instanceId, table.userId),
+    check("chk_account_authority_identity", accountIdentityCheck),
+    check("chk_account_authority_time", sql`isfinite("bound_at")`),
+  ],
+);
+export const relayAccountDeletions = pgTable(
+  "relay_account_deletions",
+  {
+    issuer: varchar("issuer", { length: 2048 }).notNull(),
+    instanceId: varchar("instance_id", { length: 191 }).notNull(),
+    userId: varchar("user_id", { length: 191 }).notNull(),
+    intentId: uuid("intent_id").notNull().defaultRandom().unique("uq_account_deletion_intent"),
+    requestedAt: timestamp("requested_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    sourceManual: boolean("source_manual").notNull().default(false),
+    sourceWebhook: boolean("source_webhook").notNull().default(false),
+    identityDeletedAt: timestamp("identity_deleted_at", { withTimezone: true, mode: "string" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
+    localPurgedAt: timestamp("local_purged_at", { withTimezone: true, mode: "string" }),
+    status: varchar("status", { length: 16 })
+      .notNull()
+      .default("pending")
+      .$type<"pending" | "blocked_repair" | "complete">(),
+    reason: varchar("reason", { length: 32 }).$type<"authority_unverified">(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+  },
+  (table) => [
+    primaryKey({
+      name: "pk_account_deletion_identity",
+      columns: [table.issuer, table.instanceId, table.userId],
+    }),
+    check("chk_account_deletion_identity", accountIdentityCheck),
+    check(
+      "chk_account_deletion_state",
+      sql`"status" IN ('pending', 'blocked_repair', 'complete') AND ("reason" IS NULL OR "reason" IN ('authority_unverified')) AND "attempt_count" >= 0`,
+    ),
+    check(
+      "chk_account_deletion_complete",
+      sql`("status" <> 'complete' OR ("identity_deleted_at" IS NOT NULL AND "revoked_at" IS NOT NULL AND "local_purged_at" IS NOT NULL AND "completed_at" IS NOT NULL)) AND ("completed_at" IS NULL OR "status" = 'complete')`,
+    ),
+    check(
+      "chk_account_deletion_times",
+      sql`isfinite("requested_at") AND isfinite("next_attempt_at") AND ("identity_deleted_at" IS NULL OR isfinite("identity_deleted_at")) AND ("revoked_at" IS NULL OR isfinite("revoked_at")) AND ("local_purged_at" IS NULL OR isfinite("local_purged_at")) AND ("completed_at" IS NULL OR isfinite("completed_at"))`,
+    ),
+  ],
+);
+export const relayAccountDeletionEvents = pgTable(
+  "relay_account_deletion_events",
+  {
+    instanceId: varchar("instance_id", { length: 191 }).notNull(),
+    svixId: varchar("svix_id", { length: 255 }).notNull(),
+    intentId: uuid("intent_id")
+      .notNull()
+      .references(() => relayAccountDeletions.intentId, {
+        onDelete: "restrict",
+        onUpdate: "restrict",
+      }),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    eventTimestamp: doublePrecision("event_timestamp").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "pk_account_deletion_event", columns: [table.instanceId, table.svixId] }),
+    check(
+      "chk_account_deletion_event_identity",
+      sql`length("instance_id") BETWEEN 1 AND 191 AND "instance_id" ~ '^[A-Za-z0-9._:-]+$' AND length("svix_id") BETWEEN 1 AND 255 AND "svix_id" ~ '^[A-Za-z0-9._:-]+$'`,
+    ),
+    check(
+      "chk_account_deletion_event_time",
+      sql`isfinite("received_at") AND "event_timestamp" > '-Infinity'::double precision AND "event_timestamp" < 'Infinity'::double precision`,
+    ),
+  ],
+);
+export const relayAccountDeletionEndpoints = pgTable(
+  "relay_account_deletion_endpoints",
+  {
+    intentId: uuid("intent_id")
+      .notNull()
+      .references(() => relayAccountDeletions.intentId, {
+        onDelete: "restrict",
+        onUpdate: "restrict",
+      }),
+    allocationId: uuid("allocation_id").notNull(),
+    environmentId: varchar("environment_id", { length: 191 }).notNull(),
+    observedGeneration: integer("observed_generation").notNull(),
+    tunnelId: varchar("tunnel_id", { length: 191 }),
+    dnsRecordId: varchar("dns_record_id", { length: 191 }),
+    tunnelName: varchar("tunnel_name", { length: 253 }).notNull(),
+    endpointKey: varchar("endpoint_key", { length: 253 }).notNull(),
+    namespace: varchar("namespace", { length: 191 }).notNull(),
+    hooksDisabledAt: timestamp("hooks_disabled_at", { withTimezone: true, mode: "string" }),
+    allocationRemovedAt: timestamp("allocation_removed_at", { withTimezone: true, mode: "string" }),
+    reason: varchar("reason", { length: 32 }).$type<
+      "endpoint_unverified" | "endpoint_busy" | "endpoint_uncertain"
+    >(),
+  },
+  (table) => [
+    primaryKey({
+      name: "pk_account_deletion_endpoint",
+      columns: [table.intentId, table.allocationId],
+    }),
+    check(
+      "chk_account_deletion_endpoint_identity",
+      sql`"observed_generation" >= 0 AND length("environment_id") BETWEEN 1 AND 191 AND "environment_id" ~ '^[A-Za-z0-9._:-]+$' AND length("tunnel_name") BETWEEN 1 AND 253 AND "tunnel_name" ~ '^[A-Za-z0-9._:-]+$' AND length("endpoint_key") BETWEEN 1 AND 253 AND "endpoint_key" ~ '^[A-Za-z0-9._:-]+$' AND length("namespace") BETWEEN 1 AND 191 AND "namespace" ~ '^[A-Za-z0-9._:-]+$' AND ("tunnel_id" IS NULL OR (length("tunnel_id") BETWEEN 1 AND 191 AND "tunnel_id" ~ '^[A-Za-z0-9._:-]+$')) AND ("dns_record_id" IS NULL OR (length("dns_record_id") BETWEEN 1 AND 191 AND "dns_record_id" ~ '^[A-Za-z0-9._:-]+$'))`,
+    ),
+    check(
+      "chk_account_deletion_endpoint_progress",
+      sql`("reason" IS NULL OR "reason" IN ('endpoint_unverified', 'endpoint_busy', 'endpoint_uncertain')) AND ("hooks_disabled_at" IS NULL OR isfinite("hooks_disabled_at")) AND ("allocation_removed_at" IS NULL OR isfinite("allocation_removed_at"))`,
+    ),
   ],
 );
