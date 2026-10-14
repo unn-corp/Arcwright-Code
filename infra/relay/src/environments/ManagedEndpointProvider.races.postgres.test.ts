@@ -455,6 +455,287 @@ describe.skipIf(!fixtureFile)("Managed endpoint public lifecycle races PostgreSQ
       ),
   );
 
+  it.effect.each(["release", "deprovision"] as const)(
+    "public %s ABA rejects only the old UUID when the entire logical target and cleanup context match",
+    (control) =>
+      fixture(
+        Effect.gen(function* () {
+          const runtime = yield* makeRuntime();
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const limits = yield* Limits.ManagedTunnelLimits;
+          const links = yield* Links.EnvironmentLinks;
+          const db = yield* RelayDb.RelayDb;
+          const admission = {
+            ...key,
+            hostname: "fixture-aaaaaaaaaaaaaaaa.fixture.test",
+            tunnelName: "t3coderelay-managedendpoint-fixture-aaaaaaaaaaaaaaaa",
+          };
+          const prepare = Effect.fnUntraced(function* () {
+            const reserved = yield* limits.reserveAllocation(admission);
+            const acquired = yield* lifecycle.acquireOperation({
+              key,
+              kind: "provision",
+              purpose: { kind: "link" },
+              expectedTarget: targetFor(reserved),
+            });
+            if (acquired.status !== "Acquired") throw new Error("Fresh owner missing");
+            expect(
+              (yield* runtime.tunnels.list({
+                isDeleted: false,
+                name: reserved.tunnelName,
+                page: 1,
+                perPage: 100,
+              })).result,
+            ).toEqual([]);
+            expect(yield* runtime.dns.listExactRecords(reserved.hostname)).toEqual([]);
+            for (const resource of ["tunnel", "dns"] as const)
+              expect(
+                (yield* lifecycle.recordObservation({
+                  claim: acquired.claim,
+                  observation: { resource, presence: "never_created" },
+                })).status,
+              ).toBe("Applied");
+            expect((yield* lifecycle.finishIdle(acquired.claim)).status).toBe("Applied");
+            const row = yield* lifecycle.get(key);
+            if (!row) throw new Error("Settled fresh row missing");
+            return row;
+          });
+          const old = yield* prepare();
+          const oldCapture = yield* lifecycle.revokeAndRequestCleanup(key);
+          if (!oldCapture.target) throw new Error("Old cleanup target missing");
+          expect(oldCapture.target).toEqual(targetFor(old));
+          expect(yield* runtime.provider.deprovision({ ...key, target: oldCapture.target })).toBe(
+            true,
+          );
+          expect(yield* lifecycle.get(key)).toBeNull();
+          expect(yield* db.select().from(table)).toHaveLength(0);
+
+          const admitted = yield* prepare();
+          const currentCapture = yield* lifecycle.revokeAndRequestCleanup(key);
+          if (!currentCapture.target) throw new Error("Current cleanup target missing");
+          const replacement = yield* lifecycle.get(key);
+          if (!replacement) throw new Error("Replacement missing");
+          expect(currentCapture.target).toEqual(targetFor(admitted));
+          expect(oldCapture.target.key).toEqual(currentCapture.target.key);
+          expect(oldCapture.target.generation).toBe(currentCapture.target.generation);
+          expect(oldCapture.target.generation).toBe(2);
+          expect(oldCapture.target.tunnelId).toBe(currentCapture.target.tunnelId);
+          expect(currentCapture.target.tunnelId).toBeNull();
+          expect(old.hostname).toBe(replacement.hostname);
+          expect(old.tunnelName).toBe(replacement.tunnelName);
+          expect(old.allocationId).not.toBe(replacement.allocationId);
+          expect({ ...oldCapture.target, allocationId: replacement.allocationId }).toEqual(
+            currentCapture.target,
+          );
+          expect(replacement).toMatchObject({
+            lifecycleState: "idle",
+            operationId: null,
+            pendingMutation: null,
+            cleanupRequested: true,
+            tunnelId: null,
+            tunnelPresence: "never_created",
+            dnsRecordId: null,
+            dnsPresence: "never_created",
+          });
+          expect(yield* links.getForUser(key)).toBeNull();
+          expect(yield* db.select().from(table)).toHaveLength(1);
+
+          runtime.calls.length = 0;
+          // No explicit expectedTunnelId or active authority can mask UUID rejection.
+          expect(
+            yield* runtime.provider.release({
+              ...key,
+              expectedTarget: oldCapture.target,
+              markReleased: true,
+            }),
+          ).toBe(false);
+          expect(yield* runtime.provider.deprovision({ ...key, target: oldCapture.target })).toBe(
+            false,
+          );
+          expect((yield* lifecycle.requestCleanup(oldCapture.target)).status).toBe("Stale");
+          expect(runtime.calls).toEqual([]);
+          expect(yield* lifecycle.get(key)).toEqual(replacement);
+          expect(yield* db.select().from(table)).toHaveLength(1);
+
+          // Otherwise identical current-UUID requests are valid: release settles
+          // a new generation; deprovision really removes the counted replacement.
+          if (control === "release") {
+            expect(
+              yield* runtime.provider.release({
+                ...key,
+                expectedTarget: currentCapture.target,
+                markReleased: true,
+              }),
+            ).toBe(true);
+            expect(yield* lifecycle.get(key)).toMatchObject({
+              allocationId: replacement.allocationId,
+              generation: replacement.generation + 2,
+              lifecycleState: "idle",
+              pendingMutation: null,
+              tunnelReleasedAt: null,
+            });
+            expect(yield* db.select().from(table)).toHaveLength(1);
+          } else {
+            expect(
+              yield* runtime.provider.deprovision({ ...key, target: currentCapture.target }),
+            ).toBe(true);
+            expect(yield* lifecycle.get(key)).toBeNull();
+            expect(yield* db.select().from(table)).toHaveLength(0);
+          }
+          expect(runtime.calls).toEqual([]);
+        }),
+      ),
+  );
+
+  it.effect(
+    "old real owner and step preserve a live replacement; a constructed UUID-only completion probe isolates identity",
+    () =>
+      fixture(
+        Effect.gen(function* () {
+          const runtime = yield* makeRuntime();
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const limits = yield* Limits.ManagedTunnelLimits;
+          const db = yield* RelayDb.RelayDb;
+          const admission = {
+            ...key,
+            hostname: "fixture-aaaaaaaaaaaaaaaa.fixture.test",
+            tunnelName: "t3coderelay-managedendpoint-fixture-aaaaaaaaaaaaaaaa",
+          };
+          const start = Effect.fnUntraced(function* () {
+            const reserved = yield* limits.reserveAllocation(admission);
+            const acquired = yield* lifecycle.acquireOperation({
+              key,
+              kind: "provision",
+              purpose: { kind: "link" },
+              expectedTarget: targetFor(reserved),
+            });
+            if (acquired.status !== "Acquired") throw new Error("Owner missing");
+            expect(
+              (yield* runtime.tunnels.list({
+                isDeleted: false,
+                name: reserved.tunnelName,
+                page: 1,
+                perPage: 100,
+              })).result,
+            ).toEqual([]);
+            expect(
+              (yield* lifecycle.recordObservation({
+                claim: acquired.claim,
+                observation: { resource: "tunnel", presence: "never_created" },
+              })).status,
+            ).toBe("Applied");
+            const intent = yield* lifecycle.beginMutation({
+              claim: acquired.claim,
+              mutation: { action: "create_tunnel", tunnelName: reserved.tunnelName },
+            });
+            if (intent.status !== "Applied") throw new Error("Intent missing");
+            const response = yield* runtime.tunnels.create({
+              name: reserved.tunnelName,
+              configSrc: "cloudflare",
+            });
+            if (!response.id || response.name !== reserved.tunnelName)
+              throw new Error("Exact create response missing");
+            return { acquired, intent, response: { id: response.id, name: response.name } };
+          });
+          const old = yield* start();
+          expect(
+            (yield* lifecycle.completeMutation({
+              claim: old.acquired.claim,
+              stepId: old.intent.stepId,
+              outcome: {
+                action: "create_tunnel",
+                tunnelId: old.response.id,
+                tunnelName: old.response.name,
+              },
+            })).status,
+          ).toBe("Applied");
+          expect((yield* lifecycle.finishIdle(old.acquired.claim)).status).toBe("Applied");
+          const capture = yield* lifecycle.revokeAndRequestCleanup(key);
+          expect(yield* runtime.provider.deprovision({ ...key, target: capture.target })).toBe(
+            true,
+          );
+          expect(yield* lifecycle.get(key)).toBeNull();
+          const current = yield* start();
+          const live = yield* lifecycle.get(key);
+          if (!live) throw new Error("Live replacement missing");
+          expect(live).toMatchObject({
+            lifecycleState: "owned",
+            operationId: current.acquired.claim.operationId,
+            operationKind: current.acquired.claim.kind,
+            generation: current.acquired.claim.generation,
+            pendingMutation: { action: "create_tunnel", stepId: current.intent.stepId },
+          });
+          expect(current.acquired.claim.generation).toBe(old.acquired.claim.generation);
+          expect(current.acquired.allocation.tunnelId).toBe(old.acquired.allocation.tunnelId);
+          expect(current.acquired.allocation.tunnelId).toBeNull();
+          expect(current.acquired.allocation.tunnelName).toBe(old.acquired.allocation.tunnelName);
+          expect(current.acquired.claim.allocationId).not.toBe(old.acquired.claim.allocationId);
+          expect(current.acquired.claim.operationId).not.toBe(old.acquired.claim.operationId);
+          expect(current.intent.stepId).not.toBe(old.intent.stepId);
+          runtime.calls.length = 0;
+          expect(
+            (yield* lifecycle.completeMutation({
+              claim: old.acquired.claim,
+              stepId: old.intent.stepId,
+              outcome: {
+                action: "create_tunnel",
+                tunnelId: old.response.id,
+                tunnelName: old.response.name,
+              },
+            })).status,
+          ).toBe("Stale");
+          expect((yield* lifecycle.finishIdle(old.acquired.claim)).status).toBe("Stale");
+          expect((yield* lifecycle.retainUncertain(old.acquired.claim)).status).toBe("Stale");
+          expect(yield* lifecycle.get(key)).toEqual(live);
+
+          // This is a constructed SQL guard-isolation probe, not an old public
+          // continuation: copy the CURRENT owner and step, changing only its UUID.
+          const uuidOnlyClaim = {
+            ...current.acquired.claim,
+            allocationId: old.acquired.claim.allocationId,
+          };
+          expect({ ...uuidOnlyClaim, allocationId: live.allocationId }).toEqual(
+            current.acquired.claim,
+          );
+          expect(uuidOnlyClaim.generation).toBe(live.generation);
+          expect(uuidOnlyClaim.operationId).toBe(live.operationId);
+          expect(uuidOnlyClaim.kind).toBe(live.operationKind);
+          expect(current.intent.stepId).toBe(live.pendingMutation?.stepId);
+          const outcome = {
+            action: "create_tunnel" as const,
+            tunnelId: current.response.id,
+            tunnelName: current.response.name,
+          };
+          expect(
+            (yield* lifecycle.completeMutation({
+              claim: uuidOnlyClaim,
+              stepId: current.intent.stepId,
+              outcome,
+            })).status,
+          ).toBe("Stale");
+          expect(runtime.calls).toEqual([]);
+          expect(yield* lifecycle.get(key)).toEqual(live);
+          expect(yield* db.select().from(table)).toHaveLength(1);
+          expect(
+            (yield* lifecycle.completeMutation({
+              claim: current.acquired.claim,
+              stepId: current.intent.stepId,
+              outcome,
+            })).status,
+          ).toBe("Applied");
+          expect(yield* lifecycle.get(key)).toMatchObject({
+            allocationId: live.allocationId,
+            lifecycleState: "owned",
+            operationId: current.acquired.claim.operationId,
+            generation: live.generation,
+            pendingMutation: null,
+            tunnelId: current.response.id,
+          });
+          expect((yield* lifecycle.finishIdle(current.acquired.claim)).status).toBe("Applied");
+        }),
+      ),
+  );
+
   it.effect.each([
     "owned",
     "uncertain",

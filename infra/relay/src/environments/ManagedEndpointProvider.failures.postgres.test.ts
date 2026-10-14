@@ -3,8 +3,13 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 
 import * as RelayDb from "../db.ts";
-import { relayManagedEndpointAllocations as table } from "../persistence/schema.ts";
+import {
+  relayManagedEndpointAllocations as table,
+  relayEnvironmentCredentials,
+} from "../persistence/schema.ts";
 import * as Lifecycle from "./ManagedEndpointLifecycle.ts";
+import * as Links from "./EnvironmentLinks.ts";
+import type * as Provider from "./ManagedEndpointProvider.ts";
 import { fixtureFile } from "./managedEndpointPostgresFixture.ts";
 import { publicationFor } from "./managedEndpointProviderTestFixture.ts";
 import {
@@ -354,6 +359,98 @@ describe.skipIf(!fixtureFile)("Managed endpoint mutation failures PostgreSQL", (
             pendingMutation: null,
             dnsRecordId: null,
           });
+        }),
+      ),
+  );
+
+  it.effect.each(["TXT", "CNAME"] as const)(
+    "exact same-host %s discovery candidate differs only in type against the current owned tunnel",
+    (type) =>
+      fixture(
+        Effect.gen(function* () {
+          const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
+          const links = yield* Links.EnvironmentLinks;
+          const db = yield* RelayDb.RelayDb;
+          let backend: Map<string, Provider.ManagedEndpointDnsRecord> | undefined;
+          let candidate: Provider.ManagedEndpointDnsRecord | undefined;
+          let delivered: ReadonlyArray<Provider.ManagedEndpointDnsRecord> | undefined;
+          let reads = 0;
+          const runtime = yield* makeRuntime({
+            before: (operation) =>
+              operation === "dns-list"
+                ? Effect.gen(function* () {
+                    const row = yield* lifecycle.get(key);
+                    if (!row?.tunnelId || row.tunnelPresence !== "recorded" || !backend)
+                      throw new Error("Current owned tunnel missing before DNS discovery");
+                    candidate = {
+                      id: "type-only-candidate",
+                      name: row.hostname,
+                      type,
+                      content: `${row.tunnelId}.cfargotunnel.com`,
+                      proxied: true,
+                    };
+                    backend.set(candidate.id, candidate);
+                  }).pipe(Effect.orDie)
+                : Effect.void,
+            exactDnsInventory: (hostname) => {
+              reads++;
+              delivered = [...(backend?.values() ?? [])].filter((row) => row.name === hostname);
+              return delivered;
+            },
+          });
+          backend = runtime.dnsRows;
+          expect(backend.size).toBe(0);
+          const exit = yield* Effect.exit(runtime.provider.provision(request));
+          const row = yield* lifecycle.get(key);
+          if (!row?.tunnelId || !candidate) throw new Error("Exact candidate was never delivered");
+          expect(candidate.id).toBe("type-only-candidate");
+          expect(candidate.name).toBe(row.hostname);
+          expect(candidate.content).toBe(`${row.tunnelId}.cfargotunnel.com`);
+          expect(candidate.proxied).toBe(true);
+          expect(candidate.type).toBe(type);
+          expect(reads).toBe(1);
+          expect(delivered).toEqual([candidate]);
+          expect([...backend.values()]).toEqual([candidate]);
+          expect(runtime.calls.filter((operation) => operation.startsWith("dns"))).toEqual([
+            "dns-list",
+          ]);
+          expect(yield* db.select().from(table)).toHaveLength(1);
+          expect(row).toMatchObject({
+            lifecycleState: "idle",
+            operationId: null,
+            pendingMutation: null,
+          });
+          if (type === "TXT") {
+            expect(Exit.isFailure(exit)).toBe(true);
+            expect(row.dnsRecordId).toBeNull();
+            expect(row.dnsPresence).toBe("unresolved");
+            expect(row.readyAt).toBeNull();
+            expect(yield* links.getForUser(key)).toBeNull();
+            expect(yield* db.select().from(relayEnvironmentCredentials)).toHaveLength(0);
+            expect(runtime.calls).toEqual([
+              "tunnel-list",
+              "tunnel-create",
+              "tunnel-configure",
+              "dns-list",
+            ]);
+          } else {
+            // The otherwise identical CNAME candidate is adopted and publishes,
+            // proving that hostname, ID, owned target and proxy do not mask type.
+            expect(Exit.isSuccess(exit)).toBe(true);
+            expect(row.dnsRecordId).toBe(candidate.id);
+            expect(row.dnsTargetTunnelId).toBe(row.tunnelId);
+            expect(row.dnsPresence).toBe("recorded");
+            expect(row.readyAt).not.toBeNull();
+            expect(yield* links.getForUser(key)).not.toBeNull();
+            expect(yield* db.select().from(relayEnvironmentCredentials)).toHaveLength(1);
+            expect(runtime.calls).toEqual([
+              "tunnel-list",
+              "tunnel-create",
+              "tunnel-configure",
+              "dns-list",
+              "token",
+            ]);
+          }
         }),
       ),
   );
