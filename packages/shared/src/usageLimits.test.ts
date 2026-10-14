@@ -1467,3 +1467,54 @@ describe("Antigravity limit presentation", () => {
     expect(windows.map((window) => window.remainingPercent)).toEqual([80, 90, 10, 0]);
   });
 });
+
+describe("multi-instance account labels", () => {
+  const configured = (id: string, email: string, usedPercent: number) =>
+    provider({
+      instanceId: ProviderInstanceId.make(id),
+      displayName: `Codex ${id}`,
+      auth: { status: "authenticated", email },
+      usageLimits: { checkedAt: "2026-09-03T12:00:00Z", windows: [{ ...window, usedPercent }] },
+    });
+  const reports = (providers: ServerProvider[]) =>
+    new Map([
+      [
+        EnvironmentId.make("local"),
+        { entry: { target: { label: "Local" } }, serverConfig: { providers } },
+      ],
+    ]);
+  it("shows all three distinct accounts with their own names and balances", () => {
+    const accounts = collectLimitAccounts(
+      reports([
+        configured("Devo", "devo@example.com", 10),
+        configured("Work", "work@example.com", 20),
+        configured("Meckle", "meckle@example.com", 30),
+      ]),
+    );
+    expect(
+      accounts.map((account) => [
+        account.displayName,
+        account.email,
+        account.limits.windows[0]?.usedPercent,
+      ]),
+    ).toEqual([
+      ["Codex Devo", "devo@example.com", 10],
+      ["Codex Work", "work@example.com", 20],
+      ["Codex Meckle", "meckle@example.com", 30],
+    ]);
+  });
+  it("shows both configured names when two instances share a subscription without doubling quota", () => {
+    const accounts = collectLimitAccounts(
+      reports([
+        configured("Devo", "same@example.com", 10),
+        configured("Work", "same@example.com", 10),
+        configured("Meckle", "meckle@example.com", 30),
+      ]),
+    );
+    expect(accounts).toHaveLength(2);
+    expect(accounts[0]?.displayName).toBe("Codex Devo / Codex Work");
+    expect(accounts[0]?.providerNames).toEqual(["Codex Devo", "Codex Work"]);
+    expect(accounts[0]?.limits.windows).toHaveLength(1);
+    expect(accounts[1]?.displayName).toBe("Codex Meckle");
+  });
+});

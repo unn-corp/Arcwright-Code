@@ -764,3 +764,7 @@ server's advertised support, never the client device's filesystem.
 cross-commit deletions, independent edits, tracked-only caching, cache replacement, and unsupported
 hosts. Custom checkout filters and external attributes bypass reuse; submodule initialization
 continues through Git. Shared web changes require rebuilding the fork APK to ship there.
+
+Usage pooling keeps one quota bucket per authenticated subscription and workspace. When several
+native provider instances share a bucket, retain every configured name and show the shared quota
+in account details; never hide a configured instance behind the first label or count its quota twice.
