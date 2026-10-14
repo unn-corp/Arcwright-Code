@@ -96,9 +96,9 @@ export const publicRelayBounds = {
   authorizationBytes: 16_384,
   dpopBytes: 8_192,
   headerBytes: 8_192,
-  contentTypeBytes: 256,
-  contentLengthBytes: 128,
-  traceparentBytes: 128,
+  contentTypeCharacters: 256,
+  contentLengthCharacters: 128,
+  traceparentCharacters: 128,
 } as const;
 
 const headerEncoder = new TextEncoder();
@@ -113,15 +113,19 @@ export function publicRelayHeaderFailure(headers: Readonly<Record<string, string
         : name === "dpop"
           ? publicRelayBounds.dpopBytes
           : name === "content-type"
-            ? publicRelayBounds.contentTypeBytes
+            ? publicRelayBounds.contentTypeCharacters
             : name === "content-length"
-              ? publicRelayBounds.contentLengthBytes
+              ? publicRelayBounds.contentLengthCharacters
               : name === "traceparent"
-                ? publicRelayBounds.traceparentBytes
+                ? publicRelayBounds.traceparentCharacters
                 : publicRelayBounds.headerBytes - nameBytes;
-    // Named ceilings apply to values; generic individual and aggregate limits include names.
+    const individualSize =
+      name === "content-type" || name === "content-length" || name === "traceparent"
+        ? value.length
+        : bytes;
+    // Three named values use characters; auth/DPoP use bytes. Generic/aggregate include encoded names.
     total += nameBytes + bytes;
-    if (bytes > max || total > publicRelayBounds.headersBytes) return true;
+    if (individualSize > max || total > publicRelayBounds.headersBytes) return true;
   }
   return false;
 }

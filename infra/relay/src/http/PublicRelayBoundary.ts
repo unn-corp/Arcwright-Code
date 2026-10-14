@@ -56,7 +56,7 @@ function contentLengthFailure(value: string | undefined): BoundaryStatus | undef
   if (!/^\d+$/.test(decimal)) return 400;
   const normalized = decimal.replace(/^0+/, "") || "0";
   if (normalized.length > 5 || (normalized.length === 5 && normalized > "65536")) return 413;
-  return value.length > publicRelayBounds.contentLengthBytes ? 431 : undefined;
+  return value.length > publicRelayBounds.contentLengthCharacters ? 431 : undefined;
 }
 
 /** Consume only the ingress stream; never clone/tee or retain a would-overflow chunk. */

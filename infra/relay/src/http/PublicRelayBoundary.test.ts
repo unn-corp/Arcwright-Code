@@ -1052,7 +1052,7 @@ it.effect.each([
   },
   { name: "content-length", value: "0".repeat(128) },
   { name: "traceparent", value: "x".repeat(128) },
-])("special $name ceiling remains value-only in the real boundary", ({ name, value }) =>
+])("special $name ceiling excludes the name and retains its declared units", ({ name, value }) =>
   Effect.gen(function* () {
     const calls = counts();
     const endpoint = yield* withBoundary(calls);
@@ -1102,4 +1102,95 @@ it.effect(
       expect(rejected.cancelled()).toBe(1);
       expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
     }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "Content-Type admits250/reproduction251/256 non-ASCII characters and rejects257 before admission with safe tracing",
+  () =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const endpoint = yield* withBoundary(calls);
+      const spans: Tracer.NativeSpan[] = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      const contentType = (characters: number) => {
+        const prefix = 'application/json;description="';
+        return prefix + "é".repeat(characters - prefix.length - 1) + '"';
+      };
+      for (const characters of [250, 251, 256]) {
+        const value = contentType(characters);
+        expect(value.length).toBe(characters);
+        expect(encode(value).byteLength).toBeGreaterThan(256);
+        if (characters === 251)
+          expect(value).toBe('application/json;description="' + "é".repeat(220) + '"');
+        const raw = rawRequest([encode('{"valid":true}')], { headers: { "content-type": value } });
+        const response = yield* send(endpoint, raw.request).pipe(
+          Effect.provideService(Tracer.Tracer, tracer),
+          Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+        );
+        expect(response.status).toBe(200);
+        expect(yield* Effect.promise(() => response.json())).toMatchObject({
+          text: '{"valid":true}',
+          method: "POST",
+        });
+        yield* Effect.yieldNow;
+        expect(spans.at(-1)?.attributes.get("http.request.header.content-type")).toBe(value);
+        expect(spans.at(-1)?.attributes.get("url.path")).toBe("/v1/client/environment-links");
+        expect(routeViews.at(-1)?.headers["content-type"]).toBe(value);
+      }
+      expect(calls).toEqual({ auth: 3, business: 3, limiter: 3 });
+      const value = contentType(257);
+      expect(value.length).toBe(257);
+      const raw = rawRequest([encode('{"valid":true}')], {
+        headers: { "content-type": value },
+        neverCancel: true,
+      });
+      const response = yield* send(endpoint, raw.request).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+      );
+      expect(response.status).toBe(431);
+      const error = yield* Schema.decodeUnknownEffect(RelayRequestHeadersTooLargeError)(
+        yield* Effect.promise(() => response.json()),
+      );
+      expect(error.code).toBe("relay_request_headers_too_large");
+      expect(response.headers.get("traceparent")).toContain(error.traceId);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(response.headers.get("access-control-expose-headers")).toContain("retry-after");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("pragma")).toBe("no-cache");
+      expect(response.headers.get("www-authenticate")).toBeNull();
+      expect(raw.read()).toBe(0);
+      expect(raw.cancelled()).toBe(1);
+      expect(raw.request.body?.locked).toBe(false);
+      expect(calls).toEqual({ auth: 3, business: 3, limiter: 3 });
+      yield* Effect.yieldNow;
+      expect(spans.at(-1)?.attributes.get("http.request.header.content-type")).toBeUndefined();
+      expect(spans.at(-1)?.attributes.get("url.path")).toBe("/__relay_rejected_request__");
+    }).pipe(Effect.scoped),
+);
+it.effect.each([
+  { name: "authorization", bytes: 16384 },
+  { name: "dpop", bytes: 8192 },
+])("$name remains a byte ceiling for non-ASCII values", ({ name, bytes }) =>
+  Effect.gen(function* () {
+    const calls = counts();
+    const endpoint = yield* withBoundary(calls);
+    const value = "é".repeat(bytes / 2);
+    expect(encode(value).byteLength).toBe(bytes);
+    expect(
+      (yield* send(endpoint, rawRequest([encode("{}")], { headers: { [name]: value } }).request))
+        .status,
+    ).toBe(200);
+    const raw = rawRequest([encode("{}")], { headers: { [name]: value + "x" } });
+    expect((yield* send(endpoint, raw.request)).status).toBe(431);
+    expect(raw.read()).toBe(0);
+    expect(raw.cancelled()).toBe(1);
+    expect(calls).toEqual({ auth: 1, business: 1, limiter: 1 });
+  }).pipe(Effect.scoped),
 );
