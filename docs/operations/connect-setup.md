@@ -234,8 +234,8 @@ are short and hold no connection during network calls. Timeout does not establis
 had no effect: unknown mutation outcomes retain pending ownership and capacity. If final publication
 commits but its acknowledgement is lost, authority and owner clearing may already be durable;
 the allocation remains counted, no token or credential is returned, and no compensating deletion
-runs. The B3 matrix has been exercised locally on disposable PostgreSQL; independent specification
-and quality review and service commissioning remain pending. See the [lifecycle constraint](../internals/t3-connect.md)
+runs. This lifecycle behavior is verified locally; service commissioning remains pending.
+See the [lifecycle constraint](../internals/t3-connect.md)
 before deploying runtime writers.
 
 Managed endpoint admission now reserves capacity atomically per user before Cloudflare work.
@@ -246,9 +246,22 @@ a fourth until full teardown is confirmed and the allocation is removed. Reusing
 existing environment allocation remains allowed at capacity and after a limit is lowered.
 Do not delete an allocation merely to make room while its external resources may remain.
 
-Atomic admission and coordinated lifecycle writers are implemented in source and tested on an
-isolated PostgreSQL fixture, including the B3 race, interruption and failure matrix. Independent B3
-review, public quota and abuse policy, deletion operations, owned runtime/build validation,
+Public relay admission returns `429 relay_rate_limited` with `Retry-After: 60` for a temporary
+denial. A limiter outage returns `503 relay_unavailable` and fails closed. The existing
+`403 environment_link_limit_exceeded` still means the user's managed allocation quota is full.
+Clients retain bearer, DPoP and installation credentials after 429; mutations are not retried
+automatically.
+
+Admission follows the [per-operation policy](../../infra/relay/src/http/publicRelayPolicy.ts) for
+verified users, environment keys and authenticated installations, with a mandatory canonical
+trusted ingress IP/class gate. Namespaces **1101–1106** are reserved for this Worker. Before
+commissioning, review account namespace collisions, verify the actual Cloudflare ingress and
+`cf-connecting-ip` provenance through forwarding and Pseudo IPv4 settings, and check that the same
+configured limiter bindings reach both the outer boundary and router. Binding tests do not
+establish exact global budgets or replace atomic SQL quota reservations.
+
+Atomic admission, coordinated lifecycle writers and public request limits are implemented in
+source and verified locally. Deletion operations, owned runtime/build validation,
 application migrations, service commissioning and device validation remain pending; this change
 applies no production migration and does not make the owned relay ready.
 

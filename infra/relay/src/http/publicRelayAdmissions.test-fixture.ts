@@ -189,6 +189,7 @@ export function fixture(input: {
   readonly links?: Links.EnvironmentLinks["Service"];
   readonly subscriptions?: Subscriptions.WebPushSubscriptions["Service"];
   readonly provider?: Partial<Provider.ManagedEndpointProvider["Service"]>;
+  readonly environmentPublicKey?: string;
 }) {
   const counts = input.counts;
   const settings = input.config ?? config;
@@ -315,7 +316,7 @@ export function fixture(input: {
           return Option.some({
             credentialId: "credential-fixture",
             environmentId: token.slice("t3env_fixture:".length),
-            environmentPublicKey: relayKeys.publicKey,
+            environmentPublicKey: input.environmentPublicKey ?? relayKeys.publicKey,
           });
         }),
     }),

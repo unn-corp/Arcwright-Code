@@ -115,12 +115,10 @@ token or credential, and performs no compensating deletion. Generic tunnel-delet
 including message-shaped in-use failures, remain uncertain
 because the pinned SDK declares no terminal in-use contract.
 
-This source conversion is locally verified but uncommissioned. The B3 interruption, late-call,
-commit-unknown, contention and fault matrix has been exercised locally on disposable PostgreSQL;
-independent specification and quality review remain acceptance gates. Public limits, deletion
-operations, owned runtime/build validation, production migrations, provider commissioning,
-deployment and device validation require separate acceptance. This source change does not claim
-completion of Task B or authorize delivery.
+This source conversion is locally verified but uncommissioned. Public ingress and limiter
+commissioning, deletion operations, owned runtime/build validation, production migrations, provider commissioning,
+deployment and device validation require separate acceptance. Source validation does not authorize
+delivery.
 
 Managed endpoint capacity belongs to held allocation rows rather than live connectors or active
 links. Admission serializes each user's check and insertion in one short PostgreSQL transaction;
@@ -128,8 +126,14 @@ Cloudflare provisioning begins after commit succeeds. Every retained row consume
 same-environment reuse precedes the quota check even after the user's limit is lowered. A release
 retains the reservation: only confirmed full teardown and row removal free it. This admission
 boundary does not resolve the remaining lifecycle fencing and cross-system cleanup hazards.
-Public limits, deletion operations, owned runtime/build validation, migrations, commissioning and
-device validation remain separate work.
+Public ingress and limiter commissioning, deletion operations, owned runtime/build validation,
+migrations and device validation remain separate work.
+
+Public request admission is separate from durable allocation capacity. Verified user, environment
+key and installation gates follow the operation policy; the mandatory trusted ingress IP/class
+gate cannot establish allocation ownership. Denial preserves replay state and credentials, and
+limiter outages fail closed. See [relay operating behavior](../operations/connect-setup.md#owned-database-and-tunnel-operations)
+for response handling and commissioning prerequisites.
 
 The [internal lifecycle SQL service](../../infra/relay/src/environments/ManagedEndpointLifecycle.ts)
 now models an immutable allocation identity, a single durable operation owner and one bounded
@@ -179,7 +183,7 @@ Release acquires a durable owner before exact identity and eligibility reads. Un
 revocation and cleanup intent atomically before external teardown; delayed cleanup compares the
 captured immutable identity and generation. Provider calls retain the owner without SQL locks,
 and ambiguous mutation outcomes remain blocked. Unlink failure cannot resurrect authority.
-Independent review of the locally exercised fault matrix and commissioning remain acceptance gates. See the
+Commissioning remains a separate acceptance gate. See the
 [managed endpoint lifecycle](../../infra/relay/src/environments/ManagedEndpointProvider.ts).
 
 ## Idle tunnels are reclaimed and recovered
