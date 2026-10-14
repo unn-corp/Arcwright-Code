@@ -3,6 +3,8 @@
 > For maintainers. Using Arcwright Code? See [docs/user](../user/).
 
 This document covers the unified release workflow for stable and nightly desktop releases.
+All workflow jobs use [isolated organization self-hosted runners](./ci-runners.md), including
+reusable desktop jobs. Required native hardware must be provisioned before a release can complete.
 
 ## What the workflow does
 
@@ -26,7 +28,7 @@ This document covers the unified release workflow for stable and nightly desktop
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
 - Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
 - Builds the platform-independent JS (server bundle, web client, Electron main) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
-- Builds six desktop artifacts in parallel for both channels, each as its own job (`desktop_<platform>_<arch>`, one call of `release-desktop.yml`) on hardware of its own architecture, gated only on the bundle. The Windows jobs embed the same-arch Linux CLI archive as the WSL runtime and wait for that artifact partway through, not for the whole Linux job:
+- Builds six desktop artifacts in parallel for both channels, each as its own job (`desktop_<platform>_<arch>`, one call of `release-desktop.yml`), gated only on the bundle. Native CLI builds use matching hardware; the Intel macOS DMG is packaged on Apple Silicon without an Intel CLI archive. The Windows jobs embed the same-arch Linux CLI archive as the WSL runtime and wait for that artifact partway through, not for the whole Linux job:
   - macOS `arm64` DMG
   - macOS `x64` DMG
   - Linux `x64` and `arm64` AppImage and `.deb`, from one electron-builder run. The `.deb` updates in the app through electron-updater, which installs it with `dpkg`.

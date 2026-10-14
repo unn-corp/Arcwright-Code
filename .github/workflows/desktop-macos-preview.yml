@@ -30,7 +30,7 @@ jobs:
   build:
     name: Build preview JS bundle
     if: github.event.label.name == 'preview:mac'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 30
     steps:
       # This repository is public, so Git needs no credentials. checkout's
@@ -43,6 +43,9 @@ jobs:
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
+          # Start from an empty checkout, scoped to this job's assigned workspace.
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
           git init .
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
           git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
@@ -76,7 +79,18 @@ jobs:
       - uses: ./.github/actions/setup-apt-mirrors
 
       - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+        run: |
+          set -euo pipefail
+          for tool in cc pkg-config; do
+            command -v "$tool" >/dev/null 2>&1 || {
+              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
+              exit 1
+            }
+          done
+          pkg-config --exists libsecret-1 || {
+            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
+            exit 1
+          }
 
       - name: Build JS bundle
         run: vp run build:desktop

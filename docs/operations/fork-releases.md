@@ -12,6 +12,10 @@ An explicit manual nightly with both `publish=true` and `commission=true` can pu
 hardware verification while schedules stay disabled. Required coordinator, updater, retained-runtime,
 and recovery-helper checks still must all pass; missing or failed safety evidence blocks every release.
 
+All GitHub Actions jobs require [isolated organization self-hosted runners](./ci-runners.md).
+Missing platform capacity or public-repository runner access leaves jobs queued; there is no
+GitHub-hosted fallback. Runner provisioning and release commissioning are separate requirements.
+
 Desktop launchers can disable the Arcwright Code updater with
 `ARCWRIGHT_CODE_DISABLE_AUTO_UPDATE=1`. Set it to `0` to enable the updater on the
 next launch. This name takes precedence over the legacy `T3CODE_DISABLE_AUTO_UPDATE`
@@ -203,7 +207,7 @@ kept, a publisher never cancelled):
    source identity (rehearsals read it and claim nothing). Published runs upload the allocation
    receipt; assembly rejects APK codes that differ from it.
 3. **build_bundle**, **desktop_linux_x64**, **desktop_win_x64** (the reusable
-   `release-desktop.yml`, GitHub-hosted runners, no relay, Clerk, or tracing configuration),
+   `release-desktop.yml`, isolated organization runners, no relay, Clerk, or tracing configuration),
    **android**, and **recovery_helper** build from the pinned commit.
 4. **assemble** verifies every artifact, feed reference, the embedded WSL archive, and both APKs,
    flattens the payload, and writes `SHA256SUMS`. It also downloads and verifies the predecessor.
@@ -519,7 +523,7 @@ the baseline APK under canonical names. It is used as the predecessor only until
 eligible.
 
 The manual **Fork manual updater baseline** workflow in `.github/workflows/fork-baseline.yml`
-builds the complete 1.0.0 baseline on GitHub-hosted Linux/Windows runners. Pin a full commit
+builds the complete 1.0.0 baseline on isolated organization Linux/Windows runners. Pin a full commit
 already on `main` and a `fork-android-code-N` reservation owned by that commit. It uses the same
 desktop packaging and Android verification as the release workflow. Publication is optional;
 when requested it verifies a complete draft and downloads it back before publishing the
