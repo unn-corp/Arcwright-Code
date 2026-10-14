@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -40,6 +41,42 @@ const writeTextFile = Effect.fn("CodexHomeLayout.test.writeTextFile")(function* 
 
 it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
   describe("resolveCodexHomeLayout", () => {
+    it.effect("pins a blank instance home instead of inheriting another account's CODEX_HOME", () =>
+      Effect.gen(function* () {
+        const root = yield* makeTempDir("t3code-codex-default-home-");
+        const path = yield* Path.Path;
+        const layout = yield* resolveCodexHomeLayout(decodeCodexSettings({})).pipe(
+          Effect.provideService(HostProcess.HomeDirectory, root),
+          Effect.provideService(HostProcess.Environment, { CODEX_HOME: path.join(root, "work") }),
+        );
+        expect(layout.effectiveHomePath).toBe(path.join(root, ".codex"));
+        expect(layout.sharedHomePath).toBe(layout.effectiveHomePath);
+      }),
+    );
+
+    it.effect("honors a declared instance home but gives configured paths precedence", () =>
+      Effect.gen(function* () {
+        const root = yield* makeTempDir("t3code-codex-instance-home-");
+        const path = yield* Path.Path;
+        const declared = [
+          { name: "CODEX_HOME", value: path.join(root, "declared"), sensitive: false },
+        ];
+        const blank = yield* resolveCodexHomeLayout(decodeCodexSettings({}), declared);
+        expect(blank.effectiveHomePath).toBe(declared[0]?.value);
+        const configured = yield* resolveCodexHomeLayout(
+          decodeCodexSettings({ homePath: path.join(root, "configured") }),
+          declared,
+        );
+        expect(configured.effectiveHomePath).toBe(path.join(root, "configured"));
+        const overlay = yield* resolveCodexHomeLayout(
+          decodeCodexSettings({ shadowHomePath: path.join(root, "private") }),
+          declared,
+        );
+        expect(overlay.effectiveHomePath).toBe(path.join(root, "private"));
+        expect(overlay.sharedHomePath).toBe(declared[0]?.value);
+      }),
+    );
+
     it.effect("uses direct CODEX_HOME when no shadow home is configured", () =>
       Effect.gen(function* () {
         const homePath = yield* makeTempDir("t3code-codex-home-");

@@ -1598,7 +1598,7 @@ export const createCodexAdapterV2 = (
     const hostEnvironment = yield* HostProcess.Environment;
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const serverConfig = yield* ServerConfig;
-    const homeLayout = yield* resolveCodexHomeLayout(config);
+    const homeLayout = yield* resolveCodexHomeLayout(config, environment);
 
     yield* materializeCodexShadowHome(homeLayout).pipe(
       Effect.mapError(
