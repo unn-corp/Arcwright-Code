@@ -183,8 +183,10 @@ export function relayTracePathDecodeFails(url: string): boolean {
 export function isRelayHookRequest(method: string, url: string): boolean {
   return hookRoute(method, url)?.handler?.kind === "hook";
 }
-export function isRelayHookTraceRequest(method: string, url: string): boolean {
-  const kind = hookRoute(method, url)?.handler?.kind;
+export function isRelayHookTraceRequest(url: string): boolean {
+  // Privacy uses the existing GET table even when an extension method has no table.
+  // This lookup never grants the incoming request raw forwarding or public admission.
+  const kind = hookRoute("GET", url)?.handler?.kind;
   return kind === "hook" || kind === "hook-trace";
 }
 export function relayHookTraceUrl(method: string, url: string): string {

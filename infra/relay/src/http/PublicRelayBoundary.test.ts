@@ -1273,3 +1273,44 @@ it.effect.each(["/v1/hooks/", "/V1/HOOKS/", "/%76%31/hooks/"])(
         expect(response.headers.get("access-control-allow-origin")).toBeNull();
     }).pipe(Effect.scoped),
 );
+
+it.effect.each(["/v1/hooks/", "/V1/HOOKS/", "/%76%31/hooks/"])(
+  "redacts CUSTOM hook alias%s without granting method admission",
+  (prefix) =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const endpoint = yield* withBoundary(calls);
+      const spans: Tracer.NativeSpan[] = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      const raw = rawRequest([encode("raw-body")], {
+        method: "CUSTOM",
+        url:
+          "https://relay.test" + prefix + "endpoint/hook/private-token?sender-secret=private-query",
+        neverCancel: true,
+      });
+      const response = yield* send(endpoint, raw.request).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(HttpMiddleware.TracerHeaderFilter, () => true),
+      );
+      expect(response.status).toBe(404);
+      expect(raw.read()).toBe(0);
+      expect(raw.cancelled()).toBe(1);
+      expect(raw.request.body?.locked).toBe(false);
+      expect(calls).toEqual({ auth: 0, business: 0, limiter: 0 });
+      expect(spans).toHaveLength(1);
+      const attributes = JSON.stringify(Array.from(spans[0]!.attributes));
+      expect(attributes).not.toContain("private-token");
+      expect(attributes).not.toContain("private-query");
+      expect(spans[0]!.attributes.get("url.query")).toBeUndefined();
+      expect(raw.request.method).toBe("CUSTOM");
+      expect(raw.request.url).toContain("private-token?sender-secret=private-query");
+      if (prefix === "/v1/hooks/")
+        expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    }).pipe(Effect.scoped),
+);
