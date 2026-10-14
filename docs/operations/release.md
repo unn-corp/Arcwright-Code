@@ -2,9 +2,11 @@
 
 > For maintainers. Using Arcwright Code? See [docs/user](../user/).
 
-This document covers the unified release workflow for stable and nightly desktop releases.
-All workflow jobs use [isolated organization self-hosted runners](./ci-runners.md), including
-reusable desktop jobs. Required native hardware must be provisioned before a release can complete.
+This document covers the retained upstream release workflow, which is guarded off in
+`unn-corp/t3code`. The fork uses the [fork release pipeline](./fork-releases.md), with dedicated
+isolated Linux x64 and Windows x64 workers plus Android validation on Linux x64. macOS and
+hardware ARM64 jobs are disabled on this fork; upstream platform paths described below remain
+intact. All enabled jobs use [organization self-hosted runners](./ci-runners.md).
 
 ## What the workflow does
 
@@ -55,6 +57,10 @@ reusable desktop jobs. Required native hardware must be provisioned before a rel
 - Signing is optional and auto-detected per platform from secrets.
 
 ## Pull request macOS previews
+
+The complete preview producer and consumer are disabled on `unn-corp/t3code`, including
+publication and cleanup, because the fork has no macOS workers. The following describes the
+retained upstream flow.
 
 Labeling a PR `preview:mac` publishes a signed, notarized Apple Silicon DMG with T3 Connect enabled
 to the rolling `desktop-preview` prerelease, and works for fork PRs. The label is a one-shot request

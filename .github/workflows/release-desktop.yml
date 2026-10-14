@@ -111,7 +111,15 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.label }}
-    runs-on: [self-hosted, "${{ inputs.runner }}", "${{ inputs.runner_arch }}", unn, unn-isolated]
+    # Fork releases support Linux/Windows x64 only, including the host architecture.
+    if: >-
+      github.repository != 'unn-corp/t3code' ||
+      ((inputs.runner == 'linux' || inputs.runner == 'windows') &&
+      inputs.runner_arch == 'x64' &&
+      (inputs.platform == 'linux' || inputs.platform == 'win') &&
+      inputs.arch == 'x64')
+    runs-on:
+      [self-hosted, "${{ inputs.runner }}", "${{ inputs.runner_arch }}", unn, unn-isolated, t3-ci]
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
     timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}

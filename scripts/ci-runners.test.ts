@@ -1,8 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off - these tests inspect GitHub's workflow configuration.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import * as NodeVM from "node:vm";
 import { describe, expect, it } from "vite-plus/test";
 
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
@@ -11,16 +13,19 @@ const yaml = NodeModule.createRequire(NodePath.join(root, "packages/shared/packa
 ) as { parse(text: string): unknown };
 
 interface Job {
+  if?: string;
+  needs?: string | string[];
   "runs-on"?: unknown;
   uses?: string;
   with?: Record<string, unknown>;
   strategy?: { matrix?: Record<string, unknown> };
+  steps?: Array<{ name?: string; run?: string; env?: Record<string, unknown> }>;
 }
 interface Workflow {
   on?: { workflow_call?: unknown };
   jobs: Record<string, Job>;
 }
-const requiredLabels = ["self-hosted", "unn", "unn-isolated"];
+const requiredLabels = ["self-hosted", "unn", "unn-isolated", "t3-ci"];
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -176,18 +181,75 @@ function verifyRunners(workflows: Record<string, Workflow>) {
   }
 }
 
-const labels = (os = "linux", arch = "x64") => ["self-hosted", os, arch, "unn", "unn-isolated"];
+const labels = (os = "linux", arch = "x64") => [
+  "self-hosted",
+  os,
+  arch,
+  "unn",
+  "unn-isolated",
+  "t3-ci",
+];
+function loadWorkflows(): Record<string, Workflow> {
+  const directory = NodePath.join(root, ".github/workflows");
+  return Object.fromEntries(
+    NodeFS.readdirSync(directory)
+      .filter((file) => /\.ya?ml$/.test(file))
+      .map((file) => [
+        file,
+        yaml.parse(NodeFS.readFileSync(NodePath.join(directory, file), "utf8")) as Workflow,
+      ]),
+  );
+}
+
+// These repository guards use boolean/equality operators shared with JavaScript.
+// Supply successful prerequisites so dependency skipping cannot conceal a missing guard.
+function admitsJob(
+  job: Job,
+  repository: string,
+  inputs: Record<string, unknown> = { platform: "all" },
+  eventName = "push",
+): boolean {
+  if (job.if === undefined) return true;
+  const names = job.needs === undefined ? [] : Array.isArray(job.needs) ? job.needs : [job.needs];
+  const needs = Object.fromEntries(
+    names.map((name) => [
+      name,
+      {
+        result: "success",
+        outputs: { eligible: "true", changed: "true", skip: "false" },
+      },
+    ]),
+  );
+  const expression = job.if.replace(/^\s*\$\{\{([\s\S]*?)\}\}\s*$/, "$1");
+  const result: unknown = NodeVM.runInNewContext(
+    expression,
+    {
+      github: {
+        repository,
+        event_name: eventName,
+        event: {
+          action: "closed",
+          label: { name: "preview:mac" },
+          pull_request: { draft: false },
+          workflow_run: { event: "pull_request", conclusion: "success" },
+        },
+      },
+      inputs,
+      needs,
+      always: () => true,
+      cancelled: () => false,
+      failure: () => false,
+      success: () => true,
+    },
+    { timeout: 1000 },
+  );
+  if (typeof result !== "boolean") throw new Error("Job guard did not produce a boolean");
+  return result;
+}
+
 describe("organization self-hosted CI policy", () => {
   it("checks every checked-in workflow and every reusable caller", () => {
-    const directory = NodePath.join(root, ".github/workflows");
-    const workflows = Object.fromEntries(
-      NodeFS.readdirSync(directory)
-        .filter((file) => /\.ya?ml$/.test(file))
-        .map((file) => [
-          file,
-          yaml.parse(NodeFS.readFileSync(NodePath.join(directory, file), "utf8")) as Workflow,
-        ]),
-    );
+    const workflows = loadWorkflows();
     verifyRunners(workflows);
     for (const [file, name, os, arch] of [
       ["ci.yml", "mobile_native_static_analysis", "macOS", "arm64"],
@@ -205,6 +267,7 @@ describe("organization self-hosted CI policy", () => {
       labels().filter((label) => label !== "self-hosted"),
       labels().filter((label) => label !== "unn"),
       labels().filter((label) => label !== "unn-isolated"),
+      labels().filter((label) => label !== "t3-ci"),
     ]) {
       expect(() =>
         verifyRunners({ "ci.yml": { jobs: { test: { "runs-on": selection } } } }),
@@ -308,5 +371,141 @@ describe("organization self-hosted CI policy", () => {
     expect(() =>
       verifyRunners({ "desktop.yml": called, "ci.yml": caller("windows", "x64") }),
     ).toThrow(/desktop target/);
+  });
+});
+
+describe("fork CI platform capacity", () => {
+  it("explicitly excludes every macOS or hardware ARM64 caller on the fork", () => {
+    const workflows = loadWorkflows();
+    const unsupported: string[] = [];
+    for (const [file, workflow] of Object.entries(workflows)) {
+      if (workflow.on?.workflow_call !== undefined) continue;
+      for (const [name, job] of Object.entries(workflow.jobs)) {
+        const selection =
+          job.uses === "./.github/workflows/release-desktop.yml"
+            ? labels(String(job.with?.runner), String(job.with?.runner_arch))
+            : job["runs-on"];
+        if (!Array.isArray(selection)) continue;
+        for (const matrix of matrixContexts(job.strategy?.matrix, selection)) {
+          const host = new Set(
+            selection.map((label) => String(resolve(label, matrix, {})).toLowerCase()),
+          );
+          if (!host.has("macos") && !host.has("arm64")) continue;
+          unsupported.push(`${file}/${name}`);
+          expect(admitsJob(job, "unn-corp/t3code", job.with)).toBe(false);
+          expect(admitsJob(job, "pingdotgg/t3code", job.with)).toBe(true);
+        }
+      }
+    }
+    expect(unsupported).toContain("ci.yml/mobile_native_static_analysis");
+    expect(unsupported).toContain("mobile-showcase-screenshots.yml/ios");
+    expect(unsupported).toContain("release.yml/desktop_linux_arm64");
+    expect(unsupported).toContain("release.yml/desktop_win_arm64");
+  });
+
+  it("disables the native detector and every macOS preview stage without altering upstream", () => {
+    const workflows = loadWorkflows();
+    const detector = workflows["ci.yml"]!.jobs.mobile_native_changes!;
+    expect(admitsJob(detector, "unn-corp/t3code")).toBe(false);
+    expect(admitsJob(detector, "pingdotgg/t3code")).toBe(true);
+    for (const [file, workflow] of Object.entries(workflows)) {
+      if (!file.startsWith("desktop-macos-preview")) continue;
+      for (const [name, job] of Object.entries(workflow.jobs)) {
+        const event = name === "cleanup" ? "pull_request_target" : "workflow_run";
+        expect(admitsJob(job, "unn-corp/t3code", {}, event)).toBe(false);
+        expect(admitsJob(job, "pingdotgg/t3code", {}, event)).toBe(true);
+      }
+    }
+  });
+
+  it("enforces fork capacity in the reusable desktop callee even for contradictory inputs", () => {
+    const build = loadWorkflows()["release-desktop.yml"]!.jobs.build!;
+    for (const [runner, runner_arch, platform, arch] of [
+      ["macOS", "arm64", "mac", "arm64"],
+      ["macOS", "x64", "mac", "x64"],
+      ["linux", "arm64", "linux", "arm64"],
+      ["windows", "arm64", "win", "arm64"],
+      ["linux", "x64", "linux", "arm64"],
+      ["linux", "arm64", "linux", "x64"],
+      ["windows", "x64", "mac", "x64"],
+    ]) {
+      const inputs = { runner, runner_arch, platform, arch };
+      expect(admitsJob(build, "unn-corp/t3code", inputs)).toBe(false);
+      expect(admitsJob(build, "pingdotgg/t3code", inputs)).toBe(true);
+    }
+    for (const [runner, platform] of [
+      ["linux", "linux"],
+      ["windows", "win"],
+    ]) {
+      expect(
+        admitsJob(build, "unn-corp/t3code", {
+          runner,
+          runner_arch: "x64",
+          platform,
+          arch: "x64",
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("keeps Linux/Windows x64 releases and Android jobs enabled, including ARM64 APK output", () => {
+    const workflows = loadWorkflows();
+    for (const file of ["fork-release.yml", "fork-baseline.yml"]) {
+      for (const name of ["desktop_linux_x64", "desktop_win_x64", "android"]) {
+        expect(admitsJob(workflows[file]!.jobs[name]!, "unn-corp/t3code")).toBe(true);
+      }
+    }
+    expect(
+      admitsJob(workflows["mobile-showcase-screenshots.yml"]!.jobs.android!, "unn-corp/t3code"),
+    ).toBe(true);
+    const android: Job = {
+      "runs-on": labels(),
+      strategy: { matrix: { apk_abi: ["arm64-v8a", "armeabi-v7a", "x86_64"] } },
+    };
+    verifyRunners({ "android.yml": { jobs: { apk: android } } });
+    expect(admitsJob(android, "unn-corp/t3code")).toBe(true);
+  });
+
+  it("runs Check's actual gate and permits only intentional skipped jobs", () => {
+    const check = loadWorkflows()["ci.yml"]!.jobs.check!;
+    const gate = check.steps?.find((step) => step.name === "Require every job to pass");
+    if (gate?.run === undefined || !Array.isArray(check.needs))
+      throw new Error("Missing Check gate");
+    const initial = Object.fromEntries(check.needs.map((name) => [name, { result: "success" }]));
+    const disabled = new Set(["mobile_native_changes", "mobile_native_static_analysis"]);
+    const fork = {
+      ...initial,
+      ...Object.fromEntries([...disabled].map((name) => [name, { result: "skipped" }])),
+    };
+    const runGate = (repository: string, states: typeof initial) => {
+      const env = { ...process.env };
+      delete env.REPOSITORY;
+      delete env.RESULTS;
+      for (const [key, value] of Object.entries(gate.env ?? {})) {
+        if (value === "${{ github.repository }}") env[key] = repository;
+        else if (value === "${{ toJSON(needs) }}") env[key] = JSON.stringify(states);
+        else throw new Error(`Unsupported Check environment expression: ${key}`);
+      }
+      return NodeChildProcess.spawnSync("bash", ["-e", "-o", "pipefail", "-c", gate.run!], {
+        env,
+        encoding: "utf8",
+      });
+    };
+    const admitted = runGate("unn-corp/t3code", fork);
+    expect(admitted.error).toBeUndefined();
+    expect(admitted.status, admitted.stderr).toBe(0);
+    for (const name of check.needs) {
+      for (const result of ["failure", "cancelled", "skipped"]) {
+        if (result === "skipped" && disabled.has(name)) continue;
+        expect(runGate("unn-corp/t3code", { ...fork, [name]: { result } }).status).not.toBe(0);
+      }
+    }
+    expect(runGate("pingdotgg/t3code", fork).status).not.toBe(0);
+    expect(
+      runGate("pingdotgg/t3code", {
+        ...initial,
+        mobile_native_static_analysis: { result: "skipped" },
+      }).status,
+    ).toBe(0);
   });
 });

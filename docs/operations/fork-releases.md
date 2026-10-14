@@ -12,9 +12,11 @@ An explicit manual nightly with both `publish=true` and `commission=true` can pu
 hardware verification while schedules stay disabled. Required coordinator, updater, retained-runtime,
 and recovery-helper checks still must all pass; missing or failed safety evidence blocks every release.
 
-All GitHub Actions jobs require [isolated organization self-hosted runners](./ci-runners.md).
-Missing platform capacity or public-repository runner access leaves jobs queued; there is no
-GitHub-hosted fallback. Runner provisioning and release commissioning are separate requirements.
+All GitHub Actions jobs require [dedicated isolated organization self-hosted runners](./ci-runners.md).
+The fork supports Linux x64, Windows x64, and Android builds and validation on Linux x64. macOS
+and hardware ARM64 jobs are disabled by repository guards because this fork has no such capacity;
+Android APK architecture support is preserved. Missing supported workers or repository access
+leaves enabled jobs queued. Runner provisioning and release commissioning remain separate requirements.
 
 Desktop launchers can disable the Arcwright Code updater with
 `ARCWRIGHT_CODE_DISABLE_AUTO_UPDATE=1`. Set it to `0` to enable the updater on the

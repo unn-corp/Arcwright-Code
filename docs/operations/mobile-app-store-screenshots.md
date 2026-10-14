@@ -113,11 +113,12 @@ appearance settings can never drift apart.
 Run the `Mobile Showcase Screenshots` workflow from GitHub's Actions tab, choose `all`, `ios`, or
 `android`, select `light`, `dark`, or `both`, and pick a palette (or `all`, which raises each job's
 timeout from 60 to 300 minutes). The default dispatch captures both appearances of the `t3-code`
-palette and runs iOS and Android concurrently: iPhone and iPad capture on an isolated organization
-macOS ARM64 runner, while Android phone, 7-inch tablet, and 10-inch tablet capture on an isolated
-organization Linux x64 runner with a KVM-accelerated x86_64 emulator. See
-[runner provisioning](./ci-runners.md) for labels, Xcode, SDK, and KVM requirements. Missing
-matching workers leaves capture queued; there is no GitHub-hosted or Blacksmith fallback.
+palette. In `unn-corp/t3code`, iOS capture is disabled because the fork has no macOS workers:
+`all` runs Android only, and `ios` leaves the iOS job skipped. Android phone, 7-inch tablet, and
+10-inch tablet capture on a dedicated isolated organization Linux x64 worker with a
+KVM-accelerated x86_64 emulator. The retained upstream iOS job still captures iPhone and iPad
+on macOS ARM64. See [runner provisioning](./ci-runners.md) for pool labels, SDK, and KVM
+requirements. Missing matching Android workers leaves capture queued; there is no hosted fallback.
 
 Every job uploads its PNGs even when capture fails, which makes partial runs useful for diagnosis.
 The separate validation step is success-gated: it runs before upload only when capture succeeds. If

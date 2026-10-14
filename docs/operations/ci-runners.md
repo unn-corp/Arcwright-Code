@@ -1,10 +1,10 @@
 # Organization CI runners
 
-Every GitHub Actions job in `unn-corp/t3code` requires the labels `self-hosted`, `unn`, and
-`unn-isolated`, plus its operating system and CPU architecture. This covers checks, releases,
-diagnostics, previews, screenshots, and repository automation, including retained upstream
-workflows guarded off in this fork. There is no GitHub-hosted or Blacksmith fallback: jobs wait
-for a matching organization worker.
+Every GitHub Actions job in `unn-corp/t3code` requires `self-hosted`, `unn`, `unn-isolated`, and
+`t3-ci`, plus its operating system and CPU architecture. This covers checks, releases,
+diagnostics, screenshots, and repository automation, including retained upstream workflows
+that are guarded off in this fork. There is no GitHub-hosted or Blacksmith fallback: enabled
+jobs wait for a matching dedicated T3 worker.
 
 `unn-isolated` is a provisioning contract. Apply it only to disposable workers with a fresh
 workspace and home, no persistent credentials, and no access to production or developer data.
@@ -14,23 +14,29 @@ jobs also need isolated workers, with secrets supplied only to the authorized jo
 
 ## Capacity and repository access
 
-The Mothership organization pool currently supplies Linux x64 workers with a hardened Ubuntu 20.04
-image, UID 1001, a read-only root filesystem, and no sudo. Keep those controls intact. This does
-not establish isolated worker provisioning, the other native platforms, or permission to run
-this public repository.
-On 2026-10-14, the organization's Default runner group granted this public repository access.
-Its selected-repository policy preserves all existing private repositories and includes only
-`unn-corp/t3code` among public repositories. New repositories must be added explicitly.
-Repository access is commissioned; the additional platform and native-tool capabilities below
-still require provisioning. Do not relabel shared workers to bypass isolation requirements.
+The fork supports **Linux x64 and Windows x64 workers**. It has no macOS or hardware ARM64
+capacity. Repository guards disable macOS native analysis and its change detector, the complete
+macOS preview pipeline, iOS screenshot capture, and native ARM64 desktop/CLI jobs on this fork.
+The retained upstream paths remain available outside `unn-corp/t3code`. `Check` accepts the
+fork's two deliberately skipped mobile native jobs; every enabled prerequisite must still pass.
 
-| Required labels in addition to `self-hosted, unn, unn-isolated` | Jobs and worker prerequisites                                                                                                                                                                                                                                                                     |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `linux, x64`                                                    | General checks and tooling, Linux desktop builds, Android builds and emulator validation. Bake Git, GitHub CLI, jq, curl, unzip, Python, a C/C++ toolchain, pkg-config, libsecret, and desktop runtime libraries into a dedicated isolated image.                                                 |
-| `linux, arm64`                                                  | Native ARM64 Linux desktop and CLI builds. Supply the same native build dependencies and ARM64 hardware.                                                                                                                                                                                          |
-| `windows, x64`                                                  | Windows tests, desktop packaging, recovery helpers, and Windows safety/receipt validation. Install Git Bash, PowerShell, and MSVC build tools.                                                                                                                                                    |
-| `windows, arm64`                                                | Native Windows ARM64 desktop and CLI builds. Install ARM64 native build tooling and PowerShell; the workflow selects its pinned PowerShell version.                                                                                                                                               |
-| `macOS, arm64`                                                  | Apple Silicon desktop and CLI builds, mobile native static analysis, and iOS screenshots. Install Xcode with the required simulator runtimes and Homebrew; jobs install SwiftLint, ktlint, detekt, and screenshot tools. The Intel macOS DMG is cross-packaged here without an Intel CLI archive. |
+Android APK builds and emulator checks remain enabled on Linux x64. This hardware policy does
+not remove ARM64 APK support: Android target ABIs and the runner's CPU architecture are separate.
+
+Use the dedicated `T3 Code` organization runner group, restricted to `unn-corp/t3code`. The
+`t3-ci` label prevents these jobs from landing on the existing three Mothership organization
+workers. Those workers use a hardened Ubuntu 20.04 image, UID 1001, a read-only root filesystem,
+and no sudo; keep their image, storage, and workloads unchanged. Provision dedicated T3 workers
+instead of relabeling shared workers or relaxing their controls.
+
+| Required labels in addition to `self-hosted, unn, unn-isolated, t3-ci` | Jobs and worker prerequisites                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `linux, x64`                                                           | General checks, Linux desktop builds, Android builds, and emulator validation. Bake Git, GitHub CLI, jq, curl, unzip, Python, a C/C++ toolchain, pkg-config, libsecret development headers, ImageMagick, and desktop runtime libraries into a dedicated Ubuntu 24.04 isolated image. |
+| `windows, x64`                                                         | Windows tests, desktop packaging, recovery helpers, and safety/receipt validation. Use a clean disposable Windows CI template with Git Bash, PowerShell, and MSVC build tools.                                                                                                       |
+
+The shared `win2022` VM hosts IIS, other repository runner data, and unrelated workloads. It is
+not an eligible T3 CI worker. Prepare a separate clean template and destroy each job's VM,
+workspace, and runner registration rather than executing T3 jobs on that shared machine.
 
 Use a current GitHub Actions runner compatible with the workflows' Node-based action versions.
 Tool-cache and package-cache directories must be writable. Vite+, Java, Rust, and Gradle setup
@@ -40,29 +46,35 @@ helper skips hardened workers; on writable Ubuntu workers it uses architecture-s
 mirrors without assuming a hosted image's `ubuntu.sources` file. Do not add sudo or make the
 existing pool's root filesystem writable to run these workflows.
 
+Linux workers must set `TMPDIR` to an executable directory under their disposable workspace,
+such as `/_work/_temp`, and create it for the runner user before accepting work. The hardened
+pool's `/tmp` is mounted with `noexec`; compiler fixtures and native helper tests must use the
+executable per-job temporary directory instead. Keep its lifecycle tied to the worker.
+
 Android workers must provide SDK command-line tools, `ANDROID_HOME`, and a writable SDK directory.
 The workflows use that existing `sdkmanager` to install SDK packages; they do not bootstrap it.
 Emulator workers additionally need an accessible `/dev/kvm`, virtualization support, and
 permission to use KVM. The Mothership host has KVM, but a container worker still needs the device
-passed through; an organization label alone does not provide it. A Windows VM is present on the
-host, but no Windows organization runner or macOS/ARM workers have been commissioned for this
-repository. The retained AUR workflow uses a Docker job container and requires a working Docker
-service with the job workspace available to that service.
+passed through; an organization label alone does not provide it. The retained AUR workflow
+uses a Docker job container and requires a working Docker service with the job workspace
+available to that service; it remains guarded off in this fork.
 
 The reusable desktop workflow takes an OS label in `runner` and a host architecture in
-`runner_arch`; the mandatory organization and isolation labels are added by the callee. Callers
-cannot select a GitHub-hosted machine through that input. Native CLI smoke tests must run on
-their matching architecture.
+`runner_arch`; the mandatory fleet and isolation labels are added by the callee. Callers cannot
+select a hosted or unrelated organization worker through those inputs. On this fork the callee
+also rejects macOS and ARM64 host or desktop targets, even if a caller omits its own capacity
+guard. Native CLI smoke tests must run on their matching architecture.
 
 ## Verification
 
 Before admitting the fleet, run workflow lint and the focused `scripts/ci-runners.test.ts` and
-`scripts/fork-release-workflows.test.ts` suites. The runner policy checks every workflow, matrix
-choice, conditional JSON matrix branch, and reusable desktop caller; hosted selectors or missing
-organization/isolation labels fail it. Then run representative Linux, Windows, macOS, and Android
-jobs on actual workers before claiming those platform capabilities ready. Queued jobs indicate
-missing labels, capacity, or runner-group access rather than permission to use a hosted fallback.
+`scripts/fork-release-workflows.test.ts` suites. The policy checks every runner matrix and
+reusable caller, the unsupported-platform guards, and Check's actual shell gate. Hosted selectors,
+missing dedicated-pool labels, or unexpected skipped prerequisites fail it. Then run representative
+Linux, Windows x64, and Android jobs on actual workers before claiming those capabilities ready.
+Queued enabled jobs indicate missing labels, capacity, or group access; disabled macOS/ARM64 jobs
+must appear skipped instead.
 
 This migration does not enable publishing. Existing repository, environment, and release gates
 remain authoritative. The retained upstream EAS workflows remain guarded off for this fork;
-if separately enabled, their native build commands still dispatch work to Expo's build service.
+if separately enabled elsewhere, their native build commands still dispatch work to Expo's build service.

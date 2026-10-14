@@ -203,7 +203,7 @@ describe("fork-release.yml structure", () => {
         if (job["runs-on"] === undefined) continue;
         if (!Array.isArray(job["runs-on"]))
           throw new Error(`${file}: runner labels must be an array`);
-        assert.includeMembers(job["runs-on"], ["self-hosted", "unn", "unn-isolated"]);
+        assert.includeMembers(job["runs-on"], ["self-hosted", "unn", "unn-isolated", "t3-ci"]);
       }
     }
   });
@@ -803,7 +803,14 @@ describe("manual Windows CLI diagnostics", () => {
     assert.deepEqual(Object.keys(diagnostic.on), ["workflow_dispatch"]);
     assert.deepEqual(diagnostic.permissions, { contents: "read", actions: "read" });
     const job = diagnostic.jobs.windows_cli!;
-    assert.deepEqual(job["runs-on"], ["self-hosted", "windows", "x64", "unn", "unn-isolated"]);
+    assert.deepEqual(job["runs-on"], [
+      "self-hosted",
+      "windows",
+      "x64",
+      "unn",
+      "unn-isolated",
+      "t3-ci",
+    ]);
     assert.include(job.if!, "github.ref == 'refs/heads/main'");
     const download = stepNamed(job, "Download the failed Windows archive");
     assert.include(download.run!, "--name diagnostic-cli-win-x64");
