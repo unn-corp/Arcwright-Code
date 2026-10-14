@@ -231,8 +231,11 @@ The managed endpoint transport uses the pinned installed Cloudflare SDK with one
 mutation invocation and bounded exact tunnel/DNS discovery. Coordinated B2b runtime writers now
 retain one durable owner through provider work and atomic publication/revocation. SQL transactions
 are short and hold no connection during network calls. Timeout does not establish that a mutation
-had no effect: unknown outcomes retain pending ownership and capacity. The complete B3 fault matrix
-and service commissioning remain pending; see the [lifecycle constraint](../internals/t3-connect.md)
+had no effect: unknown mutation outcomes retain pending ownership and capacity. If final publication
+commits but its acknowledgement is lost, authority and owner clearing may already be durable;
+the allocation remains counted, no token or credential is returned, and no compensating deletion
+runs. The B3 matrix has been exercised locally on disposable PostgreSQL; independent specification
+and quality review and service commissioning remain pending. See the [lifecycle constraint](../internals/t3-connect.md)
 before deploying runtime writers.
 
 Managed endpoint admission now reserves capacity atomically per user before Cloudflare work.
@@ -244,8 +247,8 @@ existing environment allocation remains allowed at capacity and after a limit is
 Do not delete an allocation merely to make room while its external resources may remain.
 
 Atomic admission and coordinated lifecycle writers are implemented in source and tested on an
-isolated PostgreSQL fixture. Complete B3 fault verification, public quota and abuse policy,
-deletion operations, owned runtime/build validation,
+isolated PostgreSQL fixture, including the B3 race, interruption and failure matrix. Independent B3
+review, public quota and abuse policy, deletion operations, owned runtime/build validation,
 application migrations, service commissioning and device validation remain pending; this change
 applies no production migration and does not make the owned relay ready.
 

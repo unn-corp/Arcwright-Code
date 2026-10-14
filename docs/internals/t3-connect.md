@@ -108,14 +108,19 @@ for each mutation invocation. The coordinated provider now keeps one durable own
 identity discovery, configuration, DNS, token retrieval and atomic publication. Each mutation
 requires a committed intent and one SDK call followed by an exact checkpoint; SQL connections and
 locks are released before external work. DNS create/update responses preserve and validate their
-full identities. Timeouts, malformed successes, defects and unknown commits retain ownership and
-capacity. Generic tunnel-delete errors, including message-shaped in-use failures, remain uncertain
+full identities. Timeouts, malformed successes, defects and unknown mutation/checkpoint commits
+retain blocking ownership and capacity. A committed final publication with a lost acknowledgement
+may already have cleared its owner and published authority; it retains the allocation, returns no
+token or credential, and performs no compensating deletion. Generic tunnel-delete errors,
+including message-shaped in-use failures, remain uncertain
 because the pinned SDK declares no terminal in-use contract.
 
-This source conversion is locally verified but uncommissioned. The complete interruption,
-late-call, commit-unknown, contention and fault matrix remains B3 work. Production migrations,
-provider commissioning, deployment and device validation require separate acceptance; this source
-change does not claim completion of Task B or authorize delivery.
+This source conversion is locally verified but uncommissioned. The B3 interruption, late-call,
+commit-unknown, contention and fault matrix has been exercised locally on disposable PostgreSQL;
+independent specification and quality review remain acceptance gates. Public limits, deletion
+operations, owned runtime/build validation, production migrations, provider commissioning,
+deployment and device validation require separate acceptance. This source change does not claim
+completion of Task B or authorize delivery.
 
 Managed endpoint capacity belongs to held allocation rows rather than live connectors or active
 links. Admission serializes each user's check and insertion in one short PostgreSQL transaction;
@@ -174,7 +179,7 @@ Release acquires a durable owner before exact identity and eligibility reads. Un
 revocation and cleanup intent atomically before external teardown; delayed cleanup compares the
 captured immutable identity and generation. Provider calls retain the owner without SQL locks,
 and ambiguous mutation outcomes remain blocked. Unlink failure cannot resurrect authority.
-The complete fault matrix and commissioning remain acceptance gates. See the
+Independent review of the locally exercised fault matrix and commissioning remain acceptance gates. See the
 [managed endpoint lifecycle](../../infra/relay/src/environments/ManagedEndpointProvider.ts).
 
 ## Idle tunnels are reclaimed and recovered

@@ -1,7 +1,4 @@
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { DuplicateTunnelName, TunnelNotFound } from "@distilled.cloud/cloudflare/zero-trust";
-import { DnsRecordAlreadyExists, RecordNotFound } from "@distilled.cloud/cloudflare/dns";
 import { eq } from "drizzle-orm";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -13,284 +10,26 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as RelayDb from "../db.ts";
-import * as Config from "../Config.ts";
 import {
   relayManagedEndpointAllocations as table,
   relayEnvironmentCredentials,
 } from "../persistence/schema.ts";
-import * as Provider from "./ManagedEndpointProvider.ts";
 import * as Lifecycle from "./ManagedEndpointLifecycle.ts";
 import * as Limits from "./ManagedTunnelLimits.ts";
 import * as Links from "./EnvironmentLinks.ts";
 import * as Credentials from "./EnvironmentCredentials.ts";
 import { targetFor } from "./managedEndpointLifecycleContracts.ts";
-import { config, publicationFor } from "./managedEndpointProviderTestFixture.ts";
-import { connectDatabase, fixtureFile, layerDb } from "./managedEndpointPostgresFixture.ts";
+import { publicationFor } from "./managedEndpointProviderTestFixture.ts";
+import { connectDatabase, fixtureFile } from "./managedEndpointPostgresFixture.ts";
 
-const repositories = Layer.merge(Links.layer, Credentials.layer).pipe(
-  Layer.provide(NodeServices.layer),
-);
-const services = Layer.merge(Lifecycle.layer, Limits.layer).pipe(Layer.provideMerge(repositories));
-const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(
-    Effect.provide(
-      Layer.fresh(
-        services.pipe(Layer.provideMerge(layerDb), Layer.provideMerge(NodeServices.layer)),
-      ),
-    ),
-  );
-const key = { userId: "runtime-user", environmentId: "runtime-env" };
-const origin = { localHttpHost: "localhost", localHttpPort: 3000 };
-const request = { ...key, origin, publication: publicationFor(key.environmentId) };
-const notFoundTunnel = (id: string) =>
-  new Provider.ManagedEndpointTunnelClientError({
-    operation: "get",
-    tunnelId: id,
-    cause: new TunnelNotFound({ code: 1002, message: "Missing exact tunnel" }),
-  });
-const notFoundDns = (id: string) =>
-  new Provider.ManagedEndpointDnsClientError({
-    operation: "get-record",
-    dnsRecordId: id,
-    cause: new RecordNotFound({ code: 81044, message: "Missing exact DNS" }),
-  });
-interface Options {
-  readonly before?: (operation: string) => Effect.Effect<void>;
-  readonly createFailure?: "duplicate" | "ambiguous" | "defect" | "composite";
-  readonly dnsCreateFailure?: "duplicate" | "ambiguous";
-  readonly wrongDnsResponse?: boolean;
-  readonly malformedConfiguration?: boolean;
-  readonly configurationNotFound?: boolean;
-  readonly malformedTunnelDeletion?: boolean;
-  readonly malformedDnsDeletion?: boolean;
-  readonly wrongDnsUpdateResponse?: boolean;
-  readonly deleteFailure?: boolean;
-  readonly token?: string;
-  readonly incompleteInventory?: boolean;
-}
-const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
-  const db = yield* RelayDb.RelayDb;
-  const calls: string[] = [];
-  const tunnelGetIds: string[] = [];
-  const configurationCalls: Array<{
-    readonly tunnelId: string;
-    readonly config: {
-      readonly ingress: ReadonlyArray<{ readonly hostname?: string; readonly service: string }>;
-    };
-  }> = [];
-  const tunnelRows = new Map<string, Provider.ManagedEndpointTunnel>();
-  const dnsRows = new Map<string, Provider.ManagedEndpointDnsRecord>();
-  let tunnelSequence = 0;
-  const call = <A, E>(operation: string, effect: Effect.Effect<A, E>) =>
-    Effect.gen(function* () {
-      expect(Option.isNone(yield* Effect.serviceOption(db.$client.transactionService))).toBe(true);
-      calls.push(operation);
-      if (options.before) yield* options.before(operation);
-      return yield* effect;
-    });
-  const tunnels = Provider.ManagedEndpointTunnelClient.of({
-    get: (id) =>
-      call(
-        "tunnel-get",
-        Effect.suspend(() => {
-          tunnelGetIds.push(id);
-          return tunnelRows.has(id)
-            ? Effect.succeed(tunnelRows.get(id)!)
-            : Effect.fail(notFoundTunnel(id));
-        }),
-      ),
-    list: (input) =>
-      call(
-        "tunnel-list",
-        Effect.sync(() => {
-          const result = [...tunnelRows.values()].filter((row) => row.name === input.name);
-          return {
-            result,
-            resultInfo: options.incompleteInventory
-              ? { page: 1, perPage: 100 }
-              : {
-                  page: input.page ?? 1,
-                  perPage: 100,
-                  count: result.length,
-                  totalCount: result.length,
-                  totalPages: 1,
-                },
-          };
-        }),
-      ),
-    create: (input) =>
-      call(
-        "tunnel-create",
-        Effect.suspend(() => {
-          const row = {
-            id: `tunnel-${++tunnelSequence}`,
-            name: input.name,
-            status: "inactive",
-            createdAt: "2026-01-01T00:00:00.000Z",
-          };
-          if (options.createFailure === "composite") {
-            const duplicate = new Provider.ManagedEndpointTunnelClientError({
-              operation: "create",
-              cause: new DuplicateTunnelName({ code: 1013, message: "Duplicate" }),
-            });
-            const unknown = new Provider.ManagedEndpointTunnelClientError({
-              operation: "create",
-              cause: "unknown concurrent failure",
-            });
-            return Effect.failCause(Cause.combine(Cause.fail(duplicate), Cause.fail(unknown)));
-          }
-          if (options.createFailure === "defect") return Effect.die("Dispatch defect");
-          if (options.createFailure === "ambiguous")
-            return Effect.fail(
-              new Provider.ManagedEndpointTunnelClientError({
-                operation: "create",
-                tunnelName: input.name,
-                cause: { _tag: "TimeoutError" },
-              }),
-            );
-          tunnelRows.set(row.id, row);
-          if (options.createFailure === "duplicate")
-            return Effect.fail(
-              new Provider.ManagedEndpointTunnelClientError({
-                operation: "create",
-                tunnelName: input.name,
-                cause: new DuplicateTunnelName({ code: 1013, message: "Duplicate name" }),
-              }),
-            );
-          return Effect.succeed(row);
-        }),
-      ),
-    putConfiguration: (tunnelId, config) =>
-      call(
-        "tunnel-configure",
-        Effect.suspend(() => {
-          configurationCalls.push({ tunnelId, config });
-          return options.configurationNotFound
-            ? Effect.fail(
-                new Provider.ManagedEndpointTunnelClientError({
-                  operation: "put-configuration",
-                  tunnelId,
-                  cause: new TunnelNotFound({
-                    code: 1002,
-                    message: "Missing exact configured tunnel",
-                  }),
-                }),
-              )
-            : Effect.succeed(options.malformedConfiguration ? {} : { tunnelId, config });
-        }),
-      ),
-    getToken: () => call("token", Effect.succeed(options.token ?? "fixture-connector-token")),
-    delete: (id) =>
-      call(
-        "tunnel-delete",
-        Effect.suspend(() => {
-          if (options.deleteFailure)
-            return Effect.fail(
-              new Provider.ManagedEndpointTunnelClientError({
-                operation: "delete",
-                tunnelId: id,
-                cause: { code: 1022, message: "Tunnel has active connections" },
-              }),
-            );
-          const previous = tunnelRows.get(id);
-          tunnelRows.delete(id);
-          return Effect.succeed(
-            options.malformedTunnelDeletion
-              ? {}
-              : { id, name: previous?.name, deletedAt: "2026-10-13T00:00:00.000Z" },
-          );
-        }),
-      ),
-  });
-  const dns = Provider.ManagedEndpointDnsClient.of({
-    getRecord: (id) =>
-      call(
-        "dns-get",
-        Effect.suspend(() =>
-          dnsRows.has(id) ? Effect.succeed(dnsRows.get(id)!) : Effect.fail(notFoundDns(id)),
-        ),
-      ),
-    listRecords: () => Effect.die("Legacy DNS discovery forbidden"),
-    listRecordsPage: () => Effect.die("Unused normalized page port"),
-    listExactRecords: (hostname) =>
-      call(
-        "dns-list",
-        Effect.sync(() => [...dnsRows.values()].filter((row) => row.name === hostname)),
-      ),
-    createRecord: (input) =>
-      call(
-        "dns-create",
-        Effect.suspend(() => {
-          const row = {
-            ...input,
-            id: "dns-1",
-            ...(options.wrongDnsResponse ? { content: "foreign.cfargotunnel.com" } : {}),
-          };
-          if (options.dnsCreateFailure === "ambiguous")
-            return Effect.fail(
-              new Provider.ManagedEndpointDnsClientError({
-                operation: "create-record",
-                hostname: input.name,
-                cause: { _tag: "TimeoutError" },
-              }),
-            );
-          dnsRows.set(row.id, row);
-          if (options.dnsCreateFailure === "duplicate")
-            return Effect.fail(
-              new Provider.ManagedEndpointDnsClientError({
-                operation: "create-record",
-                hostname: input.name,
-                cause: new DnsRecordAlreadyExists({ code: 81057, message: "Duplicate record" }),
-              }),
-            );
-          return Effect.succeed(row);
-        }),
-      ),
-    updateRecord: (id, input) =>
-      call(
-        "dns-update",
-        Effect.sync(() => {
-          const row = { ...input, id };
-          dnsRows.set(id, row);
-          return options.wrongDnsUpdateResponse ? { ...row, id: "wrong-id" } : row;
-        }),
-      ),
-    deleteRecord: (id) =>
-      call(
-        "dns-delete",
-        Effect.sync(() => {
-          dnsRows.delete(id);
-          return options.malformedDnsDeletion ? {} : { id };
-        }),
-      ),
-  });
-  const provider = yield* Provider.make.pipe(
-    Effect.provideService(Provider.ManagedEndpointTunnelClient, tunnels),
-    Effect.provideService(Provider.ManagedEndpointDnsClient, dns),
-    Effect.provideService(Config.RelayConfiguration, config),
-  );
-  return { provider, calls, tunnelGetIds, configurationCalls, tunnelRows, dnsRows };
-});
-const ready = Effect.fnUntraced(function* (
-  runtime: Effect.Success<ReturnType<typeof makeRuntime>>,
-) {
-  const result = yield* runtime.provider.provision(request);
-  const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
-  const row = yield* lifecycle.get(key);
-  const links = yield* Links.EnvironmentLinks;
-  const link = yield* links.getForUser(key);
-  if (!row || !link || result.kind !== "linked") throw new Error("Fixture publication missing");
-  return {
-    result,
-    row,
-    link,
-    expectedLink: {
-      environmentPublicKey: link.environmentPublicKey,
-      expectedLinkIncarnationId: link.linkIncarnationId,
-      endpoint: link.endpoint,
-    },
-  };
-});
+import {
+  fixture,
+  key,
+  origin,
+  request,
+  makeRuntime,
+  ready,
+} from "./managedEndpointRuntimeTestFixture.ts";
 
 describe.skipIf(!fixtureFile)("Managed endpoint coordinated runtime PostgreSQL", () => {
   it.effect(
