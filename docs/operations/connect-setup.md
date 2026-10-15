@@ -502,6 +502,11 @@ Development uses `t3code-dev://app`; production uses `t3code://app`. Update the 
 The Clerk Electron integration handles token
 persistence and system-browser callback delivery.
 
+On Linux, `dev:desktop` registers `t3code-dev://` with a workspace launcher that
+retains the running development app's profile and T3 home. Use that runner for
+OAuth testing; launching the raw Electron binary can leave an older installed
+app registered to receive the browser callback.
+
 ## Android native sign-in redirects
 
 The upstream Expo client in `apps/mobile` and standalone fork APK use separate registrations.

@@ -7,6 +7,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import { ensureElectronRuntime } from "./ensure-electron-runtime.mjs";
+import { registerLinuxDevProtocol } from "./linux-dev-protocol.mjs";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
@@ -473,9 +474,22 @@ export function resolveElectronBinaryPath({
 }
 
 export function resolveDevProtocolClient() {
-  if (hostPlatform !== "darwin" || !isDevelopment) {
+  if (!isDevelopment) {
     return null;
   }
+
+  if (hostPlatform === "linux") {
+    const electronBinaryPath = resolveElectronBinaryPath();
+    return {
+      ...registerLinuxDevProtocol({
+        electronBinaryPath,
+        electronArgs: resolveLinuxSandboxArgs(electronBinaryPath),
+        desktopRoot: desktopDir,
+      }),
+      appBundleId: APP_BUNDLE_ID,
+    };
+  }
+  if (hostPlatform !== "darwin") return null;
 
   const electronBinaryPath = resolveElectronBinaryPath();
   const launcherBinaryPath = buildMacLauncher(electronBinaryPath);

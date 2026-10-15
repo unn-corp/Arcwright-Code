@@ -72,6 +72,9 @@ const devProtocolClient = resolveDevProtocolClient();
 if (devProtocolClient) {
   childEnv.T3CODE_DESKTOP_APP_USER_MODEL_ID = devProtocolClient.appBundleId;
   childEnv.T3CODE_DESKTOP_PROTOCOL_REGISTRATION_MANAGED = "1";
+  if (devProtocolClient.execTarget) {
+    childEnv.T3CODE_URL_HANDLER_EXEC_TARGET = devProtocolClient.execTarget;
+  }
 }
 
 let shuttingDown = false;
