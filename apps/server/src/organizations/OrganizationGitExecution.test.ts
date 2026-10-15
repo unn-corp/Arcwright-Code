@@ -2,6 +2,7 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, it } from "@effect/vitest";
 import { expect, vi } from "vite-plus/test";
 import {
@@ -96,7 +97,7 @@ it("uses a real empty hook directory and removes it even when the Git operation 
       assert.deepEqual(await NodeFSP.readdir(hooks), []);
       assert.equal(
         execution.env.GIT_CONFIG_GLOBAL,
-        process.platform === "win32" ? "NUL" : "/dev/null",
+        HostProcess.Platform.defaultValue() === "win32" ? "NUL" : "/dev/null",
       );
       throw new Error("Fixture Git failure");
     }),
