@@ -1,0 +1,7 @@
+{
+  "T3CODE_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuYXJjd3JpZ2h0LnNwYWNlJA",
+  "T3CODE_CLERK_JWT_TEMPLATE": "t3-relay",
+  "T3CODE_CLERK_CLI_OAUTH_CLIENT_ID": "VS3HcN01wPJotPrs",
+  "T3CODE_RELAY_URL": "https://relay.arcwright.space",
+  "T3CODE_HOSTED_APP_URL": "https://connect.arcwright.space"
+}

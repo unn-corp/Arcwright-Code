@@ -10,6 +10,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { ARTIFACT_DIRS } from "./fork-release-assets.ts";
 import { RECOVERY_HELPER_ASSETS } from "./fork-release-helper.ts";
 import { PACKAGE_VALIDATION, requiredSuiteRuns } from "./fork-release-suites.ts";
+import { loadRepoEnv, resolvePublicConfig } from "./lib/public-config.ts";
 
 const REPO = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 // `yaml` is a dependency of packages/shared, which scripts already depends on.
@@ -132,6 +133,27 @@ const stepNamed = (job: Job, name: string): Step => {
 };
 
 describe("fork-release.yml structure", () => {
+  it("builds desktop sign-in and the bundled server for the same Arcwright Connect service", () => {
+    const build = stepNamed(release.jobs.build_bundle!, "Build JS bundle");
+    assert.equal(build.env?.T3CODE_CONNECT_MODE, "owned");
+    const env = loadRepoEnv({
+      repoRoot: REPO,
+      baseEnv: build.env ?? {},
+      readEnvFiles: false,
+    });
+    const config = resolvePublicConfig(env);
+    assert.equal(config.connectMode, "owned");
+    assert.equal(config.relayUrl, "https://relay.arcwright.space");
+    assert.equal(config.hostedAppUrl, "https://connect.arcwright.space");
+    assert.equal(config.clerkJwtTemplate, "t3-relay");
+    assert.isTrue(Boolean(config.clerkPublishableKey && config.clerkCliOAuthClientId));
+    assert.equal(env.VITE_CLERK_PUBLISHABLE_KEY, config.clerkPublishableKey);
+    assert.equal(env.VITE_CLERK_JWT_TEMPLATE, config.clerkJwtTemplate);
+    assert.equal(env.VITE_T3CODE_RELAY_URL, config.relayUrl);
+    assert.equal(env.VITE_CONNECT_HOSTED_APP_URL, config.hostedAppUrl);
+    assert.isUndefined(env.VITE_HOSTED_APP_URL);
+  });
+
   it("resolves every Vite+ version file from a checkout present before setup", () => {
     for (const [name, job] of Object.entries(release.jobs)) {
       const roots: string[] = [];

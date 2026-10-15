@@ -260,8 +260,8 @@ jobs:
           path: android-codes.json
           if-no-files-found: error
 
-  # The JS bundle is built once from the pinned commit. There is no Arcwright Connect account
-  # provisioning in this fork, so no relay, Clerk, or tracing configuration is baked in.
+  # The desktop/server JS bundle is built once from the pinned commit with the fork's
+  # public Connect profile. Service credentials and tracing tokens never enter the build.
   build_bundle:
     name: Build JS bundle
     needs: [plan]
@@ -328,6 +328,8 @@ jobs:
         env:
           # The pinned clean checkout is aligned to the release version before bundling.
           APP_BUILD_COMMIT: ${{ needs.plan.outputs.commit }}
+          T3CODE_CONNECT_MODE: owned
+          T3CODE_CONNECT_PROFILE_FILE: arcwright-connect.public.json
         run: vp run build:desktop
 
       - name: Upload JS bundle

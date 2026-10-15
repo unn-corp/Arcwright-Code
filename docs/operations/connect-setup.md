@@ -48,6 +48,11 @@ not prerequisites for this upstream-based setup.
 
 ## Public application configuration
 
+Fork desktop releases select the checked-in `arcwright-connect.public.json` in the shared
+desktop/server bundle build. This enables **Sign in to Arcwright Connect** in the Settings
+sidebar and binds its browser authorization to `connect.arcwright.space`. The profile contains
+only public client configuration. APK and recovery builds retain their separate selections.
+
 Choose `T3CODE_CONNECT_MODE=legacy|owned|cloudless` before building. An absent mode keeps
 legacy behavior, including upstream example configuration and per-field process > `.env.local` >
 `.env` precedence. Private Arcwright managed access remains uncommissioned. The independent owned
