@@ -1,8 +1,6 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
 import { makeExecutionMemo } from "alchemy/Runtime/ExecutionMemo";
 import { resolveConnectionOptions } from "alchemy/SQL/PostgresTls";
 import { proxyChain } from "alchemy/Util/proxy-chain";
-import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -45,6 +43,11 @@ export const runtimePostgres = <E, R>(
 ) =>
   deferDatabase(
     Effect.gen(function* () {
+      // Driver initialization belongs to the event, not the Worker's startup
+      // CPU budget. Match Alchemy's deferred imports as well as its pool scope.
+      const [PgClient, PgDrizzle] = yield* Effect.promise(() =>
+        Promise.all([import("@effect/sql-pg/PgClient"), import("drizzle-orm/effect-postgres")]),
+      );
       const url = yield* connectionString;
       const context = yield* Layer.build(
         PgClient.layer({ ...resolveConnectionOptions(url), prepare: false }),
