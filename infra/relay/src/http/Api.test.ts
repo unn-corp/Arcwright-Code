@@ -62,7 +62,7 @@ import {
   unlinkEnvironmentRecord,
   verifyRelayClientBearerToken,
   verifyEnvironmentTunnelRecoveryProof,
-  withoutCapturedParentSpan,
+  withoutCapturedRequestContext,
 } from "./Api.ts";
 import * as RelayHttpApi from "./Api.ts";
 import * as RelayConfiguration from "../Config.ts";
@@ -1032,7 +1032,7 @@ describe("relay request tracing", () => {
           spanId: "0000000000000001",
           sampled: true,
         });
-        const endpoint = yield* withoutCapturedParentSpan(
+        const endpoint = yield* withoutCapturedRequestContext(
           Effect.context<never>().pipe(
             Effect.map((capturedContext: Context.Context<never>) =>
               Effect.succeed(HttpServerResponse.empty({ status: 204 })).pipe(

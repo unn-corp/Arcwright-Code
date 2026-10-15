@@ -366,13 +366,22 @@ export const traceRelayHttpRequestWith = <E, R, LayerError, LayerRequirements>(
     ),
   );
 
-export const withoutCapturedParentSpan = <A, E, R>(
+export const withoutCapturedRequestContext = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
   Effect.withFiber((fiber) => {
     const context = fiber.context;
-    // HttpApiBuilder captures its build context for route handlers; an event parent would outlive export.
-    fiber.setContext(Context.omit(Tracer.ParentSpan)(context));
+    // Workers build routes during the first fetch. HttpApiBuilder retains its
+    // build context, so a captured request would override the bounded request
+    // supplied for each call and reread the already-consumed ingress body.
+    fiber.setContext(
+      Context.omit(
+        Tracer.ParentSpan,
+        HttpServerRequest.HttpServerRequest,
+        HttpServerRequest.ParsedSearchParams,
+        HttpRouter.RouteContext,
+      )(context),
+    );
     return effect.pipe(Effect.ensuring(Effect.sync(() => fiber.setContext(context))));
   });
 
@@ -2175,5 +2184,5 @@ export const assembleRelayHttpRoutes = <A, E, R>(layerApp: Layer.Layer<A, E, R>)
   ).pipe(
     HttpRouter.toHttpEffect,
     Effect.provideService(HttpRouter.RouterConfig, RELAY_HTTP_ROUTER_CONFIG),
-    withoutCapturedParentSpan,
+    withoutCapturedRequestContext,
   );

@@ -46,6 +46,7 @@ function fixtureRoutes(
     limiter: Option.Option<RateLimits.PublicRelayRateLimits["Service"]>,
     identity: Option.Option<RateLimits.TrustedEdgeIdentity["Service"]>,
   ) => void,
+  decodeChallengePayload = false,
 ) {
   const handle = ({ request }: { readonly request: HttpServerRequest.HttpServerRequest }) =>
     Effect.gen(function* () {
@@ -104,7 +105,17 @@ function fixtureRoutes(
         )
         .handleRaw("listDevicesV2", handle)
         .handleRaw("linkEnvironment", handle)
-        .handleRaw("createEnvironmentLinkChallenge", handle)
+        .pipe((handlers) =>
+          decodeChallengePayload
+            ? handlers.handle("createEnvironmentLinkChallenge", ({ payload }) => {
+                calls.business++;
+                return Effect.succeed({
+                  challenge: JSON.stringify(payload),
+                  expiresAt: "2026-10-15T19:00:00.000Z",
+                });
+              })
+            : handlers.handleRaw("createEnvironmentLinkChallenge", handle),
+        )
         .handleRaw("unlinkEnvironment", handle)
         .handleRaw("releaseEnvironmentTunnel", handle),
     ),
@@ -261,9 +272,10 @@ function withBoundary(
   calls: ReturnType<typeof counts>,
   admit: RateLimits.PublicRelayRateLimits["Service"]["admit"] = () => Effect.void,
   routedDenial = false,
+  decodeChallengePayload = false,
 ) {
   return assemblePublicRelayHttp(
-    fixtureRoutes(calls, routedDenial),
+    fixtureRoutes(calls, routedDenial, undefined, decodeChallengePayload),
     Layer.succeed(RateLimits.PublicRelayRateLimits, {
       admit: (op, subject) => {
         calls.limiter++;
@@ -284,6 +296,48 @@ function withBoundary(
 }
 
 describe("production public relay boundary and route assembly", () => {
+  it.effect("decodes a real client environment-link challenge after bounded body admission", () =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const payload = {
+        notificationsEnabled: true,
+        liveActivitiesEnabled: true,
+        managedTunnelsEnabled: true,
+      };
+      const request = new Request("https://relay.test/v1/client/environment-link-challenges", {
+        method: "POST",
+        headers: { authorization: "Bearer fixture", "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      // Workers construct the exported router in the first fetch's context.
+      const endpoint = yield* withBoundary(calls, () => Effect.void, false, true).pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(request),
+        ),
+      );
+      const response = yield* send(endpoint, request);
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        challenge: JSON.stringify(payload),
+      });
+      const nextPayload = { ...payload, managedTunnelsEnabled: false };
+      const nextResponse = yield* send(
+        endpoint,
+        new Request(request.url, {
+          method: "POST",
+          headers: request.headers,
+          body: JSON.stringify(nextPayload),
+        }),
+      );
+      expect(nextResponse.status).toBe(200);
+      expect(yield* Effect.promise(() => nextResponse.json())).toMatchObject({
+        challenge: JSON.stringify(nextPayload),
+      });
+      expect(calls.business).toBe(2);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect.each([undefined, "0", "1", "65536"])(
     "counts actual65536/65537 bytes with CL %s",
     (declared) =>
