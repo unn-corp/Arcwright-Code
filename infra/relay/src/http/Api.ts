@@ -213,6 +213,10 @@ export const layerDocsRedirectRoute = HttpRouter.add(
 // contains the exact child span that stalled, and the response still carries
 // the traceparent back to the client.
 export const RELAY_REQUEST_DEADLINE_MS = 9_000;
+// Linking/unlinking owns several short database transactions around Cloudflare
+// tunnel and DNS calls. Give that bounded setup room to finish before the
+// corresponding client's 50s timeout, without extending ordinary API requests.
+export const RELAY_ENVIRONMENT_LINK_DEADLINE_MS = 45_000;
 /**
  * Webhook forwarding reads a body of up to 1 MiB, waits up to the upstream
  * timeout, and may then hold the request, so it needs more room than an API
@@ -220,12 +224,8 @@ export const RELAY_REQUEST_DEADLINE_MS = 9_000;
  */
 export const RELAY_HOOK_REQUEST_DEADLINE_MS = 25_000;
 
-const relayRequestDeadline = <E, R>(
-  httpEffect: Effect.Effect<
-    HttpServerResponse.HttpServerResponse,
-    E,
-    HttpServerRequest.HttpServerRequest | R
-  >,
+export const relayRequestDeadline = <A, E, R>(
+  httpEffect: Effect.Effect<A, E, HttpServerRequest.HttpServerRequest | R>,
   deadlineMs = RELAY_REQUEST_DEADLINE_MS,
 ) =>
   httpEffect.pipe(
@@ -248,7 +248,7 @@ const relayRequestDeadline = <E, R>(
               { status: 504 },
             );
           }),
-        onSome: Effect.succeed,
+        onSome: (value: A) => Effect.succeed<A | HttpServerResponse.HttpServerResponse>(value),
       }),
     ),
   );
@@ -289,11 +289,18 @@ export const traceRelayHttpRequest = <E, R>(
       remoteAddress: Option.none(),
     });
     if (!isRelayHookPath(request.url) && !isRelayHookRequest(request.method, request.url)) {
+      const path = request.url.split("?", 1)[0] ?? "";
+      const environmentLinkMutation =
+        (request.method === "POST" && path === "/v1/client/environment-links") ||
+        (request.method === "DELETE" && /^\/v1\/client\/environment-links\/[^/]+$/.test(path));
       return yield* HttpMiddleware.tracer(
         appendRelayTraceContextResponseHeader.pipe(
           Effect.andThen(
             relayRequestDeadline(
               httpEffect.pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request)),
+              environmentLinkMutation
+                ? RELAY_ENVIRONMENT_LINK_DEADLINE_MS
+                : RELAY_REQUEST_DEADLINE_MS,
             ),
           ),
         ),

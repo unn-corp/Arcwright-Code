@@ -17,6 +17,7 @@ import {
   traceRelayHttpRequestWith,
   relayPublicLimitError,
   assembleRelayHttpRoutes,
+  relayRequestDeadline,
 } from "./Api.ts";
 import { isRelayHookPath } from "../hooks/HookForwarder.ts";
 import * as Layer from "effect/Layer";
@@ -161,8 +162,7 @@ function validBodyInput(bytes: Uint8Array, contentTypeHeader: string | undefined
   }
 }
 
-const boundedBoundary = <E, R>(
-  router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+const admitPublicRelayRequest = (
   request: HttpServerRequest.HttpServerRequest,
   original: Request | undefined,
   aborted: Deferred.Deferred<void>,
@@ -184,15 +184,13 @@ const boundedBoundary = <E, R>(
     if (publicRelayHeaderFailure(request.headers)) return early(431);
     if (request.method === "OPTIONS") {
       if (original) cancelBody(original);
-      return isRelayHookPath(request.url)
-        ? yield* router
-        : HttpServerResponse.empty({ status: 204 });
+      return isRelayHookPath(request.url) ? request : HttpServerResponse.empty({ status: 204 });
     }
     const route = classifyPublicRelayRoute(request.method, request.url);
     if (!route) {
       // Static metadata is bounded but does not drain a body or authenticate; unknowns retain router status.
       if (original) cancelBody(original);
-      return yield* router;
+      return request;
     }
     if (original?.signal.aborted) return early(400);
     const identity = yield* PublicRelayRateLimits.TrustedEdgeIdentity;
@@ -240,9 +238,7 @@ const boundedBoundary = <E, R>(
       headers: request.headers,
       remoteAddress: request.remoteAddress,
     });
-    return yield* router.pipe(
-      Effect.provideService(HttpServerRequest.HttpServerRequest, boundedEffect),
-    );
+    return boundedEffect;
   });
 
 const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
@@ -265,7 +261,18 @@ const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerRespo
         original?.signal.addEventListener("abort", abort, { once: true });
         if (original?.signal.aborted) abort();
       }),
-      () => boundedBoundary(router, request, original, aborted),
+      () =>
+        Effect.gen(function* () {
+          // Tunnel setup gets a longer handler budget; unread ingress and
+          // edge admission retain the ordinary nine-second limit.
+          const admission = yield* relayRequestDeadline(
+            admitPublicRelayRequest(request, original, aborted),
+          );
+          if (HttpServerResponse.isHttpServerResponse(admission)) return admission;
+          return yield* router.pipe(
+            Effect.provideService(HttpServerRequest.HttpServerRequest, admission),
+          );
+        }),
       () =>
         Effect.sync(() => {
           original?.signal.removeEventListener("abort", abort);

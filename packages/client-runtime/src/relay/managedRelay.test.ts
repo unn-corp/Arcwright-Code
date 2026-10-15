@@ -542,6 +542,34 @@ describe("ManagedRelayClient", () => {
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), layerManagedRelayTest(fetchFn))));
   });
 
+  it.effect("allows tunnel setup beyond 10 seconds but still bounds a stalled link", () => {
+    const fetchFn = (() =>
+      new Promise<Response>(() => undefined)) satisfies typeof globalThis.fetch;
+    return Effect.gen(function* () {
+      const relayClient = yield* ManagedRelay.ManagedRelayClient;
+      const fiber = yield* relayClient
+        .linkEnvironment({
+          clerkToken: "clerk-token",
+          payload: {
+            proof: "link-proof",
+            notificationsEnabled: true,
+            liveActivitiesEnabled: true,
+            managedTunnelsEnabled: true,
+          },
+        })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("12 seconds");
+      expect(fiber.pollUnsafe()).toBeUndefined();
+      yield* TestClock.adjust("38 seconds");
+      expect(yield* Fiber.join(fiber)).toMatchObject({
+        _tag: "ManagedRelayRequestTimeoutError",
+        activity: "Relay environment linking",
+        timeoutMs: 50_000,
+      });
+    }).pipe(Effect.provide(Layer.merge(TestClock.layer(), layerManagedRelayTest(fetchFn))));
+  });
+
   it.effect("suggests checking network filtering when fetch fails without a response", () => {
     const fetchFn = (() =>
       Promise.reject(new TypeError("Failed to fetch"))) satisfies typeof globalThis.fetch;

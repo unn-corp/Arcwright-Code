@@ -1100,6 +1100,42 @@ describe("relay request tracing", () => {
     }),
   );
 
+  it.effect("lets managed tunnel setup finish after the ordinary request deadline", () =>
+    Effect.gen(function* () {
+      for (const [method, path] of [
+        ["POST", "/v1/client/environment-links"],
+        ["DELETE", "/v1/client/environment-links/fixture-env"],
+      ] as const) {
+        const request = HttpServerRequest.fromWeb(
+          new Request(`https://relay.test${path}`, { method }),
+        );
+        const fiber = yield* traceRelayHttpRequestWith(
+          Effect.sleep("12 seconds").pipe(Effect.as(HttpServerResponse.empty({ status: 200 }))),
+          Layer.empty,
+        ).pipe(
+          Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust("12 seconds");
+        expect((yield* Fiber.join(fiber)).status).toBe(200);
+      }
+    }),
+  );
+
+  it.effect("still cancels stalled tunnel setup before the client's longer timeout", () =>
+    Effect.gen(function* () {
+      const request = HttpServerRequest.fromWeb(
+        new Request("https://relay.test/v1/client/environment-links", { method: "POST" }),
+      );
+      const fiber = yield* traceRelayHttpRequestWith(Effect.never, Layer.empty).pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("45 seconds");
+      expect((yield* Fiber.join(fiber)).status).toBe(504);
+    }),
+  );
+
   it.effect("fails hung requests with a 504 before the client's 10s abort", () =>
     Effect.gen(function* () {
       const spans: Array<Tracer.NativeSpan> = [];

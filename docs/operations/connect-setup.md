@@ -253,6 +253,16 @@ delivery remain later gates; a hosted build or page deployment must not claim th
 
 ## Owned database and tunnel operations
 
+The Worker database stays lazy and scoped to each event. Transaction guards must resolve
+the concrete client's transaction tag through `runtimePostgres.transactionActive`; reading
+`transactionService` directly from a deferred Alchemy proxy does not identify the active
+transaction. Concrete database fixtures use the same helper without a deferred wrapper.
+
+Environment linking and unlinking have a 45-second relay deadline and a 50-second client
+timeout for their database, tunnel and DNS operations. Public ingress admission and body
+reading keep the ordinary nine-second deadline, as do other API requests. A first-time
+tunnel can take longer than the ordinary request budget even when every step succeeds.
+
 The owned PostgreSQL database and its tunnel are commissioned as the Dokploy-managed **Database and
 Tunnel** application under **Mothership → Arcwright Connect → production**. Operate its compose
 configuration, private environment and redeployments through Dokploy; retain the TLS roles and
