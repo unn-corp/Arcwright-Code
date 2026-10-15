@@ -401,6 +401,10 @@ The host-runtime suite runs real Git operations on both supported host platforms
 uses `NUL` to disable global configuration; Node's extended Windows null-device path is rejected
 by Git for Windows. Unix hosts retain `/dev/null`, and system configuration and inherited Git
 overrides remain disabled.
+Content-validation fixtures also avoid reserved Windows device names: the NUL-byte fixture
+is `contains-nul.js`, so Git commits an actual file before the reader must reject its contents.
+After a host-runtime failure, run the complete `host-runtime` safety diagnostic on both
+supported hosts before commissioning replacement packages.
 
 An Android installation timeout still fails the package gate. Its failure report includes the
 process exit, signal and spawn error, plus bounded, redacted package-manager logs and package

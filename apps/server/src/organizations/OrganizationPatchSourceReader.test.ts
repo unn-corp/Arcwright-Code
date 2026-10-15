@@ -169,10 +169,10 @@ it.effect("rejects symlinks, oversized blobs, invalid UTF-8 and NUL", () =>
         NodeFSP.writeFile(NodePath.join(root, "binary.js"), Buffer.from([0xff, 0xfe])),
       );
       yield* Effect.promise(() =>
-        NodeFSP.writeFile(NodePath.join(root, "nul.js"), Buffer.from([65, 0, 66])),
+        NodeFSP.writeFile(NodePath.join(root, "contains-nul.js"), Buffer.from([65, 0, 66])),
       );
       const selectedPlan = plan(root, commit(root));
-      for (const path of ["link.js", "large.js", "binary.js", "nul.js"])
+      for (const path of ["link.js", "large.js", "binary.js", "contains-nul.js"])
         assert.equal(yield* rejectedCode(selectedPlan, path), "invalid", path);
     }),
   ),
