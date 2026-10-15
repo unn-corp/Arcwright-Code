@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 
 import { relayResourceNameForStage } from "./deploymentConfig.ts";
+import { relayTracingEnabledConfig } from "./deploymentOptions.ts";
 
 const relayRecentSpansQuery = (dataset: string) =>
   [
@@ -22,6 +23,7 @@ const relayRecentSpansQuery = (dataset: string) =>
   ].join("\n");
 
 export const RelayObservability = Effect.gen(function* () {
+  if (!(yield* relayTracingEnabledConfig)) return null;
   const { stage } = yield* Alchemy.Stack;
   const traces = yield* Axiom.Dataset("RelayTracesDataset", {
     name: relayResourceNameForStage("t3-code-relay-traces", stage),

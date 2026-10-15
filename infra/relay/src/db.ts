@@ -8,8 +8,11 @@ import type { EffectPgDatabase } from "drizzle-orm/effect-postgres";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 
 import { relayDatabaseMode } from "./dbConfig.ts";
+import { relayDatabaseProviderConfig, relayHyperdriveIdConfig } from "./deploymentOptions.ts";
 
 export class RelayDb extends Context.Service<
   RelayDb,
@@ -82,4 +85,43 @@ export const RelayHyperdrive = Effect.gen(function* () {
     },
     originConnectionLimit: 40,
   });
+});
+
+class RelayHyperdriveBindingMissing extends Schema.TaggedError<RelayHyperdriveBindingMissing>()(
+  "RelayHyperdriveBindingMissing",
+  {},
+) {}
+
+export const externalHyperdriveConnectionString = Effect.gen(function* () {
+  const environment = yield* Cloudflare.WorkerEnvironment;
+  const binding: unknown = environment.RELAY_EXTERNAL_HYPERDRIVE;
+  if (
+    typeof binding !== "object" ||
+    binding === null ||
+    !("connectionString" in binding) ||
+    typeof binding.connectionString !== "string" ||
+    binding.connectionString.length === 0
+  )
+    return yield* new RelayHyperdriveBindingMissing();
+  return Redacted.make(binding.connectionString);
+});
+
+/** Bind an operator-owned Hyperdrive without adopting or reprovisioning its database. */
+export const connectRelayHyperdrive = Effect.gen(function* () {
+  if ((yield* relayDatabaseProviderConfig) === "planetscale") {
+    return yield* Cloudflare.Hyperdrive.Connect(yield* RelayHyperdrive);
+  }
+  const id = yield* relayHyperdriveIdConfig;
+  const worker = yield* Cloudflare.Workers.Worker;
+  if (!globalThis.__ALCHEMY_RUNTIME__) {
+    yield* worker.bind("RelayExternalHyperdrive", {
+      bindings: [{ type: "hyperdrive", name: "RELAY_EXTERNAL_HYPERDRIVE", id }],
+    });
+  }
+  const environment = yield* Cloudflare.WorkerEnvironment;
+  return {
+    connectionString: externalHyperdriveConnectionString.pipe(
+      Effect.provideService(Cloudflare.WorkerEnvironment, environment),
+    ),
+  };
 });

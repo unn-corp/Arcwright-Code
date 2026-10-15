@@ -4,6 +4,48 @@ Deployment and client configuration for Arcwright Connect. The [architecture not
 explains the trust boundaries; the [relay README](../../infra/relay/README.md#deployment) owns relay
 provisioning instructions.
 
+## Deploy the existing relay on owned infrastructure
+
+Use `infra/relay/alchemy.run.ts`, the upstream relay stack. Account linking, connection
+credentials, queues, notifications and managed endpoints use the existing implementation.
+For an already provisioned PostgreSQL database, select its Hyperdrive binding instead of
+provisioning PlanetScale. Keep these operator settings and all secrets in a private env file:
+
+```dotenv
+RELAY_DATABASE_PROVIDER=existing-hyperdrive
+RELAY_HYPERDRIVE_ID=<existing Hyperdrive ID>
+RELAY_API_ZONE_NAME=arcwright.space
+RELAY_TUNNEL_ZONE_NAME=arcwright.space
+RELAY_DOMAIN=relay.arcwright.space
+RELAY_ZONE_OWNER_STAGE=devotek-pilot
+RELAY_TRACING_ENABLED=false
+RELAY_RUNTIME_TOKEN_MODE=existing
+RELAY_TUNNEL_API_TOKEN=<existing account tunnel token>
+RELAY_DNS_API_TOKEN=<existing zone DNS token>
+APNS_ENABLED=false
+```
+
+Supply the Clerk, JWT audience, VAPID and Cloudflare deployment credentials documented below.
+The existing-token mode uses Alchemy's public tunnel/DNS clients without minting new runtime
+tokens. Tracing can stay disabled without an Axiom account; the client config output clears
+old tracing endpoints and tokens. Omitting these overrides preserves the upstream defaults.
+
+Set `ARCWRIGHT_CONNECT_RELAY_STATE_ROOT` to a private Alchemy state directory and
+`T3CODE_RELAY_CLIENT_CONFIG_ENV` to a private output file. This keeps reversible secret state
+and generated client configuration out of the checkout. Run the same stack and stage for
+both commands:
+
+```sh
+alchemy plan --config "$REPO/infra/relay/alchemy.run.ts" --stage devotek-pilot --env-file "$CONNECT_PRIVATE_ROOT/deployment.env"
+alchemy deploy --config "$REPO/infra/relay/alchemy.run.ts" --stage devotek-pilot --env-file "$CONNECT_PRIVATE_ROOT/deployment.env"
+```
+
+Apply the repository's PostgreSQL migrations using the existing migration role before the
+Worker uses the external database; the runtime role remains DML-only. Build clients with the
+existing owned public profile and retain the standalone APK's native sign-in and notification
+adapters. Automatic account-deletion and route-enrollment extensions are separate features,
+not prerequisites for this upstream-based setup.
+
 ## Public application configuration
 
 Choose `T3CODE_CONNECT_MODE=legacy|owned|cloudless` before building. An absent mode keeps
@@ -262,9 +304,9 @@ configured limiter bindings reach both the outer boundary and router. Binding te
 establish exact global budgets or replace atomic SQL quota reservations.
 
 Atomic admission, coordinated lifecycle writers and public request limits are implemented in
-source and verified locally. Deletion operations, owned runtime/build validation,
-application migrations, service commissioning and device validation remain pending; this change
-applies no production migration and does not make the owned relay ready.
+source and verified locally. The upstream-based deployment adapter supports the existing owned
+database and runtime credentials. Application migrations, the actual deployment and device
+validation need their own operator receipts; source checks alone do not establish live readiness.
 
 The durable lifecycle protocol is wired through the provider and all managed runtime callers.
 Generic schema and migration defaults remain `legacy_unverified` with unresolved resource presence;

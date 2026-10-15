@@ -22,6 +22,8 @@ import {
 import * as RelayHttpApi from "./http/Api.ts";
 import { ManagedEndpointZone, RelayApiZone, RelayDeploymentConfig } from "./zone.ts";
 import { RelayObservability } from "./observability.ts";
+import { relayRuntimeTokenModeConfig } from "./deploymentOptions.ts";
+import { existingRuntimeCloudflareClients } from "./runtimeCloudflareAuth.ts";
 import * as Observability from "./observability.ts";
 import * as DeliveryAttempts from "./agentActivity/DeliveryAttempts.ts";
 import * as AgentActivityRows from "./agentActivity/AgentActivityRows.ts";
@@ -132,7 +134,6 @@ export const layer = Api.make(
     const managedEndpointZone = yield* ManagedEndpointZone;
     const randomApnsDeliveryJobSigningSecret = yield* ApnsDeliveryJobSigningSecret;
     const randomWebPushDeliveryJobSigningSecret = yield* WebPushDeliveryJobSigningSecret;
-    const observability = yield* RelayObservability;
 
     //
     // 2. Create bindings
@@ -169,7 +170,7 @@ export const layer = Api.make(
 
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
-    const hyperdrive = yield* Cloudflare.Hyperdrive.Connect(yield* RelayDb.RelayHyperdrive);
+    const hyperdrive = yield* RelayDb.connectRelayHyperdrive;
     // Named prepared statements collide behind Hyperdrive's transaction-mode
     // pool: sql-pg < 4.0.0-rc.117 names them `effect1..N` per connection, and
     // inside a transaction a Bind can reach another request's statement
@@ -178,10 +179,18 @@ export const layer = Api.make(
       prepare: false,
     });
 
-    const managedEndpointTunnelBinding = yield* Cloudflare.Tunnel.ReadWriteTunnel();
+    const existingClients =
+      (yield* relayRuntimeTokenModeConfig) === "existing"
+        ? yield* existingRuntimeCloudflareClients(yield* managedEndpointZone.zoneId)
+        : null;
+    const managedEndpointTunnelBinding = existingClients
+      ? existingClients.tunnels
+      : yield* Cloudflare.Tunnel.ReadWriteTunnel();
     // Keep Worker custom-domain reconciliation ordered after API zone provisioning.
     yield* yield* relayApiZone.zoneId;
-    const managedEndpointDnsBinding = yield* Cloudflare.DNS.ReadWriteDns(managedEndpointZone);
+    const managedEndpointDnsBinding = existingClients
+      ? existingClients.dns
+      : yield* Cloudflare.DNS.ReadWriteDns(managedEndpointZone);
     const managedEndpointZoneName = yield* managedEndpointZone.name;
     const managedEndpointCleanupMode = yield* RelayConfiguration.managedEndpointCleanupModeConfig;
     const legacyManagedEndpointCleanupMode =
@@ -552,11 +561,13 @@ export const layer = Api.make(
         Layer.provideMerge(
           Layer.unwrap(
             Effect.map(RelayObservability, (observability) =>
-              Axiom.Telemetry({
-                serviceName: "t3code-relay",
-                token: observability.workerIngestToken,
-                traces: observability.traces,
-              }),
+              observability === null
+                ? Layer.empty
+                : Axiom.Telemetry({
+                    serviceName: "t3code-relay",
+                    token: observability.workerIngestToken,
+                    traces: observability.traces,
+                  }),
             ),
           ),
         ),
