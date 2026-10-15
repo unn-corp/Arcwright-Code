@@ -73,7 +73,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
   withAccess?: CursorAuth["withAccess"],
 ) {
   const fs = yield* FileSystem.FileSystem;
-  const { Agent } = yield* CursorSdk.CursorSdk;
+  const { Agent, SqliteLocalAgentStore } = yield* CursorSdk.CursorSdk;
   const resolvedEnvironment = environment ?? process.env;
 
   const resolveCursorApiKey = (operation: CursorTextGenerationOperation) =>
@@ -121,12 +121,21 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         });
       }
       const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cursor-text-" });
+      // The SDK keeps SQLite handles open after `agent.close()` and only releases
+      // them from a store the caller disposes. Its state lives outside `cwd` so the
+      // agent's workspace stays empty.
+      const stateRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cursor-text-state-" });
+      const store = yield* Effect.acquireRelease(
+        Effect.tryPromise(() => SqliteLocalAgentStore.open({ workspaceRef: cwd, stateRoot })),
+        (store) => Effect.tryPromise(() => store.dispose()).pipe(Effect.ignore({ log: true })),
+      );
       const agentOptions = {
         apiKey,
         mode: "plan",
         model: cursorSdkModelSelection(modelSelection),
         local: {
           cwd,
+          store,
           autoReview: false,
           sandboxOptions: { enabled: true },
           settingSources: [],
@@ -220,6 +229,8 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         }),
       );
     }).pipe(
+      // Scope this call inside `withAccess`, so sign-out closes the agent before its store.
+      Effect.scoped,
       (effect) => (withAccess ? withAccess(effect) : effect),
       Effect.scoped,
       Effect.mapError((cause) =>

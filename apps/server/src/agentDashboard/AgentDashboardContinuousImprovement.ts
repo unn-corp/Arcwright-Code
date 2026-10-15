@@ -698,7 +698,7 @@ const make = Effect.gen(function* () {
             );
             yield* store
               .appendExternalAction({
-                id: `action:continuous-improvement-stale:${yield* crypto.randomUUIDv4}`,
+                id: `action:continuous-improvement-stale:${yield* crypto.randomUUIDv4()}`,
                 kind: "other",
                 status: "succeeded",
                 actor: "continuous-improvement",
@@ -822,7 +822,7 @@ const make = Effect.gen(function* () {
           );
           yield* store
             .appendExternalAction({
-              id: `action:continuous-improvement-pr:${yield* crypto.randomUUIDv4}`,
+              id: `action:continuous-improvement-pr:${yield* crypto.randomUUIDv4()}`,
               kind: "other",
               status: "succeeded",
               actor: "continuous-improvement",
@@ -1080,7 +1080,7 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const createdAt = yield* nowIso;
       const queued = createContinuousImprovementRun({
-        id: `implementation:${yield* crypto.randomUUIDv4}`,
+        id: `implementation:${yield* crypto.randomUUIDv4()}`,
         finding: input.finding,
         model: modelLabel(input.automationSettings.modelSelection),
         createdAt,

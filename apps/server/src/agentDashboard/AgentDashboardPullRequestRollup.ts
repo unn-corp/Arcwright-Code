@@ -355,7 +355,7 @@ const make = Effect.gen(function* () {
     });
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-  const randomId = crypto.randomUUIDv4.pipe(
+  const randomId = crypto.randomUUIDv4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardPullRequestRollupError({

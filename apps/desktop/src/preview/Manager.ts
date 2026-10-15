@@ -2185,7 +2185,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     function* (tabId: string) {
       return yield* Effect.gen(function* () {
         const wc = yield* requireWebContents(tabId);
-        const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+        const requestId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
         let navigated = false;
         const onNavigation = (
           event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
@@ -2638,7 +2638,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc,
       ),
     ]);
-    const uuid = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    const uuid = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
     const id = `browser-screenshot-${artifactSiteSlug(wc.getURL())}-${millis.toString(36)}-${uuid.slice(0, 8)}`;
     const artifactPath = path.join(resolvedArtifactDirectory, `${id}.png`);
     const data = image.toPNG();

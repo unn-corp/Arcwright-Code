@@ -65,14 +65,23 @@ type UpdateButtonProps = Pick<ComponentProps<typeof Button>, "variant" | "size" 
   readonly appearance?: "button" | "icon";
 };
 
+export type ServerUpdateOutcome =
+  | { readonly status: "updated" | "skipped" | "waiting" }
+  | { readonly status: "failed"; readonly message: string };
+
 export function useServerUpdate() {
-  return async (target: ServerUpdateTarget, failureTitle = "Server update failed") => {
+  return async (
+    target: ServerUpdateTarget,
+    options: string | { readonly quiet?: boolean } = "Server update failed",
+  ): Promise<ServerUpdateOutcome> => {
+    const quiet = typeof options === "object" && options.quiet === true;
+    const failureTitle = typeof options === "string" ? options : "Server update failed";
     const { environmentId, serverLabel } = target;
     if (
       !canUpdateServer(appAtomRegistry.get(environmentSession.sessionStateAtom(environmentId))) ||
       pendingUpdateEnvironmentIds.has(environmentId)
     )
-      return;
+      return { status: "skipped" };
     pendingUpdateEnvironmentIds.add(environmentId);
     try {
       const controller = hostForkUpdateController(environmentId);
@@ -84,17 +93,29 @@ export function useServerUpdate() {
               targetArtifactSha256: checked.targetBuild.artifactSha256,
             })
           : checked;
-      toastManager.add({
-        type: result.phase === "failed" ? "error" : "info",
-        title: `${serverLabel}: ${result.phase}`,
-        description: forkStatusDescription(result),
-      });
+      if (!quiet)
+        toastManager.add({
+          type: result.phase === "failed" ? "error" : "info",
+          title: `${serverLabel}: ${result.phase}`,
+          description: forkStatusDescription(result),
+        });
+      if (result.phase === "failed")
+        return { status: "failed", message: forkStatusDescription(result) };
+      if (checked.targetBuild === null) return { status: "skipped" };
+      return {
+        status:
+          result.currentBuild.artifactSha256 === checked.targetBuild.artifactSha256
+            ? "updated"
+            : "waiting",
+      };
     } catch (error) {
+      const message = updateFailureMessage(error);
       toastManager.add({
         type: "error",
-        title: failureTitle,
-        description: updateFailureMessage(error),
+        title: `${serverLabel}: ${failureTitle}`,
+        description: message,
       });
+      return { status: "failed", message };
     } finally {
       pendingUpdateEnvironmentIds.delete(environmentId);
     }
@@ -164,7 +185,7 @@ export function canUpdateServer(
 
 /**
  * One-row status for an in-flight server update: "Downloading…" then
- * "Restarting…". The update is a wait, not a warning: a single pulsing dot
+ * "Restarting…". The update is a wait, not a warning: a single static dot
  * and label, no step rail, no versions. Failure turns the row red with the
  * rollback reason.
  */
@@ -186,10 +207,7 @@ export function ServerUpdateProgress({
   }
   return (
     <div className="mt-1 flex items-center gap-2 text-xs font-medium text-foreground">
-      <span
-        className="size-1.5 shrink-0 animate-status-pulse rounded-full bg-foreground"
-        aria-hidden="true"
-      />
+      <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-hidden="true" />
       <span>{serverUpdateStageLabel(state.stage)}</span>
     </div>
   );

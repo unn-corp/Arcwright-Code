@@ -357,7 +357,7 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const dashboardStore = AgentDashboardStore.getStore(config.stateDir);
 
-  const randomUuid = crypto.randomUUIDv4.pipe(
+  const randomUuid = crypto.randomUUIDv4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardReviewRunnerError({

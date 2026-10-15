@@ -91,7 +91,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useThreadShells, waitForProjectRemoval } from "../../state/entities";
 import { agentDashboardEnvironment } from "../../state/agentDashboard";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
@@ -963,6 +963,7 @@ function ProjectDetail({
           return;
         }
         const projectRef = scopeProjectRef(member.environmentId, member.id);
+        await waitForProjectRemoval(projectRef);
         releaseProjectDraftUploads(
           projectRef,
           memberThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),

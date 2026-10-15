@@ -1853,7 +1853,9 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
   const {
     isSignedIn,
     linkState: primaryCloudLinkState,
+    linkRevoked,
     managedTunnelActive,
+    managedTunnelOutOfSync,
     publishAgentActivity,
     holdWebhooksWhileOffline,
     operationError,
@@ -1958,9 +1960,13 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
             <SettingsRow
               title={searchableSetting("t3-connect").title}
               description={
-                managedTunnelActive
-                  ? "This environment is available to your other devices through Arcwright Connect."
-                  : "Make this environment available to your other devices through Arcwright Connect."
+                linkRevoked
+                  ? "This environment was removed from Arcwright Connect. Turn it on to link it again."
+                  : managedTunnelOutOfSync
+                    ? "Arcwright Connect is out of sync. Turn it on to repair remote access."
+                    : managedTunnelActive
+                      ? "This environment is available to your other devices through Arcwright Connect."
+                      : "Make this environment available to your other devices through Arcwright Connect."
               }
               status={
                 operationError ??

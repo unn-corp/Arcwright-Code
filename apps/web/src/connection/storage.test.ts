@@ -144,6 +144,14 @@ describe("environment cache removal", () => {
           const transaction = Object.assign(new EventTarget(), {
             error: new DOMException("Commit aborted", "AbortError"),
             objectStore: () => ({
+              get: () => {
+                const request = Object.assign(new EventTarget(), {
+                  result: undefined,
+                  error: null,
+                });
+                queueMicrotask(() => request.dispatchEvent(new Event("success")));
+                return request;
+              },
               delete: () => queueMicrotask(() => transaction.dispatchEvent(new Event("abort"))),
               openCursor: () => {
                 queueMicrotask(() => transaction.dispatchEvent(new Event("abort")));
@@ -189,14 +197,14 @@ describe("IndexedDB connection recovery", () => {
       });
       vi.stubGlobal("indexedDB", { open });
 
-      yield* Effect.gen(function* () {
-        const cache = yield* Persistence.EnvironmentCacheStore;
-        expect(open).not.toHaveBeenCalled();
-        const error = yield* Effect.flip(
-          cache.loadThread(EnvironmentId.make("env"), ThreadId.make("thread")),
-        );
-        expect(error.message).toContain("Storage is unavailable");
-      }).pipe(Effect.provide(ConnectionStorage.layer));
+      // Environment names initialize from the catalog, so acquisition now opens
+      // IndexedDB eagerly. Its failure must remain visible to the caller.
+      const error = yield* Effect.flip(
+        Effect.gen(function* () {
+          return yield* Persistence.EnvironmentCacheStore;
+        }).pipe(Effect.provide(ConnectionStorage.layer)),
+      );
+      expect(error.message).toContain("Storage is unavailable");
 
       expect(open).toHaveBeenCalledOnce();
     }),

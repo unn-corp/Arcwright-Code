@@ -1,3 +1,5 @@
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -49,6 +51,8 @@ it.effect("allows only the current provider to select a direct reply and namespa
     let live = true;
     const dispatched: OrchestrationV2ServerCommand[] = [];
     const dependencies = Layer.mergeAll(
+      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
       NodeServices.layer,
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(shell),

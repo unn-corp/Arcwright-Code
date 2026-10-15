@@ -1,5 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { AuthSessionState, type EnvironmentId, type ForkUpdateStatus } from "@t3tools/contracts";
+import {
+  AuthSessionState,
+  FORK_ACTIVITY_PROTOCOL,
+  type EnvironmentId,
+  type ForkUpdateStatus,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -47,13 +52,14 @@ import {
   ServerUpdateAction,
   ServerUpdatesAction,
   serverUpdateStageLabel,
+  ServerUpdateProgress,
 } from "./ServerUpdateAction";
 const capability = {
   protocol: 1 as const,
   coordinatorId: "device",
   participantId: "service",
   admission: true,
-  activityProtocol: 2,
+  activityProtocol: FORK_ACTIVITY_PROTOCOL,
   recovery: true,
 };
 const build = {
@@ -163,5 +169,63 @@ describe("server update actions", () => {
   it("keeps installing distinct from downloading", () => {
     expect(serverUpdateStageLabel("installing")).toBe("Installing…");
     expect(serverUpdateStageLabel("downloading")).toBe("Downloading…");
+  });
+});
+
+describe("ServerUpdateProgress", () => {
+  it("shows one calm status row for the restart wait", () => {
+    const markup = renderToStaticMarkup(
+      <ServerUpdateProgress
+        state={{
+          status: "running",
+          stage: "resuming",
+          fromVersion: "0.0.30",
+          targetVersion: "0.0.31",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Restarting…");
+    // The wait state is monochrome and calm: no versions, no step rail, no
+    // success/warning colors, and a static dot that never repaints.
+    expect(markup).not.toContain("0.0.30");
+    expect(markup).not.toContain("Resum");
+    expect(markup).not.toContain("text-success");
+    expect(markup).not.toContain("text-primary");
+    expect(markup).not.toContain("animate-");
+  });
+
+  it("keeps the installation handoff distinct from the download phase", () => {
+    const markup = renderToStaticMarkup(
+      <ServerUpdateProgress
+        state={{
+          status: "running",
+          stage: "installing",
+          fromVersion: "0.0.30",
+          targetVersion: "0.0.31",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Installing…");
+    expect(markup).not.toContain("Downloading…");
+  });
+
+  it("keeps the failure visible with its retryable error", () => {
+    const markup = renderToStaticMarkup(
+      <ServerUpdateProgress
+        state={{
+          status: "failed",
+          stage: "installing",
+          fromVersion: "0.0.30",
+          targetVersion: "0.0.31",
+          message: "The package could not be verified.",
+        }}
+      />,
+    );
+
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("The package could not be verified.");
+    expect(markup).not.toContain("animate-status-pulse");
   });
 });

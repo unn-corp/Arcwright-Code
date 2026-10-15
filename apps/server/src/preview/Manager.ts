@@ -254,7 +254,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   const releaseShare = (threadId: string, tabId: string) =>
     Option.isSome(publisher) ? publisher.value.release(compositeKey(threadId, tabId)) : Effect.void;
   const crypto = yield* Crypto.Crypto;
-  const serverEpoch = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+  const serverEpoch = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
   const stateRef = yield* SynchronizedRef.make<ManagerState>(initialState);
   // Unbounded PubSub is fine here — events are tiny and we don't want to
   // block publishers if a subscriber is slow. WS clients backpressure on
@@ -534,34 +534,6 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     },
   );
 
-  const requestReveal: PreviewManager["Service"]["requestReveal"] = Effect.fn(
-    "PreviewManager.requestReveal",
-  )(function* (input) {
-    yield* mutateExistingSession(
-      input.threadId,
-      input.tabId,
-      Effect.fn("PreviewManager.revealSession")(function* (session) {
-        const snapshot = {
-          ...session.snapshot,
-          reveal: true,
-          revealRequest: { id: yield* crypto.randomUUIDv4.pipe(Effect.orDie), force: input.force },
-          updatedAt: yield* currentIsoTimestamp,
-        };
-        return {
-          next: { ...session, snapshot },
-          emit: {
-            type: "navigated" as const,
-            threadId: session.threadId,
-            tabId: session.tabId,
-            createdAt: snapshot.updatedAt,
-            snapshot,
-          },
-          result: undefined,
-        };
-      }),
-    );
-  });
-
   const refresh: PreviewManager["Service"]["refresh"] = Effect.fn("PreviewManager.refresh")(
     function* (input) {
       // Verify the session exists; the desktop bridge handles the actual reload
@@ -771,6 +743,37 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       );
     },
   );
+
+  const requestReveal: PreviewManager["Service"]["requestReveal"] = Effect.fn(
+    "PreviewManager.requestReveal",
+  )(function* (input) {
+    yield* mutateExistingSession(
+      input.threadId,
+      input.tabId,
+      Effect.fn("PreviewManager.revealSession")(function* (session) {
+        const snapshot = {
+          ...session.snapshot,
+          reveal: true,
+          revealRequest: {
+            id: yield* crypto.randomUUIDv4().pipe(Effect.orDie),
+            force: input.force,
+          },
+          updatedAt: yield* currentIsoTimestamp,
+        };
+        return {
+          next: { ...session, snapshot },
+          emit: {
+            type: "navigated" as const,
+            threadId: session.threadId,
+            tabId: session.tabId,
+            createdAt: snapshot.updatedAt,
+            snapshot,
+          },
+          result: undefined,
+        };
+      }),
+    );
+  });
 
   return PreviewManager.of({
     open,

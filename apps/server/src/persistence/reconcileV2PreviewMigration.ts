@@ -40,6 +40,7 @@ const upstreamMigrationTargets = new Map<string, number>([
   ["McpAppModelContext", 104],
   ["ThreadSnapshotWindowIndexes", 105],
   ["PullRequestReviewGuides", 106],
+  ["ThreadFailureLookupIndex", 108],
 ]);
 
 const previewMigrationTargets = new Map<string, number>([
@@ -91,7 +92,7 @@ export const reconcileV2PreviewMigration = Effect.fn("reconcileV2PreviewMigratio
         }
         const upstreamRows = history.filter((row) => row.migration_id >= 36);
         const valid = upstreamRows.every((row) => {
-          if (row.migration_id <= 61) {
+          if (row.migration_id <= 62) {
             const expectedName = upstreamMigrationNames.get(row.migration_id);
             return expectedName === row.name;
           }
@@ -250,4 +251,5 @@ const upstreamMigrationNames = new Map<number, string>([
   [59, "McpAppModelContext"],
   [60, "ThreadSnapshotWindowIndexes"],
   [61, "PullRequestReviewGuides"],
+  [62, "ThreadFailureLookupIndex"],
 ]);

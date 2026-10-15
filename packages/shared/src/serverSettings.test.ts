@@ -96,6 +96,7 @@ describe("serverSettings helpers", () => {
       conversationEvidenceOnArchive: false,
       conversationEvidenceAfterDays: null,
       worktreeAfterDays: null,
+      worktreeSettledAfterDays: null,
       worktreeOnMerge: true,
       worktreeOnDelete: false,
       worktreeUnchanged: false,

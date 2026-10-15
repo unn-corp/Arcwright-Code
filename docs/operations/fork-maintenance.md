@@ -957,3 +957,5 @@ own live validation.
 Usage pooling keeps one quota bucket per authenticated subscription and workspace. When several
 native provider instances share a bucket, retain every configured name and show the shared quota
 in account details; never hide a configured instance behind the first label or count its quota twice.
+
+The [October 15 upstream integration](upstream-integration-20261015.md) records ownership and regression coverage for the read-only SQLite worker, fork migration 108, strict backup headroom, physical Windows dependency staging, and retained client features.

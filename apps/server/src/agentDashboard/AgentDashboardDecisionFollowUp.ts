@@ -180,7 +180,7 @@ const make = Effect.gen(function* () {
   const orchestration = yield* OrchestrationEngine.OrchestrationEngineService;
   const lastScanAt = yield* Ref.make<number | null>(null);
 
-  const randomUuid = crypto.randomUUIDv4.pipe(
+  const randomUuid = crypto.randomUUIDv4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardDecisionFollowUpError({

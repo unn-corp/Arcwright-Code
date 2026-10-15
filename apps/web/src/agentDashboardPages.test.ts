@@ -191,8 +191,8 @@ describe("unified dashboard findings", () => {
 
     expect(visible.map((record) => record.id)).toEqual(["finding:security"]);
     expect(groupDashboardFindingRecords(records).map((group) => group.projectName)).toEqual([
-      "Relay",
       "Arcwright Code",
+      "Relay",
     ]);
   });
 

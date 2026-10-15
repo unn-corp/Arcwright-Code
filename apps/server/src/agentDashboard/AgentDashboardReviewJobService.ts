@@ -521,7 +521,7 @@ const make = Effect.gen(function* () {
   );
   yield* coverageWorker.pipe(Effect.forkIn(scope), Effect.asVoid);
 
-  const randomId = crypto.randomUUIDv4.pipe(
+  const randomId = crypto.randomUUIDv4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardReviewJobServiceError({

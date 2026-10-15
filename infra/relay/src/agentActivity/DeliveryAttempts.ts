@@ -125,7 +125,7 @@ export const make = Effect.gen(function* () {
         ...(input.threadId ? { "relay.thread_id": input.threadId } : {}),
       });
       yield* Effect.gen(function* () {
-        const id = yield* crypto.randomUUIDv4;
+        const id = yield* crypto.randomUUIDv4();
         const createdAt = DateTime.formatIso(yield* DateTime.now);
         yield* db.insert(relayDeliveryAttempts).values(insertValues(input, id, createdAt));
       }).pipe(
@@ -153,7 +153,7 @@ export const make = Effect.gen(function* () {
         ...(input.threadId ? { "relay.thread_id": input.threadId } : {}),
       });
       return yield* Effect.gen(function* () {
-        const id = yield* crypto.randomUUIDv4;
+        const id = yield* crypto.randomUUIDv4();
         const now = yield* DateTime.now;
         const createdAt = DateTime.formatIso(now);
         const inserted = yield* db

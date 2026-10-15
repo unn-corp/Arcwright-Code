@@ -13,9 +13,37 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 106 }, (_, index) => index + 1),
+        Array.from({ length: 108 }, (_, index) => index + 1),
       );
     }),
+  );
+
+  it.effect.each(["missing", "renamed"] as const)(
+    "rejects a %s required migration below the ledger high water",
+    (kind) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations();
+        if (kind === "missing")
+          yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id=107`;
+        else
+          yield* sql`UPDATE effect_sql_migrations SET name='UnknownHistory' WHERE migration_id=107`;
+        const before =
+          yield* sql`SELECT migration_id,name FROM effect_sql_migrations ORDER BY migration_id`;
+        const error = yield* runMigrations().pipe(Effect.flip);
+        assert.equal(error._tag, "MigrationError");
+        if (error._tag !== "MigrationError")
+          return assert.fail("Expected ledger integrity MigrationError");
+        assert.equal(error.kind, "BadState");
+        assert.include(
+          error.message,
+          kind === "missing" ? "107_CompactHistoryBlocks" : "107_UnknownHistory",
+        );
+        assert.deepStrictEqual(
+          yield* sql`SELECT migration_id,name FROM effect_sql_migrations ORDER BY migration_id`,
+          before,
+        );
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect("upgrades the previous fork schema 103 without renumbering installed history", () =>
@@ -29,6 +57,8 @@ layer("055_OrchestrationV2", (it) => {
         [104, "McpAppModelContext"],
         [105, "ThreadSnapshotWindowIndexes"],
         [106, "PullRequestReviewGuides"],
+        [107, "CompactHistoryBlocks"],
+        [108, "ThreadFailureLookupIndex"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id <= 103 ORDER BY migration_id`,
@@ -58,6 +88,8 @@ layer("055_OrchestrationV2", (it) => {
         [104, "McpAppModelContext"],
         [105, "ThreadSnapshotWindowIndexes"],
         [106, "PullRequestReviewGuides"],
+        [107, "CompactHistoryBlocks"],
+        [108, "ThreadFailureLookupIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -84,6 +116,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 104, name: "McpAppModelContext" },
         { migration_id: 105, name: "ThreadSnapshotWindowIndexes" },
         { migration_id: 106, name: "PullRequestReviewGuides" },
+        { migration_id: 107, name: "CompactHistoryBlocks" },
+        { migration_id: 108, name: "ThreadFailureLookupIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

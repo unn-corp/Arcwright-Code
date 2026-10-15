@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "54640508ea04ff04af5e3a886b2723a14ba66f958f35898b6e9e9f429f6414f0",
+  "schemaSha256": "b6e52ef6db8d5c804244e07c14c56134c7e6be685ebd4918c5fdd70409b3c56c",
   "objects": [
     {
       "type": "index",
@@ -577,6 +577,12 @@
       "name": "orchestration_v2_projection_threads_project_updated_idx",
       "tbl_name": "orchestration_v2_projection_threads",
       "sql": "CREATE INDEX orchestration_v2_projection_threads_project_updated_idx ON orchestration_v2_projection_threads(project_id, updated_at)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_turn_items_failed_error_idx",
+      "tbl_name": "orchestration_v2_projection_turn_items",
+      "sql": "CREATE INDEX orchestration_v2_projection_turn_items_failed_error_idx\n    ON orchestration_v2_projection_turn_items(\n      thread_id, run_id, node_id, updated_at DESC, ordinal DESC, turn_item_id DESC\n    )\n    WHERE type = 'error' AND status = 'failed'\n  "
     },
     {
       "type": "index",

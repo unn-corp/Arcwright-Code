@@ -209,7 +209,7 @@ const make = Effect.gen(function* () {
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const store = AgentDashboardStore.getStore(config.stateDir);
 
-  const randomUuid = crypto.randomUUIDv4.pipe(
+  const randomUuid = crypto.randomUUIDv4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardImplementationRunnerError({
