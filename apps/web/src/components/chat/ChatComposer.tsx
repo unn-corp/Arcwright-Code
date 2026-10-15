@@ -1552,7 +1552,7 @@ export interface ChatComposerHandle {
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
-    getModelSelectionForDispatch: () => ModelSelection | undefined;
+    getModelSelectionForDispatch: (() => ModelSelection | undefined) | undefined;
     multipleModelSelections: ReadonlyArray<ModelSelection> | null;
     providerAvailable: boolean;
     selectedProvider: ProviderDriverKind;
@@ -6430,15 +6430,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedPromptEffort,
         selectedModelOptionsForDispatch,
         selectedModelSelection,
-        getModelSelectionForDispatch: captureComposerModelSelectionForDispatch({
-          threadRef: routeThreadRef,
-          draftTarget: composerDraftTarget,
-          isLocalDraft: isLocalDraftThread,
-          modelSelection:
-            modelSelectionForDispatch === undefined ? undefined : selectedModelSelection,
-          selectionBase,
-          intentSelection: modelSelectionIntent,
-        }),
+        getModelSelectionForDispatch:
+          modelSelectionForDispatch === undefined
+            ? undefined
+            : captureComposerModelSelectionForDispatch({
+                threadRef: routeThreadRef,
+                draftTarget: composerDraftTarget,
+                isLocalDraft: isLocalDraftThread,
+                modelSelection: selectedModelSelection,
+                selectionBase,
+                intentSelection: modelSelectionIntent,
+              }),
         multipleModelSelections:
           routeKind === "draft" && multipleModelSelections !== null
             ? multipleModelSelections.map((selection) =>

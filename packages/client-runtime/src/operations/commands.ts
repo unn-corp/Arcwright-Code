@@ -32,6 +32,7 @@ import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2Pend
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { getInitialServerConfig, request, requestIdempotentCommand } from "../rpc/client.ts";
 
@@ -166,6 +167,11 @@ interface StartThreadBootstrap {
   readonly runSetupScript?: boolean;
 }
 
+export class ThreadModelSelectionChangedError extends Schema.TaggedError<ThreadModelSelectionChangedError>()(
+  "ThreadModelSelectionChangedError",
+  { message: Schema.String },
+) {}
+
 export interface StartThreadTurnInput extends ThreadCommandInput {
   readonly manualContinuationOfRunId?: RunId;
   readonly message: {
@@ -176,6 +182,8 @@ export interface StartThreadTurnInput extends ThreadCommandInput {
     readonly context?: import("@t3tools/contracts").OrchestrationMessageContext;
   };
   readonly modelSelection?: ModelSelection;
+  /** Client-only captured intent, evaluated after preparation; undefined deliberately omits the override. */
+  readonly getModelSelectionForDispatch?: () => ModelSelection | undefined;
   readonly titleSeed?: string;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
@@ -631,6 +639,7 @@ export const setThreadInteractionMode = Effect.fn("EnvironmentCommands.setThread
 export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(function* (
   input: StartThreadTurnInput,
 ) {
+  const readModelSelection = input.getModelSelectionForDispatch ?? (() => input.modelSelection);
   const commandId = yield* allocateCommandId(input);
   const attachments = yield* persistAttachments(
     input.threadId,
@@ -670,6 +679,17 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
                 ? {}
                 : { branch: bootstrap.branch }),
             };
+    const modelSelection = readModelSelection();
+    if (input.getModelSelectionForDispatch !== undefined && modelSelection === undefined) {
+      // Launch requires a selection on the wire. A stale captured choice must
+      // stop here rather than resurrecting an older projection or static pick.
+      return yield* Effect.fail(
+        new ThreadModelSelectionChangedError({
+          message:
+            "The conversation changed while preparing this message. Review the provider and send again.",
+        }),
+      );
+    }
     return yield* requestIdempotentCommand(ORCHESTRATION_V2_WS_METHODS.launchThread, {
       commandId,
       creationSource: input.creationSource ?? "web",
@@ -678,7 +698,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       projectId: thread.projectId,
       title: input.titleSeed ?? thread.title,
       generateTitle: input.titleSeed !== undefined,
-      modelSelection: input.modelSelection ?? thread.modelSelection,
+      modelSelection: modelSelection ?? thread.modelSelection,
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
       workspaceStrategy,
@@ -693,6 +713,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
 
   const requestedMode = input.dispatchMode ?? "auto";
   if (requestedMode === "start") {
+    const modelSelection = readModelSelection();
     return yield* dispatch({
       type: "message.dispatch",
       commandId,
@@ -706,7 +727,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       text: input.message.text,
       ...(context ? { context } : {}),
       attachments,
-      ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+      ...(modelSelection === undefined ? {} : { modelSelection }),
       ...(input.sourceProposedPlan === undefined
         ? {}
         : { sourcePlanRef: input.sourceProposedPlan }),
@@ -757,6 +778,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
   const shouldSendTitleSeed =
     input.titleSeed !== undefined &&
     (serverResolvesCommandContext || projection?.messages.length === 0);
+  const modelSelection = readModelSelection();
   return yield* dispatch({
     type: "message.dispatch",
     commandId,
@@ -768,7 +790,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     ...(context ? { context } : {}),
     attachments,
     ...(shouldSendTitleSeed ? { titleSeed: input.titleSeed } : {}),
-    ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+    ...(modelSelection === undefined ? {} : { modelSelection }),
     ...(input.sourceProposedPlan === undefined ? {} : { sourcePlanRef: input.sourceProposedPlan }),
     ...(serverResolvesCommandContext && requestedMode !== "queue"
       ? { deliveryIntent: requestedMode }

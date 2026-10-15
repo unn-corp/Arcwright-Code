@@ -7478,7 +7478,6 @@ export default function ChatView(props: ChatViewProps) {
           runtimeMode,
           interactionMode: context.interactionMode,
         });
-        const modelSelection = context.getModelSelectionForDispatch();
         const result =
           settingsResult._tag === "Failure"
             ? settingsResult
@@ -7487,7 +7486,9 @@ export default function ChatView(props: ChatViewProps) {
                 input: {
                   threadId,
                   message: { messageId, role: "user", text, attachments: [] },
-                  ...(modelSelection ? { modelSelection } : {}),
+                  ...(context.getModelSelectionForDispatch
+                    ? { getModelSelectionForDispatch: context.getModelSelectionForDispatch }
+                    : {}),
                   runtimeMode,
                   interactionMode: context.interactionMode,
                   createdAt,
@@ -8692,13 +8693,12 @@ export default function ChatView(props: ChatViewProps) {
           interactionMode,
         });
         if (settingsResult._tag === "Failure") return settingsResult;
-        const modelSelection = getModelSelectionForDispatch?.();
         const turnResult = await startThreadTurn({
           environmentId,
           input: {
             threadId,
             manualContinuationOfRunId: resumableRunId,
-            ...(modelSelection ? { modelSelection } : {}),
+            ...(getModelSelectionForDispatch ? { getModelSelectionForDispatch } : {}),
             message: {
               messageId: newMessageId(),
               role: "user",
@@ -9876,13 +9876,12 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     if (failure === null && compactBeforeSend) {
-      const modelSelection = getModelSelectionForDispatch();
       const compactResult = await startThreadTurn({
         environmentId,
         input: {
           threadId: threadIdForSend,
           message: { messageId: newMessageId(), role: "user", text: "/compact", attachments: [] },
-          ...(modelSelection ? { modelSelection } : {}),
+          ...(getModelSelectionForDispatch ? { getModelSelectionForDispatch } : {}),
           runtimeMode,
           interactionMode: sendInteractionMode,
         },
@@ -9929,7 +9928,6 @@ export default function ChatView(props: ChatViewProps) {
           ? scopeThreadRef(environmentId, threadIdForSend)
           : null;
       if (backgroundThreadRef) beginBackgroundDraftSubmissionByRef(backgroundThreadRef);
-      const modelSelection = getModelSelectionForDispatch();
       const startPromise = startThreadTurn({
         environmentId,
         input: {
@@ -9952,7 +9950,7 @@ export default function ChatView(props: ChatViewProps) {
             }),
             attachments: turnAttachmentsResult.value,
           },
-          ...(modelSelection ? { modelSelection } : {}),
+          ...(getModelSelectionForDispatch ? { getModelSelectionForDispatch } : {}),
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -10480,7 +10478,6 @@ export default function ChatView(props: ChatViewProps) {
         nextInteractionMode,
       );
 
-      const modelSelection = getModelSelectionForDispatch();
       const startResult = await startThreadTurn({
         environmentId,
         input: {
@@ -10492,7 +10489,7 @@ export default function ChatView(props: ChatViewProps) {
             ...(context ? { context } : {}),
             attachments: [],
           },
-          ...(modelSelection ? { modelSelection } : {}),
+          ...(getModelSelectionForDispatch ? { getModelSelectionForDispatch } : {}),
           titleSeed: activeThread.title,
           runtimeMode,
           interactionMode: nextInteractionMode,

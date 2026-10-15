@@ -149,6 +149,72 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
 });
 
 describe("V2 environment commands", () => {
+  it.effect.each(["start", "auto"] as const)(
+    "preserves static model selection without a captured getter in %s mode",
+    (dispatchMode) =>
+      Effect.gen(function* () {
+        const commands: OrchestrationV2Command[] = [];
+        const supervisor = yield* makeSupervisor({ commands, projects: [] });
+        const modelSelection = {
+          instanceId: ProviderInstanceId.make("account_static"),
+          model: "gpt-5.4",
+        };
+        yield* startThreadTurn({
+          commandId: CommandId.make("static-model-selection"),
+          threadId: v2ThreadId,
+          dispatchMode,
+          message: {
+            messageId: MessageId.make("static-message"),
+            role: "user",
+            text: "Continue",
+            attachments: [],
+          },
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+        expect(commands).toMatchObject([{ type: "message.dispatch", modelSelection }]);
+      }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect(
+    "does not resurrect a static or fetched model for invalidated worktree launch intent",
+    () =>
+      Effect.gen(function* () {
+        const commands: OrchestrationV2Command[] = [];
+        const launches: OrchestrationV2ThreadLaunchInput[] = [];
+        const supervisor = yield* makeSupervisor({ commands, projects: [], launches });
+        const failure = yield* startThreadTurn({
+          commandId: CommandId.make("invalidated-worktree-selection"),
+          threadId: v2ThreadId,
+          message: {
+            messageId: MessageId.make("invalidated-message"),
+            role: "user",
+            text: "Continue",
+            attachments: [],
+          },
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("stale_account"),
+            model: "stale-model",
+          },
+          getModelSelectionForDispatch: () => undefined,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          bootstrap: { prepareWorktree: { projectCwd: "/workspace/project", baseBranch: "main" } },
+        }).pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.flip,
+        );
+        expect(failure).toMatchObject({
+          _tag: "ThreadModelSelectionChangedError",
+          message:
+            "The conversation changed while preparing this message. Review the provider and send again.",
+        });
+        expect(commands).toEqual([]);
+        expect(launches).toEqual([]);
+      }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
   it.effect("routes projects through the event-sourced project transport", () =>
     Effect.gen(function* () {
       const projects: ProjectMutation[] = [];

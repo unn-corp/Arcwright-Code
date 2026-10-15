@@ -40,7 +40,7 @@ import {
   type ComposerThreadTarget,
 } from "../composerDraftStore";
 import { deriveProviderInstanceEntries } from "../providerInstances";
-import { makeThreadFixture } from "../test-fixtures";
+import { makeThreadFixture, makeThreadProjectionFixture } from "../test-fixtures";
 import type { Thread } from "../types";
 import {
   composerModelSelectionBase,
@@ -208,12 +208,19 @@ function observe(
   return Effect.promise(() => client.observe(thread, catalog, target));
 }
 
-function dispatch(selection: Selection, preparation = Effect.void, target = threadRef) {
+function dispatch(
+  selection: Selection,
+  preparation = Effect.void,
+  target = threadRef,
+  legacyPreparation?: Effect.Effect<void>,
+) {
   return Effect.gen(function* () {
     if (!selection.selectedProviderEntry) return [];
     const commands: OrchestrationV2Command[] = [];
     // In-memory transport, with production command construction and RPC routing.
     const client = {
+      [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: () =>
+        (legacyPreparation ?? Effect.void).pipe(Effect.as(makeThreadProjectionFixture())),
       [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
         Effect.sync(() => {
           commands.push(command);
@@ -222,7 +229,13 @@ function dispatch(selection: Selection, preparation = Effect.void, target = thre
     } as unknown as WsRpcProtocolClient;
     const session: RpcSession = {
       client,
-      initialConfig: Effect.die("Unexpected server config request"),
+      // This test transport exposes only the capability read by auto mode.
+      initialConfig:
+        legacyPreparation === undefined
+          ? Effect.die("Unexpected server config request")
+          : Effect.succeed({
+              environment: { capabilities: { serverResolvedCommandContext: false } },
+            } as never),
       subscribeServerConfig: () => {
         throw new Error("Unexpected subscription");
       },
@@ -267,18 +280,27 @@ function dispatch(selection: Selection, preparation = Effect.void, target = thre
       retryNow: Effect.void,
     });
     yield* preparation;
-    const modelSelection = getModelSelectionForDispatch();
     yield* startThreadTurn({
       commandId: CommandId.make("selection-regression"),
       threadId: target.threadId,
-      dispatchMode: "start",
+      dispatchMode: legacyPreparation === undefined ? "start" : "auto",
       message: {
         messageId: MessageId.make("selection-message"),
         role: "user",
         text: "Continue",
         attachments: [],
       },
-      ...(modelSelection ? { modelSelection } : {}),
+      ...(selection.modelSelectionForDispatch === undefined
+        ? {}
+        : {
+            // Keep a static value too: an invalid getter must override it with omission.
+            modelSelection: createModelSelection(
+              selection.selectedInstanceId,
+              selection.selectedModel,
+              providerState.modelOptionsForDispatch,
+            ),
+            getModelSelectionForDispatch,
+          }),
       runtimeMode: "full-access",
       interactionMode: "default",
     }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
@@ -732,6 +754,35 @@ describe("pending selection during asynchronous send preparation", () => {
       expect(command).not.toHaveProperty("modelSelection");
       expect(Object.values(desktop.state.draftsByThreadKey)[0]?.modelSelectionExplicit).toBe(true);
     }),
+  );
+
+  it.effect.each([false, true])(
+    "revalidates after a deferred legacy projection (remote changed: %s)",
+    (remoteChanged) =>
+      Effect.gen(function* () {
+        const desktop = new Client();
+        choosePending(desktop);
+        const captured = yield* observe(desktop, server());
+        const waiting = yield* Deferred.make<void>();
+        const releaseProjection = yield* Deferred.make<void>();
+        const pending = yield* dispatch(
+          captured,
+          Effect.void,
+          threadRef,
+          Deferred.succeed(waiting, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseProjection)),
+          ),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(waiting);
+        if (remoteChanged) yield* observe(desktop, server(selectionA, "remote-run"));
+        else desktop.edit((store) => store.setPrompt(threadRef, "Keep the captured choice"));
+        yield* Deferred.succeed(releaseProjection, undefined);
+        const [command] = yield* Fiber.join(pending);
+        expect(command).toMatchObject({ type: "message.dispatch", threadId });
+        expect(command).not.toHaveProperty("getModelSelectionForDispatch");
+        if (remoteChanged) expect(command).not.toHaveProperty("modelSelection");
+        else expect(command).toMatchObject({ modelSelection: selectionB });
+      }),
   );
 
   it.effect.each([false, true])(
