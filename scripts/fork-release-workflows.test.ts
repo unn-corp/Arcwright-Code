@@ -62,6 +62,66 @@ const text = (name: string) =>
 const release = load("fork-release.yml");
 const withdraw = load("fork-release-withdraw.yml");
 const desktop = load("release-desktop.yml");
+
+it("stages Windows packages outside the system temp tree with ASAR path checks enabled", async () => {
+  const step = desktop.jobs.build!.steps!.find((entry) => entry.name === "Build desktop artifact")!;
+  const runnerTemp = "C:\\actions-runner\\_work\\_temp";
+  const buildTemp = step.env?.TEMP === "${{ runner.temp }}" ? runnerTemp : "C:\\Windows\\TEMP";
+  assert.equal(step.env?.TMP, step.env?.TEMP);
+  assert.equal(step.env?.TMPDIR, step.env?.TEMP);
+  const desktopRequire = NodeModule.createRequire(NodePath.join(REPO, "apps/desktop/package.json"));
+  const builderRequire = NodeModule.createRequire(desktopRequire.resolve("electron-builder"));
+  const source = NodeFS.readFileSync(
+    builderRequire.resolve("app-builder-lib/out/asar/asarUtil.js"),
+    "utf8",
+  );
+  type Guard = {
+    protectSystemAndUnsafePaths: (file: string, workspaceRoot: string) => Promise<void>;
+  };
+  const protect = (temp: string): Guard => {
+    const exports: { AsarPackager?: new (packager: object, config: object) => Guard } = {};
+    // Reproduce the Windows service runner's TEMP/Temp canonicalization difference.
+    const realpath = async (file: string) =>
+      file.replace("C:\\Windows\\TEMP\\", "C:\\Windows\\Temp\\");
+    NodeVM.runInNewContext(
+      source,
+      {
+        exports,
+        process: { env: { SystemRoot: "C:\\Windows", WINDIR: "C:\\Windows" } },
+        require: (id: string) => {
+          if (id === "path") return NodePath.win32;
+          if (id === "os") return { tmpdir: () => temp, homedir: () => "C:\\Users\\runner" };
+          if (id === "fs-extra") return { realpath };
+          if (id === "builder-util/out/fs") return { exists: async () => true };
+          if (id === "builder-util")
+            return {
+              log: { debug: () => {}, error: () => {} },
+              isEmptyOrSpaces: (value: string | undefined) => !value?.trim(),
+            };
+          return {};
+        },
+      },
+      { timeout: 1000 },
+    );
+    assert.isDefined(exports.AsarPackager);
+    return new exports.AsarPackager!({}, { resourcePath: "C:\\output" });
+  };
+  const pathIn = (temp: string) => NodePath.win32.join(temp, "t3-stage", "app");
+  const license = (temp: string) =>
+    NodePath.win32.join(pathIn(temp), "node_modules", "@clerk", "electron-passkeys", "LICENSE");
+  // The installed dependency's actual guard must reproduce the old failure.
+  const unsafe = "C:\\Windows\\TEMP";
+  const workspaceRoot = "C:\\actions-runner\\_work\\t3code\\t3code";
+  let rejected = false;
+  try {
+    await protect(unsafe).protectSystemAndUnsafePaths(license(unsafe), workspaceRoot);
+  } catch (error) {
+    rejected = /system or unsafe path/.test(String(error));
+  }
+  assert.equal(rejected, true);
+  await protect(buildTemp).protectSystemAndUnsafePaths(license(buildTemp), workspaceRoot);
+});
+
 const needsOf = (job: Job): string[] =>
   job.needs === undefined ? [] : Array.isArray(job.needs) ? job.needs : [job.needs];
 const jobText = (job: Job) => JSON.stringify(job);

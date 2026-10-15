@@ -57,6 +57,15 @@ retains explicitly listed inactive baseline UI modules; independent review found
 no merge-induced loss of their wiring. These focused checks pass; the earlier
 complete CI run failed and is not evidence of a successful release gate.
 
+The first allocated merged-source Nightly 117 produced a Linux AppImage that
+passed a real packaged startup/name/menu check and 1,105 Linux core safety tests
+(81 files). Publication stopped at Windows packaging: its service-runner temp
+directory was beneath `C:\Windows`, and ASAR path protection rejected a file
+there. The desktop workflow now supplies the runner-owned temporary directory
+through `TEMP`, `TMP`, and `TMPDIR`; it does not disable path protection or remove
+license files. That build fix requires a fresh allocation and Windows validation.
+The local Nightly 117 candidate was not installed or published.
+
 Publication must use the exact tested merged main source and a fresh pipeline
 allocated nightly identity. Reuse no consumed counter and enable no publishing
 schedule. Installation uses the verified release and genuine native maintenance
