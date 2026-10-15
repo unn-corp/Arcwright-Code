@@ -389,7 +389,8 @@ injects no random input. A missing process fails the check and retains bounded, 
 system lifecycle logs, process-exit information, and activity state to distinguish application crashes from Android
 stopping or failing to start a task.
 
-Release package validation uses the Android 16 (API 36) Google APIs image. In two validation attempts
+Release package validation uses the Android 16 (API 36) Google APIs image with an explicit
+2 GiB guest RAM limit, independent of the host memory detected by the emulator. In two validation attempts
 on the previous Android 14 image, Android killed the WebView client after Google's font-provider
 process died; no app exception was recorded. The Android 16 image passed all retained-APK install,
 interaction, update, and recovery checks before adoption. This does not establish a general Android

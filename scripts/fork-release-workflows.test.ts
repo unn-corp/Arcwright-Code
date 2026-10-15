@@ -64,6 +64,15 @@ const release = load("fork-release.yml");
 const withdraw = load("fork-release-withdraw.yml");
 const desktop = load("release-desktop.yml");
 
+it("bounds Android validation emulator memory while retaining the interaction gate", () => {
+  const step = release.jobs.validate!.steps!.find(
+    (entry) => entry.name === "Run validations on an emulator",
+  )!;
+  assert.equal(step.with?.["ram-size"], "2048M");
+  assert.include(String(step.with?.script), "fork-release-receipts.sh android");
+  assert.include(String(step.with?.script), "FORK_VALIDATION_ANDROID_TEST_APK=");
+});
+
 it("stages Windows packages outside the system temp tree with ASAR path checks enabled", async () => {
   const step = desktop.jobs.build!.steps!.find((entry) => entry.name === "Build desktop artifact")!;
   const runnerTemp = "C:\\actions-runner\\_work\\_temp";

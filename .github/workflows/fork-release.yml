@@ -1050,6 +1050,8 @@ jobs:
           api-level: 36
           arch: x86_64
           target: google_apis
+          # Bound guest memory independently of the runner's detected host RAM.
+          ram-size: 2048M
           disable-animations: true
           script: FORK_VALIDATION_ANDROID_SERIAL=emulator-5554 FORK_VALIDATION_ANDROID_TEST_APK="$PWD/android-instrumentation/updater-instrumentation.apk" bash .github/scripts/fork-release-receipts.sh android candidate predecessor "${{ env.PREDECESSOR_DIGEST }}" receipts
 
