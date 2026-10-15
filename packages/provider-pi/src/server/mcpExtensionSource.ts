@@ -369,18 +369,22 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     readOnlyMcpTools.clear();
     for (const tool of catalog) {
       const name = tool.name;
+      const description = tool.description ?? name;
       for (const prefix of prefixes) {
         if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(\`\${prefix}\${name}\`);
         const exposure = prefix === "mcp__t3_code__" ? "hidden" :
           deferOptionalTools && !directTools.has(name) ? "deferred" : "direct";
+        const registeredName = \`\${prefix}\${name}\`;
         pi.registerTool({
-          name: \`\${prefix}\${name}\`,
+          name: registeredName,
           label: name,
-          description: tool.description ?? name,
-          promptSnippet: description.split("\\n")[0] ?? name,
-          promptGuidelines: [
+          description,
+          ...(supportsExposure && exposure === "direct" && directTools.has(name) ? {
+            promptSnippet: description.split("\\n")[0] ?? name,
+            promptGuidelines: [
             \`Use \${registeredName} from the t3-code MCP server when the user asks for Arcwright Code orchestration that this tool covers.\`,
           ],
+          } : {}),
           parameters: jsonSchemaToTypebox(tool.inputSchema),
           ...(supportsExposure ? { outputSchema: mcpOutputSchema(tool) } : {}),
           ...(supportsExposure ? { exposure } : {}),

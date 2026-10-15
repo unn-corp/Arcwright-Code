@@ -1,3 +1,4 @@
+import { BrowserProfileReporter } from "./browser/BrowserProfileReporter";
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { RouterProvider } from "@tanstack/react-router";
 import { describe, expect, it } from "vite-plus/test";
@@ -18,13 +19,14 @@ describe("AppRoot", () => {
     const children = Children.toArray(
       (root as ReactElement<{ readonly children: ReactNode }>).props.children,
     );
-    expect(children).toHaveLength(5);
+    expect(children).toHaveLength(6);
     expect(isValidElement(children[0]) && children[0].type).toBe(RouterProvider);
     expect(isValidElement(children[1]) && children[1].type).toBe(
       DesktopAgentNotificationCoordinator,
     );
     expect(isValidElement(children[2]) && children[2].type).toBe(AndroidBrowserHosts);
     expect(isValidElement(children[3]) && children[3].type).toBe(ElectronBrowserHost);
-    expect(isValidElement(children[4]) && children[4].type).toBe(QuitHoldOverlay);
+    expect(isValidElement(children[4]) && children[4].type).toBe(BrowserProfileReporter);
+    expect(isValidElement(children[5]) && children[5].type).toBe(QuitHoldOverlay);
   });
 });

@@ -169,6 +169,22 @@ describe("Pi MCP tool exposure", () => {
         "mcp__t3_code__preview_snapshot",
       ],
     );
+    assert.deepEqual(
+      bridge.tools.filter((tool) => tool.promptSnippet !== undefined).map((tool) => tool.name),
+      [
+        "mcp__t3-code__orchestrator_capabilities",
+        "mcp__t3-code__delegate_task",
+        "mcp__t3-code__task_status",
+      ],
+    );
+    for (const tool of bridge.tools) {
+      if (tool.promptSnippet !== undefined) {
+        assert.equal(tool.promptSnippet, tool.description.split("\n")[0]);
+        assert.deepEqual(tool.promptGuidelines, [
+          `Use ${tool.name} from the t3-code MCP server when the user asks for Arcwright Code orchestration that this tool covers.`,
+        ]);
+      } else assert.isUndefined(tool.promptGuidelines);
+    }
     const result = await bridge.tools
       .find((tool) => tool.name === "mcp__t3-code__preview_snapshot")!
       .execute("call-1", { depth: 2 });

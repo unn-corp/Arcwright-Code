@@ -260,7 +260,7 @@ export const make = Effect.gen(function* () {
         }
         yield* admitRenewal(observed);
       }
-      const id = yield* crypto.randomUUIDv4;
+      const id = yield* crypto.randomUUIDv4();
       const values = {
         id,
         userId: `pwa:${installation.installationId}`,
@@ -420,7 +420,7 @@ export const make = Effect.gen(function* () {
     register: (input) =>
       Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);
-        const id = yield* crypto.randomUUIDv4;
+        const id = yield* crypto.randomUUIDv4();
         const values = {
           id,
           userId: input.userId,

@@ -19,7 +19,15 @@
     "scripts": {
       // Knip loads its preprocessor through a CLI option; native verification and
       // worktree setup (from t3.json) run directly.
-      "entry": ["knip-schemas.ts", "mobile-native-client.ts", "setup-worktree.ts"],
+      "entry": [
+        "knip-schemas.ts",
+        "mobile-native-client.ts",
+        "setup-worktree.ts",
+        // Maintainer and workflow CLIs are invoked by filename.
+        "build-owned-connect-web.ts",
+        "fork-release-package-diagnostic.ts",
+        "generate-notification-sounds.ts",
+      ],
     },
     "apps/server": {
       // Vite+ pack entries and the launcher used by installed background services.
@@ -27,6 +35,7 @@
         "src/bin.ts!",
         "src/claude-history-worker.ts!",
         "scripts/cli.ts",
+        "scripts/generate-schema-fingerprint.ts",
         "scripts/evaluate-thread-titles.ts",
         "scripts/measure-pr-preview.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
@@ -39,6 +48,8 @@
       // Native and disk-loaded provider packages stay external to the bundle; the
       // CLI archive and desktop sidecar stage them from this manifest.
       "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
+      // Keep the fork route-layer name and upstream public layer alias compatible.
+      "ignoreIssues": { "src/ws.ts": ["duplicates"] },
     },
     "apps/desktop": {
       // Electron loads these bundles by filename rather than importing them.
@@ -59,22 +70,32 @@
       ],
       // The injected runtime resolves Playwright by string; release tooling runs
       // electron-builder from this workspace, outside its package scripts.
-      "ignoreDependencies": ["playwright-core", "electron-builder"],
+      // Retain the legacy updater dependency while installed package compatibility is supported.
+      "ignoreDependencies": ["playwright-core", "electron-builder", "electron-updater"],
     },
     "apps/web": {
       // Vitest loads this through the per-file @vitest-environment directive.
       "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly.
-      "entry": ["scripts/warm-dep-cache.ts"],
+      "entry": ["scripts/warm-dep-cache.ts", "public/sw.js", "src/test/ForkUpdateFixture.tsx"],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
-      "ignoreIssues": { "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"] },
+      "ignoreIssues": {
+        "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"],
+        // Already inactive at the pinned fork baseline; retained during upstream integration.
+        "src/components/Agent{Research,Security,Suggestions}.tsx": ["files"],
+        "src/components/ConversationReferenceCopyWorker.tsx": ["files"],
+        "src/components/preview/remoteStreamRegistry.ts": ["files"],
+        "src/components/ui/{fieldset,form}.tsx": ["files"],
+        "src/state/codexSessions.ts": ["files"],
+      },
     },
     "apps/mobile": {
       // Expo loads plugins and the fingerprint config by string; Metro embeds the browser entry in the native WebView.
       "entry": [
         "index.ts!",
+        ".generated/*/index.js",
         "fingerprint.config.js",
         "plugins/*.cjs",
         "scripts/generate-device-stream.mts",
@@ -93,11 +114,18 @@
       "entry": ["src/*NativeComponent.ts!"],
     },
     "infra/relay": {
-      "entry": ["alchemy.run.ts!", "src/persistence/schema.ts!"],
+      "entry": ["alchemy*.run.ts!", "src/persistence/schema.ts!"],
+      // Declaration for the Node-only test oracle, loaded by its sibling module.
+      "ignore": ["src/agentActivity/webPushNodeHmac.test-oracle.d.mts"],
     },
     "packages/*": {
       // These workspace packages are private to this monorepo.
       "includeEntryExports": true,
+    },
+    "packages/shared": {
+      "includeEntryExports": true,
+      // The recovery helper builder resolves this executable entry by filename.
+      "entry": ["src/forkRecoveryHelperMain.ts"],
     },
     "packages/effect-acp": {
       "includeEntryExports": true,

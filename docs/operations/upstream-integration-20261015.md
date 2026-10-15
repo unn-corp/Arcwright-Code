@@ -17,6 +17,7 @@ its package 0.0.45, independently of the allocated Arcwright nightly counter.
 | Node 24 bindings       | ArrayBuffer parameters normalize to Uint8Array without invoking named-binding getters. The SQLite reader/writer suite passes under Node 24 and Node 26.                                                                                                                                                                        |
 | Backup disk space      | Linux uses strict reflinks. A clone failure can fall back to a full copy only after checking the current destination free space; clone preflight cannot authorize a later unbounded copy.                                                                                                                                      |
 | Windows packaging      | Both app and server staging use physical hoisted dependencies. This addresses the prior Windows ASAR failure on a pnpm virtual-store Clerk LICENSE link; the real Windows release build remains authoritative.                                                                                                                 |
+| Pi MCP bridge          | Generated prompt metadata binds its description/name variables and adds hints only to modern direct orchestration tools. Deferred, hidden and legacy entries remain lean; permission and image delivery assertions pass.                                                                                                       |
 | Connect and providers  | Owned Arcwright Connect endpoint/authentication selection, token metadata, synchronized provider homes, local cleanup, and one catch-up after reactivation remain. Tool-free Organizations Architect prompts and private provider environments are preserved.                                                                  |
 | Chat and mobile        | Shared media delivery, participant pictures/identity, one You label, collapsed status counts, agent feed milestones, current-device usage, responsive controls, and the standalone Android native tree are retained. New prompt/PR actions coexist with fork composer controls.                                                |
 | Sidebar and updates    | Upstream grouping preserves saved ordering/legacy grouping keys and fork project dragging. Bulk update version comparison retains provenance and coordinator-only installation; waiting never reports success. User-visible new copy uses Arcwright names.                                                                     |
@@ -39,12 +40,22 @@ corruption rejection. It is a required host-runtime release gate; SQLite client
 parity and migration-ledger tests are also required release checks.
 
 Scoped typechecks cover server, desktop, web, React Native mobile, contracts,
-shared, client runtime, provider core/ACP/Cursor/Grok/OpenCode, GitHub source
-control, and release scripts. Fork documentation, edited-file formatting, focused
+shared, client runtime, provider core/ACP/Cursor/Grok/OpenCode/Pi, GitHub source
+control, relay, and release scripts. Fork documentation, edited-file formatting, focused
 lint, and whitespace/conflict-marker checks must pass before committing.
 Independent Luna server/recovery and UI/Android reviews cleared their confirmed
 findings after fixes. Hardware checks and real Windows packaging remain release
 and installation gates; fixture results do not measure live database savings.
+
+The first merged-source CI run exposed additional compatibility issues. Follow-up
+checks cover the Effect 4 UUID API in relay services, Pi tool metadata, old Git
+files-ref detection, stable deleted-project responses, executable-bit fixtures,
+valid legacy migration ledgers, and branded Codex wire replays. Existing typed
+rejections, authorization checks, ledger validation, and ref safety assertions
+remain enforced. Knip now recognizes filename-loaded build/recovery entries and
+retains explicitly listed inactive baseline UI modules; independent review found
+no merge-induced loss of their wiring. These focused checks pass; the earlier
+complete CI run failed and is not evidence of a successful release gate.
 
 Publication must use the exact tested merged main source and a fresh pipeline
 allocated nightly identity. Reuse no consumed counter and enable no publishing

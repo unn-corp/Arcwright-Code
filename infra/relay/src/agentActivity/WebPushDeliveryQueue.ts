@@ -69,9 +69,9 @@ export const make = Effect.gen(function* () {
         };
       }
       const now = yield* DateTime.now;
-      const jobId = yield* crypto.randomUUIDv4.pipe(
-        Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })),
-      );
+      const jobId = yield* crypto
+        .randomUUIDv4()
+        .pipe(Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })));
       const payload = {
         version: 2 as const,
         jobId,

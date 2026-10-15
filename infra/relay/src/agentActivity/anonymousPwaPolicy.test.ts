@@ -95,13 +95,14 @@ function guardedRuntime(
       const original = yield* Crypto.Crypto;
       return Crypto.Crypto.of({
         ...original,
-        randomUUIDv4: original.randomUUIDv4.pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              calls.crypto++;
-            }),
-          ),
-        ),
+        randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
+          original.randomUUIDv4(options).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.crypto++;
+              }),
+            ),
+          )) as Crypto.Crypto["randomUUIDv4"],
         digest: (...args) => {
           calls.crypto++;
           return original.digest(...args);

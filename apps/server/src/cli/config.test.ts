@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics nodeBuiltinImport:off processEnv:off -- Configuration fixtures verify namespace forwarding.
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
@@ -23,6 +23,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
 
+const defaultNativeConfig = {
+  desktopBrowserControlFd: undefined,
+  desktopBrowserFd: undefined,
+  desktopTelemetryControlFd: undefined,
+  desktopTelemetryFd: undefined,
+  resourceMonitorPath: undefined,
+  maintenance: { namespace: process.env.T3CODE_MAINTENANCE_NAMESPACE },
+};
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
 
@@ -279,6 +287,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Warn",
         ...defaultObservabilityConfig,
         mode: "desktop",
@@ -350,6 +359,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Debug",
         ...defaultObservabilityConfig,
         mode: "web",
@@ -423,6 +433,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Info",
         ...defaultObservabilityConfig,
         mode: "web",
@@ -500,6 +511,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Info",
         ...defaultObservabilityConfig,
         otlpTracesUrl: "http://localhost:4318/v1/traces",
@@ -665,6 +677,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Debug",
         ...defaultObservabilityConfig,
         mode: "web",
@@ -733,6 +746,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved.otlpMetricsUrl).toBe("http://localhost:4318/v1/metrics");
       expect(resolved.otlpLogsUrl).toBe("http://localhost:4318/v1/logs");
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Info",
         ...defaultObservabilityConfig,
         otlpTracesUrl: "http://localhost:4318/v1/traces",
@@ -900,6 +914,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       );
 
       expect(resolved).toEqual({
+        ...defaultNativeConfig,
         logLevel: "Info",
         ...defaultObservabilityConfig,
         mode: "web",

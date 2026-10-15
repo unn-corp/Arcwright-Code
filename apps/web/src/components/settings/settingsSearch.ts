@@ -131,7 +131,13 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
     id: keybindingSearchAnchorId(command),
     title: commandLabel(command),
     to: "/settings/keybindings" as const,
-    searchTerms: [command, ...defaultKeys],
+    searchTerms: [
+      command,
+      ...defaultKeys,
+      ...(command === "thread.copyReference"
+        ? ["copy link", "chat link", "conversation reference"]
+        : []),
+    ],
     secondary: true,
     ...(defaultKeys.length === 0 ? { targetId: "keybindings" } : {}),
   };
@@ -1494,11 +1500,13 @@ export function searchSettings(
                 : exactPhraseField >= 0
                   ? 1
                   : 0;
-      return [{ item, index, rank }];
+      const exactAlias =
+        item.searchTerms?.some((term) => normalizeSearchText(term) === normalizedQuery) ?? false;
+      return [{ item, index, rank, secondary: item.secondary === true && !exactAlias }];
     })
     .toSorted(
       (left, right) =>
-        Number(left.item.secondary ?? false) - Number(right.item.secondary ?? false) ||
+        Number(left.secondary) - Number(right.secondary) ||
         right.rank - left.rank ||
         left.index - right.index,
     )

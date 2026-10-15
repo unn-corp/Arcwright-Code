@@ -207,9 +207,10 @@ export function threadReadTargetTitle(
  * `Read thread “Title”`), keeping the label's tense. Null keeps the generic label.
  */
 export function threadReadLabelPrefix(label: string) {
-  return label.endsWith(THREAD_READ_OBJECT)
-    ? `${label.slice(0, -THREAD_READ_OBJECT.length)} thread`
-    : null;
+  const object = [THREAD_READ_OBJECT, " an Arcwright Code thread"].find((suffix) =>
+    label.endsWith(suffix),
+  );
+  return object ? `${label.slice(0, -object.length)} thread` : null;
 }
 
 /** Inspectable read-file output is the path when we have one, otherwise nothing. */

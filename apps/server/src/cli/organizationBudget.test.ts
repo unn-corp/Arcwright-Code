@@ -24,7 +24,7 @@ const makeFixture = () => {
   const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-organization-budget-cli-"));
   const stateDir = NodePath.join(baseDir, "userdata");
   NodeFS.mkdirSync(stateDir);
-  const dbPath = NodePath.join(stateDir, "state.sqlite");
+  const dbPath = NodePath.join(stateDir, "statev2.sqlite");
   return {
     baseDir,
     dbPath,

@@ -227,8 +227,7 @@ it.effect(
             },
           })
           .pipe(Effect.flip);
-        assert.equal(error._tag, "OrchestratorDispatchError");
-        assert.instanceOf(error.cause, Orchestrator.OrchestratorCommandRejectedError);
+        assert.instanceOf(error, Orchestrator.OrchestratorCommandRejectedError);
       }
       // Serialization round-trip through SQL keeps links without relying on live component state.
       const reloaded = (yield* store.getThreadRecords(threadId, ["messages"], {
@@ -400,7 +399,7 @@ it.effect(
           messageId: queuedId,
         })
         .pipe(Effect.flip);
-      assert.instanceOf(cycle.cause, Orchestrator.OrchestratorCommandRejectedError);
+      assert.instanceOf(cycle, Orchestrator.OrchestratorCommandRejectedError);
       yield* writeMessage(threadId, "queued-descendant", "assistant", queuedId);
       const editCycle = yield* orchestrator
         .dispatch({
@@ -421,7 +420,7 @@ it.effect(
           },
         })
         .pipe(Effect.flip);
-      assert.instanceOf(editCycle.cause, Orchestrator.OrchestratorCommandRejectedError);
+      assert.instanceOf(editCycle, Orchestrator.OrchestratorCommandRejectedError);
       yield* orchestrator.dispatch({
         type: "queued-run.edit",
         commandId: CommandId.make("edit-reply"),
@@ -461,8 +460,7 @@ it.effect(
           messageId: MessageId.make("assistant:default"),
         })
         .pipe(Effect.flip);
-      assert.equal(invalid._tag, "OrchestratorDispatchError");
-      assert.instanceOf(invalid.cause, Orchestrator.OrchestratorCommandRejectedError);
+      assert.instanceOf(invalid, Orchestrator.OrchestratorCommandRejectedError);
       const currentRun = (yield* store.getThreadRecords(threadId, ["runs"], { runIds: [run.id] }))
         .runs[0]!;
       yield* sink.write({
@@ -486,7 +484,7 @@ it.effect(
             messageId: earlier.id,
           })
           .pipe(Effect.flip))._tag,
-        "OrchestratorDispatchError",
+        "OrchestratorCommandRejectedError",
       );
     }).pipe(Effect.provide(testLayer)),
 );

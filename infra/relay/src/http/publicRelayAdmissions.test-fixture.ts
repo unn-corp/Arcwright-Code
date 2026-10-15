@@ -218,7 +218,12 @@ export function fixture(input: {
         ...base,
         digest: (...args: Parameters<typeof base.digest>) =>
           base.digest(...args).pipe(Effect.tap(() => Effect.sync(() => counts.crypto++))),
-        randomUUIDv4: base.randomUUIDv4.pipe(Effect.tap(() => Effect.sync(() => counts.uuid++))),
+        randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
+          base
+            .randomUUIDv4(options)
+            .pipe(
+              Effect.tap(() => Effect.sync(() => counts.uuid++)),
+            )) as Crypto.Crypto["randomUUIDv4"],
       })),
     ),
   ).pipe(Layer.provide(NodeCrypto.layer));

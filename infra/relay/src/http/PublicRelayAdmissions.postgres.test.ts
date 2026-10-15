@@ -74,7 +74,12 @@ const makeSubscriptions = (
         Crypto.Crypto.pipe(
           Effect.map((base) => ({
             ...base,
-            randomUUIDv4: base.randomUUIDv4.pipe(Effect.tap(() => Effect.sync(() => c.uuid++))),
+            randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
+              base
+                .randomUUIDv4(options)
+                .pipe(
+                  Effect.tap(() => Effect.sync(() => c.uuid++)),
+                )) as Crypto.Crypto["randomUUIDv4"],
           })),
         ),
       ).pipe(Layer.provide(NodeCrypto.layer)),
@@ -619,14 +624,15 @@ describe.runIf(fixtureFile !== undefined)("public first-create admission race", 
                 crypto
                   .digest(...args)
                   .pipe(Effect.tap(() => Effect.sync(() => queries[phase].hash++))),
-              randomUUIDv4: Effect.gen(function* () {
-                queries[phase].uuid++;
-                if (++uuidCalls === 1) {
-                  yield* Deferred.succeed(entered, undefined);
-                  yield* Deferred.await(resume);
-                }
-                return yield* crypto.randomUUIDv4;
-              }),
+              randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
+                Effect.gen(function* () {
+                  queries[phase].uuid++;
+                  if (++uuidCalls === 1) {
+                    yield* Deferred.succeed(entered, undefined);
+                    yield* Deferred.await(resume);
+                  }
+                  return yield* crypto.randomUUIDv4(options);
+                })) as Crypto.Crypto["randomUUIDv4"],
             }),
           );
           const ownershipFailures: unknown[] = [];

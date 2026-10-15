@@ -454,12 +454,13 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
 /** Compare this checkout's migration registry against what the cloned
  * database recorded: same slot under a different name means the migration
  * was skipped, not applied. */
-const verifyMigrationSlots = Effect.fn("verifyMigrationSlots")(function* () {
+const verifyMigrationSlots = Effect.fn("verifyMigrationSlots")(function* (throughId?: number) {
   const sql = yield* SqlClient.SqlClient;
   const applied = yield* sql<{ migration_id: number; name: string }>`
     SELECT migration_id, name FROM effect_sql_migrations`;
   const appliedById = new Map(applied.map((row) => [Number(row.migration_id), row.name]));
   for (const [slot, codeName] of migrationManifest) {
+    if (throughId !== undefined && slot > throughId) continue;
     const appliedName = appliedById.get(slot);
     if (appliedName !== undefined && appliedName !== codeName) {
       return yield* new MigrateDevDbSlotCollisionError({ slot, codeName, appliedName });
@@ -539,6 +540,12 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
     yield* copySourceSlice(sourcePath).pipe(
       Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
       wrapPhase("snapshot", sourcePath),
+    );
+
+    // Shared pre-divergence identities cannot be reconciled. Preserve a precise
+    // slot-collision error before the migration layer rejects that history.
+    yield* verifyMigrationSlots(35).pipe(
+      Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
     );
 
     // Migrate before pruning: a source older than this checkout would

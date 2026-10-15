@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Fixed-argv Git commands use bounded raw output and an OS kill timer.
+import { usesFilesRefStorage } from "../vcs/gitRefFormat.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -177,8 +178,7 @@ export function preflightOrganizationGitTarget(input: {
     });
     if (canonicalTop !== root)
       return yield* failure("conflict", "Project is not the Git repository root.");
-    const format = yield* git(["rev-parse", "--show-ref-format"]);
-    if (format.exitCode !== 0 || format.stdout.toString("ascii").trim() !== "files")
+    if (!(yield* usesFilesRefStorage(git)))
       return yield* failure("conflict", "Only Git files refs are supported.");
     const common = yield* git(["rev-parse", "--git-common-dir"]);
     const commonText = common.stdout.toString("utf8").trim();
@@ -258,8 +258,7 @@ function targetOperation(
     });
     if (canonicalTop !== root)
       return yield* failure("conflict", "Project is not a Git repository root.");
-    const format = yield* git(["rev-parse", "--show-ref-format"]);
-    if (format.exitCode !== 0 || format.stdout.toString("ascii").trim() !== "files")
+    if (!(yield* usesFilesRefStorage(git)))
       return yield* failure("conflict", "Only Git files refs are supported.");
     const common = yield* git(["rev-parse", "--git-common-dir"]);
     const commonText = common.stdout.toString("utf8").trim();

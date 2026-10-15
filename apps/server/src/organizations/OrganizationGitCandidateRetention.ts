@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Fixed-argv Git ref commands need bounded raw output and an OS kill timer.
+import { usesFilesRefStorage } from "../vcs/gitRefFormat.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
@@ -188,8 +189,7 @@ export function inspectOrganizationGitCandidateRef(
     });
     if (canonicalTop !== root)
       return yield* failure("conflict", "Project root is not the Git repository root.");
-    const format = yield* git(["rev-parse", "--show-ref-format"]);
-    if (format.exitCode !== 0 || format.stdout.toString("ascii").trim() !== "files")
+    if (!(yield* usesFilesRefStorage(git)))
       return yield* failure("conflict", "Only the Git files ref format is supported.");
     const commonResult = yield* git(["rev-parse", "--git-common-dir"]);
     const commonText = commonResult.stdout.toString("utf8").trim();

@@ -562,8 +562,9 @@ layer("Organization work state", (it) => {
     }),
   );
 
-  for (const scope of ["global", "organization", "project"] as const) {
-    it.effect(`enforces the persisted ${scope} attempt ceiling and releases on submit`, () =>
+  it.effect.each(["global", "organization", "project"] as const)(
+    "enforces the persisted %s attempt ceiling and releases on submit",
+    (scope) =>
       Effect.gen(function* () {
         yield* seed;
         const sql = yield* SqlClient.SqlClient;
@@ -632,8 +633,7 @@ layer("Organization work state", (it) => {
           ["released", "active"],
         );
       }),
-    );
-  }
+  );
 
   it.effect("expired lease still holds capacity until recovery records permit expiry", () =>
     Effect.gen(function* () {
@@ -729,10 +729,16 @@ layer("Organization work state", (it) => {
         principal("builder"),
       );
       yield* TestClock.adjust(Duration.seconds(121));
+      const [fence] = yield* sql<{
+        sql: string;
+      }>`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='organization_work_scope_preparation_fences_permit_release'`;
       // Recreate the migration against a database with a pre-070 running attempt.
       yield* sql`DROP TABLE organization_work_resource_permits`;
       yield* sql`DROP TABLE organization_work_resource_limits`;
       yield* Migration0070;
+      // Dropping the permit table removes its modern trigger. Restore the fixture
+      // contract before another case validates the full schema fingerprint.
+      yield* sql.unsafe(fence!.sql);
       assert.equal(
         (yield* sql<{ state: string }>`SELECT state
         FROM organization_work_resource_permits WHERE attempt_id = ${attemptId}`)[0]?.state,

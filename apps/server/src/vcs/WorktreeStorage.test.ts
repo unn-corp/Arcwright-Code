@@ -221,6 +221,7 @@ describe("copy-on-write worktree storage", () => {
           const git = (cwd: string, args: readonly string[]) =>
             driver.execute({ operation: "test.worktreeStorage", cwd, args });
           yield* git(repo, ["init"]);
+          yield* git(repo, ["config", "core.fileMode", "true"]);
           yield* git(repo, ["config", "user.name", "Test"]);
           yield* git(repo, ["config", "user.email", "test@example.com"]);
           yield* fs.writeFileString(path.join(repo, "asset.bin"), "A".repeat(65536));
@@ -230,6 +231,9 @@ describe("copy-on-write worktree storage", () => {
           yield* fs.chmod(path.join(repo, "run.sh"), 0o755);
           yield* fs.symlink("changed.txt", path.join(repo, "link.txt"));
           yield* git(repo, ["add", "."]);
+          // The fixture runtime disables mode discovery; record the tracked
+          // executable bit explicitly so checkout preservation is still tested.
+          yield* git(repo, ["update-index", "--chmod=+x", "run.sh"]);
           yield* git(repo, ["commit", "-m", "base"]);
           const first = path.join(config.worktreesDir, "first");
           yield* createWorktree({

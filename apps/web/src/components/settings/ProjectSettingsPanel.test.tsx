@@ -31,7 +31,10 @@ const state = vi.hoisted(() => ({
   registry: null as AtomRegistry.AtomRegistry | null,
   sessions: new Map<EnvironmentId, Atom.Writable<SessionResult>>(),
   providers: null as Atom.Atom<ReadonlyArray<ServerProvider>> | null,
-  config: null as Atom.Atom<{ keybindings: ResolvedKeybindingsConfig }> | null,
+  config: null as Atom.Atom<{
+    keybindings: ResolvedKeybindingsConfig;
+    providers: ReadonlyArray<ServerProvider>;
+  }> | null,
   projects: [] as Project[],
   update:
     vi.fn<
@@ -58,7 +61,11 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 
-vi.mock("~/connection/runtime", () => ({ connectionAtomRuntime: undefined }));
+vi.mock("~/connection/runtime", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const Layer = await import("effect/Layer");
+  return { connectionAtomRuntime: Atom.runtime(Layer.empty) };
+});
 vi.mock("@t3tools/client-runtime/state/session", () => ({
   createEnvironmentSessionAtoms: () => ({
     sessionStateAtom: (id: EnvironmentId) => state.sessions.get(id)!,
@@ -212,7 +219,11 @@ const environments = [primaryId, remoteId].map((environmentId) => ({
   environmentId,
   label: environmentId,
   connection: { phase: "connected" },
-  serverConfig: { keybindings: DEFAULT_RESOLVED_KEYBINDINGS },
+  serverConfig: {
+    keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+    settings: DEFAULT_SERVER_SETTINGS,
+    providers: [],
+  },
 }));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({
   authenticated: true,
@@ -276,7 +287,7 @@ beforeEach(() => {
       skills: [],
     },
   ]);
-  state.config = Atom.make({ keybindings: DEFAULT_RESOLVED_KEYBINDINGS });
+  state.config = Atom.make({ keybindings: DEFAULT_RESOLVED_KEYBINDINGS, providers: [] });
   state.update.mockImplementation(async ({ environmentId, input }) => {
     const { projectId, ...updates } = input;
     const patch = Object.fromEntries(
