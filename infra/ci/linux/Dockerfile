@@ -73,7 +73,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-
 # Keep helper revisions separate from the sealed OS layer; attach them read-only per job.
 COPY --chmod=0444 infra/ci/linux/deb-guest.py infra/ci/linux/bounded_process.py /opt/t3-ci/linux-package-vm/helpers/
 COPY --chmod=0444 infra/ci/linux/bounded_process.py /usr/local/lib/t3-ci/bounded_process.py
-RUN python3 -c 'import hashlib,json,pathlib; r=pathlib.Path("/opt/t3-ci/linux-package-vm"); p=r/"manifest.json"; m=json.loads(p.read_text()); m["helpers"]={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in (r/"helpers").iterdir()}; p.write_text(json.dumps(m,indent=2)+"\n"); p.chmod(0o444)'
+RUN chmod 0755 /opt/t3-ci/linux-package-vm/helpers && \
+    python3 -c 'import hashlib,json,pathlib; r=pathlib.Path("/opt/t3-ci/linux-package-vm"); p=r/"manifest.json"; m=json.loads(p.read_text()); m["helpers"]={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in (r/"helpers").iterdir()}; p.write_text(json.dumps(m,indent=2)+"\n"); p.chmod(0o444)'
 COPY --chmod=0755 infra/ci/linux/package-vm.py /usr/local/bin/t3-ci-package-vm
 
 COPY --chmod=0755 infra/ci/linux/preflight.sh /usr/local/bin/t3-ci-preflight
