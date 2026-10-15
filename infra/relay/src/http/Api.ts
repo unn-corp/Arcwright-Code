@@ -958,13 +958,7 @@ export const layerClientApi = HttpApiBuilder.group(
             const result = yield* linker.link({ userId, request: payload }).pipe(
               Effect.tapError((error) =>
                 Effect.logWarning("Relay environment link failed", {
-                  errorTag: error._tag,
-                  ...("stage" in error ? { stage: error.stage } : {}),
-                  ...("operation" in error ? { operation: error.operation } : {}),
-                  ...("reason" in error ? { reason: error.reason } : {}),
-                  ...("cause" in error && error.cause instanceof Error
-                    ? { causeName: error.cause.name }
-                    : {}),
+                  failure: relayLinkFailureStages(error),
                 }),
               ),
             );
@@ -2034,6 +2028,24 @@ type CatchTagCases<E, Cases> = {
     error: Extract<E, { readonly _tag: K }>,
   ) => Effect.Effect<never, MappedTagError<Cases>>;
 } & (unknown extends E ? {} : { readonly [K in Exclude<keyof Cases, TaggedErrorTag<E>>]: never });
+
+function relayLinkFailureStages(error: unknown) {
+  const stages: Array<{ [key: string]: string | number }> = [];
+  const fields = ["_tag", "name", "stage", "operation", "reason", "code"];
+  let cause = error;
+  for (let depth = 0; depth < 6 && typeof cause === "object" && cause !== null; depth++) {
+    const stage: { [key: string]: string | number } = {};
+    for (const field of fields) {
+      if (!(field in cause)) continue;
+      const value: unknown = Reflect.get(cause, field);
+      if (typeof value === "string") stage[field] = value.slice(0, 160);
+      else if (typeof value === "number") stage[field] = value;
+    }
+    stages.push(stage);
+    cause = "cause" in cause ? cause.cause : undefined;
+  }
+  return stages;
+}
 
 function mapErrorTags<
   E,
