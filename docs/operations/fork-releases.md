@@ -356,6 +356,14 @@ The desktop updater suite uses one test worker so Windows dependency initializat
 does not compete across workers while materializing Electron files. Every required
 file still runs, and missing or failed tests continue to block publication.
 
+Linux `.deb` checks use the dedicated worker's disposable native KVM guest. The
+immutable base is hash-verified; private overlays and fresh SSH keys are discarded
+after the sequence. Actual guest dpkg runs install/update/downgrade and maintainer
+scripts, and the installed CLI must pass version and HTTP readiness as guest UID 1001. The outer worker stays nonroot/read-only with unchanged admission and archive
+suites. See [the Linux runner runbook](../../infra/ci/linux/README.md#native-debian-package-validation).
+This path requires qualification on the newly provisioned immutable runner image;
+a source change alone is not a passing package receipt.
+
 **What this does not prove.** The package rows are external operations (dpkg, the NSIS installer,
 `adb`, archive replacement). They show the shipped bytes install, upgrade in place, and roll back.
 They are never the whole proof: no check can be true on them alone. The in-product path (stopped

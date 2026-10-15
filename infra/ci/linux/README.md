@@ -90,3 +90,36 @@ TCP 80/443 and TCP/UDP DNS 53 are allowed. Other traffic is dropped. Host INPUT 
 blocked for each owned bridge, and IPv6 is disabled on the host bridge with additional
 interface-scoped IPv6 INPUT/FORWARD drops. Existing organization pools retain their
 own bridges and firewall behavior.
+
+## Native Debian package validation
+
+The job container stays UID/GID `1001:121`, read-only, capability-free and without
+sudo or a host Docker socket. Debian maintainer scripts need a writable system and
+root package manager, so `t3-ci-package-vm run -- COMMAND...` supplies a disposable
+native KVM guest for package checks. Build the guest during trusted image creation,
+before registration credentials exist. The Ubuntu cloud image URL/SHA-256 and apt
+snapshot are pinned in `build-package-vm.py`; the resulting root-owned read-only
+qcow2 has a manifest verified by preflight and again before each use. The complete
+runner image must still be deployed by immutable image ID through Dokploy.
+
+Each invocation allocates a private qcow2 overlay, NoCloud seed, client and host
+SSH keys and strict known-hosts file. The hash-verified RPC helper is attached on
+a separate read-only ISO and its identity/read-only mount is checked before every
+package operation. QEMU uses 2 vCPU/4 GiB, a loopback-only SSH
+forward and `restrict=on`, with no host mounts, general guest network access or job
+credentials. QEMU documents that [restricted user networking](https://www.qemu.org/docs/master/system/invocation.html)
+blocks guest access to the host/outside while preserving explicit forwards.
+Only captured child processes are terminated at teardown; all guest state and keys
+are discarded. The immutable base remains for the next job.
+
+The release validator transfers each exact `.deb` over bounded SSH stdin and checks
+its SHA-256, runs actual guest dpkg for install/update/downgrade, and queries that
+package database and installed marker. Each installed version must also run its
+actual Electron/server CLI as guest UID 1001 and pass version and HTTP readiness
+checks against a fresh isolated data/coordinator home. A fresh VM is used for each install/update/recovery receipt; one VM persists
+across both installations inside an update or recovery sequence. Root maintainer scripts can alter guest state;
+these checks are behavioral installation evidence, not tamper-proof forensics.
+Required coordinator and archive lifecycle suites continue outside the VM with the
+outer worker's real UID and filesystem protections. Missing tools, KVM/base/hash,
+boot, transport, package script, CLI, or teardown failures block validation. Never
+substitute a fake dpkg or relax outer-worker isolation to obtain a receipt.

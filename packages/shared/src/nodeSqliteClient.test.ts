@@ -1,3 +1,4 @@
+// @effect-diagnostics globalTimers:off - Bound actual worker diagnostics independently of the Effect test clock.
 import * as NodeSqlite from "node:sqlite";
 import type * as NodeWorkerThreads from "node:worker_threads";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -31,6 +32,9 @@ const startedWorkers = vi.hoisted((): Array<NodeWorkerThreads.Worker> => []);
 const silentWorkers = vi.hoisted(() => ({ on: false, readyOnTerminate: false }));
 // When set, workers throw this at startup, like a checkpoint worker on SQLite before 3.51.
 const failingWorkers = vi.hoisted(() => ({ message: undefined as string | undefined }));
+// Keep the writer open, but make the actual read-only SQLite open target a missing file.
+const missingReaderDatabase = vi.hoisted(() => ({ filename: undefined as string | undefined }));
+const workerFailures = vi.hoisted(() => new WeakMap<NodeWorkerThreads.Worker, Error>());
 
 vi.mock("node:worker_threads", async (importOriginal) => {
   const actual = await importOriginal<typeof NodeWorkerThreads>();
@@ -41,9 +45,22 @@ vi.mock("node:worker_threads", async (importOriginal) => {
           ? ["setInterval(() => {}, 1 << 30);", { eval: true }]
           : failingWorkers.message !== undefined
             ? [`throw new Error(${JSON.stringify(failingWorkers.message)});`, { eval: true }]
-            : args) as ConstructorParameters<typeof actual.Worker>),
+            : missingReaderDatabase.filename !== undefined &&
+                args[1]?.workerData?.filename === missingReaderDatabase.filename
+              ? [
+                  args[0],
+                  {
+                    ...args[1],
+                    workerData: {
+                      ...args[1].workerData,
+                      filename: `${missingReaderDatabase.filename}.missing`,
+                    },
+                  },
+                ]
+              : args) as ConstructorParameters<typeof actual.Worker>),
       );
       startedWorkers.push(this);
+      this.on("error", (error) => workerFailures.set(this, error));
     }
     override terminate() {
       // A "ready" already queued when termination starts reaches the parent before "exit".
@@ -665,20 +682,33 @@ const withFileClient = <A, E>(
     }).pipe(Effect.provide(SqliteClient.layer({ filename, readerWorker: true })));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
+const withMissingReaderDatabase = <A, E, R>(filename: string, effect: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      missingReaderDatabase.filename = filename;
+    }),
+    () => effect,
+    () =>
+      Effect.sync(() => {
+        missingReaderDatabase.filename = undefined;
+      }),
+  );
+
 it.effect("uses the writer when the reader cannot open the database", () =>
   withFileClient((sql, filename) =>
-    Effect.gen(function* () {
-      yield* sql`PRAGMA journal_mode = WAL`;
-      yield* sql`CREATE TABLE entries(name TEXT NOT NULL)`;
-      yield* sql`INSERT INTO entries VALUES ('kept')`;
-      // The writer keeps its open file; a read-only open of the path now fails.
-      yield* (yield* FileSystem.FileSystem).remove(filename);
-      const startedBefore = startedWorkers.length;
+    withMissingReaderDatabase(
+      filename,
+      Effect.gen(function* () {
+        yield* sql`PRAGMA journal_mode = WAL`;
+        yield* sql`CREATE TABLE entries(name TEXT NOT NULL)`;
+        yield* sql`INSERT INTO entries VALUES ('kept')`;
+        const startedBefore = startedWorkers.length;
 
-      assert.equal(yield* sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly), 1);
-      assert.equal(yield* sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly), 1);
-      assert.equal(startedWorkers.length, startedBefore + 1);
-    }),
+        assert.equal(yield* sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly), 1);
+        assert.equal(yield* sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly), 1);
+        assert.equal(startedWorkers.length, startedBefore + 1);
+      }),
+    ),
   ),
 );
 
@@ -775,24 +805,26 @@ it.effect("lets a read be cancelled while its worker is still starting", () =>
 it.effect("logs one warning when concurrent first reads find the reader unavailable", () => {
   const { warnings, layer: logs } = captureWarnings();
   return withFileClient((sql, filename) =>
-    Effect.gen(function* () {
-      yield* sql`PRAGMA journal_mode = WAL`;
-      yield* sql`CREATE TABLE entries(name TEXT NOT NULL)`;
-      yield* (yield* FileSystem.FileSystem).remove(filename);
-      const startedBefore = startedWorkers.length;
+    withMissingReaderDatabase(
+      filename,
+      Effect.gen(function* () {
+        yield* sql`PRAGMA journal_mode = WAL`;
+        yield* sql`CREATE TABLE entries(name TEXT NOT NULL)`;
+        const startedBefore = startedWorkers.length;
 
-      const counts = yield* Effect.all(
-        [
-          sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly),
-          sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly),
-        ],
-        { concurrency: "unbounded" },
-      );
+        const counts = yield* Effect.all(
+          [
+            sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly),
+            sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly),
+          ],
+          { concurrency: "unbounded" },
+        );
 
-      assert.deepEqual(counts, [0, 0]);
-      assert.equal(startedWorkers.length, startedBefore + 1);
-      assert.lengthOf(warnings, 1);
-    }),
+        assert.deepEqual(counts, [0, 0]);
+        assert.equal(startedWorkers.length, startedBefore + 1);
+        assert.lengthOf(warnings, 1);
+      }),
+    ),
   ).pipe(Effect.provide(logs));
 });
 
@@ -834,6 +866,16 @@ const withCheckpointClient = <A, E>(
     const path = yield* Path.Path;
     const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-sqlite-checkpoint-" });
     const filename = path.join(directory, "state.sqlite");
+    // Establish WAL before starting the second connection. Changing journal mode
+    // while that worker opens can legitimately retire it and select writer fallback.
+    yield* Effect.sync(() => {
+      const seed = new NodeSqlite.DatabaseSync(filename);
+      try {
+        seed.exec("PRAGMA journal_mode = WAL");
+      } finally {
+        seed.close();
+      }
+    });
     return yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`PRAGMA journal_mode = WAL`;
@@ -846,13 +888,38 @@ const withCheckpointClient = <A, E>(
 const checkpointWorkerReply = (worker: NodeWorkerThreads.Worker) =>
   Effect.promise(
     () =>
-      new Promise<void>((resolve) => {
+      new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timer);
+          worker.off("message", onReply);
+          worker.off("error", onError);
+          worker.off("exit", onExit);
+        };
+        const onError = (error: Error) => {
+          cleanup();
+          reject(error);
+        };
+        const onExit = (code: number) =>
+          onError(
+            workerFailures.get(worker) ??
+              new Error(`Checkpoint worker exited ${code} before replying.`),
+          );
         const onReply = (reply: unknown) => {
           if (reply !== "barrier") return;
-          worker.off("message", onReply);
+          cleanup();
           resolve();
         };
+        const timer = setTimeout(
+          () => onError(new Error("Checkpoint worker did not reply within five seconds.")),
+          5_000,
+        );
+        if (worker.threadId === -1) {
+          onExit(-1);
+          return;
+        }
         worker.on("message", onReply);
+        worker.once("error", onError);
+        worker.once("exit", onExit);
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node workers do not accept a target origin.
         worker.postMessage("barrier");
       }),
@@ -864,6 +931,7 @@ it.effect("checkpoints the WAL on the worker instead of the writer", () =>
       const fs = yield* FileSystem.FileSystem;
       const walSize = Effect.map(fs.stat(`${filename}-wal`), (info) => Number(info.size));
       const worker = startedWorkers.at(-1)!;
+      yield* checkpointWorkerReply(worker);
       const limit = 1024 * 1024;
       yield* sql.unsafe(`PRAGMA journal_size_limit = ${limit}`);
       const autocheckpoint = yield* sql<{

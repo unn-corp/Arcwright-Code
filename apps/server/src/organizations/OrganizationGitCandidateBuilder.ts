@@ -1,7 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Fixed-argv Git plumbing needs raw stdin/stdout and an OS kill timer.
 import * as NodeChildProcess from "node:child_process";
+import { withOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
@@ -11,7 +13,6 @@ import {
 import { readOrganizationPatchSource } from "./OrganizationPatchSourceReader.ts";
 import { decodeOrganizationSingleFileArtifact } from "./OrganizationSingleFileArtifact.ts";
 
-const GIT = "/usr/bin/git";
 const MAX_ARTIFACT_BYTES = 128 * 1024;
 const MAX_GIT_OUTPUT_BYTES = 4 * 1024;
 const GIT_TIMEOUT_MS = 10_000;
@@ -21,8 +22,6 @@ const SAFE_CONFIG = [
   "core.fsmonitor=false",
   "-c",
   "core.splitIndex=false",
-  "-c",
-  "core.hooksPath=/dev/null",
   "-c",
   "commit.gpgsign=false",
   "-c",
@@ -58,56 +57,57 @@ function runGit(
   indexFile: string,
   stdin?: Uint8Array,
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = NodeChildProcess.spawn(GIT, [...SAFE_CONFIG, ...args], {
-      cwd,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        PATH: "/usr/bin:/bin",
-        LC_ALL: "C",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_OPTIONAL_LOCKS: "0",
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_INDEX_FILE: indexFile,
-        GIT_AUTHOR_NAME: "Arcwright Code Organization Candidate",
-        GIT_AUTHOR_EMAIL: "organization-candidate@t3.invalid",
-        GIT_COMMITTER_NAME: "Arcwright Code Organization Candidate",
-        GIT_COMMITTER_EMAIL: "organization-candidate@t3.invalid",
-      },
-    });
-    const chunks: Buffer[] = [];
-    let length = 0;
-    let error: OrganizationGitCandidateBuilderError | null = null;
-    const timer = setTimeout(() => {
-      error = failure("unavailable", "Git candidate construction timed out.");
-      child.kill("SIGKILL");
-    }, GIT_TIMEOUT_MS);
-    child.stdout?.on("data", (chunk: Buffer) => {
-      if (error) return;
-      length += chunk.byteLength;
-      if (length > MAX_GIT_OUTPUT_BYTES) {
-        error = failure("unavailable", "Git candidate command output exceeded its bound.");
-        child.kill("SIGKILL");
-      } else chunks.push(chunk);
-    });
-    child.stderr?.on("data", () => {}); // Drain without exposing repository paths.
-    child.stdin?.on("error", () => {}); // Git can exit before consuming stdin.
-    child.once("error", () => {
-      clearTimeout(timer);
-      reject(failure("unavailable", "Git candidate command could not start."));
-    });
-    child.once("close", (exitCode) => {
-      clearTimeout(timer);
-      if (error) reject(error);
-      else if (exitCode !== 0) reject(failure("unavailable", "Git candidate command failed."));
-      else resolve(Buffer.concat(chunks, length));
-    });
-    child.stdin?.end(stdin ? Buffer.from(stdin) : undefined);
-  });
+  return withOrganizationGitExecution(
+    cwd,
+    (execution) =>
+      new Promise((resolve, reject) => {
+        const child = NodeChildProcess.spawn(
+          execution.command,
+          [...execution.args, ...SAFE_CONFIG, ...args],
+          {
+            cwd,
+            shell: false,
+            stdio: ["pipe", "pipe", "pipe"],
+            env: {
+              ...execution.env,
+              GIT_INDEX_FILE: indexFile,
+              GIT_AUTHOR_NAME: "Arcwright Code Organization Candidate",
+              GIT_AUTHOR_EMAIL: "organization-candidate@t3.invalid",
+              GIT_COMMITTER_NAME: "Arcwright Code Organization Candidate",
+              GIT_COMMITTER_EMAIL: "organization-candidate@t3.invalid",
+            },
+          },
+        );
+        const chunks: Buffer[] = [];
+        let length = 0;
+        let error: OrganizationGitCandidateBuilderError | null = null;
+        const timer = setTimeout(() => {
+          error = failure("unavailable", "Git candidate construction timed out.");
+          child.kill("SIGKILL");
+        }, GIT_TIMEOUT_MS);
+        child.stdout?.on("data", (chunk: Buffer) => {
+          if (error) return;
+          length += chunk.byteLength;
+          if (length > MAX_GIT_OUTPUT_BYTES) {
+            error = failure("unavailable", "Git candidate command output exceeded its bound.");
+            child.kill("SIGKILL");
+          } else chunks.push(chunk);
+        });
+        child.stderr?.on("data", () => {}); // Drain without exposing repository paths.
+        child.stdin?.on("error", () => {}); // Git can exit before consuming stdin.
+        child.once("error", () => {
+          clearTimeout(timer);
+          reject(failure("unavailable", "Git candidate command could not start."));
+        });
+        child.once("close", (exitCode) => {
+          clearTimeout(timer);
+          if (error) reject(error);
+          else if (exitCode !== 0) reject(failure("unavailable", "Git candidate command failed."));
+          else resolve(Buffer.concat(chunks, length));
+        });
+        child.stdin?.end(stdin ? Buffer.from(stdin) : undefined);
+      }),
+  );
 }
 
 /** Creates an unreachable candidate commit; the Project's refs, index and checkout stay untouched. */
@@ -153,7 +153,7 @@ export function buildOrganizationGitCandidate(
       catch: () => failure("unavailable", "Project root could not be resolved."),
     });
     const privateDir = yield* Effect.tryPromise({
-      try: () => NodeFSP.mkdtemp("/tmp/t3-org-candidate-index-"),
+      try: () => NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-candidate-index-")),
       catch: () => failure("unavailable", "Private Git index could not be allocated."),
     });
     const indexFile = NodePath.join(privateDir, "index");

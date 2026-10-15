@@ -13,6 +13,7 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -136,14 +137,14 @@ const transition = (id: string, from: string, to: string) => ({
 });
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 const git = (cwd: string, ...args: string[]) =>
-  NodeChildProcess.execFileSync("/usr/bin/git", args, {
+  NodeChildProcess.execFileSync(resolveOrganizationGitExecution(process.cwd()).command, args, {
     cwd,
     encoding: "utf8",
     env: {
-      PATH: "/usr/bin:/bin",
+      ...resolveOrganizationGitExecution(process.cwd()).env,
       LC_ALL: "C",
       GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
+
       GIT_NO_REPLACE_OBJECTS: "1",
     },
   }).trimEnd();
@@ -167,8 +168,6 @@ const withRepo = <A, E, R>(use: (root: string, commit: string) => Effect.Effect<
             "user.name=Fixture",
             "-c",
             "user.email=fixture@example.invalid",
-            "-c",
-            "core.hooksPath=/dev/null",
             "commit",
             "-qm",
             "base",
@@ -770,8 +769,6 @@ it.effect.skipIf(!available)(
           "user.name=Fixture",
           "-c",
           "user.email=fixture@example.invalid",
-          "-c",
-          "core.hooksPath=/dev/null",
           "commit",
           "--allow-empty",
           "-qm",

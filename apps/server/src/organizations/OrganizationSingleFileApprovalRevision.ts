@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Fixed-argv Git reads need raw bounded subprocess bytes and an OS kill timer.
 import * as NodeChildProcess from "node:child_process";
+import { withOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -26,48 +27,45 @@ export const organizationSingleFileApprovalProjectRootDigest = (canonicalRoot: s
     .digest("hex");
 
 const git = (root: string, args: readonly string[]): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const child = NodeChildProcess.spawn("/usr/bin/git", [...args], {
-      cwd: root,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        PATH: "/usr/bin:/bin",
-        LC_ALL: "C",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_OPTIONAL_LOCKS: "0",
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    });
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, 5_000);
-    child.stdout?.on("data", (chunk: Buffer) => {
-      bytes += chunk.byteLength;
-      if (bytes > 4_096) child.kill("SIGKILL");
-      else chunks.push(chunk);
-    });
-    child.stderr?.on("data", () => {});
-    child.once("error", () => {
-      clearTimeout(timer);
-      reject(failure("unavailable", "Current Project Git revision cannot be read."));
-    });
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      if (timedOut || bytes > 4_096)
-        reject(failure("unavailable", "Current Project Git revision read exceeded its limit."));
-      else if (code !== 0)
-        reject(failure("conflict", "Current Project Git revision is unavailable."));
-      else resolve(Buffer.concat(chunks, bytes).toString("utf8").trim());
-    });
-  });
+  withOrganizationGitExecution(
+    root,
+    (execution) =>
+      new Promise((resolve, reject) => {
+        const child = NodeChildProcess.spawn(execution.command, [...execution.args, ...args], {
+          cwd: root,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...execution.env,
+          },
+        });
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGKILL");
+        }, 5_000);
+        child.stdout?.on("data", (chunk: Buffer) => {
+          bytes += chunk.byteLength;
+          if (bytes > 4_096) child.kill("SIGKILL");
+          else chunks.push(chunk);
+        });
+        child.stderr?.on("data", () => {});
+        child.once("error", () => {
+          clearTimeout(timer);
+          reject(failure("unavailable", "Current Project Git revision cannot be read."));
+        });
+        child.once("close", (code) => {
+          clearTimeout(timer);
+          if (timedOut || bytes > 4_096)
+            reject(failure("unavailable", "Current Project Git revision read exceeded its limit."));
+          else if (code !== 0)
+            reject(failure("conflict", "Current Project Git revision is unavailable."));
+          else resolve(Buffer.concat(chunks, bytes).toString("utf8").trim());
+        });
+      }),
+  );
 
 export interface OrganizationSingleFileApprovalRevisionGuardShape {
   readonly verifyCurrent: (input: {

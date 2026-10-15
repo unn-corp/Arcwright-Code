@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable Git repository verifies read-only admission.
 import { assert, it } from "@effect/vitest";
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -15,17 +16,21 @@ it.effect("accepts only a current branch not checked out in any worktree", () =>
         (path) => Effect.promise(() => NodeFSP.rm(path, { recursive: true, force: true })),
       );
       const git = (...args: string[]) =>
-        NodeChildProcess.execFileSync("/usr/bin/git", args, {
-          cwd: root,
-          encoding: "utf8",
-          env: {
-            PATH: "/usr/bin:/bin",
-            LC_ALL: "C",
-            GIT_CONFIG_NOSYSTEM: "1",
-            GIT_CONFIG_GLOBAL: "/dev/null",
-            GIT_NO_REPLACE_OBJECTS: "1",
+        NodeChildProcess.execFileSync(
+          resolveOrganizationGitExecution(process.cwd()).command,
+          args,
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: {
+              ...resolveOrganizationGitExecution(process.cwd()).env,
+              LC_ALL: "C",
+              GIT_CONFIG_NOSYSTEM: "1",
+
+              GIT_NO_REPLACE_OBJECTS: "1",
+            },
           },
-        }).trim();
+        ).trim();
       git("init", "-q", "-b", "main");
       yield* Effect.promise(() =>
         NodeFSP.writeFile(NodePath.join(root, "answer.mjs"), "export const x = 1;\n"),
@@ -36,8 +41,6 @@ it.effect("accepts only a current branch not checked out in any worktree", () =>
         "user.name=Fixture",
         "-c",
         "user.email=fixture@example.invalid",
-        "-c",
-        "core.hooksPath=/dev/null",
         "commit",
         "-qm",
         "base",
@@ -56,8 +59,6 @@ it.effect("accepts only a current branch not checked out in any worktree", () =>
         "user.name=Fixture",
         "-c",
         "user.email=fixture@example.invalid",
-        "-c",
-        "core.hooksPath=/dev/null",
         "commit",
         "--allow-empty",
         "-qm",

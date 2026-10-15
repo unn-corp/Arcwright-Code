@@ -1,8 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Disposable Git fixtures and an independent child process need real OS timers; the Effect test clock is virtual.
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
@@ -33,24 +35,19 @@ import {
   type OrganizationWorkArtifactCaptureInput,
 } from "./OrganizationWorkArtifactStore.ts";
 
-const gitEnv = {
-  PATH: "/usr/bin:/bin",
-  LC_ALL: "C",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_NO_LAZY_FETCH: "1",
-  GIT_NO_REPLACE_OBJECTS: "1",
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-};
+const gitEnv = resolveOrganizationGitExecution(process.cwd()).env;
 async function gitFixture() {
-  const root = await NodeFSP.mkdtemp("/tmp/t3-org-coordinator-test-");
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-coordinator-test-"));
   const git = (args: readonly string[]) =>
-    NodeChildProcess.execFileSync("/usr/bin/git", [...args], {
-      cwd: root,
-      env: gitEnv,
-      encoding: "buffer",
-    });
+    NodeChildProcess.execFileSync(
+      resolveOrganizationGitExecution(process.cwd()).command,
+      [...args],
+      {
+        cwd: root,
+        env: gitEnv,
+        encoding: "buffer",
+      },
+    );
   git(["init", "-q", "-b", "main"]);
   await NodeFSP.writeFile(NodePath.join(root, "source.mjs"), "export const answer = 1;\n");
   git(["add", "--", "source.mjs"]);
@@ -423,7 +420,7 @@ it.effect("rejects revocation injected immediately before the SQLite write fence
 );
 
 it.effect("holds the SQLite write fence across Git retention and acknowledgement", () => {
-  const tempDir = NodeFS.mkdtempSync("/tmp/t3-org-fence-db-");
+  const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-org-fence-db-"));
   const dbPath = NodePath.join(tempDir, "state.sqlite");
   return Effect.gen(function* () {
     const git = yield* Effect.promise(gitFixture);

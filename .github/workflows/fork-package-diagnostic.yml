@@ -89,7 +89,11 @@ jobs:
         run: |
           failed=0
           for check in install update recovery; do
-            FORK_RELEASE_CHECK="$check" node scripts/fork-release-validate.ts || failed=1
+            if [[ "$FORK_RELEASE_TARGET" == linux-x64 ]]; then
+              FORK_RELEASE_CHECK="$check" /usr/local/bin/t3-ci-package-vm run -- node scripts/fork-release-validate.ts || failed=1
+            else
+              FORK_RELEASE_CHECK="$check" node scripts/fork-release-validate.ts || failed=1
+            fi
           done
           exit "$failed"
 

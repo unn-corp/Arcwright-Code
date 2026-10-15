@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Fixed-argv Git ref commands need bounded raw output and an OS kill timer.
 import { usesFilesRefStorage } from "../vcs/gitRefFormat.ts";
 import * as NodeChildProcess from "node:child_process";
+import { withOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -11,15 +12,12 @@ import {
   type OrganizationGitResultProof,
 } from "./OrganizationGitResultProof.ts";
 
-const GIT = "/usr/bin/git";
 const GIT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 4 * 1024;
 const MAX_ARTIFACT_BYTES = 128 * 1024;
 const FULL_OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const PRIVATE_REF_PREFIX = "refs/t3-organizations/candidates/";
 const SAFE_CONFIG = [
-  "-c",
-  "core.hooksPath=/dev/null",
   "-c",
   "core.fsmonitor=false",
   "-c",
@@ -64,50 +62,51 @@ const isRetentionError = Schema.is(OrganizationGitCandidateRetentionError);
 type GitResult = { readonly exitCode: number; readonly stdout: Buffer };
 /** Ref commands use only fixed arguments and a clean environment; stderr is never returned. */
 function runGit(cwd: string, args: readonly string[]): Promise<GitResult> {
-  return new Promise((resolve, reject) => {
-    const child = NodeChildProcess.spawn(GIT, [...SAFE_CONFIG, ...args], {
-      cwd,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        PATH: "/usr/bin:/bin",
-        LC_ALL: "C",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_OPTIONAL_LOCKS: "0",
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    });
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let commandError: OrganizationGitCandidateRetentionError | null = null;
-    const timer = setTimeout(() => {
-      commandError = failure("unavailable", "Git candidate retention timed out.");
-      child.kill("SIGKILL");
-    }, GIT_TIMEOUT_MS);
-    child.stdout?.on("data", (chunk: Buffer) => {
-      if (commandError) return;
-      size += chunk.byteLength;
-      if (size > MAX_OUTPUT_BYTES) {
-        commandError = failure("unavailable", "Git ref output exceeded its bound.");
-        child.kill("SIGKILL");
-      } else chunks.push(chunk);
-    });
-    child.stderr?.on("data", () => {});
-    child.once("error", () => {
-      clearTimeout(timer);
-      reject(failure("unavailable", "Git candidate retention could not start."));
-    });
-    child.once("close", (exitCode) => {
-      clearTimeout(timer);
-      if (commandError) reject(commandError);
-      else if (exitCode === null)
-        reject(failure("unavailable", "Git ref command was interrupted."));
-      else resolve({ exitCode, stdout: Buffer.concat(chunks, size) });
-    });
-  });
+  return withOrganizationGitExecution(
+    cwd,
+    (execution) =>
+      new Promise((resolve, reject) => {
+        const child = NodeChildProcess.spawn(
+          execution.command,
+          [...execution.args, ...SAFE_CONFIG, ...args],
+          {
+            cwd,
+            shell: false,
+            stdio: ["ignore", "pipe", "pipe"],
+            env: {
+              ...execution.env,
+            },
+          },
+        );
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let commandError: OrganizationGitCandidateRetentionError | null = null;
+        const timer = setTimeout(() => {
+          commandError = failure("unavailable", "Git candidate retention timed out.");
+          child.kill("SIGKILL");
+        }, GIT_TIMEOUT_MS);
+        child.stdout?.on("data", (chunk: Buffer) => {
+          if (commandError) return;
+          size += chunk.byteLength;
+          if (size > MAX_OUTPUT_BYTES) {
+            commandError = failure("unavailable", "Git ref output exceeded its bound.");
+            child.kill("SIGKILL");
+          } else chunks.push(chunk);
+        });
+        child.stderr?.on("data", () => {});
+        child.once("error", () => {
+          clearTimeout(timer);
+          reject(failure("unavailable", "Git candidate retention could not start."));
+        });
+        child.once("close", (exitCode) => {
+          clearTimeout(timer);
+          if (commandError) reject(commandError);
+          else if (exitCode === null)
+            reject(failure("unavailable", "Git ref command was interrupted."));
+          else resolve({ exitCode, stdout: Buffer.concat(chunks, size) });
+        });
+      }),
+  );
 }
 
 async function assertSafeRefPath(root: string, gitCommonDir: string, digest: string) {

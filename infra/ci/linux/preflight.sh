@@ -9,7 +9,7 @@ fail() { echo "[t3-ci-preflight] $*" >&2; exit 1; }
 ! command -v sudo >/dev/null || fail "sudo must not exist in the job image."
 [[ ! -S /var/run/docker.sock ]] || fail "Host Docker socket is forbidden."
 [[ "$(uname -m)" == x86_64 ]] || fail "Expected native Linux x64 hardware."
-for tool in git gh jq curl unzip zip python3 gcc g++ make pkg-config java convert node; do
+for tool in git gh jq curl unzip zip python3 gcc g++ make pkg-config java convert node qemu-system-x86_64 qemu-img genisoimage ssh ssh-keygen; do
   command -v "$tool" >/dev/null || fail "Missing $tool."
 done
 pkg-config --exists libsecret-1 wayland-client xkbcommon || fail "Missing native development headers."
@@ -23,6 +23,8 @@ for library in ["libnotify.so.4", "libsecret-1.so.0", "libgtk-3.so.0", "libnspr4
     ctypes.CDLL(library)
 print("[t3-ci-preflight] Native runtime libraries available.")
 PY
+
+/usr/local/bin/t3-ci-package-vm preflight
 
 sdk="$ANDROID_HOME"
 [[ "$mode" != --image ]] || sdk=/opt/t3-ci/android-sdk

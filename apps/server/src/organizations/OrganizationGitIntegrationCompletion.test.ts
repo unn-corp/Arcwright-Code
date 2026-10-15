@@ -1,8 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off preferSchemaOverJson:off - Disposable Git and exact versioned evidence fixture.
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import { assert, it } from "@effect/vitest";
 import { OrganizationBindingId, OrganizationId, ProjectId } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -57,25 +59,20 @@ const time = "2026-01-01T00:00:00.000Z";
 const scopeUnit = "t3-org-sandbox-00000000000000000000000000000001.scope";
 const scopeInvocation = "00000000000000000000000000000001";
 const request = { attemptId, targetRef: "refs/heads/release", integratorSubject: "integrator-d" };
-const gitEnv = {
-  PATH: "/usr/bin:/bin",
-  LC_ALL: "C",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_NO_LAZY_FETCH: "1",
-  GIT_NO_REPLACE_OBJECTS: "1",
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-};
+const gitEnv = resolveOrganizationGitExecution(process.cwd()).env;
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 async function gitFixture() {
-  const root = await NodeFSP.mkdtemp("/tmp/t3-org-completion-test-");
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-completion-test-"));
   const git = (args: readonly string[]) =>
-    NodeChildProcess.execFileSync("/usr/bin/git", [...args], {
-      cwd: root,
-      env: gitEnv,
-      encoding: "utf8",
-    }).trim();
+    NodeChildProcess.execFileSync(
+      resolveOrganizationGitExecution(process.cwd()).command,
+      [...args],
+      {
+        cwd: root,
+        env: gitEnv,
+        encoding: "utf8",
+      },
+    ).trim();
   git(["init", "-q", "-b", "main"]);
   await NodeFSP.writeFile(NodePath.join(root, "source.mjs"), "export const answer = 1;\n");
   git(["add", "--", "source.mjs"]);

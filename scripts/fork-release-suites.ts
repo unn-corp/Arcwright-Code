@@ -74,7 +74,9 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "Device maintenance coordinator: work admission and idle windows, durable coordination store and fencing, multi-home snapshots, the update/recovery transaction and its commit boundary, the controller, and the recovery helper.",
     targets: ["linux-x64", "windows-x64"],
     workdir: "packages/shared",
-    command: VITEST,
+    // Each fixture can start SQLite workers, snapshots and native helpers.
+    // Bound simultaneous native processes on the isolated 16 GiB CI workers.
+    command: [...VITEST, "--maxWorkers=1"],
     results: "vitest",
     required: [
       "src/forkMaintenance.test.ts",
@@ -125,6 +127,10 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "src/vcs/GitProcessBudget.test.ts",
       "src/vcs/GitVcsDriverCore.test.ts",
       "src/vcs/gitRefFormat.test.ts",
+      "src/organizations/OrganizationGitExecution.test.ts",
+      "src/organizations/OrganizationGitCandidateBuilder.test.ts",
+      "src/organizations/OrganizationGitResultProof.test.ts",
+      "src/organizations/OrganizationPatchSourceReader.test.ts",
       "src/organizations/OrganizationGitCandidateRetention.test.ts",
       "src/organizations/OrganizationGitIntegrationCoordinator.test.ts",
       "src/diagnostics/ProcessDiagnostics.test.ts",

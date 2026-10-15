@@ -72,3 +72,65 @@ schedule. Installation uses the verified release and genuine native maintenance
 admission, preserving data and chats. Record the actual digest, version, source,
 launcher, canonical Start Menu replacement, and health checks after installation.
 No production database is opened or shrunk by this integration's tests.
+
+### Nightly 118 local delivery and follow-up gate repairs
+
+The pipeline allocated `1.0.1-nightly.20261015.118` from
+`964a04db0b490e732e2eb50cf3448d781f3b8b33`. Its Linux AppImage was installed
+under the user's explicit one-time offline exception, with a checksum-verified
+copy of the original data/profile and a successful integrity check on the copied
+database. The actual installed digest is
+`8626272f7bf8c9c36c843fa39437309987a9f2e27d893e1709cd2696dc6c8ee6`.
+The canonical menu entry is **Arcwright Code — Nightly 118**, desktop ID
+`com.t3tools.T3Code.desktop`; the obsolete `t3code-url-handler.desktop` was retired.
+The stable launcher remains `~/.local/bin/launch-arcwright-code`. The private
+installation record under `~/.t3/maintenance/offline-installations/nightly-118/`
+contains the complete recovery, source, menu and verification evidence. The
+installed title/sidebar, existing projects/history, HTTP 200 readiness and a second
+menu invocation were verified. Autostart remains disabled and current chats remain
+running. No native admission or updated native installed-build receipt is claimed.
+Bulk storage compaction has not been performed.
+
+The commissioning run did not publish Nightly 118. Windows package validation
+passed, but Windows Git fixtures assumed Unix paths, Windows SQLite fixtures
+unlinked an open database, the Linux checkpoint fixture timed out, the Linux Debian
+gate attempted host-root installation in a read-only worker, and the Android
+emulator worker lost communication with GitHub. Counter 118 remains consumed.
+
+Follow-up Git plumbing locates a native Windows executable through canonical
+host directories outside the project, rejects relative/network paths and aliases
+into the repository, and replaces the child's environment with explicit Git
+safeguards. Private empty hook directories work on both platforms, including temp
+paths containing spaces. Existing output bounds, timers, fixed arguments, ref CAS,
+object proof and authority checks remain. Fixtures use OS scratch paths, file URLs
+and explicit Git index mode changes rather than Unix-only executable paths or
+filesystem mode behavior. The new helper and affected Git proof tests are required
+host-runtime release gates.
+
+SQLite reader-failure fixtures now cause the actual read-only SQLite open to target
+a missing file while preserving the open writer. Checkpoint fixtures establish WAL
+before starting the worker and bound barrier waits with error/exit diagnostics.
+All checkpoint, writer fallback, corruption and warning assertions remain. The
+coordinator suite uses one worker to bound simultaneous snapshots/native helpers
+within the isolated runner's resource limits. Matching Node 24.22 local coverage
+passes; a fresh exact-source Windows/Linux commissioning run is still required.
+
+Linux Debian package gates are being qualified in disposable native KVM guests.
+Their base OS and dependencies are built into the immutable CI image; each job
+verifies that base's digest and creates a private copy-on-write overlay and fresh
+SSH keys. Real guest dpkg runs the actual package scripts and package database;
+the installed Electron/server CLI must report the expected version and HTTP 200
+as guest UID 1001. Guest networking has no egress or host access except a loopback
+SSH forward, and there are no host directory mounts or runner credentials in the
+guest. Archive, admission and recovery suites remain on the unprivileged outer
+worker. This qualification is pending until the real image/package checks pass;
+it does not make Nightly 118 published or authorize another local installation.
+
+The follow-up Linux checks passed under CI's Node 24.22: all 312 coordinator tests
+(18 files), all 614 required host-runtime tests (49 files), focused package/suite
+contracts and Git fixtures, three scoped typechecks, edited-file lint, documentation
+links/examples, and process output/timeout cleanup regressions. Independent Luna
+re-review cleared the Git execution boundary and native-VM controller findings.
+The immutable image and real package sequence still require qualification, followed
+by the exact-source cross-platform commissioning gates; these local results do not
+publish a build or replace the currently running installation.

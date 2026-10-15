@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Fixed-argv Git reads require raw bounded bytes and a kill timer.
 import * as NodeChildProcess from "node:child_process";
+import { withOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -7,7 +8,6 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { decodeOrganizationSingleFileArtifact } from "./OrganizationSingleFileArtifact.ts";
 
-const GIT = "/usr/bin/git";
 const GIT_TIMEOUT_MS = 5_000;
 const MAX_ARTIFACT_BYTES = 128 * 1024;
 const MAX_SOURCE_BYTES = 64 * 1024;
@@ -41,50 +41,47 @@ const isProofError = Schema.is(OrganizationGitResultProofError);
 
 /** Git receives fixed options and bounded stdout. Neither shell nor hooks are used. */
 function git(cwd: string, args: readonly string[], maxBytes: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = NodeChildProcess.spawn(GIT, [...args], {
-      cwd,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        PATH: "/usr/bin:/bin",
-        LC_ALL: "C",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_OPTIONAL_LOCKS: "0",
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    });
-    const chunks: Buffer[] = [];
-    let length = 0;
-    let error: OrganizationGitResultProofError | null = null;
-    const timer = setTimeout(() => {
-      error = failure("unavailable", "Pinned Git result verification timed out.");
-      child.kill("SIGKILL");
-    }, GIT_TIMEOUT_MS);
-    child.stdout?.on("data", (chunk: Buffer) => {
-      if (error) return;
-      length += chunk.byteLength;
-      if (length > maxBytes) {
-        error = failure("invalid", "Pinned Git result exceeds its byte limit.");
-        child.kill("SIGKILL");
-      } else chunks.push(chunk);
-    });
-    child.stderr?.on("data", () => {});
-    child.once("error", () => {
-      clearTimeout(timer);
-      reject(failure("unavailable", "Pinned Git result could not be read."));
-    });
-    child.once("close", (exitCode) => {
-      clearTimeout(timer);
-      if (error) reject(error);
-      else if (exitCode !== 0)
-        reject(failure("not_found", "Pinned Git result or commit was not found."));
-      else resolve(Buffer.concat(chunks, length));
-    });
-  });
+  return withOrganizationGitExecution(
+    cwd,
+    (execution) =>
+      new Promise((resolve, reject) => {
+        const child = NodeChildProcess.spawn(execution.command, [...execution.args, ...args], {
+          cwd,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...execution.env,
+          },
+        });
+        const chunks: Buffer[] = [];
+        let length = 0;
+        let error: OrganizationGitResultProofError | null = null;
+        const timer = setTimeout(() => {
+          error = failure("unavailable", "Pinned Git result verification timed out.");
+          child.kill("SIGKILL");
+        }, GIT_TIMEOUT_MS);
+        child.stdout?.on("data", (chunk: Buffer) => {
+          if (error) return;
+          length += chunk.byteLength;
+          if (length > maxBytes) {
+            error = failure("invalid", "Pinned Git result exceeds its byte limit.");
+            child.kill("SIGKILL");
+          } else chunks.push(chunk);
+        });
+        child.stderr?.on("data", () => {});
+        child.once("error", () => {
+          clearTimeout(timer);
+          reject(failure("unavailable", "Pinned Git result could not be read."));
+        });
+        child.once("close", (exitCode) => {
+          clearTimeout(timer);
+          if (error) reject(error);
+          else if (exitCode !== 0)
+            reject(failure("not_found", "Pinned Git result or commit was not found."));
+          else resolve(Buffer.concat(chunks, length));
+        });
+      }),
+  );
 }
 
 /**

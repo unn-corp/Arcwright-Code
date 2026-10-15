@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable SQLite files exercise independent concurrent writers.
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
@@ -299,7 +300,9 @@ it.effect("requires real scopes and validates bounds before any mutation", () =>
 
 it.effect("allows only one of two independent writers using the same revision", () =>
   Effect.gen(function* () {
-    const directory = yield* Effect.promise(() => NodeFSP.mkdtemp("/tmp/t3-budget-config-"));
+    const directory = yield* Effect.promise(() =>
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-budget-config-")),
+    );
     const filename = NodePath.join(directory, "state.sqlite");
     const sqlite = () => NodeSqliteClient.layer({ filename });
     try {

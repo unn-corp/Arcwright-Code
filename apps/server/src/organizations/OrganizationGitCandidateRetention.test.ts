@@ -1,8 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable Git fixtures inspect raw Project state and run local gc.
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { buildOrganizationGitCandidate } from "./OrganizationGitCandidateBuilder.ts";
@@ -10,26 +12,21 @@ import { retainOrganizationGitCandidate } from "./OrganizationGitCandidateRetent
 import { buildOrganizationPatchArtifact } from "./OrganizationPatchArtifactBuilder.ts";
 import { readOrganizationPatchSource } from "./OrganizationPatchSourceReader.ts";
 
-const gitEnv = {
-  PATH: "/usr/bin:/bin",
-  LC_ALL: "C",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_NO_LAZY_FETCH: "1",
-  GIT_NO_REPLACE_OBJECTS: "1",
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-};
+const gitEnv = resolveOrganizationGitExecution(process.cwd()).env;
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 
 async function fixture() {
-  const root = await NodeFSP.mkdtemp("/tmp/t3-org-retention-test-");
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-retention-test-"));
   const git = (args: readonly string[]) =>
-    NodeChildProcess.execFileSync("/usr/bin/git", [...args], {
-      cwd: root,
-      env: gitEnv,
-      encoding: "buffer",
-    });
+    NodeChildProcess.execFileSync(
+      resolveOrganizationGitExecution(process.cwd()).command,
+      [...args],
+      {
+        cwd: root,
+        env: gitEnv,
+        encoding: "buffer",
+      },
+    );
   git(["init", "-q", "-b", "main"]);
   await NodeFSP.writeFile(NodePath.join(root, "source.mjs"), "export const answer = 1;\n");
   git(["add", "--", "source.mjs"]);
@@ -253,47 +250,38 @@ it.effect("rejects a symlinked private ref ancestor before creating any branch r
   }),
 );
 
-for (const location of [
+it.effect.each([
   "refs/t3-organizations/candidates",
   "refs/t3-organizations/candidates/leaf",
   "logs/refs/t3-organizations",
   "logs/refs/t3-organizations/candidates",
-] as const) {
-  it.effect(`rejects a symlinked Git metadata path at ${location}`, () =>
-    Effect.gen(function* () {
-      const f = yield* Effect.promise(fixture);
-      try {
-        const built = yield* candidate(f);
-        const digest = sha256(built.reviewedArtifactBytes);
-        const leaf = NodePath.join(
-          f.root,
-          ".git",
-          "refs",
-          "t3-organizations",
-          "candidates",
-          digest,
-        );
-        const target = location.endsWith("/leaf") ? leaf : NodePath.join(f.root, ".git", location);
-        yield* Effect.promise(() => NodeFSP.mkdir(NodePath.dirname(target), { recursive: true }));
-        yield* Effect.promise(() =>
-          NodeFSP.symlink(NodePath.join(f.root, ".git", "refs", "heads"), target),
-        );
-        const before = yield* Effect.promise(() => projectState(f.root, f.git));
-        const error = yield* retainOrganizationGitCandidate({
-          projectRoot: f.root,
-          baseCommit: f.baseCommit,
-          resultCommit: built.resultCommit,
-          reviewedArtifactBytes: built.reviewedArtifactBytes,
-        }).pipe(Effect.flip);
-        assert.equal(error.code, "conflict");
-        assert.deepEqual(yield* Effect.promise(() => projectState(f.root, f.git)), before);
-        assert.equal(f.git(["for-each-ref", `refs/heads/candidates/${digest}`]).byteLength, 0);
-      } finally {
-        yield* Effect.promise(() => NodeFSP.rm(f.root, { recursive: true, force: true }));
-      }
-    }),
-  );
-}
+] as const)("rejects a symlinked Git metadata path at %s", (location) =>
+  Effect.gen(function* () {
+    const f = yield* Effect.promise(fixture);
+    try {
+      const built = yield* candidate(f);
+      const digest = sha256(built.reviewedArtifactBytes);
+      const leaf = NodePath.join(f.root, ".git", "refs", "t3-organizations", "candidates", digest);
+      const target = location.endsWith("/leaf") ? leaf : NodePath.join(f.root, ".git", location);
+      yield* Effect.promise(() => NodeFSP.mkdir(NodePath.dirname(target), { recursive: true }));
+      yield* Effect.promise(() =>
+        NodeFSP.symlink(NodePath.join(f.root, ".git", "refs", "heads"), target),
+      );
+      const before = yield* Effect.promise(() => projectState(f.root, f.git));
+      const error = yield* retainOrganizationGitCandidate({
+        projectRoot: f.root,
+        baseCommit: f.baseCommit,
+        resultCommit: built.resultCommit,
+        reviewedArtifactBytes: built.reviewedArtifactBytes,
+      }).pipe(Effect.flip);
+      assert.equal(error.code, "conflict");
+      assert.deepEqual(yield* Effect.promise(() => projectState(f.root, f.git)), before);
+      assert.equal(f.git(["for-each-ref", `refs/heads/candidates/${digest}`]).byteLength, 0);
+    } finally {
+      yield* Effect.promise(() => NodeFSP.rm(f.root, { recursive: true, force: true }));
+    }
+  }),
+);
 
 it.effect("rejects a hardlinked private reflog before appending to the main branch reflog", () =>
   Effect.gen(function* () {

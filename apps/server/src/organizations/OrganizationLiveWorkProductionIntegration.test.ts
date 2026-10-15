@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -64,14 +65,14 @@ const transition = (id: string, from: string, to: string) => ({
   maxTraversals: null,
 });
 const git = (cwd: string, ...args: string[]) =>
-  NodeChildProcess.execFileSync("/usr/bin/git", args, {
+  NodeChildProcess.execFileSync(resolveOrganizationGitExecution(process.cwd()).command, args, {
     cwd,
     encoding: "utf8",
     env: {
-      PATH: "/usr/bin:/bin",
+      ...resolveOrganizationGitExecution(process.cwd()).env,
       LC_ALL: "C",
       GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
+
       GIT_NO_REPLACE_OBJECTS: "1",
     },
   }).trim();
@@ -271,8 +272,6 @@ it.effect.skipIf(!available)(
           "user.name=Fixture",
           "-c",
           "user.email=fixture@example.invalid",
-          "-c",
-          "core.hooksPath=/dev/null",
           "commit",
           "-qm",
           "base",

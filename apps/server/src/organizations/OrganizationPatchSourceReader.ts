@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Binary-safe fixed-argv Git reads need raw process bytes and a bounded OS kill timer.
 import * as NodeChildProcess from "node:child_process";
+import { withOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -13,8 +14,6 @@ const MAX_SOURCE_BYTES = 64 * 1024;
 const MAX_PATH_BYTES = 512;
 const MAX_METADATA_BYTES = 4 * 1024;
 const GIT_TIMEOUT_MS = 5_000;
-// A fixed system binary avoids resolving a repository-controlled PATH entry.
-const GIT_BINARY = "/usr/bin/git";
 const FULL_OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const PATH_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -57,51 +56,48 @@ function validPath(relativePath: string): boolean {
 
 /** Fixed argv, no shell and no inherited Git overrides. Output stays raw bytes. */
 function runGitRaw(cwd: string, args: readonly string[], maxBytes: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = NodeChildProcess.spawn(GIT_BINARY, [...args], {
-      cwd,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        PATH: "/usr/bin:/bin",
-        LC_ALL: "C",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_OPTIONAL_LOCKS: "0",
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    });
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let failure: OrganizationPatchSourceError | null = null;
-    const timer = setTimeout(() => {
-      failure = sourceError("unavailable", "Pinned Git object read timed out.");
-      child.kill("SIGKILL");
-    }, GIT_TIMEOUT_MS);
-    child.stdout?.on("data", (chunk: Buffer) => {
-      if (failure) return;
-      size += chunk.byteLength;
-      if (size > maxBytes) {
-        failure = sourceError("invalid", "Pinned Git object exceeds its byte limit.");
-        child.kill("SIGKILL");
-      } else chunks.push(chunk);
-    });
-    // Drain stderr but never return it: Git diagnostics can expose local paths.
-    child.stderr?.on("data", () => {});
-    child.once("error", () => {
-      clearTimeout(timer);
-      reject(sourceError("unavailable", "Pinned Git object could not be read."));
-    });
-    child.once("close", (exitCode) => {
-      clearTimeout(timer);
-      if (failure) reject(failure);
-      else if (exitCode !== 0)
-        reject(sourceError("not_found", "Pinned Git object or file was not found."));
-      else resolve(Buffer.concat(chunks, size));
-    });
-  });
+  return withOrganizationGitExecution(
+    cwd,
+    (execution) =>
+      new Promise((resolve, reject) => {
+        const child = NodeChildProcess.spawn(execution.command, [...execution.args, ...args], {
+          cwd,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...execution.env,
+          },
+        });
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let failure: OrganizationPatchSourceError | null = null;
+        const timer = setTimeout(() => {
+          failure = sourceError("unavailable", "Pinned Git object read timed out.");
+          child.kill("SIGKILL");
+        }, GIT_TIMEOUT_MS);
+        child.stdout?.on("data", (chunk: Buffer) => {
+          if (failure) return;
+          size += chunk.byteLength;
+          if (size > maxBytes) {
+            failure = sourceError("invalid", "Pinned Git object exceeds its byte limit.");
+            child.kill("SIGKILL");
+          } else chunks.push(chunk);
+        });
+        // Drain stderr but never return it: Git diagnostics can expose local paths.
+        child.stderr?.on("data", () => {});
+        child.once("error", () => {
+          clearTimeout(timer);
+          reject(sourceError("unavailable", "Pinned Git object could not be read."));
+        });
+        child.once("close", (exitCode) => {
+          clearTimeout(timer);
+          if (failure) reject(failure);
+          else if (exitCode !== 0)
+            reject(sourceError("not_found", "Pinned Git object or file was not found."));
+          else resolve(Buffer.concat(chunks, size));
+        });
+      }),
+  );
 }
 
 export const readOrganizationPatchSource = (

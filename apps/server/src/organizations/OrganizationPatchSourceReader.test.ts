@@ -1,9 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable Git fixtures need raw filesystem and process setup.
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import { assert, it } from "@effect/vitest";
 import { OrganizationWorkId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -11,27 +13,26 @@ import type { OrganizationWorkLaunchPlan } from "./OrganizationWorkLaunchPlanner
 import { readOrganizationPatchSource } from "./OrganizationPatchSourceReader.ts";
 
 const git = (cwd: string, ...args: string[]) =>
-  NodeChildProcess.execFileSync("/usr/bin/git", args, {
+  NodeChildProcess.execFileSync(resolveOrganizationGitExecution(process.cwd()).command, args, {
     cwd,
     encoding: "utf8",
     env: {
-      PATH: "/usr/bin:/bin",
+      ...resolveOrganizationGitExecution(process.cwd()).env,
       LC_ALL: "C",
       GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
+
       GIT_NO_REPLACE_OBJECTS: "1",
     },
   }).trim();
-const commit = (cwd: string) => {
+const commit = (cwd: string, executablePath?: string) => {
   git(cwd, "add", "--", ".");
+  if (executablePath) git(cwd, "update-index", "--chmod=+x", "--", executablePath);
   git(
     cwd,
     "-c",
     "user.name=Fixture",
     "-c",
     "user.email=fixture@example.invalid",
-    "-c",
-    "core.hooksPath=/dev/null",
     "commit",
     "-qm",
     "fixture",
@@ -103,8 +104,7 @@ it.effect("preserves the executable regular-file mode from the pinned tree", () 
     Effect.gen(function* () {
       const file = NodePath.join(root, "script.mjs");
       yield* Effect.promise(() => NodeFSP.writeFile(file, "export const ready = true;\n"));
-      yield* Effect.promise(() => NodeFSP.chmod(file, 0o755));
-      const selectedPlan = plan(root, commit(root));
+      const selectedPlan = plan(root, commit(root, "script.mjs"));
       const result = yield* readOrganizationPatchSource(selectedPlan, "script.mjs");
       assert.equal(result.baseMode, "100755");
     }),
@@ -215,7 +215,7 @@ it.effect("does not lazily fetch a missing blob from a partial clone", () =>
           Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
       );
       NodeChildProcess.execFileSync(
-        "/usr/bin/git",
+        resolveOrganizationGitExecution(process.cwd()).command,
         [
           "-c",
           "protocol.file.allow=always",
@@ -223,23 +223,26 @@ it.effect("does not lazily fetch a missing blob from a partial clone", () =>
           "-q",
           "--filter=blob:none",
           "--no-checkout",
-          `file://${source}`,
+          NodeURL.pathToFileURL(source).href,
           clone,
         ],
         {
           env: {
-            PATH: "/usr/bin:/bin",
+            ...resolveOrganizationGitExecution(process.cwd()).env,
             LC_ALL: "C",
             GIT_CONFIG_NOSYSTEM: "1",
-            GIT_CONFIG_GLOBAL: "/dev/null",
           },
         },
       );
       const missing = () =>
-        NodeChildProcess.spawnSync("/usr/bin/git", ["cat-file", "-e", blobOid], {
-          cwd: clone,
-          env: { PATH: "/usr/bin:/bin", GIT_NO_LAZY_FETCH: "1" },
-        }).status !== 0;
+        NodeChildProcess.spawnSync(
+          resolveOrganizationGitExecution(process.cwd()).command,
+          ["cat-file", "-e", blobOid],
+          {
+            cwd: clone,
+            env: { ...resolveOrganizationGitExecution(process.cwd()).env, GIT_NO_LAZY_FETCH: "1" },
+          },
+        ).status !== 0;
       assert.equal(missing(), true);
       assert.equal(yield* rejectedCode(plan(clone, baseCommit), "answer.js"), "not_found");
       assert.equal(missing(), true);

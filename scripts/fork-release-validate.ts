@@ -371,16 +371,44 @@ export interface DebTool {
   /** Paths the installed package owns. */
   readonly files: (name: string) => ReadonlyArray<string>;
   readonly read: (file: string) => string;
+  /** Optional real installed-runtime probe; the native CI guest supplies this. */
+  readonly probe?: (name: string, version: string) => void;
 }
+
+const debVmConfig = () => process.env.T3_FORK_DEB_VM_CONFIG;
+const debVm = (action: string, ...args: string[]): unknown => {
+  const config = debVmConfig();
+  if (!config) throw new Error("Native Debian package-validation VM is missing.");
+  const result = run("python3", ["infra/ci/linux/package-vm.py", "tool", config, action, ...args], {
+    timeout: 300_000,
+    maxBuffer: 5 * 1024 * 1024,
+  });
+  if (result.status !== 0)
+    throw new Error(
+      `Native Debian VM ${action} failed: ${redactCliSmokeOutput(result.stderr ?? result.error?.message ?? "unknown transport error")}`,
+    );
+  return JSON.parse(result.stdout);
+};
 
 const sudoRun = (program: string, args: string[]) => {
   const direct = run(program, args);
   if (direct.status === 0) return direct;
-  return run("sudo", ["-n", program, ...args]);
+  const elevated = run("sudo", ["-n", program, ...args]);
+  if (elevated.status === null)
+    throw new Error(
+      `${program} failed: ${direct.stderr ?? direct.error?.message}; sudo unavailable: ${elevated.error?.message ?? elevated.stderr}`,
+    );
+  return elevated;
 };
 
 export const realDebTool: DebTool = {
   info: (deb) => {
+    if (debVmConfig()) {
+      const value = debVm("info", deb) as { name?: unknown; version?: unknown };
+      if (typeof value?.name !== "string" || typeof value.version !== "string")
+        throw new Error("Native Debian VM returned invalid package metadata.");
+      return { name: value.name, version: value.version };
+    }
     const result = run("dpkg-deb", ["-f", deb, "Package", "Version"]);
     if (result.status !== 0)
       throw new Error(`dpkg-deb could not read ${NodePath.basename(deb)}: ${result.stderr}`);
@@ -391,6 +419,13 @@ export const realDebTool: DebTool = {
     return { name, version };
   },
   install: (deb) => {
+    if (debVmConfig()) {
+      if (debVm("install", deb) !== true)
+        throw new Error("Native Debian VM did not confirm installation.");
+      return;
+    }
+    if (process.env.CI === "true")
+      throw new Error("Linux CI package checks require the native Debian VM.");
     const result = sudoRun("dpkg", ["-i", deb]);
     if (result.status !== 0)
       throw new Error(
@@ -398,14 +433,46 @@ export const realDebTool: DebTool = {
       );
   },
   installedVersion: (name) => {
+    if (debVmConfig()) {
+      const value = debVm("version", name);
+      if (value !== null && typeof value !== "string")
+        throw new Error("Invalid native Debian version response.");
+      return value;
+    }
     const result = run("dpkg-query", ["-W", "-f=${Version}", name]);
     return result.status === 0 && result.stdout.trim() !== "" ? result.stdout.trim() : null;
   },
   files: (name) => {
+    if (debVmConfig()) {
+      const value = debVm("files", name);
+      if (!Array.isArray(value) || value.some((path) => typeof path !== "string"))
+        throw new Error("Invalid native Debian file list.");
+      return value as string[];
+    }
     const result = run("dpkg", ["-L", name]);
     return result.status === 0 ? result.stdout.split("\n").filter(Boolean) : [];
   },
-  read: (file) => NodeFS.readFileSync(file, "utf8"),
+  read: (file) => {
+    if (!debVmConfig()) return NodeFS.readFileSync(file, "utf8");
+    const value = debVm("read", file);
+    if (typeof value !== "string") throw new Error("Invalid native Debian marker response.");
+    return value;
+  },
+  probe: (name, version) => {
+    if (!debVmConfig()) return;
+    const value = debVm("probe", name, version) as {
+      uid?: unknown;
+      version?: unknown;
+      httpStatus?: unknown;
+    };
+    if (
+      value?.uid !== 1001 ||
+      value.httpStatus !== 200 ||
+      typeof value.version !== "string" ||
+      !value.version.includes(version.replaceAll("~", "-"))
+    )
+      throw new Error("The installed Debian CLI failed its unprivileged version/readiness probe.");
+  },
 };
 
 /** The Debian version of a release version: dpkg orders `~` before the release, so `-` becomes `~`. */
@@ -427,6 +494,7 @@ const installDeb = (tool: DebTool, deb: string, expectVersion: string): string =
     throw new Error(
       `After installing, dpkg reports ${installed ?? "nothing"}, expected ${info.version}.`,
     );
+  tool.probe?.(info.name, info.version);
   return info.name;
 };
 

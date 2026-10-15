@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable SQLite files exercise independent concurrent claimers and restart.
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
@@ -232,7 +233,9 @@ it.effect(
 
 it.effect("two independent SQLite claimers cannot exceed a one-slot global limit", () =>
   Effect.gen(function* () {
-    const directory = yield* Effect.promise(() => NodeFSP.mkdtemp("/tmp/t3-provider-budget-test-"));
+    const directory = yield* Effect.promise(() =>
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-provider-budget-test-")),
+    );
     const filename = NodePath.join(directory, "state.sqlite");
     const sqlite = () => NodeSqliteClient.layer({ filename });
     try {
@@ -270,7 +273,7 @@ const sqlLimit = (limit: number) =>
 it.effect("restart preserves the uncertain reservation and its capacity", () =>
   Effect.gen(function* () {
     const directory = yield* Effect.promise(() =>
-      NodeFSP.mkdtemp("/tmp/t3-provider-restart-test-"),
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-provider-restart-test-")),
     );
     const filename = NodePath.join(directory, "state.sqlite");
     const sqlite = () => NodeSqliteClient.layer({ filename });

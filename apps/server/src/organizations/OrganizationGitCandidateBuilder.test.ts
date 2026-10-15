@@ -1,33 +1,59 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable Git fixtures inspect raw index and object bytes.
 import * as NodeChildProcess from "node:child_process";
+import {
+  resolveOrganizationGitExecution,
+  withOrganizationGitExecution,
+} from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { buildOrganizationGitCandidate } from "./OrganizationGitCandidateBuilder.ts";
 import { createOrganizationSingleFileArtifact } from "./OrganizationSingleFileArtifact.ts";
 
-const gitEnv = {
-  PATH: "/usr/bin:/bin",
-  LC_ALL: "C",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_NO_LAZY_FETCH: "1",
-  GIT_NO_REPLACE_OBJECTS: "1",
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-};
+const gitEnv = resolveOrganizationGitExecution(process.cwd()).env;
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 
-async function fixture() {
-  const root = await NodeFSP.mkdtemp("/tmp/t3-org-candidate-test-");
-  const git = (args: readonly string[]) =>
-    NodeChildProcess.execFileSync("/usr/bin/git", [...args], {
-      cwd: root,
-      env: gitEnv,
-      encoding: "buffer",
+it("native Git reads the disabled hook path exactly from a temporary directory containing spaces", async () => {
+  const parent = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3 git hooks with spaces "));
+  const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+  try {
+    process.env.TEMP = parent;
+    process.env.TMP = parent;
+    process.env.TMPDIR = parent;
+    await withOrganizationGitExecution(parent, async (execution) => {
+      const configured = NodeChildProcess.execFileSync(
+        execution.command,
+        [...execution.args, "config", "--get", "core.hooksPath"],
+        { cwd: parent, env: execution.env, encoding: "utf8" },
+      );
+      const expected = execution.args[1]!.slice("core.hooksPath=".length);
+      assert.equal(configured.trim(), expected);
+      assert.deepEqual(await NodeFSP.readdir(configured.trim()), []);
     });
+  } finally {
+    for (const key of ["TEMP", "TMP", "TMPDIR"] as const) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await NodeFSP.rm(parent, { recursive: true, force: true });
+  }
+});
+
+async function fixture() {
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-candidate-test-"));
+  const git = (args: readonly string[]) =>
+    NodeChildProcess.execFileSync(
+      resolveOrganizationGitExecution(process.cwd()).command,
+      [...args],
+      {
+        cwd: root,
+        env: gitEnv,
+        encoding: "buffer",
+      },
+    );
   git(["init", "-q", "-b", "main"]);
   const baseBytes = Buffer.from("export const answer = 1;\n");
   const replacementBytes = Buffer.from("export const answer = 2;\n");

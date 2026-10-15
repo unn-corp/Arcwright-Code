@@ -14,12 +14,13 @@ receipts="$5"
 
 status=0
 for check in install update recovery; do
-  node scripts/fork-release.ts receipt \
-    --check "$check" \
-    --target "$target" \
-    --candidate "$candidate" \
-    --predecessor "$predecessor" \
-    --predecessor-digest "$predecessor_digest" \
-    --out "$receipts" || status=1
+  command=(node scripts/fork-release.ts receipt
+    --check "$check" --target "$target" --candidate "$candidate"
+    --predecessor "$predecessor" --predecessor-digest "$predecessor_digest" --out "$receipts")
+  if [[ "$target" == linux-x64 ]]; then
+    /usr/local/bin/t3-ci-package-vm run -- "${command[@]}" || status=1
+  else
+    "${command[@]}" || status=1
+  fi
 done
 exit "$status"

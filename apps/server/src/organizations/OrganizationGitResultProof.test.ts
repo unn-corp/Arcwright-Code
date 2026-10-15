@@ -1,34 +1,32 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable Git fixtures need raw fixed-argv process and file operations.
 import * as NodeChildProcess from "node:child_process";
+import { resolveOrganizationGitExecution } from "./OrganizationGitExecution.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { proveOrganizationGitResult } from "./OrganizationGitResultProof.ts";
 import { createOrganizationSingleFileArtifact } from "./OrganizationSingleFileArtifact.ts";
 
-const gitEnv = {
-  PATH: "/usr/bin:/bin",
-  LC_ALL: "C",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_NO_REPLACE_OBJECTS: "1",
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-};
+const gitEnv = resolveOrganizationGitExecution(process.cwd()).env;
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 type Options = { readonly extra?: boolean; readonly mode?: boolean; readonly symlink?: boolean };
 
 async function fixture(options: Options = {}) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-result-"));
   const git = (args: readonly string[]) =>
-    NodeChildProcess.execFileSync("/usr/bin/git", [...args], {
-      cwd: root,
-      env: gitEnv,
-      encoding: "buffer",
-    });
+    NodeChildProcess.execFileSync(
+      resolveOrganizationGitExecution(process.cwd()).command,
+      [...args],
+      {
+        cwd: root,
+        env: gitEnv,
+        encoding: "buffer",
+      },
+    );
   const commit = (message: string) =>
     git([
       "-c",
@@ -68,9 +66,9 @@ async function fixture(options: Options = {}) {
     await NodeFSP.symlink("untrusted-target", source);
   } else {
     await NodeFSP.writeFile(source, replacementBytes);
-    if (options.mode) await NodeFSP.chmod(source, 0o755);
   }
   git(["add", "--", "source.mjs"]);
+  if (options.mode) git(["update-index", "--chmod=+x", "--", "source.mjs"]);
   if (options.extra) {
     await NodeFSP.writeFile(NodePath.join(root, "unexpected.txt"), "extra\n");
     git(["add", "--", "unexpected.txt"]);
@@ -202,14 +200,14 @@ it.effect("does not lazily fetch missing blobs from a partial clone", () =>
     );
     const objectMissing = () =>
       NodeChildProcess.spawnSync(
-        "/usr/bin/git",
+        resolveOrganizationGitExecution(process.cwd()).command,
         ["cat-file", "-e", source.artifactFields.baseBlobOid],
         { cwd: partial, env: { ...gitEnv, GIT_NO_LAZY_FETCH: "1" } },
       ).status !== 0;
     try {
       source.git(["config", "uploadpack.allowFilter", "true"]);
       NodeChildProcess.execFileSync(
-        "/usr/bin/git",
+        resolveOrganizationGitExecution(process.cwd()).command,
         [
           "-c",
           "protocol.file.allow=always",
@@ -217,7 +215,7 @@ it.effect("does not lazily fetch missing blobs from a partial clone", () =>
           "-q",
           "--filter=blob:none",
           "--no-checkout",
-          `file://${source.root}`,
+          NodeURL.pathToFileURL(source.root).href,
           partial,
         ],
         { env: gitEnv, encoding: "buffer" },
@@ -245,7 +243,7 @@ it.effect("rejects a tree entry whose blob mode points to a commit object", () =
         Buffer.from(input.resultCommit, "hex"),
       ]);
       const treeOid = NodeChildProcess.execFileSync(
-        "/usr/bin/git",
+        resolveOrganizationGitExecution(process.cwd()).command,
         ["hash-object", "-t", "tree", "-w", "--literally", "--stdin"],
         { cwd: root, env: gitEnv, input: rawTree, encoding: "buffer" },
       )
