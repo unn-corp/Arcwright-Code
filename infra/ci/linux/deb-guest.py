@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import struct
 import socket
 import subprocess
 import sys
@@ -30,13 +31,37 @@ def package_name(value):
         raise ValueError('Invalid Debian package name')
     return value
 
+def server_entry(resources):
+    entries = []
+    for name in ['server.asar', 'app.asar']:
+        archive = resources / name
+        if not archive.is_file():
+            continue
+        with archive.open('rb') as source:
+            prefix = source.read(16)
+            if len(prefix) != 16:
+                raise RuntimeError('Truncated installed ASAR header')
+            size_pickle, header_size, _, json_size = struct.unpack('<4I', prefix)
+            if size_pickle != 4 or not 2 <= json_size <= 32 * 1024 * 1024 or header_size < json_size + 8:
+                raise RuntimeError('Invalid installed ASAR header bound')
+            node = json.loads(source.read(json_size))
+        for part in ['apps', 'server', 'dist', 'bin.mjs']:
+            node = node.get('files', {}).get(part, {})
+        if node.get('size', 0) > 0:
+            if not node.get('unpacked') and 8 + header_size + int(node['offset']) + node['size'] > archive.stat().st_size:
+                raise RuntimeError('Installed server entry exceeds its ASAR archive')
+            entries.append(archive / 'apps/server/dist/bin.mjs')
+    if len(entries) != 1:
+        raise RuntimeError('Installed package has no unique supported server entry')
+    return entries[0]
+
 def probe(name, version):
     files = run(['/usr/bin/dpkg-query', '-L', name]).splitlines()
     executables = [Path(p) for p in files if p.startswith('/opt/') and Path(p).name == 't3code']
     if len(executables) != 1 or not executables[0].is_file():
         raise RuntimeError('Installed package has no unique native executable')
     executable = executables[0]
-    entry = executable.parent / 'resources/server.asar/apps/server/dist/bin.mjs'
+    entry = server_entry(executable.parent / 'resources')
     with tempfile.TemporaryDirectory(prefix='native-deb-probe-', dir='/home/t3-package') as scratch:
         env = {'PATH': '/usr/bin:/bin', 'HOME': scratch, 'ELECTRON_RUN_AS_NODE': '1',
                'T3CODE_HOME': scratch + '/data', 'T3CODE_MAINTENANCE_NAMESPACE': scratch + '/coordinator',

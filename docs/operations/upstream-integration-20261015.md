@@ -115,7 +115,7 @@ coordinator suite uses one worker to bound simultaneous snapshots/native helpers
 within the isolated runner's resource limits. Matching Node 24.22 local coverage
 passes; a fresh exact-source Windows/Linux commissioning run is still required.
 
-Linux Debian package gates are being qualified in disposable native KVM guests.
+Linux Debian package gates were qualified in disposable native KVM guests.
 Their base OS and dependencies are built into the immutable CI image; each job
 verifies that base's digest and creates a private copy-on-write overlay and fresh
 SSH keys. Real guest dpkg runs the actual package scripts and package database;
@@ -123,14 +123,27 @@ the installed Electron/server CLI must report the expected version and HTTP 200
 as guest UID 1001. Guest networking has no egress or host access except a loopback
 SSH forward, and there are no host directory mounts or runner credentials in the
 guest. Archive, admission and recovery suites remain on the unprivileged outer
-worker. This qualification is pending until the real image/package checks pass;
-it does not make Nightly 118 published or authorize another local installation.
+worker. The actual package probe supports both retained combined `app.asar` and
+current split `server.asar` layouts by inspecting the installed ASAR header. This
+does not make Nightly 118 published or authorize another local installation.
+
+On October 15 the immutable image
+`sha256:0a477a294b01590de1fddddface30213798fb4eba28c3d6706b01c5ed594d6de`
+passed real install (111), update (105 to 111), and recovery (111 to 105) in three
+fresh guests. All five installed CLI probes reported the exact version and HTTP
+200 as UID 1001. The published Debian package digests were independently checked:
+111 was `1d8a37b2f723b36b792b1578edc70d40298323f74da1b3a8bf8e2d473d51f383`;
+105 was `f3a8ed160f3acbe09e38c6eecfba671776409281a4a55e407068898a7408a997`.
+The sealed guest base digest was
+`957dc69daddef7f643c1876c79d6bb4942cfd16c0eb5c5937c76000c88164ba6`.
+The qualification log is `/home/devotek/t3-ci-native-deb-qualification.log` on
+Mothership. These retained packages qualify the infrastructure, not a new payload.
 
 The follow-up Linux checks passed under CI's Node 24.22: all 312 coordinator tests
 (18 files), all 614 required host-runtime tests (49 files), focused package/suite
 contracts and Git fixtures, three scoped typechecks, edited-file lint, documentation
 links/examples, and process output/timeout cleanup regressions. Independent Luna
 re-review cleared the Git execution boundary and native-VM controller findings.
-The immutable image and real package sequence still require qualification, followed
-by the exact-source cross-platform commissioning gates; these local results do not
-publish a build or replace the currently running installation.
+The new source still requires exact-source cross-platform commissioning gates;
+these local and infrastructure results do not publish a build or replace the
+currently running installation.
