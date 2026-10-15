@@ -78,6 +78,10 @@ import {
   type ProviderInstanceEntry,
 } from "../providerInstances";
 
+import { composerModelSelectionBase } from "../composerSelectionIntent";
+
+export { composerModelSelectionBase } from "../composerSelectionIntent";
+
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
@@ -636,22 +640,6 @@ export function resolveComposerProviderSelection(input: {
     lockedContinuationGroupKey,
     unavailableProviderInstanceId,
   };
-}
-
-/** Stable across streaming/status updates, but changes when a client selects or starts a turn. */
-export function composerModelSelectionBase(
-  thread: Pick<Thread, "environmentId" | "id" | "modelSelection" | "latestRun">,
-): string {
-  const selection = thread.modelSelection;
-  return JSON.stringify([
-    thread.environmentId,
-    thread.id,
-    selection.instanceId,
-    selection.model,
-    [...(selection.options ?? [])].sort((a, b) => a.id.localeCompare(b.id)),
-    thread.latestRun?.runId ?? null,
-    thread.latestRun?.startedAt ?? null,
-  ]);
 }
 
 /** One selection for the chat chrome and the composer's next-turn dispatch. */

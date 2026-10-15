@@ -50,6 +50,7 @@ import {
 } from "./ChatView.logic";
 import { getComposerProviderState } from "./chat/composerProviderState";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { installComposerSelectionIntentSync } from "../composerSelectionIntent";
 import { environmentThreadShells } from "../state/threads";
 
 const environmentId = EnvironmentId.make("shared-server");
@@ -121,7 +122,9 @@ function server(modelSelection = selectionA, runId = "run-1"): Thread {
 }
 
 function makeShellAtom() {
-  return Atom.make<Thread | null>(null).pipe(Atom.keepAlive);
+  const source = Atom.make<Thread | null>(null).pipe(Atom.keepAlive);
+  // Match the production shell's derived-atom notification path.
+  return { source, value: Atom.make((get) => get(source)).pipe(Atom.keepAlive) };
 }
 const shellAtoms = new Map<string, ReturnType<typeof makeShellAtom>>();
 function shellAtom(ref: typeof threadRef) {
@@ -131,10 +134,14 @@ function shellAtom(ref: typeof threadRef) {
     atom = makeShellAtom();
     shellAtoms.set(key, atom);
   }
-  return atom;
+  return atom.value;
 }
 function observeShell(thread: Thread) {
-  appAtomRegistry.set(shellAtom(scopeThreadRef(thread.environmentId, thread.id)), thread);
+  const ref = scopeThreadRef(thread.environmentId, thread.id);
+  shellAtom(ref);
+  const atom = shellAtoms.get(scopedThreadKey(ref));
+  if (!atom) throw new Error("Missing test shell");
+  appAtomRegistry.set(atom.source, thread);
 }
 
 type Selection = ReturnType<typeof useThreadComposerSelection>;
@@ -822,5 +829,193 @@ describe("pending selection during asynchronous send preparation", () => {
         if (remoteChanged) expect(command).not.toHaveProperty("modelSelection");
         else expect(command).toMatchObject({ modelSelection: selectionB });
       }),
+  );
+});
+
+describe("pending selection while its composer is unmounted", () => {
+  const selectionC = createModelSelection(accountB, "gpt-5.4");
+  const attachment = {
+    id: "pending-file",
+    type: "file" as const,
+    name: "pending.txt",
+    mimeType: "text/plain",
+    sizeBytes: 3,
+    file: null,
+    uploadedAttachmentId: "fixture-upload",
+    uploadEnvironmentId: environmentId,
+  };
+  let stopSync: (() => void) | undefined;
+  beforeEach(() => {
+    stopSync = installComposerSelectionIntentSync();
+  });
+  afterEach(() => stopSync?.());
+
+  function choosePending(client: Client) {
+    client.edit((store) => {
+      store.setPrompt(threadRef, "Keep this pending draft");
+      store.addFiles(threadRef, [attachment]);
+      store.setStickyModelSelection(selectionC);
+      store.setModelSelection(threadRef, selectionC, {
+        explicit: true,
+        replaceOptions: true,
+        selectionBase: composerModelSelectionBase(server()),
+      });
+    });
+  }
+
+  it.effect("invalidates before an unmounted B -> A return and the prepared RPC dispatch", () =>
+    Effect.gen(function* () {
+      const desktop = new Client();
+      choosePending(desktop);
+      const captured = yield* observe(desktop, server());
+      expectSelection(captured, selectionC);
+      const waiting = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const pending = yield* dispatch(
+        captured,
+        Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      ).pipe(Effect.forkChild);
+      yield* Deferred.await(waiting);
+      const other = { ...server(), id: ThreadId.make("newly-displayed-thread") };
+      yield* observe(desktop, other, providers, scopeThreadRef(other.environmentId, other.id));
+      // The original composer is unmounted. Neither shell update gets a React
+      // render/effect; the run identity is unchanged throughout.
+      observeShell(server(selectionB));
+      observeShell(server(selectionA));
+      const draft = useComposerDraftStore.getState().getComposerDraft(threadRef);
+      expect(draft?.modelSelectionExplicit).toBeUndefined();
+      expect(draft?.prompt).toBe("Keep this pending draft");
+      expect(draft?.files).toEqual([attachment]);
+      expect(draft?.modelSelectionByProvider[accountB]).toEqual(selectionC);
+      expect(useComposerDraftStore.getState().stickyActiveProvider).toBe(accountB);
+      yield* Deferred.succeed(release, undefined);
+      const [command] = yield* Fiber.join(pending);
+      expect(command).toMatchObject({ type: "message.dispatch", threadId });
+      expect(command).not.toHaveProperty("modelSelection");
+      desktop.state = useComposerDraftStore.getState();
+      const remounted = yield* observe(desktop, server());
+      expectSelection(remounted, selectionA);
+      yield* expectDispatch(remounted, selectionA);
+    }),
+  );
+
+  it.effect("invalidates restored intent after loading without an in-flight send", () =>
+    Effect.gen(function* () {
+      const desktop = new Client();
+      choosePending(desktop);
+      desktop.restore();
+      useComposerDraftStore.setState(desktop.state, true);
+      const restoredDraft = useComposerDraftStore.getState().getComposerDraft(threadRef);
+      // No shell was loaded when the restored choice was registered.
+      expect(
+        useComposerDraftStore.getState().getComposerDraft(threadRef)?.modelSelectionExplicit,
+      ).toBe(true);
+      observeShell(server());
+      expect(
+        useComposerDraftStore.getState().getComposerDraft(threadRef)?.modelSelectionExplicit,
+      ).toBe(true);
+      observeShell(server(selectionB));
+      observeShell(server());
+      desktop.state = useComposerDraftStore.getState();
+      const remounted = yield* observe(desktop, server());
+      expectSelection(remounted, selectionA);
+      expect(remounted.modelSelectionForDispatch).toBeUndefined();
+      expect(desktop.state.getComposerDraft(threadRef)?.prompt).toBe(restoredDraft?.prompt);
+      expect(desktop.state.getComposerDraft(threadRef)?.files).toEqual(restoredDraft?.files);
+      expect(desktop.state.stickyModelSelectionByProvider[accountB]).toEqual(selectionC);
+    }),
+  );
+
+  it.effect(
+    "keeps unchanged intent across navigation and isolates thread/environment updates",
+    () =>
+      Effect.gen(function* () {
+        const desktop = new Client();
+        choosePending(desktop);
+        const captured = yield* observe(desktop, server());
+        const waiting = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const pending = yield* dispatch(
+          captured,
+          Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(waiting);
+        for (const other of [
+          { ...server(selectionB), environmentId: EnvironmentId.make("other-server") },
+          { ...server(selectionB), id: ThreadId.make("other-thread") },
+        ]) {
+          yield* observe(desktop, other, providers, scopeThreadRef(other.environmentId, other.id));
+          observeShell({ ...other, modelSelection: selectionA });
+        }
+        desktop.state = useComposerDraftStore.getState();
+        expectSelection(yield* observe(desktop, server()), selectionC);
+        yield* Deferred.succeed(release, undefined);
+        const [command] = yield* Fiber.join(pending);
+        expect(command).toMatchObject({ threadId, modelSelection: selectionC });
+      }),
+  );
+
+  it.effect("does not retarget an invalidated capture to a fresh choice after B -> A", () =>
+    Effect.gen(function* () {
+      const desktop = new Client();
+      choosePending(desktop);
+      const captured = yield* observe(desktop, server());
+      const waiting = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const pending = yield* dispatch(
+        captured,
+        Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      ).pipe(Effect.forkChild);
+      yield* Deferred.await(waiting);
+      observeShell(server(selectionB));
+      observeShell(server());
+      useComposerDraftStore.getState().setModelSelection(threadRef, selectionB, {
+        explicit: true,
+        replaceOptions: true,
+        selectionBase: composerModelSelectionBase(server()),
+      });
+      yield* Deferred.succeed(release, undefined);
+      const [command] = yield* Fiber.join(pending);
+      expect(command).not.toHaveProperty("modelSelection");
+      desktop.state = useComposerDraftStore.getState();
+      yield* expectDispatch(yield* observe(desktop, server()), selectionB);
+    }),
+  );
+
+  it.effect("closes shell subscriptions when intent clears and when the root disposes", () =>
+    Effect.sync(() => {
+      stopSync?.();
+      const subscribe = appAtomRegistry.subscribe.bind(appAtomRegistry);
+      const stopped = vi.fn();
+      const subscribed = vi
+        .spyOn(appAtomRegistry, "subscribe")
+        .mockImplementation((atom, f, options) => {
+          const stop = subscribe(atom, f, options);
+          return () => {
+            stopped();
+            stop();
+          };
+        });
+      stopSync = installComposerSelectionIntentSync();
+      const desktop = new Client();
+      choosePending(desktop);
+      expect(subscribed).toHaveBeenCalledTimes(1);
+      observeShell(server(selectionB));
+      expect(stopped).toHaveBeenCalledTimes(1);
+      observeShell(server());
+      desktop.state = useComposerDraftStore.getState();
+      choosePending(desktop);
+      expect(subscribed).toHaveBeenCalledTimes(2);
+      stopSync();
+      expect(stopped).toHaveBeenCalledTimes(2);
+      observeShell(server(selectionB));
+      observeShell(server());
+      expect(
+        useComposerDraftStore.getState().getComposerDraft(threadRef)?.modelSelectionExplicit,
+      ).toBe(true);
+      useComposerDraftStore.getState().setPrompt(threadRef, "Root is disposed");
+      expect(subscribed).toHaveBeenCalledTimes(2);
+      stopSync = undefined;
+    }),
   );
 });

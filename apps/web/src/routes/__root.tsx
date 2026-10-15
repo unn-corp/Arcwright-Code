@@ -86,6 +86,7 @@ import {
   type KeybindingsUpdateToastController,
 } from "../components/KeybindingsUpdateToast.logic";
 
+import { installComposerSelectionIntentSync } from "../composerSelectionIntent";
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 
@@ -128,6 +129,7 @@ export const Route = createRootRoute({
 });
 
 function RootRouteWithUpdateInteraction() {
+  useEffect(installComposerSelectionIntentSync, []);
   return (
     <>
       <ClientUpdateInteractionCoordinator />
