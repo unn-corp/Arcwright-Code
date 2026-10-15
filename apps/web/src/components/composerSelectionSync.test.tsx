@@ -12,7 +12,7 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   AVAILABLE_CONNECTION_STATE,
   EnvironmentSupervisor,
@@ -24,6 +24,9 @@ import type { RpcSession, WsRpcProtocolClient } from "@t3tools/client-runtime/rp
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import { Atom } from "effect/reactivity";
 import * as Option from "effect/Option";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { act, useLayoutEffect } from "react";
@@ -41,10 +44,13 @@ import { makeThreadFixture } from "../test-fixtures";
 import type { Thread } from "../types";
 import {
   composerModelSelectionBase,
+  captureComposerModelSelectionForDispatch,
   deriveLockedProvider,
   useThreadComposerSelection,
 } from "./ChatView.logic";
 import { getComposerProviderState } from "./chat/composerProviderState";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentThreadShells } from "../state/threads";
 
 const environmentId = EnvironmentId.make("shared-server");
 const threadId = ThreadId.make("shared-conversation");
@@ -114,6 +120,23 @@ function server(modelSelection = selectionA, runId = "run-1"): Thread {
   });
 }
 
+function makeShellAtom() {
+  return Atom.make<Thread | null>(null).pipe(Atom.keepAlive);
+}
+const shellAtoms = new Map<string, ReturnType<typeof makeShellAtom>>();
+function shellAtom(ref: typeof threadRef) {
+  const key = scopedThreadKey(ref);
+  let atom = shellAtoms.get(key);
+  if (!atom) {
+    atom = makeShellAtom();
+    shellAtoms.set(key, atom);
+  }
+  return atom;
+}
+function observeShell(thread: Thread) {
+  appAtomRegistry.set(shellAtom(scopeThreadRef(thread.environmentId, thread.id)), thread);
+}
+
 type Selection = ReturnType<typeof useThreadComposerSelection>;
 let observed: Selection;
 function Probe({
@@ -164,6 +187,7 @@ class Client {
     target: ComposerThreadTarget = threadRef,
   ) {
     useComposerDraftStore.setState(this.state, true);
+    if (thread) observeShell(thread);
     let renderer: ReactTestRenderer | undefined;
     await act(() => {
       renderer = create(<Probe thread={thread} catalog={catalog} target={target} />);
@@ -184,7 +208,7 @@ function observe(
   return Effect.promise(() => client.observe(thread, catalog, target));
 }
 
-function dispatch(selection: Selection) {
+function dispatch(selection: Selection, preparation = Effect.void, target = threadRef) {
   return Effect.gen(function* () {
     if (!selection.selectedProviderEntry) return [];
     const commands: OrchestrationV2Command[] = [];
@@ -213,6 +237,21 @@ function dispatch(selection: Selection) {
       modelOptions: selection.modelOptions?.[selection.selectedInstanceId],
       planModeEnabled: true,
     });
+    const getModelSelectionForDispatch = captureComposerModelSelectionForDispatch({
+      threadRef: target,
+      draftTarget: target,
+      isLocalDraft: selection.selectionBase === undefined,
+      modelSelection:
+        selection.modelSelectionForDispatch === undefined
+          ? undefined
+          : createModelSelection(
+              selection.selectedInstanceId,
+              selection.selectedModel,
+              providerState.modelOptionsForDispatch,
+            ),
+      selectionBase: selection.selectionBase,
+      intentSelection: selection.modelSelectionIntent,
+    });
     const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
       target: new PrimaryConnectionTarget({
         environmentId,
@@ -227,9 +266,11 @@ function dispatch(selection: Selection) {
       disconnect: Effect.void,
       retryNow: Effect.void,
     });
+    yield* preparation;
+    const modelSelection = getModelSelectionForDispatch();
     yield* startThreadTurn({
       commandId: CommandId.make("selection-regression"),
-      threadId,
+      threadId: target.threadId,
       dispatchMode: "start",
       message: {
         messageId: MessageId.make("selection-message"),
@@ -237,15 +278,7 @@ function dispatch(selection: Selection) {
         text: "Continue",
         attachments: [],
       },
-      ...(selection.modelSelectionForDispatch !== undefined
-        ? {
-            modelSelection: createModelSelection(
-              selection.selectedInstanceId,
-              selection.selectedModel,
-              providerState.modelOptionsForDispatch,
-            ),
-          }
-        : {}),
+      ...(modelSelection ? { modelSelection } : {}),
       runtimeMode: "full-access",
       interactionMode: "default",
     }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
@@ -281,11 +314,14 @@ function expectDispatch(selection: Selection, expected: ModelSelection) {
 }
 
 beforeEach(() => {
+  shellAtoms.clear();
+  vi.spyOn(environmentThreadShells, "threadShellAtom").mockImplementation(shellAtom);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   useComposerDraftStore.setState(initialState, true);
 });
 afterEach(() => {
   useComposerDraftStore.setState(initialState, true);
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -600,6 +636,140 @@ describe("provider selection across desktop and APK client snapshots", () => {
         );
         const other = { ...server(), environmentId: EnvironmentId.make("other-server") };
         yield* expectDispatch(yield* observe(desktop, other), selectionA);
+      }),
+  );
+});
+
+describe("pending selection during asynchronous send preparation", () => {
+  function choosePending(client: Client) {
+    client.edit((store) =>
+      store.setModelSelection(threadRef, selectionB, {
+        explicit: true,
+        replaceOptions: true,
+        selectionBase: composerModelSelectionBase(server()),
+      }),
+    );
+  }
+
+  it.effect(
+    "omits a captured choice invalidated by an observed remote change while uploads wait",
+    () =>
+      Effect.gen(function* () {
+        const desktop = new Client();
+        choosePending(desktop);
+        const captured = yield* observe(desktop, server());
+        const waiting = yield* Deferred.make<void>();
+        const releaseUpload = yield* Deferred.make<void>();
+        const pending = yield* dispatch(
+          captured,
+          Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(releaseUpload))),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(waiting);
+        const remote = createModelSelection(accountA, selectionB.model, selectionB.options);
+        yield* observe(desktop, server(remote, "remote-run"));
+        expect(
+          Object.values(desktop.state.draftsByThreadKey)[0]?.modelSelectionExplicit,
+        ).toBeUndefined();
+        yield* Deferred.succeed(releaseUpload, undefined);
+        const commands = yield* Fiber.join(pending);
+        expect(commands).toHaveLength(1);
+        expect(commands[0]).toMatchObject({ type: "message.dispatch", threadId });
+        expect(commands[0]).not.toHaveProperty("modelSelection");
+      }),
+  );
+
+  it.effect(
+    "retains an unchanged captured choice through deferred settings and content edits",
+    () =>
+      Effect.gen(function* () {
+        const desktop = new Client();
+        choosePending(desktop);
+        const captured = yield* observe(desktop, server());
+        const waiting = yield* Deferred.make<void>();
+        const releaseSettings = yield* Deferred.make<void>();
+        const pending = yield* dispatch(
+          captured,
+          Deferred.succeed(waiting, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseSettings)),
+          ),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(waiting);
+        desktop.edit((store) => store.setPrompt(threadRef, "Typed while preparing"));
+        yield* observe(desktop, {
+          ...server(),
+          title: "Renamed",
+          updatedAt: "2026-10-14T12:00:00.000Z",
+        });
+        yield* Deferred.succeed(releaseSettings, undefined);
+        expect(yield* Fiber.join(pending)).toMatchObject([{ modelSelection: selectionB }]);
+        expect(Object.values(desktop.state.draftsByThreadKey)[0]?.prompt).toBe(
+          "Typed while preparing",
+        );
+      }),
+  );
+
+  it.effect("does not retarget a captured message to a replacement local choice", () =>
+    Effect.gen(function* () {
+      const desktop = new Client();
+      choosePending(desktop);
+      const captured = yield* observe(desktop, server());
+      const waiting = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const pending = yield* dispatch(
+        captured,
+        Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      ).pipe(Effect.forkChild);
+      yield* Deferred.await(waiting);
+      desktop.edit((store) =>
+        store.setModelSelection(threadRef, selectionA, {
+          explicit: true,
+          replaceOptions: true,
+          selectionBase: composerModelSelectionBase(server()),
+        }),
+      );
+      yield* Deferred.succeed(release, undefined);
+      const [command] = yield* Fiber.join(pending);
+      expect(command).not.toHaveProperty("modelSelection");
+      expect(Object.values(desktop.state.draftsByThreadKey)[0]?.modelSelectionExplicit).toBe(true);
+    }),
+  );
+
+  it.effect.each([false, true])(
+    "stays on the original thread after navigation (remote changed: %s)",
+    (remoteChanged) =>
+      Effect.gen(function* () {
+        const desktop = new Client();
+        choosePending(desktop);
+        const captured = yield* observe(desktop, server());
+        const waiting = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const pending = yield* dispatch(
+          captured,
+          Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(waiting);
+        const other = {
+          ...server(),
+          environmentId: EnvironmentId.make("other-server"),
+          id: ThreadId.make("other-thread"),
+        };
+        const otherRef = scopeThreadRef(other.environmentId, other.id);
+        desktop.edit((store) =>
+          store.setModelSelection(otherRef, selectionA, {
+            explicit: true,
+            replaceOptions: true,
+            selectionBase: composerModelSelectionBase(other),
+          }),
+        );
+        yield* observe(desktop, other, providers, otherRef);
+        // The original composer is no longer mounted. Its live scoped shell still
+        // invalidates the captured choice without reading the newly displayed one.
+        if (remoteChanged) observeShell(server(selectionA, "remote-run"));
+        yield* Deferred.succeed(release, undefined);
+        const [command] = yield* Fiber.join(pending);
+        expect(command).toMatchObject({ threadId });
+        if (remoteChanged) expect(command).not.toHaveProperty("modelSelection");
+        else expect(command).toMatchObject({ modelSelection: selectionB });
       }),
   );
 });

@@ -739,6 +739,9 @@ export function resolveThreadComposerSelection(input: {
   return {
     ...selection,
     selectionBase,
+    // Retain the immutable intent entry so a later edit cannot retarget a
+    // message that is already waiting for uploads or settings persistence.
+    modelSelectionIntent: isServerThread && draft ? requestedSelection : undefined,
     selectedProvider,
     selectedInstanceId,
     // Passive existing-thread sends omit a selection so a newer server choice
@@ -752,6 +755,37 @@ export function resolveThreadComposerSelection(input: {
           )
         : undefined,
     ...modelState,
+  };
+}
+
+/** Capture once, then revalidate immediately before each transport dispatch. */
+export function captureComposerModelSelectionForDispatch(input: {
+  threadRef: ScopedThreadRef;
+  draftTarget: ComposerThreadTarget;
+  isLocalDraft: boolean;
+  modelSelection: ModelSelection | undefined;
+  selectionBase: string | undefined;
+  intentSelection: ModelSelection | null | undefined;
+}): () => ModelSelection | undefined {
+  const { modelSelection, selectionBase, intentSelection } = input;
+  if (input.isLocalDraft || modelSelection === undefined) return () => modelSelection;
+  const threadRef = { ...input.threadRef };
+  const draftTarget =
+    typeof input.draftTarget === "string" ? input.draftTarget : { ...input.draftTarget };
+  return () => {
+    if (selectionBase === undefined || !intentSelection) return undefined;
+    const draft = useComposerDraftStore.getState().getComposerDraft(draftTarget);
+    if (
+      !draft?.modelSelectionExplicit ||
+      draft.modelSelectionBase !== selectionBase ||
+      draft.activeProvider !== intentSelection.instanceId ||
+      draft.modelSelectionByProvider[intentSelection.instanceId] !== intentSelection
+    )
+      return undefined;
+    const thread = appAtomRegistry.get(environmentThreadShells.threadShellAtom(threadRef));
+    return thread && composerModelSelectionBase(thread) === selectionBase
+      ? modelSelection
+      : undefined;
   };
 }
 

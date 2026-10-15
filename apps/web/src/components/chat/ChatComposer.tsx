@@ -109,6 +109,7 @@ import {
   readFileAsDataUrl,
   resolveComposerInteractionMode,
   useThreadComposerSelection,
+  captureComposerModelSelectionForDispatch,
   threadShellHasStarted,
 } from "../ChatView.logic";
 import {
@@ -1551,7 +1552,7 @@ export interface ChatComposerHandle {
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
-    modelSelectionForDispatch: ModelSelection | undefined;
+    getModelSelectionForDispatch: () => ModelSelection | undefined;
     multipleModelSelections: ReadonlyArray<ModelSelection> | null;
     providerAvailable: boolean;
     selectedProvider: ProviderDriverKind;
@@ -2223,6 +2224,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     modelOptions: composerModelOptions,
     selectionBase,
+    modelSelectionIntent,
     modelSelectionForDispatch,
     lockedContinuationGroupKey,
     unavailableProviderInstanceId,
@@ -6428,8 +6430,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedPromptEffort,
         selectedModelOptionsForDispatch,
         selectedModelSelection,
-        modelSelectionForDispatch:
-          modelSelectionForDispatch === undefined ? undefined : selectedModelSelection,
+        getModelSelectionForDispatch: captureComposerModelSelectionForDispatch({
+          threadRef: routeThreadRef,
+          draftTarget: composerDraftTarget,
+          isLocalDraft: isLocalDraftThread,
+          modelSelection:
+            modelSelectionForDispatch === undefined ? undefined : selectedModelSelection,
+          selectionBase,
+          intentSelection: modelSelectionIntent,
+        }),
         multipleModelSelections:
           routeKind === "draft" && multipleModelSelections !== null
             ? multipleModelSelections.map((selection) =>
@@ -6496,9 +6505,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedModelOptionsForDispatch,
       selectedModelSelection,
       modelSelectionForDispatch,
+      modelSelectionIntent,
+      selectionBase,
+      isLocalDraftThread,
       multipleModelSelections,
       setMultipleModelSelections,
       routeKind,
+      routeThreadRef,
       noProviderAvailable,
       providerSendBlockReason,
       selectedPromptEffort,
