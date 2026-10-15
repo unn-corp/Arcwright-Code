@@ -5,6 +5,7 @@ import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
+import { CollapsedThreadStatusIndicators } from "./sidebar/CollapsedThreadStatusIndicators";
 import {
   setThreadChangeRequestSnapshot,
   ThreadTerminalStatusButton,
@@ -96,6 +97,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -702,6 +704,7 @@ function SortableThreadRow(props: {
 function SidebarRepositoryGroupHeader(props: {
   group: SidebarProjectSnapshot;
   activeCount: number;
+  threads: ReadonlyArray<SidebarThreadSummary>;
   collapsed: boolean;
   onToggle: () => void;
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -709,6 +712,7 @@ function SidebarRepositoryGroupHeader(props: {
   isDragging: boolean;
   isDropTarget: boolean;
 }) {
+  const statusDescriptionId = useId();
   return (
     <li
       data-testid="sidebar-repository-group"
@@ -727,12 +731,16 @@ function SidebarRepositoryGroupHeader(props: {
           type="button"
           onClick={props.onToggle}
           aria-expanded={!props.collapsed}
+          aria-describedby={props.collapsed ? statusDescriptionId : undefined}
           aria-label={`${props.collapsed ? "Expand" : "Collapse"} ${props.group.displayName} project group, ${props.activeCount} active ${props.activeCount === 1 ? "chat" : "chats"}`}
           data-testid="sidebar-repository-group-toggle"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
         >
           <ProjectFavicon project={props.group} className="size-4" />
           <span className="min-w-0 flex-1 truncate">{props.group.displayName}</span>
+          {props.collapsed ? (
+            <CollapsedThreadStatusIndicators id={statusDescriptionId} threads={props.threads} />
+          ) : null}
           {props.collapsed ? (
             <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-sidebar-row-hover px-1.5 text-3xs tabular-nums text-sidebar-foreground">
               {props.activeCount}
@@ -875,6 +883,7 @@ function SidebarSectionHeader(props: {
   className?: string;
   marker: "working-header" | "snoozed-header" | "settled-header";
   label: string;
+  threads: ReadonlyArray<SidebarThreadSummary>;
   // While dragging, the settled header reads at full strength and takes the
   // accent while the lifted row is over it.
   dragging?: boolean;
@@ -897,6 +906,11 @@ function SidebarSectionHeader(props: {
       <CollapsibleSectionHeader
         onClick={props.toggle.onToggle}
         expanded={props.toggle.expanded}
+        accessory={
+          props.toggle.expanded ? undefined : (
+            <CollapsedThreadStatusIndicators threads={props.threads} />
+          )
+        }
         tone={
           props.isDropTarget ? "accent" : props.dragging ? "emphasized" : snoozed ? "info" : "muted"
         }
@@ -6032,6 +6046,7 @@ export default function Sidebar() {
                                     key={`repository-group:${group.projectKey}`}
                                     group={group}
                                     activeCount={groupThreads.length}
+                                    threads={groupThreads}
                                     collapsed={collapsedProjectGroups.has(group.projectKey)}
                                     onToggle={() => toggleProjectGroup(group.projectKey)}
                                     onPointerDown={(event) => {
@@ -6089,6 +6104,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="working-shelf-header"
                                 marker="working-header"
+                                threads={workingThreads}
                                 className="mt-auto"
                                 label={
                                   workingShelfExpanded
@@ -6107,6 +6123,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
+                                threads={snoozedThreads}
                                 className={cn(workingThreads.length === 0 && "mt-auto")}
                                 label={
                                   snoozedShelfExpanded
@@ -6125,6 +6142,7 @@ export default function Sidebar() {
                               <SidebarSectionHeader
                                 key="settled-shelf-header"
                                 marker="settled-header"
+                                threads={settledThreads}
                                 className={cn(
                                   workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
                                 )}

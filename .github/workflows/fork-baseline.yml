@@ -26,7 +26,7 @@ jobs:
   plan:
     name: Pin manual baseline
     if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     permissions:
       contents: write
@@ -91,7 +91,7 @@ jobs:
     needs:
       - plan
     if: needs.plan.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -130,7 +130,18 @@ jobs:
         run: node scripts/update-release-package-versions.ts "$VERSION"
       - uses: ./source/.github/actions/setup-apt-mirrors
       - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+        run: |
+          set -euo pipefail
+          for tool in cc pkg-config; do
+            command -v "$tool" >/dev/null 2>&1 || {
+              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
+              exit 1
+            }
+          done
+          pkg-config --exists libsecret-1 || {
+            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
+            exit 1
+          }
       - name: Build JS bundle
         working-directory: source
         env:
@@ -162,7 +173,8 @@ jobs:
       release_channel: ${{ needs.plan.outputs.channel }}
       relay_client_tracing: false
       label: Linux x64
-      runner: ubuntu-24.04
+      runner: linux
+      runner_arch: x64
       platform: linux
       target: AppImage
       arch: x64
@@ -193,7 +205,8 @@ jobs:
       release_channel: ${{ needs.plan.outputs.channel }}
       relay_client_tracing: false
       label: Windows x64
-      runner: windows-2025
+      runner: windows
+      runner_arch: x64
       platform: win
       target: nsis
       arch: x64
@@ -205,7 +218,7 @@ jobs:
     needs:
       - plan
     if: needs.plan.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -347,7 +360,7 @@ jobs:
       - desktop_win_x64
       - android
     if: needs.plan.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 20
     permissions:
       contents: write

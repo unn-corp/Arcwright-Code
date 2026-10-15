@@ -176,6 +176,8 @@ export interface LimitAccount {
   readonly driver: ServerProvider["driver"];
   /** The instance's configured name, which is not sensitive; null for hub accounts. */
   readonly displayName: string | null;
+  /** All native instance names sharing this subscription bucket. */
+  readonly providerNames?: ReadonlyArray<string>;
   readonly email: string | undefined;
   readonly plan: string | undefined;
   readonly accentColor: string | undefined;
@@ -239,13 +241,20 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
           !previous.environments.some((seen) => seen.environmentId === candidate.environmentId),
       ),
     ];
+    const providerNames = [
+      ...new Set([...(previous.providerNames ?? []), ...(next.providerNames ?? [])]),
+    ].sort();
     const winner = fresher ? next : previous;
     // Credits and their redemption target travel together. A failed credit
     // probe must not erase a successful read from another environment.
     const creditSource = creditSources.get(key);
     accounts.set(key, {
       ...previous,
-      displayName: previous.displayName ?? next.displayName,
+      providerNames,
+      displayName:
+        providerNames.length > 0
+          ? providerNames.join(" / ")
+          : (previous.displayName ?? next.displayName),
       plan: previous.plan ?? next.plan,
       accentColor: previous.accentColor ?? next.accentColor,
       environments,
@@ -278,6 +287,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         key: `${environmentId}:${provider.instanceId}`,
         driver: provider.driver,
         displayName: provider.displayName?.trim() || null,
+        providerNames: [provider.displayName?.trim() || String(provider.instanceId)],
         email: provider.auth.email,
         plan: provider.auth.label,
         accentColor: provider.accentColor,

@@ -1417,6 +1417,7 @@ function ChatMarkdownImage(props: {
   /** Null while the URL is being resolved; the last decoded image stays up. */
   readonly src: string | null;
   readonly sourceFailed?: boolean | undefined;
+  readonly onRetry?: (() => Promise<unknown>) | undefined;
   readonly alt: string;
   readonly copyMarkdown: string | undefined;
   readonly standalone: boolean;
@@ -1432,6 +1433,13 @@ function ChatMarkdownImage(props: {
 }) {
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const autoRefreshAttempted = useRef(false);
+  const { onRetry } = props;
+  const retry = useCallback(async () => {
+    if (!onRetry) return;
+    await onRetry();
+    setFailedSrc(null);
+  }, [onRetry]);
   const src = props.src ?? loadedSrc;
   const failed = props.sourceFailed === true || (src !== null && failedSrc === src);
   // A failure forgets the decoded image so the next URL loads behind the slot.
@@ -1458,6 +1466,12 @@ function ChatMarkdownImage(props: {
     onError: () => {
       setFailedSrc(loadingSrc);
       setLoadedSrc(null);
+      // Wake/reconnect can leave a cached capability expired. Mint once from the
+      // owning environment; an unavailable file must not become a refresh loop.
+      if (onRetry && !autoRefreshAttempted.current) {
+        autoRefreshAttempted.current = true;
+        void retry().catch(() => undefined);
+      }
     },
   });
 
@@ -1517,8 +1531,20 @@ function ChatMarkdownImage(props: {
           : { role: "status" as const, "aria-label": "Loading image" })}
       >
         {failed ? (
-          <span className="flex size-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
+          <span className="flex size-full flex-col items-center justify-center gap-2 p-2 text-center text-xs text-muted-foreground">
             <ChatMarkdownMediaUnavailableLabel alt={props.alt} />
+            {onRetry ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void retry().catch(() => undefined);
+                }}
+              >
+                Retry image
+              </Button>
+            ) : null}
           </span>
         ) : src !== null ? (
           <img
@@ -1686,6 +1712,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
       key={JSON.stringify([props.environmentId, props.resource, props.srcFragment])}
       src={src}
       sourceFailed={assetUrl._tag === "Failure" && fallbackSrc === undefined}
+      onRetry={refreshAssetUrl}
       alt={props.alt}
       copyMarkdown={props.copyMarkdown}
       standalone={props.standalone ?? true}

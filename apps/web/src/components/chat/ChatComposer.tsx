@@ -210,6 +210,7 @@ import { useComposerPathSearch } from "../../lib/composerPathSearchState";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
+import { ComposerAttachmentStrip } from "./ComposerAttachmentStrip";
 import { ComposerPreviewAnnotationCards } from "./ComposerPreviewAnnotationCards";
 import {
   getRestingComposerImagePreviewCounts,
@@ -5157,6 +5158,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isComposerResting =
     isComposerCollapsedMobile ||
     shouldUseRestingComposerLayout({
+      alwaysCompact: settings.alwaysCompactComposer,
       isExistingThread: routeKind === "server" && activeThreadId !== null,
       isMobileViewport,
       isScrollCollapsed: isComposerScrollCollapsed,
@@ -6969,54 +6971,41 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
               {!isComposerCollapsedMobile &&
                 !isComposerApprovalState &&
-                pendingUserInputs.length === 0 &&
-                editingQueuedAttachments !== null &&
-                editingQueuedAttachments.length > 0 && (
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {editingQueuedAttachments.map(({ attachment, url }) => (
-                      <div
-                        key={attachment.id}
-                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
-                      >
-                        {attachment.type === "image" && url ? (
-                          <img
-                            src={url}
-                            alt={attachment.name}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center px-1 text-center text-3xs text-secondary-label">
-                            {attachment.name}
-                          </div>
-                        )}
-                        <Button
-                          variant="media-close"
-                          size="icon-xs"
-                          className="absolute right-1 top-1"
-                          onClick={() => onRemoveEditingQueuedAttachment(attachment.id)}
-                          aria-label={`Remove ${attachment.name}`}
-                        >
-                          <XIcon />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-              {!isComposerCollapsedMobile &&
-                !isComposerApprovalState &&
                 (uncommittedSnapShotIds.length > 0 ||
                   composerVideos.length > 0 ||
-                  expandedComposerImages.length > 0) && (
-                  <div
-                    className={cn(
-                      "mb-3 flex max-w-full gap-2",
-                      pendingSnapShotIds.length > 0 ||
-                        expandedComposerImages.some((image) => image.source?.kind === "snap-shot")
-                        ? "snap-x snap-proximity overflow-x-auto overscroll-x-contain pb-1 scrollbar-thumb-foreground/18 scrollbar-track-transparent [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-3 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-foreground/18 [&::-webkit-scrollbar-thumb]:bg-clip-content [&::-webkit-scrollbar-thumb:hover]:bg-foreground/28 [&::-webkit-scrollbar-track]:mx-1 [&::-webkit-scrollbar-track]:bg-transparent"
-                        : "flex-wrap",
-                    )}
-                  >
+                  expandedComposerImages.length > 0 ||
+                  composerOtherFiles.length > 0 ||
+                  (pendingUserInputs.length === 0 &&
+                    (editingQueuedAttachments?.length ?? 0) > 0)) && (
+                  <ComposerAttachmentStrip>
+                    {pendingUserInputs.length === 0 &&
+                      editingQueuedAttachments?.map(({ attachment, url }) => (
+                        <div
+                          key={attachment.id}
+                          className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border/80 bg-background"
+                        >
+                          {attachment.type === "image" && url ? (
+                            <img
+                              src={url}
+                              alt={attachment.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center px-1 text-center text-3xs text-secondary-label">
+                              {attachment.name}
+                            </div>
+                          )}
+                          <Button
+                            variant="media-close"
+                            size="icon-xs"
+                            className="absolute right-1 top-1"
+                            onClick={() => onRemoveEditingQueuedAttachment(attachment.id)}
+                            aria-label={`Remove ${attachment.name}`}
+                          >
+                            <XIcon />
+                          </Button>
+                        </div>
+                      ))}
                     {expandedComposerImages
                       .map((image) => {
                         const upload = supportsAttachmentUploads
@@ -7244,13 +7233,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         </div>
                       );
                     })}
-                  </div>
-                )}
-
-              {!isComposerCollapsedMobile &&
-                !isComposerApprovalState &&
-                composerOtherFiles.length > 0 && (
-                  <div className="mb-3 flex flex-col gap-1">
                     {composerOtherFiles.map((file) => {
                       const fileCanUpload =
                         supportsAttachmentUploads &&
@@ -7263,7 +7245,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       return (
                         <div
                           key={file.id}
-                          className="flex min-w-0 items-center gap-2 py-1 text-sm text-foreground"
+                          className="flex min-w-0 max-w-full shrink-0 items-center gap-2 py-1 text-sm text-foreground"
                         >
                           <PierreEntryIcon
                             pathValue={file.name}
@@ -7315,7 +7297,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         </div>
                       );
                     })}
-                  </div>
+                  </ComposerAttachmentStrip>
                 )}
 
               <div

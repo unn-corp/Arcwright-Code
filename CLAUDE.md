@@ -2,6 +2,13 @@
 
 ## Packaging
 
+For app build, packaging, installation, or update requests, follow the
+[default agent delivery procedure](docs/operations/fork-releases.md#default-agent-delivery):
+install the latest eligible, verified nightly containing the requested changes, or
+publish a new numbered nightly from the tested, pinned source. Honor explicit user
+choices and preserve running chats until native maintenance admission. Documentation
+and review work alone do not commission a release.
+
 Follow the fork's [version provenance rules](docs/operations/fork-releases.md#version-provenance-and-history).
 The UI shows the included T3 base and a separate **Arcwright build** counter. Published installer
 versions and Android installation codes remain immutable ordering identities; do not rename them

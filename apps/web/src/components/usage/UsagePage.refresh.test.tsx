@@ -9,6 +9,15 @@ const state = vi.hoisted(() => ({
   presentations: new Map(),
   refreshProviders: vi.fn(async () => undefined),
   metric: "limits",
+  primaryEnvironmentId: null as string | null,
+  activeEnvironmentId: null as string | null,
+  useUsage: vi.fn(),
+}));
+vi.mock("../../state/environments", () => ({
+  usePrimaryEnvironmentId: () => state.primaryEnvironmentId,
+}));
+vi.mock("../../state/entities", () => ({
+  useActiveEnvironmentId: () => state.activeEnvironmentId,
 }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: unknown) =>
@@ -29,31 +38,28 @@ vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.ref
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../hooks/useSettings", () => ({ usePrimarySettings: () => "24h" }));
 vi.mock("../../state/usage", () => ({
-  useUsage: () => ({
-    merged: mergeUsage([], USAGE_CONTRACT_VERSION),
-    environments: [
-      {
-        environmentId: EnvironmentId.make("test"),
-        label: "Test",
-        isPending: false,
-        error: null,
-        summary: null,
-      },
-    ],
-    selectedEnvironments: [
-      {
-        environmentId: EnvironmentId.make("test"),
-        label: "Test",
-        isPending: false,
-        error: null,
-        summary: null,
-      },
-    ],
-    isPending: false,
-    shown: null,
-    isPartial: false,
-    refresh: async () => undefined,
-  }),
+  useUsage: (...args: unknown[]) => {
+    state.useUsage(...args);
+    const environments = [...state.presentations].map(([environmentId, presentation]) => ({
+      environmentId,
+      label: presentation.entry.target.label,
+      isPending: false,
+      error: null,
+      summary: null,
+    }));
+    const selected = args[1] as ReadonlySet<EnvironmentId> | null;
+    return {
+      merged: mergeUsage([], USAGE_CONTRACT_VERSION),
+      environments,
+      selectedEnvironments: environments.filter(
+        ({ environmentId }) => selected === null || selected.has(environmentId),
+      ),
+      isPending: false,
+      shown: null,
+      isPartial: false,
+      refresh: async () => undefined,
+    };
+  },
 }));
 vi.mock("./usagePagePreferences", () => ({
   readUsagePagePreferences: () => ({ metric: state.metric, windowDays: 30 }),
@@ -107,6 +113,9 @@ beforeEach(() => {
   environmentNumber += 1;
   state.metric = "limits";
   state.refreshProviders.mockClear();
+  state.useUsage.mockClear();
+  state.primaryEnvironmentId = null;
+  state.activeEnvironmentId = null;
   state.presentations = new Map([
     [
       EnvironmentId.make(`test-${environmentNumber}`),
@@ -235,7 +244,7 @@ it("refreshes once on opening Limits and suppresses rapid returns and remounts",
   expect(state.refreshProviders).toHaveBeenCalledTimes(2);
 });
 
-it("waits for connection and refreshes new environments during a slow refresh", async () => {
+it("waits for the current connection without refreshing newly added devices", async () => {
   const [id, presentation] = [...state.presentations][0]!;
   state.presentations = new Map([[id, { ...presentation, connection: { phase: "disconnected" } }]]);
   await act(() => {
@@ -255,9 +264,132 @@ it("waits for connection and refreshes new environments during a slow refresh", 
   const nextId = EnvironmentId.make(`${id}-next`);
   state.presentations = new Map([...state.presentations, [nextId, presentation]]);
   await act(() => renderer.update(<UsagePage />));
-  expect(state.refreshProviders).toHaveBeenCalledTimes(2);
-  expect(state.refreshProviders).toHaveBeenLastCalledWith({ environmentId: nextId, input: {} });
+  expect(state.refreshProviders).toHaveBeenCalledTimes(1);
+  expect(state.refreshProviders).toHaveBeenLastCalledWith({ environmentId: id, input: {} });
   await act(() => finishRefresh());
+});
+
+it.each(["desktop", "phone"])(
+  "reads only the current connection on %s and excludes other-device warnings",
+  async (device) => {
+    const [id, presentation] = [...state.presentations][0]!;
+    const remoteId = EnvironmentId.make(`${id}-other`);
+    const provider = presentation.serverConfig.providers[0];
+    state.presentations = new Map([
+      [
+        remoteId,
+        {
+          ...presentation,
+          entry: { target: { label: "Other device" } },
+          serverConfig: {
+            providers: [
+              {
+                ...provider,
+                usageLimits: {
+                  checkedAt: provider.checkedAt,
+                  windows: [],
+                  unavailable: {
+                    reason: "probeFailed",
+                    message: "Could not read limits on other device.",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+      [id, presentation],
+    ]);
+    if (device === "desktop") {
+      state.primaryEnvironmentId = id;
+      state.activeEnvironmentId = remoteId;
+    } else {
+      state.activeEnvironmentId = id;
+    }
+    await act(() => {
+      renderer = create(<UsagePage />);
+    });
+    expect(state.refreshProviders).toHaveBeenCalledExactlyOnceWith({
+      environmentId: id,
+      input: {},
+    });
+    expect(state.useUsage.mock.lastCall?.[1]).toEqual(new Set([id]));
+    const text = JSON.stringify(renderer.toJSON(), (key, value) =>
+      key === "props" ? undefined : value,
+    );
+    expect(text).toContain("in 2h 0m");
+    expect(text).not.toContain("Could not read limits on other device.");
+    expect(text).not.toContain("All environments");
+    await act(() =>
+      renderer.root
+        .findAll(
+          (node) => node.type === "button" && node.props["aria-label"] === "Refresh limits",
+        )[0]!
+        .props.onClick(),
+    );
+    expect(state.refreshProviders.mock.calls).toEqual([
+      [{ environmentId: id, input: {} }],
+      [{ environmentId: id, input: {} }],
+    ]);
+  },
+);
+
+it("lets the phone switch to one host without adding it to a pooled selection", async () => {
+  const [id, presentation] = [...state.presentations][0]!;
+  const nextId = EnvironmentId.make(`${id}-next`);
+  state.activeEnvironmentId = id;
+  state.presentations = new Map([
+    [id, presentation],
+    [nextId, { ...presentation, entry: { target: { label: "Next host" } } }],
+  ]);
+  await act(() => {
+    renderer = create(<UsagePage />);
+  });
+  const option = renderer.root.findAll(
+    (node) =>
+      node.type === "div" &&
+      typeof node.props.onCheckedChange === "function" &&
+      node.findAll((child) => child.type === "span" && child.children.includes("Next host"))
+        .length > 0,
+  )[0]!;
+  await act(() => option.props.onCheckedChange(true));
+  expect(state.useUsage.mock.lastCall?.[1]).toEqual(new Set([nextId]));
+  expect(state.refreshProviders.mock.calls).toEqual([
+    [{ environmentId: id, input: {} }],
+    [{ environmentId: nextId, input: {} }],
+  ]);
+});
+
+it("keeps a real limits failure on the current device visible", async () => {
+  const [id, presentation] = [...state.presentations][0]!;
+  const provider = presentation.serverConfig.providers[0];
+  state.presentations = new Map([
+    [
+      id,
+      {
+        ...presentation,
+        serverConfig: {
+          providers: [
+            {
+              ...provider,
+              usageLimits: {
+                checkedAt: provider.checkedAt,
+                windows: [],
+                unavailable: { reason: "probeFailed", message: "Current login expired." },
+              },
+            },
+          ],
+        },
+      },
+    ],
+  ]);
+  state.primaryEnvironmentId = id;
+  await act(() => {
+    renderer = create(<UsagePage />);
+  });
+  expect(
+    JSON.stringify(renderer.toJSON(), (key, value) => (key === "props" ? undefined : value)),
+  ).toContain("Current login expired.");
 });
 
 it("keeps manual refresh busy until the already-running automatic check settles", async () => {

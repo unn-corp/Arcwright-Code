@@ -154,6 +154,35 @@ describe("shouldUseRestingComposerLayout", () => {
     timelineOverflows: true,
   };
 
+  it.each([
+    { isExistingThread: false, timelineOverflows: false, isScrollCollapsed: false },
+    { isExistingThread: true, timelineOverflows: true, isScrollCollapsed: false },
+    { isMobileViewport: true, isScrollCollapsed: false },
+  ])("keeps the preferred compact layout without waiting for scrolling: %o", (state) => {
+    expect(shouldUseRestingComposerLayout({ ...resting, ...state, alwaysCompact: true })).toBe(
+      true,
+    );
+  });
+
+  it.each([{ hasMultilinePrompt: true }, { hasExpandedChrome: true }])(
+    "expands the preferred compact layout for readable drafts and actionable chrome: %o",
+    (state) => {
+      expect(shouldUseRestingComposerLayout({ ...resting, ...state, alwaysCompact: true })).toBe(
+        false,
+      );
+    },
+  );
+
+  it("restores automatic behavior when the preference is disabled", () => {
+    expect(
+      shouldUseRestingComposerLayout({
+        ...resting,
+        isScrollCollapsed: false,
+        alwaysCompact: false,
+      }),
+    ).toBe(false);
+  });
+
   it("uses the resting layout after a timeline scroll", () => {
     expect(shouldUseRestingComposerLayout(resting)).toBe(true);
   });

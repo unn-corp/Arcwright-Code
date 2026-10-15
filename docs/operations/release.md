@@ -2,10 +2,13 @@
 
 > For maintainers. Using Arcwright Code? See [docs/user](../user/).
 
-This document covers the upstream unified release workflow retained in this checkout.
+This document covers the retained upstream release workflow, which is guarded off in
+`unn-corp/t3code`. The fork uses the [fork release pipeline](./fork-releases.md), with dedicated
+isolated Linux x64 and Windows x64 workers plus Android validation on Linux x64. macOS and
+hardware ARM64 jobs are disabled on this fork; upstream platform paths described below remain
+intact. All enabled jobs use [organization self-hosted runners](./ci-runners.md).
 Its hosted service configuration and URLs describe upstream T3 infrastructure, not a commissioned
-private Arcwright Connect deployment. Fork packaging and publishing follow
-[the fork release guide](./fork-releases.md).
+private Arcwright Connect deployment.
 
 ## What the workflow does
 
@@ -29,7 +32,7 @@ private Arcwright Connect deployment. Fork packaging and publishing follow
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
 - Reads the shared upstream production relay URL and Clerk client configuration before packaging clients.
 - Builds the platform-independent JS (server bundle, web client, Electron main) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.
-- Builds six desktop artifacts in parallel for both channels, each as its own job (`desktop_<platform>_<arch>`, one call of `release-desktop.yml`) on hardware of its own architecture, gated only on the bundle. The Windows jobs embed the same-arch Linux CLI archive as the WSL runtime and wait for that artifact partway through, not for the whole Linux job:
+- Builds six desktop artifacts in parallel for both channels, each as its own job (`desktop_<platform>_<arch>`, one call of `release-desktop.yml`), gated only on the bundle. Native CLI builds use matching hardware; the Intel macOS DMG is packaged on Apple Silicon without an Intel CLI archive. The Windows jobs embed the same-arch Linux CLI archive as the WSL runtime and wait for that artifact partway through, not for the whole Linux job:
   - macOS `arm64` DMG
   - macOS `x64` DMG
   - Linux `x64` and `arm64` AppImage and `.deb`, from one electron-builder run. The `.deb` updates in the app through electron-updater, which installs it with `dpkg`.
@@ -56,6 +59,10 @@ private Arcwright Connect deployment. Fork packaging and publishing follow
 - Signing is optional and auto-detected per platform from secrets.
 
 ## Pull request macOS previews
+
+The complete preview producer and consumer are disabled on `unn-corp/t3code`, including
+publication and cleanup, because the fork has no macOS workers. The following describes the
+retained upstream flow.
 
 Labeling a PR `preview:mac` publishes a signed, notarized Apple Silicon DMG with Arcwright Connect enabled
 to the rolling `desktop-preview` prerelease, and works for fork PRs. The label is a one-shot request

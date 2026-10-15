@@ -130,7 +130,7 @@ address:
 t3 serve --host <private-ip>
 ```
 
-If a server is already running, generate a fresh link without restarting it:
+If a server is already running, generate a fresh link without restarting it. The CLI requests the link from that running server over its authenticated local API; SSH pairing uses the same path:
 
 ```bash
 t3 pair

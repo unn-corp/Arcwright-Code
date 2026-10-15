@@ -59,10 +59,15 @@ export function classifyMarkdownImageSource(
     safeDecodeURIComponent(splitMarkdownLinkSearchAndHash(source).path),
   );
   if (path.length === 0) return { _tag: "Blocked" };
-  if (path.startsWith("/") || isWindowsAbsolutePath(path)) {
+  if (
+    path.startsWith("/") ||
+    isWindowsAbsolutePath(path) ||
+    path.startsWith("~/") ||
+    path.startsWith("~\\")
+  ) {
     return { _tag: "WorkspaceFile", path };
   }
-  if (URI_SCHEME_PATTERN.test(path) || path.startsWith("~/") || path.startsWith("~\\")) {
+  if (URI_SCHEME_PATTERN.test(path)) {
     return { _tag: "Blocked" };
   }
   if (!workspaceRoot) return { _tag: "Blocked" };

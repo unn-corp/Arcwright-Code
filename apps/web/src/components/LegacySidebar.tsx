@@ -1,4 +1,5 @@
 import { ForkSidebarUpdateStatus } from "./sidebar/ForkSidebarUpdateStatus";
+import { CollapsedThreadStatusIndicators } from "./sidebar/CollapsedThreadStatusIndicators";
 import { useServerConfigs } from "../state/entities";
 import { useExportThread } from "../hooks/useExportThread";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -2500,6 +2501,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               </span>
             ) : null}
           </span>
+          {!projectExpanded ? (
+            <CollapsedThreadStatusIndicators threads={visibleProjectThreads} />
+          ) : null}
           {/* Keeps the name clear of the environment badge and new-thread button overlaid on
               the row's end (two slots on touch, where both stay visible). */}
           <span aria-hidden className="w-4 shrink-0 max-sm:w-10" />

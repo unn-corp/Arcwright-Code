@@ -182,6 +182,9 @@ function SegmentPopover({
         ) : null}
       </div>
       <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
+        {(account.providerNames?.length ?? 0) > 1 ? (
+          <Row label="Shared quota">{account.providerNames?.join(", ")}</Row>
+        ) : null}
         {account.plan ? <Row label="Plan">{account.plan}</Row> : null}
         {where ? (
           <Row label={account.environments.length > 0 ? "Signed in" : "Via"}>{where}</Row>

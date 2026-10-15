@@ -93,7 +93,7 @@ jobs:
   production:
     if: github.repository == 'pingdotgg/t3code'
     name: EAS ${{ inputs.profile || 'production' }} ${{ github.event_name == 'push' && 'auto' || inputs.mode }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     permissions:
       contents: read
     env:

@@ -12,11 +12,53 @@ An explicit manual nightly with both `publish=true` and `commission=true` can pu
 hardware verification while schedules stay disabled. Required coordinator, updater, retained-runtime,
 and recovery-helper checks still must all pass; missing or failed safety evidence blocks every release.
 
+All GitHub Actions jobs require [dedicated isolated organization self-hosted runners](./ci-runners.md).
+The fork supports Linux x64, Windows x64, and Android builds and validation on Linux x64. macOS
+and hardware ARM64 jobs are disabled by repository guards because this fork has no such capacity;
+Android APK architecture support is preserved. Missing supported workers or repository access
+leaves enabled jobs queued. Runner provisioning and release commissioning remain separate requirements.
+
 Desktop launchers can disable the Arcwright Code updater with
 `ARCWRIGHT_CODE_DISABLE_AUTO_UPDATE=1`. Set it to `0` to enable the updater on the
 next launch. This name takes precedence over the legacy `T3CODE_DISABLE_AUTO_UPDATE`
 alias, including when explicitly enabling updates. Automatic installation remains a
 separate saved preference in App updates and retains coordinator admission checks.
+
+## Default agent delivery
+
+When a user asks any AI agent in this codebase to build, package, install, or update
+**Arcwright Code**, deliver a numbered nightly by default:
+
+1. Check the fork's published releases and active release runs. If the latest eligible,
+   verified nightly contains the requested changes and supports the target device,
+   use that release through the normal installation flow. Verify its manifest, source,
+   artifact size/digest, and release checks; a version label alone is insufficient.
+2. If the requested changes need a new build, complete focused validation, commit and
+   push the required changes, and pin the full tested commit on `main`. Reuse an active
+   run already commissioned for that source; otherwise dispatch the fork release
+   workflow with `channel=nightly`, the exact `commit`, and `publish=true`. While
+   scheduled publishing remains disabled, use `commission=true` as described under
+   [Operating](#operating). Preserve required Android recovery coverage and every
+   build, update, and recovery gate. Only the pipeline allocates the new nightly identity.
+3. Publication satisfies a build/publication request; perform installation when that
+   is the selected delivery path or the user requested it. Keep the current app and
+   chats running until the native maintenance coordinator admits replacement. Preserve
+   pins, saved update preferences, and required recovery assets. After installation,
+   verify startup and saved connections, then complete and document the
+   [canonical menu replacement](#local-desktop-builds-and-menu-replacement).
+4. Report the actual nightly name/version, source, release/run link, and verified
+   publication or installation state. If a gate fails, access is unavailable, or
+   admission is pending, report the concrete blocker. A dispatched build is still
+   pending; do not substitute a preview or claim installation before verification.
+
+An explicit user choice takes precedence: source-only work, a development/test build,
+local-only packaging, a stable channel, or a pinned version. Locally built nightlies
+still follow the allocated identity and installation rules. Documentation or review
+work, and building an unrelated application, do not themselves commission an Arcwright
+release. This delivery default does not change workflow input defaults, enable
+scheduled publication, change device update preferences, or bypass maintenance checks.
+Keep the [five-nightly/five-stable retention policy](#github-build-storage-retention)
+in force; avoid duplicate runs and unnecessary retained build copies.
 
 ## What a release is
 
@@ -167,7 +209,7 @@ kept, a publisher never cancelled):
    source identity (rehearsals read it and claim nothing). Published runs upload the allocation
    receipt; assembly rejects APK codes that differ from it.
 3. **build_bundle**, **desktop_linux_x64**, **desktop_win_x64** (the reusable
-   `release-desktop.yml`, GitHub-hosted runners, no relay, Clerk, or tracing configuration),
+   `release-desktop.yml`, isolated organization runners, no relay, Clerk, or tracing configuration),
    **android**, and **recovery_helper** build from the pinned commit.
 4. **assemble** verifies every artifact, feed reference, the embedded WSL archive, and both APKs,
    flattens the payload, and writes `SHA256SUMS`. It also downloads and verifies the predecessor.
@@ -309,6 +351,10 @@ configuration. A receipt records a digest of its suite specification and a recei
 specification does not count; every required file must have run at least one test and all must have
 passed (none skipped). Removing or renaming a required test fails publication until the list is
 changed in a reviewed commit.
+
+The desktop updater suite uses one test worker so Windows dependency initialization
+does not compete across workers while materializing Electron files. Every required
+file still runs, and missing or failed tests continue to block publication.
 
 **What this does not prove.** The package rows are external operations (dpkg, the NSIS installer,
 `adb`, archive replacement). They show the shipped bytes install, upgrade in place, and roll back.
@@ -479,7 +525,7 @@ the baseline APK under canonical names. It is used as the predecessor only until
 eligible.
 
 The manual **Fork manual updater baseline** workflow in `.github/workflows/fork-baseline.yml`
-builds the complete 1.0.0 baseline on GitHub-hosted Linux/Windows runners. Pin a full commit
+builds the complete 1.0.0 baseline on isolated organization Linux/Windows runners. Pin a full commit
 already on `main` and a `fork-android-code-N` reservation owned by that commit. It uses the same
 desktop packaging and Android verification as the release workflow. Publication is optional;
 when requested it verifies a complete draft and downloads it back before publishing the
@@ -573,6 +619,8 @@ published version for different bytes. An already installed preview keeps its re
 until the next admitted nightly replacement; renaming it does not make it that nightly.
 The app derives its name at every launch, including its Linux menu entry; package IDs, WM class,
 URL scheme, pairing, and data-home identity stay stable.
+Linux restarts use the configured stable launcher or AppImage path rather than an immutable
+extracted payload, so changing the installed image also changes the next restarted build.
 
 Every installation must go through the device maintenance coordinator with normal activity,
 idle-window, snapshot, trial, and health checks. A local build is not permission to bypass those

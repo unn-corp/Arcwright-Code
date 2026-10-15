@@ -1390,13 +1390,16 @@ describe("ServerSettings.removeAgentCreditsOnMerge", () => {
 });
 
 describe("ClientSettings AI message bubbles", () => {
-  it("keeps existing clients in the standard layout by default", () => {
-    expect(decodeClientSettings({}).assistantMessageBubbles).toBe(false);
+  it("defaults clients without a saved preference to chat bubbles", () => {
+    expect(decodeClientSettings({}).assistantMessageBubbles).toBe(true);
   });
   it.each([true, false])("persists the selected layout: %s", (assistantMessageBubbles) => {
     expect(decodeClientSettings({ assistantMessageBubbles }).assistantMessageBubbles).toBe(
       assistantMessageBubbles,
     );
+    expect(encodeClientSettings(decodeClientSettings({ assistantMessageBubbles }))).toMatchObject({
+      assistantMessageBubbles,
+    });
     expect(decodeClientSettingsPatch({ assistantMessageBubbles })).toEqual({
       assistantMessageBubbles,
     });
@@ -1524,5 +1527,20 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch({ migrateModelPreferences: input })).toEqual({
       migrateModelPreferences: input,
     });
+  });
+});
+
+describe("ClientSettings always compact composer", () => {
+  it("preserves automatic layout for existing settings", () => {
+    expect(decodeClientSettings({}).alwaysCompactComposer).toBe(false);
+  });
+  it.each([true, false])("round trips the saved preference: %s", (alwaysCompactComposer) => {
+    expect(decodeClientSettings({ alwaysCompactComposer }).alwaysCompactComposer).toBe(
+      alwaysCompactComposer,
+    );
+    expect(decodeClientSettingsPatch({ alwaysCompactComposer })).toEqual({ alwaysCompactComposer });
+  });
+  it("rejects non-boolean preferences", () => {
+    expect(() => decodeClientSettingsPatch({ alwaysCompactComposer: "yes" })).toThrow();
   });
 });

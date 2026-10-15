@@ -13,6 +13,7 @@ import {
   participantColor,
   participantInitials,
   resolveMessageParticipant,
+  resolveHumanParticipant,
   seedProfile,
 } from "./participants.ts";
 
@@ -169,4 +170,69 @@ it("initials handle names, single words, emoji and empty values", () => {
   expect(participantInitials("Alice")).toBe("AL");
   expect(participantInitials("🐶 Dog")).toBe("🐶D");
   expect(participantInitials("")).toBe("");
+});
+
+describe("current human display profiles", () => {
+  const updated = { ...alice, name: "Alice Updated", photo: "data:image/webp;base64,AA==" };
+  const settings = {
+    ...DEFAULT_CLIENT_SETTINGS,
+    activeParticipantProfile: "alice",
+    participantProfiles: {
+      alice: seedProfile(undefined, updated, []),
+      bob: seedProfile(undefined, { id: "account:bob", name: "Bob Updated", photo: null }, []),
+    },
+  };
+  it("uses the current name and picture across chats without mutating snapshots", () => {
+    for (const thread of ["old-chat", "new-chat", "remote-chat"]) {
+      const context = { version: 1 as const, records: [], author: alice };
+      expect(
+        resolveMessageParticipant({ ...message, role: "user", context }, thread, [], [], settings),
+      ).toEqual({ kind: "human", ...updated });
+      expect(context.author).toEqual(alice);
+    }
+  });
+  it("uses the active profile for unrecorded and legacy reply authors", () => {
+    expect(resolveHumanParticipant(undefined, settings)).toEqual(updated);
+    expect(
+      resolveHumanParticipant({ id: "legacy-user", name: "You", photo: null }, settings),
+    ).toEqual(updated);
+  });
+  it("preserves other users and resolves known inactive profiles by participant id", () => {
+    const unknown = { id: "account:other", name: "Other", photo: "https://example.com/other.png" };
+    expect(resolveHumanParticipant(unknown, settings)).toEqual(unknown);
+    expect(
+      resolveHumanParticipant({ id: "account:bob", name: "Old Bob", photo: alice.photo }, settings),
+    ).toEqual(settings.participantProfiles.bob.participant);
+  });
+  it("honors removing a photo instead of falling back to a historical photo", () => {
+    const initials = {
+      ...settings,
+      participantProfiles: { alice: seedProfile(undefined, { ...updated, photo: null }, []) },
+    };
+    expect(resolveHumanParticipant(alice, initials).photo).toBeNull();
+  });
+});
+
+it("uses the signed-in profile for bootstrap identities while preserving customized local users", () => {
+  const local = { id: "local:device", name: "You", photo: null };
+  const settings = {
+    ...DEFAULT_CLIENT_SETTINGS,
+    activeParticipantProfile: "account:alice",
+    participantProfiles: {
+      local: { participant: local, initialized: false, accounts: [] },
+      "account:alice": seedProfile(undefined, alice, []),
+    },
+  };
+  expect(resolveHumanParticipant(local, settings)).toEqual(alice);
+  expect(resolveHumanParticipant({ ...local, id: "local" }, settings)).toEqual(alice);
+  const customized = { ...local, name: "Local Guest" };
+  expect(
+    resolveHumanParticipant(local, {
+      ...settings,
+      participantProfiles: {
+        ...settings.participantProfiles,
+        local: seedProfile(undefined, customized, []),
+      },
+    }),
+  ).toEqual(customized);
 });

@@ -1,5 +1,7 @@
+import { isUserMessageRightAligned } from "@t3tools/client-runtime/user-message";
 import { ParticipantChip } from "./ParticipantChip";
-import { agentInstanceId } from "@t3tools/client-runtime/participants";
+import { useClientSettings } from "../../hooks/useSettings";
+import { agentInstanceId, resolveHumanParticipant } from "@t3tools/client-runtime/participants";
 import type { MessageId, MessageReplyTarget } from "@t3tools/contracts";
 import type { ChatMessage } from "../../types";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
@@ -38,17 +40,19 @@ export function MessageReplyActions({
   message,
   onReply,
   onOpenChain,
+  showChain = true,
 }: {
   message: ChatMessage;
+  showChain?: boolean;
   onReply?: ((message: ChatMessage) => void) | undefined;
   onOpenChain: (id: MessageId) => void;
 }) {
   const target = message.context?.replyTo;
   return (
     <div
-      className={`flex min-w-0 items-center gap-1 ${message.role === "user" ? "justify-end" : ""}`}
+      className={`flex min-w-0 items-center gap-1 ${isUserMessageRightAligned(message) ? "justify-end" : ""}`}
     >
-      {target && (
+      {showChain && target && (
         <Button
           variant="ghost-muted"
           size="compact"
@@ -99,6 +103,11 @@ export function ComposerMessageReply({
   target: MessageReplyTarget;
   onCancel: () => void;
 }) {
+  const settings = useClientSettings((settings) => settings);
+  const author =
+    target.role === "user" && !target.agent
+      ? resolveHumanParticipant(target.author, settings)
+      : undefined;
   return (
     <div
       className="chat-composer-message-reply flex min-w-0 items-center gap-2 px-3 py-2"
@@ -108,7 +117,7 @@ export function ComposerMessageReply({
       <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground">
           Replying to{" "}
-          {target.author?.name ?? target.agent?.model ?? (target.role === "user" ? "you" : "agent")}
+          {author?.name ?? target.agent?.model ?? (target.role === "user" ? "you" : "agent")}
         </p>
         <p className="truncate text-sm">{target.text || "Attachment"}</p>
       </div>

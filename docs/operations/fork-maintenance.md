@@ -265,6 +265,9 @@ Tailscale Serve must be available on the host. Do not remove unrelated Serve con
 
 **Behavior and reason.** Touch layouts keep composer actions singular when collapsed, preserve
 drafts, reserve sidebar drag-grip space while visible, and resize across the phone's two screens.
+Appearance offers an always-compact composer preference for new and existing chats; multiline
+drafts and actionable drawers or errors still expand. The default retains automatic sizing. Composer attachments share one non-wrapping, horizontally
+scrolling strip, including images, videos, files, and attachments of queued messages being edited.
 The glance rail adds project scope, usage, and quick access without replacing thread controls.
 Dictation holds client installation through microphone permission, recording, decoding, and
 transcription; cancelling releases that hold only after the pending operation ends.
@@ -329,6 +332,19 @@ The APK native container zeroes handled bars/cutout/IME insets before forwarding
 see [shell inset maintenance](./android-pwa.md#shell-insets-and-folded-layouts). Verify native header
 alignment and keyboard hide after live fold changes as well as browser viewport tests.
 
+## Usage limits source
+
+Desktop Limits reads the local primary connection. Web and the fork Android APK read one current
+connection, with a single-choice connection picker when there is no local host. Limit refreshes,
+provider accounts, hub accounts, Cursor prompts, and failure notices use that same selection.
+Other-device failures are excluded while current-connection failures remain visible. Cost and
+token history retain their separate multi-environment filter; the upstream React Native client
+retains its own pooling view.
+
+The selected usage atom reads no sessions, history queries, or provider snapshots for unselected
+devices. Regression coverage lives in `UsagePage.refresh.test.tsx`,
+`usageEnvironmentSelection.test.ts`, and `usage.sources.test.ts`.
+
 ## Chat participant identity
 
 The shared participant contracts and client-runtime resolver retain message-time author photos
@@ -341,6 +357,23 @@ not proof of authorization. Replies must canonicalize their author snapshots fro
 The fork APK uses its native session's optional public-profile request instead of Clerk browser
 hooks. That read and deferred local persistence are fenced to the captured account/session/generation;
 transient failure retains existing edits and metadata, and confirmed sign-out selects the local profile.
+
+Known human authors resolve from current client profiles across chat, pinned chips and replies;
+unattributed legacy messages use the active profile, while unknown recorded authors retain their
+snapshots. Profile edits do not rewrite message history or other principals.
+AI message bubbles default on when no preference is saved; saved opt-outs are preserved.
+Web timelines place chips outside bubbles, show one per consecutive sender group, and pin that
+identity while its group scrolls past. Preserve this through row recycling and disclosure changes;
+agent reply controls belong beside their messages. Agent deliveries use the left side even when
+their transport role is user; human messages remain on the right. In the fork Android app and on narrow mobile screens,
+participant identities and subagent starts, activity, and finishes remain in the feed; duplicate
+pinned identity tabs and the subagent row above the composer are hidden. Wider screens retain
+those shortcuts across parent turns and scrolling. Collapsed repository groups in both sidebars and Working,
+Snoozed, and Settled shelves summarize input/approval, failure/limit, and unread completion
+with an icon per status and a multiplier above one. Counts use shell summaries and the same
+server-authoritative read watermarks as thread rows, without opening hidden thread details.
+`TimelineParticipants.test.tsx`, `CollapsedThreadStatusIndicators.test.tsx`, and the timeline
+component tests cover these boundaries.
 
 Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,
 `ParticipantProfileSync.test.tsx`, `AndroidParticipantProfileSync.test.tsx`, the native
@@ -530,6 +563,11 @@ limits cover T3-owned commands; provider shells and other applications have sepa
 Conversation evidence media uses chat-read authorization and signed exact-file URLs on the
 connected environment, including Tailscale. The server validates the physical per-conversation
 directory before signing; other host media continues to require filesystem-read permission.
+Agent image paths beginning with `~/` resolve on the environment host. Hosted image failures
+refresh their signed URL once and expose manual retry instead of waiting for the periodic refresh;
+repeated failures must not cause a request loop or bypass file permissions. Raster pictures stored
+as file-picker attachments serve inline by default, including to older receiving clients; explicit
+downloads and other file formats retain their existing disposition.
 Keep these boundaries covered in `AssetAccess.test.ts`, `RpcAuthorization.test.ts`, and
 the client's asset URL and media routing tests.
 
@@ -653,6 +691,9 @@ installer ordering and fork release availability. Maintain provenance when integ
 and retain immutable historical installer identities. See
 [version provenance and history](./fork-releases.md#version-provenance-and-history) for build
 ownership, label tests, and release-title cleanup rules.
+Target selection recognizes historical `0.0.x-preview` and `0.0.x-fork` installed identities
+without admitting their artifacts into the release feed. This compatibility does not bypass
+coordinator bootstrap, activity admission, or recovery requirements.
 
 **Implementation and commissioning.** Coordinator services, multi-home transactions, desktop
 and Android controllers, shared UI controls, native recovery, external recovery helpers, and fork
@@ -751,6 +792,8 @@ The CLI `t3 update` adapter in
 home's operator credential and maintenance controller. It cannot install from an unrelated release
 index, repoint a launcher independently, or use a legacy service restart as a fallback. Maintain
 [`CLI admission tests`](../../apps/server/src/cli/update.test.ts) in the host-runtime release suite.
+
+CLI pairing against a live home uses the existing server’s owner-authenticated local pairing route. It never registers a second runtime or opens the live database. A maintenance fence refuses issuance; a live server without this API must be updated rather than falling back to offline issuance. Offline `auth pairing create` retains ordinary startup admission when no server is running.
 
 **Delivery.** Implemented in source; desktop and APK release delivery has not been commissioned.
 
@@ -910,3 +953,7 @@ or device arrival. Production migration, broader Worker assembly and owned commi
 pending. Native installation credentials and historical release/recovery
 rollback authority (**NEXT Task4D**) remain outside this server change; commissioning requires its
 own live validation.
+
+Usage pooling keeps one quota bucket per authenticated subscription and workspace. When several
+native provider instances share a bucket, retain every configured name and show the shared quota
+in account details; never hide a configured instance behind the first label or count its quota twice.

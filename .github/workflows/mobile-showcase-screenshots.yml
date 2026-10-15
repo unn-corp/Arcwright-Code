@@ -44,8 +44,9 @@ env:
 jobs:
   ios:
     name: iPhone 6.9, iPhone 6.5, and iPad 13
-    if: inputs.platform == 'all' || inputs.platform == 'ios'
-    runs-on: macos-26
+    # The fork has no macOS capacity; Android capture remains available.
+    if: github.repository != 'unn-corp/t3code' && (inputs.platform == 'all' || inputs.platform == 'ios')
+    runs-on: [self-hosted, macOS, arm64, unn, unn-isolated, t3-ci]
     # Capturing every palette multiplies the device matrix by six, and only the
     # one native build is shared between them.
     timeout-minutes: ${{ inputs.theme == 'all' && 300 || 60 }}
@@ -105,7 +106,7 @@ jobs:
   android:
     name: Android phone, 7-inch tablet, and 10-inch tablet
     if: inputs.platform == 'all' || inputs.platform == 'android'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     # Capturing every palette multiplies the device matrix by six, and only the
     # one native build is shared between them.
     timeout-minutes: ${{ inputs.theme == 'all' && 300 || 60 }}
@@ -149,10 +150,11 @@ jobs:
 
       - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          set -euo pipefail
+          if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo "::error::Android emulator validation requires a self-hosted runner with readable and writable /dev/kvm provisioned before the job."
+            exit 1
+          fi
 
       - name: Capture Android showcase
         uses: reactivecircus/android-emulator-runner@v2

@@ -1,4 +1,8 @@
-import { ProviderDriverKind, type CodexSettings } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  type CodexSettings,
+  type ProviderInstanceEnvironment,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -43,16 +47,20 @@ function resolveHomePath(path: Path.Path, home: string, value: string | undefine
 
 export const resolveCodexHomeLayout = Effect.fn("resolveCodexHomeLayout")(function* (
   config: CodexSettings,
+  environment: ProviderInstanceEnvironment = [],
 ): Effect.fn.Return<CodexHomeLayout, never, Path.Path> {
   const path = yield* Path.Path;
   const home = yield* HostProcess.HomeDirectory;
-  const sharedHomePath = resolveHomePath(path, home, config.homePath);
+  // Only this instance's declared override may select another account home.
+  // An inherited CODEX_HOME can belong to the agent that launched the server.
+  const declaredHome = environment.find((variable) => variable.name === "CODEX_HOME")?.value;
+  const sharedHomePath = resolveHomePath(path, home, config.homePath.trim() || declaredHome);
   const shadowHomePath = config.shadowHomePath.trim();
   if (shadowHomePath.length === 0) {
     return {
       mode: "direct",
       sharedHomePath,
-      effectiveHomePath: config.homePath.trim().length > 0 ? sharedHomePath : undefined,
+      effectiveHomePath: sharedHomePath,
       continuationKey: `codex:home:${sharedHomePath}`,
     };
   }

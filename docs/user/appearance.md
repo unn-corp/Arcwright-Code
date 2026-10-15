@@ -33,8 +33,10 @@ Open **Settings → General → Profile** to set your chat name and upload a pho
 connected personal account's photo, or use initials. Your first personal sign-in initializes
 that account's profile. Later account connections preserve your choices. Provider API keys and
 environment Git credentials do not set your personal photo. Profile preferences are local to
-this device or browser; sent messages carry their name and photo to other connected clients.
-Changes apply to new messages, so historical authors remain identifiable.
+this device or browser; sent messages carry their name and photo to other connected clients. On this client,
+messages and replies by a known user display that user’s current profile, including
+older chats. Older messages without a recorded author use your active profile.
+Messages by other recorded users keep their identity; changing your profile does not rewrite history.
 
 Agent chips show the recorded model when it is known. Colors follow the conversation's
 agent instance, including through retries and model changes. Different child agents receive

@@ -62,7 +62,7 @@ export function ParticipantProfileSettings() {
     <SettingsSection id="profile" title="Profile">
       <SettingsRow
         title="Chat identity"
-        description="Your profile is separate for each signed-in account. New messages keep the name and photo you use when sending them."
+        description="Your profile is separate for each signed-in account. Your chats display your current name and photo."
       >
         <ParticipantChip participant={{ kind: "human", ...human }} variant="expanded" />
       </SettingsRow>

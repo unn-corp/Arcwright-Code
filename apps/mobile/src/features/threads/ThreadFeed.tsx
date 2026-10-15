@@ -1,4 +1,5 @@
 import { ParticipantChip } from "../../components/ParticipantChip";
+import { isUserMessageRightAligned } from "@t3tools/client-runtime/user-message";
 import { agentInstanceId } from "@t3tools/client-runtime/participants";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { ThreadMarkdownVideo, ThreadMediaVisibleContext } from "./ThreadMarkdownVideo";
@@ -1187,7 +1188,7 @@ function renderFeedEntry(
       );
       return (
         <Animated.View
-          className="mb-5 items-end"
+          className={isUserMessageRightAligned(message) ? "mb-5 items-end" : "mb-5 items-start"}
           {...(enterAnimated ? { entering: FadeInUp.duration(220) } : {})}
         >
           {presentation.attribution === "automation" ? (
@@ -1340,7 +1341,13 @@ function renderFeedEntry(
               </MarkdownImageAvailableWidthContext>
             ) : null}
           </View>
-          <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
+          <View
+            className={
+              isUserMessageRightAligned(message)
+                ? "mt-1 flex-row items-center justify-end gap-1 pr-0.5"
+                : "mt-1 flex-row items-center justify-start gap-1 pr-0.5"
+            }
+          >
             {intentBadge ? (
               <View
                 accessible

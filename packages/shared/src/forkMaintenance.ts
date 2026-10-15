@@ -30,6 +30,8 @@ const BACKOFF_MAX_MS = FORK_CHECK_INTERVAL_MS;
 
 const STABLE_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const NIGHTLY_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-nightly\.(\d{8})\.([1-9]\d*)$/;
+const LEGACY_INSTALLED_PATTERN =
+  /^(0\.0\.(?:0|[1-9]\d*))-(?:preview\.\d{8}\.[1-9]\d*|fork\.[1-9]\d*)$/;
 
 export interface ForkVersion {
   readonly raw: string;
@@ -279,12 +281,16 @@ export function selectForkTarget(input: {
   readonly artifactSha256: (manifest: ForkReleaseManifest) => string | null;
 }): ForkTargetSelection | null {
   if (input.pinnedBuild !== null) return null;
+  // Historical 0.0.x builds predate the 1.x installer sequence. Normalize only
+  // the installed identity; preview artifacts must never become eligible releases.
+  const installedVersion =
+    LEGACY_INSTALLED_PATTERN.exec(input.installedVersion)?.[1] ?? input.installedVersion;
   let best: ForkTargetSelection | null = null;
   for (const record of input.releases) {
     if (!classifyForkRelease(record, input.releases).eligible) continue;
     const manifest = record.manifest!;
     if (input.channel === "stable" && manifest.channel !== "stable") continue;
-    if (compareForkVersions(manifest.version, input.installedVersion) <= 0) continue;
+    if (compareForkVersions(manifest.version, installedVersion) <= 0) continue;
     const digest = input.artifactSha256(manifest);
     if (digest === null) continue;
     if (input.memory?.failedArtifactSha256.includes(digest)) continue;

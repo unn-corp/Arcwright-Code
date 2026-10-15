@@ -29,9 +29,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: linux-x64, runner: ubuntu-24.04 }
-          - { target: windows-x64, runner: windows-2025 }
-    runs-on: ${{ matrix.runner }}
+          - { target: linux-x64, runner: linux }
+          - { target: windows-x64, runner: windows }
+    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 35
     steps:
       - name: Checkout diagnostic tooling
@@ -56,8 +56,18 @@ jobs:
       - name: Install Linux desktop runtime dependencies
         if: matrix.target == 'linux-x64'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libnotify4 libsecret-1-0 libgtk-3-0 libnss3 libgbm1 libasound2t64
+          set -euo pipefail
+          command -v ldconfig >/dev/null 2>&1 || {
+            echo "::error::Missing ldconfig. Preinstall the Linux desktop runtime dependencies in the isolated runner image."
+            exit 1
+          }
+          libraries="$(ldconfig -p)"
+          for library in libnotify.so.4 libsecret-1.so.0 libgtk-3.so.0 libnss3.so libgbm.so.1 libasound.so.2; do
+            if ! grep -Fq "$library " <<< "$libraries"; then
+              echo "::error::Missing Linux desktop runtime library $library. Preinstall the required native packages in the isolated runner image."
+              exit 1
+            fi
+          done
 
       - name: Download retained release payloads
         shell: bash
@@ -85,7 +95,7 @@ jobs:
 
   android:
     if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'desktop'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 25
     steps:
       - name: Checkout diagnostic tooling
@@ -119,9 +129,11 @@ jobs:
 
       - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          set -euo pipefail
+          if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo "::error::Android emulator validation requires a self-hosted runner with readable and writable /dev/kvm provisioned before the job."
+            exit 1
+          fi
 
       # Uses the exact APKs and interaction runner from the failed run. No eligibility receipts.
       - name: Diagnose Android install update and recovery

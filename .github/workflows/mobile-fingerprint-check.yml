@@ -24,7 +24,7 @@ concurrency:
 jobs:
   fingerprint:
     name: Native fingerprint diff
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     permissions:
       contents: read
       issues: write

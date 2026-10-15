@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import type * as Electron from "electron";
@@ -18,6 +19,10 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 function layerElectronApp(
   appListeners: Map<string, (...args: readonly unknown[]) => void>,
   quit: Effect.Effect<void> = Effect.void,
+  controls: {
+    readonly relaunch?: (options: Electron.RelaunchOptions) => Effect.Effect<void>;
+    readonly exit?: (code?: number) => Effect.Effect<void>;
+  } = {},
 ) {
   const registerListener = (eventName: string, listener: (...args: readonly unknown[]) => void) =>
     Effect.acquireRelease(
@@ -36,8 +41,8 @@ function layerElectronApp(
     systemLocale: Effect.succeed("en-US"),
     whenReady: Effect.void,
     quit,
-    exit: () => Effect.void,
-    relaunch: () => Effect.void,
+    exit: controls.exit ?? (() => Effect.void),
+    relaunch: controls.relaunch ?? (() => Effect.void),
     setPath: () => Effect.void,
     setName: () => Effect.void,
     setAboutPanelOptions: () => Effect.void,
@@ -102,6 +107,72 @@ function layerDesktopWindow(
 }
 
 describe("DesktopLifecycle", () => {
+  it.effect.each([
+    {
+      platform: "linux",
+      launcher: "/home/alice/.local/bin/arcwright-code",
+      image: "/Apps/current.AppImage",
+      expected: "/home/alice/.local/bin/arcwright-code",
+    },
+    {
+      platform: "linux",
+      launcher: null,
+      image: "/Apps/current.AppImage",
+      expected: "/Apps/current.AppImage",
+    },
+    { platform: "linux", launcher: null, image: null, expected: process.execPath },
+    { platform: "linux", launcher: "/Apps/cli-wrapper", image: null, expected: process.execPath },
+    { platform: "darwin", launcher: "/Apps/cli-wrapper", image: null, expected: process.execPath },
+  ] as const)("relaunches through the current executable on $platform ($expected)", (input) =>
+    Effect.gen(function* () {
+      const shutdownRequested = yield* Deferred.make<void>();
+      const allowShutdown = yield* Deferred.make<void>();
+      const exited = yield* Deferred.make<void>();
+      const relaunches: Electron.RelaunchOptions[] = [];
+      const layerEnvironment = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+        platform: input.platform,
+        isDevelopment: false,
+        urlHandlerExecTarget: Option.fromNullishOr(input.launcher),
+        appImagePath: Option.fromNullishOr(input.image),
+      } as DesktopEnvironment.DesktopEnvironment["Service"]);
+      const layer = DesktopLifecycle.layer.pipe(
+        Layer.provideMerge(
+          layerElectronApp(new Map(), Effect.void, {
+            relaunch: (options) =>
+              Effect.sync(() => {
+                relaunches.push(options);
+              }),
+            exit: () => Deferred.succeed(exited, undefined).pipe(Effect.asVoid),
+          }),
+        ),
+        Layer.provideMerge(layerElectronTheme),
+        Layer.provideMerge(layerElectronWindow()),
+        Layer.provideMerge(layerDesktopWindow()),
+        Layer.provideMerge(layerEnvironment),
+        Layer.provideMerge(
+          Layer.succeed(DesktopShutdown.DesktopShutdown, {
+            request: Deferred.succeed(shutdownRequested, undefined).pipe(Effect.asVoid),
+            awaitRequest: Deferred.await(shutdownRequested),
+            awaitComplete: Deferred.await(allowShutdown),
+            markComplete: Deferred.succeed(allowShutdown, undefined).pipe(Effect.asVoid),
+            isComplete: Deferred.isDone(allowShutdown),
+          }),
+        ),
+        Layer.provideMerge(DesktopState.layer),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+          yield* lifecycle.relaunch("apply appearance change");
+          yield* Deferred.await(shutdownRequested);
+          assert.equal(relaunches.length, 0);
+          yield* Deferred.succeed(allowShutdown, undefined);
+          yield* Deferred.await(exited);
+          assert.deepEqual(relaunches, [{ execPath: input.expected, args: process.argv.slice(1) }]);
+        }),
+      ).pipe(Effect.provide(layer));
+    }),
+  );
   it.effect.each(["darwin", "win32", "linux"] satisfies ReadonlyArray<NodeJS.Platform>)(
     "lets the updater's quit event proceed on %s",
     (platform) => {

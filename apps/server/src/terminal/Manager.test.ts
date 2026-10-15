@@ -2388,7 +2388,7 @@ it.layer(
     ),
   );
 
-  it.effect("resolves an empty Codex default slot with default config", () =>
+  it.effect("pins an empty Codex default slot instead of inheriting another account home", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -2399,7 +2399,7 @@ it.layer(
         env: { CODEX_HOME: "/inherited/codex-home" },
       });
 
-      expect(environment.CODEX_HOME).toBe("/inherited/codex-home");
+      expect(environment.CODEX_HOME).toBe(path.join(yield* HostProcess.HomeDirectory, ".codex"));
     }).pipe(
       Effect.provide(ServerSettings.ServerSettingsService.layerTest({ providerInstances: {} })),
     ),

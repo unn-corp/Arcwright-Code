@@ -155,7 +155,9 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "Desktop updater: update state machine, channel selection, remote update flow, and the Electron updater adapters.",
     targets: ["linux-x64", "windows-x64"],
     workdir: "apps/desktop",
-    command: VITEST,
+    // Electron's dependency files can be materialized during worker imports on
+    // Windows. One worker avoids competing native-directory initialization.
+    command: [...VITEST, "--maxWorkers=1"],
     results: "vitest",
     required: [
       "src/maintenance/DesktopForkMaintenance.test.ts",

@@ -37,6 +37,8 @@ describe("classifyMarkdownImageSource", () => {
     ["file:///C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["file://localhost/C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["file://server/share/image.png", null, "\\\\server\\share\\image.png"],
+    ["~/Pictures/agent%20result.png", null, "~/Pictures/agent result.png"],
+    ["~\\Pictures\\agent.png", null, "~\\Pictures\\agent.png"],
   ])("maps %s to a workspace file", (source, workspaceRoot, path) => {
     expect(classifyMarkdownImageSource(source, workspaceRoot)).toEqual({
       _tag: "WorkspaceFile",
@@ -50,7 +52,6 @@ describe("classifyMarkdownImageSource", () => {
     "#image",
     "?image=1",
     "image.png",
-    "~/image.png",
     "javascript:alert(1)",
     "ftp://example.com/image.png",
     "content://media/image/1",

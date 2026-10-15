@@ -1724,6 +1724,37 @@ describe("image asset requests", () => {
     ]);
   });
 
+  it("requests pictures received from another device, including file-picker images", () => {
+    const received = [
+      image,
+      { ...image, type: "file" as const, id: "shared-file-picker-png" },
+      {
+        ...image,
+        type: "file" as const,
+        id: "shared-file-picker-webp",
+        name: "phone-photo.webp",
+        mimeType: "application/octet-stream",
+      },
+    ];
+    expect(selectMessageImageResources(received)).toEqual([
+      { _tag: "attachment", attachmentId: image.id },
+      { _tag: "attachment", attachmentId: "shared-file-picker-png" },
+      { _tag: "attachment", attachmentId: "shared-file-picker-webp" },
+    ]);
+    const project = createMessageAttachmentPreviewProjector();
+    const previewed = project(
+      { ...message, attachments: received },
+      (attachment) => `http://100.65.180.100:3773/api/assets/signed/${attachment.id}`,
+    );
+    expect(
+      previewed.attachments?.map(
+        (attachment) => "previewUrl" in attachment && attachment.previewUrl,
+      ),
+    ).toEqual(
+      received.map((attachment) => `http://100.65.180.100:3773/api/assets/signed/${attachment.id}`),
+    );
+  });
+
   it("does not scan history when no handoff is pending", () => {
     let reads = 0;
     const messages = new Proxy([message], {

@@ -331,6 +331,10 @@ describe("searchSettings", () => {
   });
 
   it("routes appearance settings to their current section", () => {
+    expect(searchSettings("Always compact composer")[0]).toMatchObject({
+      id: "always-compact-composer",
+      to: "/settings/appearance",
+    });
     expect(searchSettings("AI message bubbles")[0]).toMatchObject({
       id: "assistant-message-bubbles",
       to: "/settings/appearance",

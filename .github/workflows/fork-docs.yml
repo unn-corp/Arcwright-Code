@@ -27,8 +27,8 @@ jobs:
   documentation:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        os: [linux, windows]
+    runs-on: [self-hosted, "${{ matrix.os }}", x64, unn, unn-isolated, t3-ci]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

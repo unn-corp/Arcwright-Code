@@ -229,6 +229,11 @@ export function V2LifecycleRow(props: {
         completedAt={item.completedAt}
         threadId={item.childThreadId}
         onOpenThread={props.onOpenThread}
+        event={{
+          status: null,
+          label: "Started",
+          timestamp: formatShortTimestamp(props.createdAt, props.timestampFormat),
+        }}
       />
     );
   }

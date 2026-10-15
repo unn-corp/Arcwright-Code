@@ -280,6 +280,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["red green blue orange additions deletions changes counts palette colorblind"],
   },
   {
+    id: "always-compact-composer",
+    title: "Always compact composer",
+    to: "/settings/appearance",
+    searchTerms: ["small input resting collapsed message draft chat composer layout"],
+  },
+  {
     id: "assistant-message-bubbles",
     title: "AI message bubbles",
     to: "/settings/appearance",

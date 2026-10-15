@@ -57,6 +57,7 @@ import {
 } from "../auth/utils.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { parseAttachmentFileExtension, resolveAttachmentPathById } from "../attachmentStore.ts";
+import { imageMimeType } from "@t3tools/shared/image";
 import * as ServerConfig from "../config.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -649,8 +650,13 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       const videoMimeType = input.resource.mimeType?.split(";", 1)[0]?.trim() ?? "";
       const isVideo = INLINE_VIDEO_MIME_TYPE_PATTERN.test(videoMimeType);
       const inlinePreviewMimeType =
-        input.resource.disposition === "inline" && extension !== null
-          ? inlinePreviewMimeTypeForExtension(extension)
+        extension !== null
+          ? ((input.resource.disposition !== "attachment"
+              ? imageMimeType({ name: `attachment.${extension}`, mimeType: "" })
+              : null) ??
+            (input.resource.disposition === "inline"
+              ? inlinePreviewMimeTypeForExtension(extension)
+              : undefined))
           : undefined;
       if (!isGenericFile) {
         imageDimensions = yield* readImageDimensionsFromHeader(attachmentPath);

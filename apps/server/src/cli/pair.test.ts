@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - CLI integration exercises Node HTTP and filesystem boundaries.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - CLI integration exercises Node HTTP and filesystem boundaries.
 import * as NodeHttp from "node:http";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -120,18 +120,51 @@ const testDescriptor = {
   capabilities: { repositoryIdentity: true },
 };
 
-const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A, E, R>) =>
+const withDescriptorServer = <A, E, R>(
+  run: (
+    origin: string,
+    requests: Array<{ scopes: ReadonlyArray<string>; label?: string }>,
+  ) => Effect.Effect<A, E, R>,
+) =>
   Effect.acquireUseRelease(
     Effect.callback<NodeHttp.Server>((resume) => {
+      const requests: Array<{ scopes: ReadonlyArray<string>; label?: string }> = [];
       const server = NodeHttp.createServer((request, response) => {
         if (request.url === "/.well-known/t3/environment") {
           response.writeHead(200, { "content-type": "application/json" });
           response.end(JSON.stringify(testDescriptor));
           return;
         }
+        if (
+          request.url === "/api/maintenance/operator/pairing" &&
+          request.headers["x-t3-operator-token"] === "test-operator"
+        ) {
+          let body = "";
+          request.on("data", (chunk) => {
+            body += chunk;
+          });
+          request.on("end", () => {
+            const input = JSON.parse(body);
+            requests.push(input);
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(
+              JSON.stringify({
+                id: "test-pairing",
+                credential: "TESTPAIRCODE",
+                scopes: input.scopes,
+                subject: "one-time-token",
+                label: input.label,
+                createdAt: new Date().toISOString(),
+                expiresAt: new Date(Date.now() + 300000).toISOString(),
+              }),
+            );
+          });
+          return;
+        }
         response.writeHead(404);
         response.end();
       });
+      Object.assign(server, { pairingRequests: requests });
       server.listen(0, "127.0.0.1", () => resume(Effect.succeed(server)));
     }),
     (server) => {
@@ -139,16 +172,28 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
       if (address === null || typeof address === "string") {
         return Effect.die(new Error("Expected a TCP address"));
       }
-      return run(`http://127.0.0.1:${String(address.port)}`);
+      return run(
+        `http://127.0.0.1:${String(address.port)}`,
+        (
+          server as NodeHttp.Server & {
+            pairingRequests: Array<{ scopes: ReadonlyArray<string>; label?: string }>;
+          }
+        ).pairingRequests,
+      );
     },
     (server) => Effect.sync(() => server.close()),
   );
 
 describe("t3 pair", () => {
   it.effect("mints a token and prints a QR pairing URL for a live server", () =>
-    withDescriptorServer((origin) =>
+    withDescriptorServer((origin, requests) =>
       Effect.gen(function* () {
         const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-test-"));
+        NodeFS.mkdirSync(NodePath.join(baseDir, "maintenance"));
+        NodeFS.writeFileSync(
+          NodePath.join(baseDir, "maintenance", "operator-token"),
+          "test-operator",
+        );
         const port = Number(new URL(origin).port);
         const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
         yield* persistServerRuntimeState({
@@ -170,14 +215,8 @@ describe("t3 pair", () => {
         const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
         assert.isString(token);
 
-        // The token must be in the same store the running server reads.
-        const listed = yield* captureStdout(
-          runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
-        );
-        const credentials = JSON.parse(listed) as ReadonlyArray<{
-          readonly label?: string;
-          readonly scopes: ReadonlyArray<string>;
-        }>;
+        // Live issuance goes through the running server, without opening another database runtime.
+        const credentials = requests;
         assert.equal(credentials.length, 1);
         assert.equal(credentials[0]?.label, "t3 pair");
         assert.deepEqual(credentials[0]?.scopes, AuthStandardClientScopes);
@@ -201,9 +240,14 @@ describe("t3 pair", () => {
   );
 
   it.effect("mints a pairing grant with only the selected scopes", () =>
-    withDescriptorServer((origin) =>
+    withDescriptorServer((origin, requests) =>
       Effect.gen(function* () {
         const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-scopes-test-"));
+        NodeFS.mkdirSync(NodePath.join(baseDir, "maintenance"));
+        NodeFS.writeFileSync(
+          NodePath.join(baseDir, "maintenance", "operator-token"),
+          "test-operator",
+        );
         yield* persistServerRuntimeState({
           path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
           state: yield* makePersistedServerRuntimeState({
@@ -225,12 +269,7 @@ describe("t3 pair", () => {
             "orchestration:read",
           ]),
         );
-        const listed = yield* captureStdout(
-          runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
-        );
-        const credentials = JSON.parse(listed) as ReadonlyArray<{
-          readonly scopes: ReadonlyArray<string>;
-        }>;
+        const credentials = requests;
         assert.lengthOf(credentials, 1);
         assert.deepEqual(credentials[0]?.scopes, ["orchestration:read", "relay:read"]);
       }),
@@ -241,6 +280,11 @@ describe("t3 pair", () => {
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
         const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-dev-test-"));
+        NodeFS.mkdirSync(NodePath.join(baseDir, "maintenance"));
+        NodeFS.writeFileSync(
+          NodePath.join(baseDir, "maintenance", "operator-token"),
+          "test-operator",
+        );
         const port = Number(new URL(origin).port);
         const statePath = NodePath.join(baseDir, "dev", "server-runtime.json");
         yield* persistServerRuntimeState({

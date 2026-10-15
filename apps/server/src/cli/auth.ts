@@ -11,6 +11,7 @@ import * as References from "effect/References";
 import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { createLivePairingLink } from "../auth/localPairing.ts";
 
 import {
   formatIssuedPairingCredential,
@@ -92,26 +93,44 @@ const pairingCreateCommand = Command.make("create", {
 }).pipe(
   Command.withDescription("Issue a new client pairing token."),
   Command.withHandler((flags) =>
-    runWithEnvironmentAuth(
-      flags,
-      (environmentAuth) =>
-        Effect.gen(function* () {
-          const issued = yield* environmentAuth.createPairingLink({
-            scopes: flags.scopes,
-            subject: "one-time-token",
-            ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
-            ...(Option.isSome(flags.label) ? { label: flags.label.value } : {}),
-          });
-          const output = formatIssuedPairingCredential(issued, {
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveCliAuthConfig(flags, logLevel);
+      const live = yield* createLivePairingLink(config, {
+        scopes: flags.scopes,
+        ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
+        ...(Option.isSome(flags.label) ? { label: flags.label.value } : {}),
+      });
+      if (Option.isSome(live)) {
+        yield* Console.log(
+          formatIssuedPairingCredential(live.value, {
             json: flags.json,
             ...(Option.isSome(flags.baseUrl) ? { baseUrl: flags.baseUrl.value } : {}),
-          });
-          yield* Console.log(output);
-        }),
-      {
-        quietLogs: flags.json,
-      },
-    ),
+          }),
+        );
+        return;
+      }
+      return yield* runWithEnvironmentAuth(
+        flags,
+        (environmentAuth) =>
+          Effect.gen(function* () {
+            const issued = yield* environmentAuth.createPairingLink({
+              scopes: flags.scopes,
+              subject: "one-time-token",
+              ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
+              ...(Option.isSome(flags.label) ? { label: flags.label.value } : {}),
+            });
+            const output = formatIssuedPairingCredential(issued, {
+              json: flags.json,
+              ...(Option.isSome(flags.baseUrl) ? { baseUrl: flags.baseUrl.value } : {}),
+            });
+            yield* Console.log(output);
+          }),
+        {
+          quietLogs: flags.json,
+        },
+      );
+    }),
   ),
 );
 

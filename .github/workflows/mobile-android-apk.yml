@@ -21,7 +21,7 @@ jobs:
   mirror:
     name: Mirror Play APK
     if: github.repository == 'pingdotgg/t3code'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     permissions:
       contents: write

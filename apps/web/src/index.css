@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+.chat-composer-attachment-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+}
+.chat-composer-attachment-strip > * {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+
 /* Reply content must paint above the shell's z-index: 0 glass backdrop. */
 .chat-composer-message-reply {
   position: relative;
@@ -2071,6 +2089,21 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     padding-inline: 0;
   }
 
+  .chat-pinned-participant-tab {
+    display: inline-flex;
+    width: fit-content;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.25rem 0.75rem 0.5rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-top: 0;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 0.875rem;
+    border-bottom-right-radius: 0.875rem;
+  }
+
   .settings-slider {
     --settings-slider-progress: 0%;
     --settings-slider-fill-offset: 0.5rem;
@@ -3477,6 +3510,10 @@ code {
       env(safe-area-inset-right) + 0.75rem + var(--chat-lane-inset-end, 0px)
     );
   }
+  [data-chat-canvas] .chat-pinned-participant {
+    padding-inline-start: calc(0.75rem + var(--chat-lane-inset-start, 0px));
+    padding-inline-end: calc(0.75rem + var(--chat-lane-inset-end, 0px));
+  }
   [data-chat-canvas] .messages-timeline-scroll {
     padding-inline-start: calc(
       0.75rem + var(--chat-lane-inset-start, 0px) - var(--chat-timeline-gutter, 0px)
@@ -3496,6 +3533,10 @@ code {
         env(safe-area-inset-left) + 3rem + var(--chat-lane-inset-start, 0px)
       );
       padding-inline-end: calc(env(safe-area-inset-right) + 3rem + var(--chat-lane-inset-end, 0px));
+    }
+    [data-chat-canvas] .chat-pinned-participant {
+      padding-inline-start: calc(3rem + var(--chat-lane-inset-start, 0px));
+      padding-inline-end: calc(3rem + var(--chat-lane-inset-end, 0px));
     }
     [data-chat-canvas] .messages-timeline-scroll {
       padding-inline-start: calc(

@@ -1106,6 +1106,53 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("serves file-picker pictures inline on another device without a local preview", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* fileSystem.makeDirectory(config.attachmentsDir, { recursive: true });
+      for (const [extension, mimeType] of [
+        ["png", "image/png"],
+        ["jpg", "image/jpeg"],
+        ["jpeg", "image/jpeg"],
+        ["gif", "image/gif"],
+        ["webp", "image/webp"],
+      ]) {
+        const attachmentId = `thread-1-00000000-0000-4000-8000-000000000003-${extension}`;
+        const attachmentPath = path.join(config.attachmentsDir, `${attachmentId}.${extension}`);
+        yield* fileSystem.writeFile(attachmentPath, screenshotPng);
+        // Receiving devices only know the persisted ID; the sender's blob URL stays local.
+        const result = yield* issueAssetUrl({ resource: { _tag: "attachment", attachmentId } });
+        const remoteUrl = new URL(result.relativeUrl, "http://100.65.180.100:3773");
+        expect(remoteUrl.origin).toBe("http://100.65.180.100:3773");
+        const suffix = remoteUrl.pathname.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separator = suffix.indexOf("/");
+        const asset = yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
+        expect(asset).toMatchObject({ kind: "file", path: attachmentPath, mimeType });
+        if (asset?.kind !== "file") throw new Error("Expected a picture attachment");
+        expect("download" in asset ? asset.download : undefined).toBeUndefined();
+        const response = yield* assetFileResponse(asset).pipe(
+          Effect.provide(NodeHttpPlatform.layer),
+        );
+        expect(response.headers["content-type"]).toBe(mimeType);
+        expect(response.headers["content-disposition"]).toBeUndefined();
+
+        const download = yield* issueAssetUrl({
+          resource: { _tag: "attachment", attachmentId, disposition: "attachment" },
+        });
+        const downloadSuffix = download.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const downloadSeparator = downloadSuffix.indexOf("/");
+        expect(
+          yield* resolveAsset(
+            downloadSuffix.slice(0, downloadSeparator),
+            downloadSuffix.slice(downloadSeparator + 1),
+          ),
+        ).toMatchObject({ download: true });
+      }
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("serves video attachments inline", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

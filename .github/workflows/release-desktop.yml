@@ -40,6 +40,11 @@ on:
         required: true
         type: string
       runner:
+        description: Self-hosted operating-system label (linux, windows, or macOS)
+        required: true
+        type: string
+      runner_arch:
+        description: Self-hosted hardware architecture label (x64 or arm64)
         required: true
         type: string
       platform:
@@ -106,7 +111,15 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.label }}
-    runs-on: ${{ inputs.runner }}
+    # Fork releases support Linux/Windows x64 only, including the host architecture.
+    if: >-
+      github.repository != 'unn-corp/t3code' ||
+      ((inputs.runner == 'linux' || inputs.runner == 'windows') &&
+      inputs.runner_arch == 'x64' &&
+      (inputs.platform == 'linux' || inputs.platform == 'win') &&
+      inputs.arch == 'x64')
+    runs-on:
+      [self-hosted, "${{ inputs.runner }}", "${{ inputs.runner_arch }}", unn, unn-isolated, t3-ci]
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
     timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}
@@ -129,6 +142,9 @@ jobs:
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
+          # Start from an empty checkout, scoped to this job's assigned workspace.
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
           git init .
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
           git fetch --no-tags --depth=1 origin "$CHECKOUT_REF"
@@ -274,16 +290,24 @@ jobs:
         if: inputs.platform == 'linux'
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev pkg-config
-          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
-              sudo apt-get install -y imagemagick
-          fi
-
+          set -euo pipefail
+          for tool in cc pkg-config; do
+            command -v "$tool" >/dev/null 2>&1 || {
+              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
+              exit 1
+            }
+          done
+          pkg-config --exists libsecret-1 || {
+            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
+            exit 1
+          }
           if command -v magick >/dev/null 2>&1; then
-              magick -version
+            magick -version
+          elif command -v convert >/dev/null 2>&1; then
+            convert -version
           else
-              convert -version
+            echo "::error::Missing ImageMagick. Preinstall magick or convert in the isolated runner image."
+            exit 1
           fi
 
       - name: Prepare Azure Trusted Signing

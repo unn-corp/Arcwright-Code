@@ -40,20 +40,38 @@ export interface EnvironmentUsageStatus {
 }
 
 /**
- * Reads every environment's summary for one window.
+ * Reads only selected environments' summaries for one window.
  *
- * Keyed by the serialised window so switching ranges does not thrash the atom
- * cache, and so each environment's query is shared with any other reader of the
- * same window.
+ * Keyed by the serialised window and selection. Each environment's server
+ * query is shared with any other reader of the same window.
  */
-const usageByWindowAtom = Atom.family((windowKey: string) =>
+export const usageByWindowAtom = Atom.family((queryKey: string) =>
   Atom.make((get): readonly EnvironmentUsageStatus[] => {
-    const input = JSON.parse(windowKey) as UsageSummaryInput;
+    const { input, environmentIds } = JSON.parse(queryKey) as {
+      readonly input: UsageSummaryInput;
+      readonly environmentIds: readonly EnvironmentId[] | null;
+    };
+    const selected = environmentIds === null ? null : new Set(environmentIds);
     const presentations = get(environmentPresentations.presentationsAtom);
 
     const statuses: EnvironmentUsageStatus[] = [];
     for (const [environmentId, presentation] of presentations) {
       const isConnected = presentation.connection.phase === "connected";
+      // Keep catalog labels for the picker without subscribing to other
+      // devices' access checks, history scans, or provider snapshots.
+      if (selected !== null && !selected.has(environmentId)) {
+        statuses.push({
+          environmentId,
+          label: presentation.entry.target.label,
+          isConnected,
+          isPending: false,
+          canReadDiagnostics: false,
+          error: null,
+          summary: null,
+          needsCursorKeychainAccess: false,
+        });
+        continue;
+      }
       const sessionResult = get(environmentSession.sessionStateAtom(environmentId));
       const access = resolveUsageAccess({
         connectionPhase: presentation.connection.phase,
@@ -88,7 +106,7 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
       });
     }
     return statuses;
-  }).pipe(Atom.withLabel(`web-usage:window:${windowKey}`)),
+  }).pipe(Atom.withLabel(`web-usage:window:${queryKey}`)),
 );
 
 export interface UsageView {
@@ -192,7 +210,11 @@ export function useUsage(
       input.untilTime,
     ],
   );
-  const atom = usageByWindowAtom(windowKey);
+  const queryKey = JSON.stringify({
+    input: JSON.parse(windowKey) as UsageSummaryInput,
+    environmentIds: selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds].sort(),
+  });
+  const atom = usageByWindowAtom(queryKey);
   const environments = useAtomValue(atom);
   const selectedEnvironments = useMemo(
     () =>

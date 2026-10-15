@@ -29,6 +29,8 @@ including locally built copies, use the release pipeline's allocated
 **Local Nightly** name/counter or a `preview` artifact is not an accepted replacement.
 Existing preview builds keep their true identity until an admitted replacement; their labels
 must not be changed to impersonate a published nightly.
+Update checks recognize historical `0.0.x-preview` and `0.0.x-fork` installations and can
+offer a verified release. Installation still waits for bootstrap review and idle agents.
 About retains the exact upstream and Arcwright commits and the installer
 release for diagnosis. Android's installation sequence is separate: recovery installs
 older source using a higher Android code. Historical builds with unknown upstream

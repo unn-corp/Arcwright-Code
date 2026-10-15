@@ -182,6 +182,14 @@ Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](
 
 ## Desktop artifacts
 
+User requests to build or install the Arcwright Code app follow the
+[default nightly delivery procedure](./fork-releases.md#default-agent-delivery):
+use the latest eligible, verified published nightly containing the requested changes,
+or publish a new numbered nightly from the tested source. The commands below are for
+explicit local packaging and development. A local nightly intended for installation
+must use a [pipeline-allocated identity](./fork-releases.md#local-desktop-builds-and-menu-replacement)
+and pass native maintenance admission.
+
 Local artifact builds are unsigned by default and write to `release/`:
 
 ```sh

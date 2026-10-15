@@ -34,7 +34,7 @@ interface Job {
   readonly needs?: string | string[];
   readonly if?: string;
   readonly uses?: string;
-  readonly "runs-on"?: string;
+  readonly "runs-on"?: string | string[];
   readonly permissions?: Record<string, string>;
   readonly concurrency?: { group: string; "cancel-in-progress": boolean; queue?: string };
   readonly secrets?: Record<string, string>;
@@ -192,25 +192,19 @@ describe("fork-release.yml structure", () => {
     );
   });
 
-  it("pins every third-party action to a full commit SHA and uses only GitHub-hosted runners", () => {
+  it("pins every third-party action and requires isolated organization runners", () => {
     for (const file of ["fork-release.yml", "fork-release-withdraw.yml"]) {
       for (const match of text(file).matchAll(/uses: ([^\s]+)/g)) {
         const target = match[1]!;
         if (target.startsWith("./")) continue;
         assert.match(target, /@[0-9a-f]{40}$/, `${file}: ${target} is not pinned`);
       }
-      assert.notMatch(text(file), /blacksmith|self-hosted/);
-    }
-    const runners = Object.values(release.jobs).flatMap((job) => [
-      job["runs-on"],
-      ...(Array.isArray(job.strategy?.matrix?.include)
-        ? job.strategy!.matrix!.include!.map((entry) => entry.runner)
-        : []),
-    ]);
-    for (const runner of runners.filter(
-      (entry): entry is string => typeof entry === "string" && !entry.includes("${{"),
-    )) {
-      assert.match(runner, /^(ubuntu-24\.04|windows-2025)$/);
+      for (const job of Object.values(load(file).jobs)) {
+        if (job["runs-on"] === undefined) continue;
+        if (!Array.isArray(job["runs-on"]))
+          throw new Error(`${file}: runner labels must be an array`);
+        assert.includeMembers(job["runs-on"], ["self-hosted", "unn", "unn-isolated", "t3-ci"]);
+      }
     }
   });
 
@@ -809,7 +803,14 @@ describe("manual Windows CLI diagnostics", () => {
     assert.deepEqual(Object.keys(diagnostic.on), ["workflow_dispatch"]);
     assert.deepEqual(diagnostic.permissions, { contents: "read", actions: "read" });
     const job = diagnostic.jobs.windows_cli!;
-    assert.equal(job["runs-on"], "windows-2025");
+    assert.deepEqual(job["runs-on"], [
+      "self-hosted",
+      "windows",
+      "x64",
+      "unn",
+      "unn-isolated",
+      "t3-ci",
+    ]);
     assert.include(job.if!, "github.ref == 'refs/heads/main'");
     const download = stepNamed(job, "Download the failed Windows archive");
     assert.include(download.run!, "--name diagnostic-cli-win-x64");

@@ -1,0 +1,38 @@
+services:
+  supervisor:
+    image: "${CI_WINDOWS_SUPERVISOR_IMAGE:?set a built immutable supervisor digest}"
+    pull_policy: never
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      CI_RUNNER_SLOT: t3-ci-win1
+      CI_RUNNER_BASE: t3-ci-windows-base
+      CI_RUNNER_GATEWAY: 192.168.231.1
+      CI_RUNNER_CPUS: "8"
+      CI_RUNNER_MEMORY_MB: "16384"
+      CI_RUNNER_MAX_LIFETIME_SECONDS: "28800"
+      CI_RUNNER_MAX_IDLE_SECONDS: "3500"
+      CI_RUNNER_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key
+      GITHUB_APP_ID: "${GITHUB_APP_ID:?set GitHub App id}"
+      GITHUB_ORG: unn-corp
+      RUNNER_GROUP: T3 Code
+    volumes:
+      - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
+      - /home/devotek/t3-ci-windows/state:/state
+    secrets:
+      - github-app-private-key
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m
+      - /run:rw,nosuid,nodev,size=32m
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256m
+          pids: 64
+    stop_grace_period: 60s
+secrets:
+  github-app-private-key:
+    file: "${CI_RUNNER_APP_PRIVATE_KEY_FILE:?set host-only App key path}"

@@ -24,6 +24,7 @@ export function shouldUseCompactComposerFooter(
 }
 
 export function shouldUseRestingComposerLayout(input: {
+  alwaysCompact?: boolean;
   isExistingThread: boolean;
   isMobileViewport: boolean;
   isScrollCollapsed: boolean;
@@ -47,6 +48,9 @@ export function shouldUseRestingComposerLayout(input: {
   // Resting exists to give reading space back to the timeline. A thread that
   // fits above the composer has nothing to reclaim, so it stays expanded and
   // never shows the collapsed row that a fresh thread would otherwise open on.
+  if (input.alwaysCompact) {
+    return !input.hasMultilinePrompt && !input.hasExpandedChrome;
+  }
   return (
     input.isExistingThread &&
     !input.isMobileViewport &&

@@ -20,7 +20,7 @@ jobs:
   lint:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Lint
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -59,7 +59,7 @@ jobs:
   typecheck:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Typecheck
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -86,7 +86,7 @@ jobs:
   build:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Build
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -99,15 +99,20 @@ jobs:
 
       - uses: ./.github/actions/setup-apt-mirrors
 
-      # Runs in the background while Vite+ installs; the step before the build waits for it.
+      # Native dependencies are provisioned in the isolated runner image.
       - name: Start installing browser secret helper build libraries
         run: |
-          sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          (
-            set +e
-            sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-            echo "$?" > "$RUNNER_TEMP/apt-status"
-          ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
+          set -euo pipefail
+          for tool in cc pkg-config; do
+            command -v "$tool" >/dev/null 2>&1 || {
+              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
+              exit 1
+            }
+          done
+          pkg-config --exists libsecret-1 || {
+            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
+            exit 1
+          }
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -121,10 +126,7 @@ jobs:
 
       - name: Finish installing browser secret helper build libraries
         timeout-minutes: 5
-        run: |
-          until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
-          cat "$RUNNER_TEMP/apt.log"
-          exit "$(cat "$RUNNER_TEMP/apt-status")"
+        run: pkg-config --modversion libsecret-1
 
       - name: Build desktop pipeline
         run: vp run build:desktop
@@ -141,7 +143,7 @@ jobs:
   test:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Test
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -152,28 +154,32 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
-      # Blacksmith boots GitHub's Ubuntu runner image (gcc is usually present),
-      # but ACP process-tree live tests compile a small pthread fixture with `cc`
-      # and soft-skip when it is missing. Install build-essential so that path
-      # always runs in CI instead of silently no-oping.
+      # ACP process-tree live tests compile a small pthread fixture with `cc`
+      # and soft-skip when it is missing. Require the preinstalled compiler so
+      # that path always runs on the organization runner.
       - name: Install C toolchain for process-tree fixtures
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential
-          command -v cc
+          command -v cc >/dev/null 2>&1 || {
+            echo "::error::Missing C compiler. Preinstall build-essential in the isolated runner image so process-tree fixture tests run."
+            exit 1
+          }
 
       - uses: ./.github/actions/setup-apt-mirrors
 
-      # The desktop tests compile the browser secret helper. The install runs in
-      # the background while Vite+ installs; the step before the tests waits for it.
+      # The desktop tests compile the browser secret helper against preinstalled headers.
       - name: Start installing browser secret helper build libraries
         run: |
-          sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          (
-            set +e
-            sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-            echo "$?" > "$RUNNER_TEMP/apt-status"
-          ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
+          set -euo pipefail
+          for tool in cc pkg-config; do
+            command -v "$tool" >/dev/null 2>&1 || {
+              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
+              exit 1
+            }
+          done
+          pkg-config --exists libsecret-1 || {
+            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
+            exit 1
+          }
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -193,10 +199,7 @@ jobs:
 
       - name: Finish installing browser secret helper build libraries
         timeout-minutes: 5
-        run: |
-          until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
-          cat "$RUNNER_TEMP/apt.log"
-          exit "$(cat "$RUNNER_TEMP/apt-status")"
+        run: pkg-config --modversion libsecret-1
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
@@ -206,7 +209,7 @@ jobs:
   test_web:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Test Web
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -236,7 +239,7 @@ jobs:
   test_server:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Test Server ${{ matrix.shard }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -262,7 +265,7 @@ jobs:
       # and none of its tests touch the runtime. Only the non-server `test`
       # job, which covers @t3tools/desktop, needs the download.
       - name: Install Chromium for server browser integration tests
-        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+        run: node apps/server/node_modules/playwright-core/cli.js install --only-shell chromium
 
       - name: Test
         env:
@@ -305,10 +308,7 @@ jobs:
   transfer-report:
     name: Transfer report artifact
     needs: test_server
-    # On Blacksmith like every other job here: the GitHub-hosted queue is shared
-    # with the PR bots and can leave this job waiting until it is abandoned,
-    # which fails `Check` on an otherwise green run.
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 5
     steps:
       - name: Require transfer measurements
@@ -322,7 +322,7 @@ jobs:
   rust:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Rust
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -350,14 +350,14 @@ jobs:
             cargo test --locked --manifest-path "native/$crate/Cargo.toml"
           done
 
-  # The static analysis below needs a macOS runner, which bills ~6.7x a Linux
-  # minute, so gate it on the native sources it actually lints instead of paying
-  # for it on every push. Detection is API-only (no checkout) and fails open: if
-  # the diff cannot be resolved, the lint runs.
+  # This fork has no macOS capacity, so both the detector and lint are disabled.
+  # Elsewhere, gate macOS static analysis on the native sources it actually lints.
+  # Detection is API-only (no checkout) and fails open: if the diff cannot be
+  # resolved, the lint runs.
   mobile_native_changes:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    if: ${{ github.repository != 'unn-corp/t3code' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     name: Mobile Native Changes
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -434,8 +434,8 @@ jobs:
     needs: mobile_native_changes
     # Skip only on an explicit "no": a gate job that failed or errored leaves the
     # output empty, and that must run the lint rather than silently skip it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && !cancelled() && needs.mobile_native_changes.outputs.changed != 'false' }}
-    runs-on: macos-26
+    if: ${{ github.repository != 'unn-corp/t3code' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && !cancelled() && needs.mobile_native_changes.outputs.changed != 'false' }}
+    runs-on: [self-hosted, macOS, arm64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -464,7 +464,7 @@ jobs:
   release_smoke:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Release Smoke
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -509,15 +509,18 @@ jobs:
         mobile_native_static_analysis,
         release_smoke,
       ]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 5
     steps:
       - name: Require every job to pass
         env:
           RESULTS: ${{ toJSON(needs) }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          # Only the macOS lint skips on purpose, when no native mobile code changed.
-          echo "$RESULTS" | jq -e 'all(to_entries[];
+          # macOS lint may skip when unchanged; this fork also disables its detector.
+          echo "$RESULTS" | jq -e --arg repository "$REPOSITORY" 'all(to_entries[];
             .value.result == "success"
-            or (.key == "mobile_native_static_analysis" and .value.result == "skipped"))' > /dev/null
+            or (.value.result == "skipped" and
+              (.key == "mobile_native_static_analysis"
+                or ($repository == "unn-corp/t3code" and .key == "mobile_native_changes"))))' > /dev/null

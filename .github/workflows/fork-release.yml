@@ -68,7 +68,7 @@ jobs:
   plan:
     name: Plan release
     if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.FORK_RELEASES_ENABLED == 'true')
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -209,7 +209,7 @@ jobs:
     name: Reserve Android codes
     needs: [plan]
     if: needs.plan.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 15
     permissions:
       contents: write
@@ -266,7 +266,7 @@ jobs:
     name: Build JS bundle
     needs: [plan]
     if: needs.plan.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -310,7 +310,18 @@ jobs:
       - uses: ./source/.github/actions/setup-apt-mirrors
 
       - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+        run: |
+          set -euo pipefail
+          for tool in cc pkg-config; do
+            command -v "$tool" >/dev/null 2>&1 || {
+              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
+              exit 1
+            }
+          done
+          pkg-config --exists libsecret-1 || {
+            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
+            exit 1
+          }
 
       - name: Build JS bundle
         working-directory: source
@@ -329,7 +340,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # GitHub-hosted runners only. Each target builds from the pinned commit; Windows embeds the
+  # Organization self-hosted runners only. Each target builds from the pinned commit; Windows embeds the
   # Linux server archive as its WSL runtime and records that archive's digest.
   desktop_linux_x64:
     name: Desktop Linux x64
@@ -345,7 +356,8 @@ jobs:
       release_channel: ${{ needs.plan.outputs.channel }}
       relay_client_tracing: false
       label: Linux x64
-      runner: ubuntu-24.04
+      runner: linux
+      runner_arch: x64
       platform: linux
       target: AppImage
       arch: x64
@@ -376,7 +388,8 @@ jobs:
       release_channel: ${{ needs.plan.outputs.channel }}
       relay_client_tracing: false
       label: Windows x64
-      runner: windows-2025
+      runner: windows
+      runner_arch: x64
       platform: win
       target: nsis
       arch: x64
@@ -391,7 +404,7 @@ jobs:
     name: Android APKs
     needs: [plan, reserve_android_codes]
     if: needs.plan.outputs.skip == 'false'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -607,7 +620,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.reserve_android_codes.outputs.recovery_matrix) }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -742,10 +755,10 @@ jobs:
       matrix:
         include:
           - platform: linux-x64
-            runner: ubuntu-24.04
+            runner: linux
           - platform: windows-x64
-            runner: windows-2025
-    runs-on: ${{ matrix.runner }}
+            runner: windows
+    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -828,7 +841,7 @@ jobs:
         recovery_helper,
       ]
     if: "!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip == 'false' && needs.reserve_android_codes.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.android.result == 'success' && needs.recovery_helper.result == 'success' && (needs.android_recovery_extras.result == 'success' || needs.android_recovery_extras.result == 'skipped')"
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -940,12 +953,12 @@ jobs:
       matrix:
         include:
           - target: linux-x64
-            runner: ubuntu-24.04
+            runner: linux
           - target: windows-x64
-            runner: windows-2025
+            runner: windows
           - target: android
-            runner: ubuntu-24.04
-    runs-on: ${{ matrix.runner }}
+            runner: linux
+    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 150
     permissions:
       contents: read
@@ -988,8 +1001,18 @@ jobs:
       - name: Install Linux desktop runtime dependencies
         if: matrix.target == 'linux-x64'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libnotify4 libsecret-1-0 libgtk-3-0 libnss3 libgbm1 libasound2t64
+          set -euo pipefail
+          command -v ldconfig >/dev/null 2>&1 || {
+            echo "::error::Missing ldconfig. Preinstall the Linux desktop runtime dependencies in the isolated runner image."
+            exit 1
+          }
+          libraries="$(ldconfig -p)"
+          for library in libnotify.so.4 libsecret-1.so.0 libgtk-3.so.0 libnss3.so libgbm.so.1 libasound.so.2; do
+            if ! grep -Fq "$library " <<< "$libraries"; then
+              echo "::error::Missing Linux desktop runtime library $library. Preinstall the required native packages in the isolated runner image."
+              exit 1
+            fi
+          done
 
       - name: Run validations
         if: matrix.target != 'android'
@@ -1006,9 +1029,11 @@ jobs:
       - name: Enable KVM
         if: matrix.target == 'android'
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          set -euo pipefail
+          if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo "::error::Android emulator validation requires a self-hosted runner with readable and writable /dev/kvm provisioned before the job."
+            exit 1
+          fi
 
       # The emulator runs a single script line, so everything goes through one command.
       - name: Run validations on an emulator
@@ -1046,15 +1071,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: coordinator, target: linux-x64, runner: ubuntu-24.04 }
-          - { suite: coordinator, target: windows-x64, runner: windows-2025 }
-          - { suite: host-runtime, target: linux-x64, runner: ubuntu-24.04 }
-          - { suite: host-runtime, target: windows-x64, runner: windows-2025 }
-          - { suite: desktop-updater, target: linux-x64, runner: ubuntu-24.04 }
-          - { suite: desktop-updater, target: windows-x64, runner: windows-2025 }
-          - { suite: client-updates, target: linux-x64, runner: ubuntu-24.04 }
-          - { suite: native-android, target: android, runner: ubuntu-24.04 }
-    runs-on: ${{ matrix.runner }}
+          - { suite: coordinator, target: linux-x64, runner: linux }
+          - { suite: coordinator, target: windows-x64, runner: windows }
+          - { suite: host-runtime, target: linux-x64, runner: linux }
+          - { suite: host-runtime, target: windows-x64, runner: windows }
+          - { suite: desktop-updater, target: linux-x64, runner: linux }
+          - { suite: desktop-updater, target: windows-x64, runner: windows }
+          - { suite: client-updates, target: linux-x64, runner: linux }
+          - { suite: native-android, target: android, runner: linux }
+    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 120
     permissions:
       contents: read
@@ -1141,7 +1166,7 @@ jobs:
     name: Compose manifest
     needs: [plan, assemble, validate, suites]
     if: "!cancelled() && needs.plan.result == 'success' && needs.assemble.result == 'success' && needs.validate.result == 'success' && needs.suites.result == 'success' && needs.plan.outputs.skip == 'false'"
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1207,7 +1232,7 @@ jobs:
       group: fork-release-state
       cancel-in-progress: false
       queue: max
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 60
     permissions:
       contents: write
@@ -1265,7 +1290,7 @@ jobs:
     needs: [plan, assemble, validate, suites, manifest, publish]
     # Status functions prevent an intentionally skipped optional recovery matrix from skipping this gate.
     if: "!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip == 'false'"
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 5
     permissions:
       contents: read

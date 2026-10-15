@@ -373,6 +373,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff colors"]
         : []),
       ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+      ...(settings.alwaysCompactComposer !== DEFAULT_UNIFIED_SETTINGS.alwaysCompactComposer
+        ? ["Always compact composer"]
+        : []),
       ...(settings.assistantMessageBubbles !== DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles
         ? ["AI message bubbles"]
         : []),
@@ -510,6 +513,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.appearanceContrast,
       settings.diffColorScheme,
       settings.chatWidth,
+      settings.alwaysCompactComposer,
       settings.assistantMessageBubbles,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
@@ -632,6 +636,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
+      alwaysCompactComposer: DEFAULT_UNIFIED_SETTINGS.alwaysCompactComposer,
       assistantMessageBubbles: DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
@@ -1057,6 +1062,26 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow
+          {...searchableSetting("always-compact-composer")}
+          description="Keep the composer compact, including in new chats. Multiline drafts, errors, and drawers still expand when needed."
+          resetAction={
+            settings.alwaysCompactComposer !== DEFAULT_UNIFIED_SETTINGS.alwaysCompactComposer ? (
+              <SettingResetButton
+                label="Always compact composer"
+                onClick={() => updateSettings({ alwaysCompactComposer: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              aria-label="Always compact composer"
+              checked={settings.alwaysCompactComposer}
+              onCheckedChange={(alwaysCompactComposer) => updateSettings({ alwaysCompactComposer })}
+            />
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("assistant-message-bubbles")}
           description="Display AI replies in rounded chat bubbles."
           resetAction={
@@ -1064,7 +1089,11 @@ export function AppearanceSettingsPanel() {
             DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles ? (
               <SettingResetButton
                 label="AI message bubbles"
-                onClick={() => updateSettings({ assistantMessageBubbles: false })}
+                onClick={() =>
+                  updateSettings({
+                    assistantMessageBubbles: DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles,
+                  })
+                }
               />
             ) : null
           }

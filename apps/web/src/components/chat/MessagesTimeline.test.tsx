@@ -2983,6 +2983,8 @@ describe("AI message bubble preference", () => {
         const bubble = container.querySelector('[data-assistant-message-style="bubble"]');
         expect(bubble?.textContent).toContain("Hello from your agent.");
         expect(bubble?.querySelector("strong")?.textContent).toBe("Hello");
+        expect(bubble?.querySelector("[data-participant-id]")).toBeNull();
+        expect(container.querySelector("h3 [data-participant-id]")).not.toBeNull();
         await renderLayout(false);
         expect(container.querySelector('[data-assistant-message-style="bubble"]')).toBeNull();
         expect(
@@ -2995,4 +2997,100 @@ describe("AI message bubble preference", () => {
       }
     },
   );
+});
+
+describe("timeline sender groups", () => {
+  it("shows one chip outside the bubbles for consecutive messages and puts agent replies to the side", async () => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const { DEFAULT_CLIENT_SETTINGS } = await import("@t3tools/contracts/settings");
+    const { __setClientSettingsForTests } = await import("~/hooks/useSettings");
+    __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, assistantMessageBubbles: true });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onReply = vi.fn();
+    const entries = [
+      buildUserTimelineEntry("First user message"),
+      buildUserTimelineEntry("Second user message"),
+      buildAssistantTimelineEntry("First agent message"),
+      buildAssistantTimelineEntry("Second agent message"),
+      {
+        ...buildUserTimelineEntry("Other agent message"),
+        message: {
+          ...buildUserTimelineEntry("Other agent message").message,
+          createdBy: "agent" as const,
+          creationSource: "provider" as const,
+          senderThreadId: ThreadId.make("other-agent"),
+        },
+      },
+      buildUserTimelineEntry("Next user message"),
+    ].map((entry, index) => ({
+      ...entry,
+      id: `entry-${index}`,
+      createdAt: `2026-10-13T12:00:0${index}Z`,
+      message: {
+        ...entry.message,
+        id: MessageId.make(`message-${index}`),
+        runId: entry.message.role === "assistant" ? RunId.make(`run-${index}`) : null,
+        createdAt: `2026-10-13T12:00:0${index}Z`,
+      },
+    }));
+    try {
+      await act(async () =>
+        root.render(
+          <MessagesTimeline
+            {...buildProps()}
+            timelineEntries={entries}
+            onReplyToMessage={onReply}
+          />,
+        ),
+      );
+      const rows = container.querySelectorAll('[data-timeline-row-kind="message"]');
+      expect(Array.from(rows, (row) => row.getAttribute("data-message-id"))).toEqual(
+        entries.map((entry) => entry.message.id),
+      );
+      expect(Array.from(rows, (row) => !!row.querySelector("h3 [data-participant-id]"))).toEqual([
+        true,
+        false,
+        true,
+        false,
+        true,
+        true,
+      ]);
+      expect(rows[0]?.querySelector(".bg-message [data-participant-id]")).toBeNull();
+      for (const [index, row] of Array.from(rows).entries()) {
+        const bubble = row.querySelector(
+          index === 2 || index === 3 ? '[data-assistant-message-style="bubble"]' : ".bg-message",
+        )!;
+        expect(bubble.querySelector("[data-participant-id]")).toBeNull();
+        const reply = row.querySelector<HTMLButtonElement>('[aria-label="Reply to message"]')!;
+        expect(row.querySelectorAll('[aria-label="Reply to message"]')).toHaveLength(1);
+        const placement = reply.closest<HTMLElement>("[data-bubble-reply-side]")!;
+        expect(placement.parentElement).toBe(bubble);
+        const style = getComputedStyle(placement);
+        expect(style.position).toBe("absolute");
+        expect(style.top).toBe("50%");
+        expect(style.transform).toBe("translateY(-50%)");
+        const fromUser = index === 0 || index === 1 || index === 5;
+        if (row.querySelector("h3 [data-participant-id]")) {
+          expect(row.querySelector("h3")?.classList.contains("justify-end")).toBe(fromUser);
+        }
+        if (entries[index]?.message.role === "user") {
+          expect(bubble.parentElement?.classList.contains("items-end")).toBe(fromUser);
+        }
+        expect(style.getPropertyValue(fromUser ? "inset-inline-end" : "inset-inline-start")).toBe(
+          "calc(100% + 4px)",
+        );
+        await act(async () => reply.click());
+      }
+      expect(onReply).toHaveBeenCalledTimes(6);
+      for (const entry of entries) expect(onReply).toHaveBeenCalledWith(entry.message);
+      expect(container.querySelectorAll("h3")).toHaveLength(6);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+    }
+  });
 });

@@ -150,3 +150,8 @@ In an existing Codex thread, send `/feedback` with an optional description, for
 example `/feedback The agent stopped before finishing the tests`. This uploads
 the conversation and Codex logs to OpenAI. The returned thread ID can be shared
 with OpenAI support.
+
+For separate Codex accounts, give each instance its own authentication home (a private shadow
+home can share session history). A blank home uses `~/.codex`; it does not inherit another
+instance's home from the server process. An explicitly configured `CODEX_HOME` applies only to
+that instance. Before signing in again, check the selected instance's authentication home.

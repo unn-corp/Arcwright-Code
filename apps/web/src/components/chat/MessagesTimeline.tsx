@@ -1,3 +1,9 @@
+import {
+  SubagentMilestone,
+  withSubagentMilestones,
+  type SubagentActivityMember,
+} from "./SubagentActivity";
+import { PinnedTimelineParticipant, timelineParticipantGroups } from "./TimelineParticipants";
 import { ParticipantChip } from "./ParticipantChip";
 import { agentInstanceId, resolveMessageParticipant } from "@t3tools/client-runtime/participants";
 import {
@@ -44,7 +50,10 @@ import {
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { environmentThreadDetails } from "../../state/threads";
-import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import {
+  isUserMessageRightAligned,
+  resolveUserMessagePresentation,
+} from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
@@ -320,6 +329,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  participantGroupStarts: ReadonlySet<string>;
   onOpenReplyChain: (id: MessageId) => void;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
@@ -486,6 +496,7 @@ interface MessagesTimelineProps {
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
+  subagentMembers?: ReadonlyArray<SubagentActivityMember>;
   latestRun: TimelineLatestRun | null;
   runningRunId?: RunId | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
@@ -599,6 +610,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   awaitingUser = false,
   listRef,
   timelineEntries,
+  subagentMembers,
   findExpanded = false,
   findQuery = "",
   activeFindMatch = null,
@@ -943,12 +955,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
         : null,
     );
     rowsProjectionRef.current = { threadKey: listIdentityKey, workspaceRoot, projection };
-    return projection.rows;
+    return withSubagentMilestones(projection.rows, subagentMembers ?? []);
   }, [
     rowsProjectionRef,
     listIdentityKey,
     workspaceRoot,
     timelineEntries,
+    subagentMembers,
     latestRun,
     runningRunId,
     visibleExpandedRunIds,
@@ -965,6 +978,43 @@ const ConversationTimeline = memo(function ConversationTimeline({
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
+  const participantProfiles = useClientSettings((settings) => settings.participantProfiles);
+  const activeParticipantProfile = useClientSettings(
+    (settings) => settings.activeParticipantProfile,
+  );
+  const participantGroups = useMemo(
+    () =>
+      timelineParticipantGroups(
+        rows,
+        citationThreadRef?.threadId ?? routeThreadKey,
+        runs,
+        providerStatuses,
+        { participantProfiles, activeParticipantProfile },
+      ),
+    [
+      rows,
+      citationThreadRef,
+      routeThreadKey,
+      runs,
+      providerStatuses,
+      participantProfiles,
+      activeParticipantProfile,
+    ],
+  );
+  const participantGroupStartsRef = useRef<ReadonlySet<string>>(new Set());
+  const participantGroupStarts = useMemo(() => {
+    const previous = participantGroupStartsRef.current;
+    if (
+      previous.size === participantGroups.length &&
+      participantGroups.every((group) => previous.has(group.rowId))
+    ) {
+      return previous;
+    }
+    return (participantGroupStartsRef.current = new Set(
+      participantGroups.map((group) => group.rowId),
+    ));
+  }, [participantGroups]);
+  const participantHeaderRefresh = useRef<() => void>(() => {});
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
@@ -1209,6 +1259,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     });
   }, [measureContentOverflow, onContentOverflowChange]);
   const handleItemSizeChanged = useCallback(() => {
+    participantHeaderRefresh.current();
     if (disclosurePinsEndRef.current) {
       queueMicrotask(pinDisclosureToEnd);
       scheduleDisclosureSettle();
@@ -1227,6 +1278,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   }, [cancelContentOverflowFrame, measureContentOverflow, onContentOverflowChange, rows.length]);
 
   const handleScroll = useCallback(() => {
+    participantHeaderRefresh.current();
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
     const isAtEnd = resolveTimelineIsAtEnd(state);
@@ -1376,6 +1428,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      participantGroupStarts,
       onReplyToMessage,
       onOpenReplyChain: openReplyChain,
       citationRequest: readyCitationRequest,
@@ -1417,6 +1470,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       workGroupViewState,
     }),
     [
+      participantGroupStarts,
       onReplyToMessage,
       openReplyChain,
       readyCitationRequest,
@@ -1725,6 +1779,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
               )}
               ListHeaderComponent={listHeader}
               ListFooterComponent={timelineListFooter}
+            />
+            <PinnedTimelineParticipant
+              key={listIdentityKey}
+              groups={participantGroups}
+              listRef={listRef}
+              refreshRef={participantHeaderRefresh}
             />
             <TimelineMinimap
               items={minimapItems}
@@ -2167,11 +2227,13 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
       {row.kind === "message" && (
-        <MessageReplyActions
+        <MessageAuthorHeading
           message={row.message}
-          onReply={replyContext.onReplyToMessage}
-          onOpenChain={replyContext.onOpenReplyChain}
+          showChip={replyContext.participantGroupStarts.has(row.id)}
         />
+      )}
+      {row.kind === "message" && (
+        <MessageReplyActions message={row.message} onOpenChain={replyContext.onOpenReplyChain} />
       )}
       {isWorkLogRow ? (
         <WorkLogBlock
@@ -2211,6 +2273,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
+      {row.kind === "subagent-milestone" ? (
+        <SubagentMilestone row={row} onOpenThread={replyContext.onOpenThread} />
+      ) : null}
     </div>
   );
 });
@@ -2226,10 +2291,15 @@ function renderReplyThreadMessage(message: ChatMessage) {
     showAssistantCopyButton: false,
     assistantCopyStreaming: false,
   };
-  return message.role === "user" ? (
-    <UserTimelineRow row={row} />
-  ) : (
-    <AssistantTimelineRow row={row} />
+  return (
+    <>
+      <MessageAuthorHeading message={message} />
+      {message.role === "user" ? (
+        <UserTimelineRow row={row} showReplyButton={false} />
+      ) : (
+        <AssistantTimelineRow row={row} showReplyButton={false} />
+      )}
+    </>
   );
 }
 
@@ -2337,26 +2407,71 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 
 // Screen readers skim a transcript by heading, so every message announces its
 // author as one. The thread title in ChatHeader is an <h2>; headings written
-// inside a message are exposed below this level. Visually hidden and excluded
-// from selection so sighted users and copied text are unaffected.
+// inside a message are exposed below this level. Only the first heading in a
+// sender group is visible; every message retains its accessible author heading.
 const MESSAGE_HEADING_LEVEL = 3;
 
-function MessageAuthorHeading({ message }: { message: ChatMessage }) {
+function MessageAuthorHeading({
+  message,
+  showChip = true,
+}: {
+  message: ChatMessage;
+  showChip?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
+  const profileSettings = useClientSettings((settings) => settings);
   const participant = resolveMessageParticipant(
     message,
     ctx.threadRef?.threadId ?? ctx.routeThreadKey,
     ctx.runs,
     ctx.providerStatuses,
+    profileSettings,
   );
   return (
-    <h3 className="mb-2 min-w-0 select-none">
-      <ParticipantChip participant={participant} />
+    <h3
+      className={
+        showChip
+          ? cn("mb-2 flex min-w-0 select-none", isUserMessageRightAligned(message) && "justify-end")
+          : "sr-only"
+      }
+    >
+      {showChip ? <ParticipantChip participant={participant} /> : participant.name}
     </h3>
   );
 }
 
-function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+function MessageBubbleReply({ message }: { message: ChatMessage }) {
+  const ctx = use(TimelineRowCtx);
+  if (!ctx.onReplyToMessage) return null;
+  return (
+    <div
+      data-bubble-reply-side={isUserMessageRightAligned(message) ? "left" : "right"}
+      style={{
+        position: "absolute",
+        top: "50%",
+        transform: "translateY(-50%)",
+        ...(isUserMessageRightAligned(message)
+          ? { insetInlineEnd: "calc(100% + 0.25rem)" }
+          : { insetInlineStart: "calc(100% + 0.25rem)" }),
+      }}
+    >
+      <MessageReplyActions
+        message={message}
+        showChain={false}
+        onReply={ctx.onReplyToMessage}
+        onOpenChain={ctx.onOpenReplyChain}
+      />
+    </div>
+  );
+}
+
+function UserTimelineRow({
+  row,
+  showReplyButton = true,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  showReplyButton?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
@@ -2523,7 +2638,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   );
 
   return (
-    <div className="group flex flex-col items-end gap-1">
+    <div
+      className={cn(
+        "group flex flex-col gap-1",
+        isUserMessageRightAligned(row.message) ? "items-end" : "items-start",
+      )}
+    >
       {userMessage.attribution === "automation" ? (
         <p
           className="me-1 text-2xs text-muted-foreground/70"
@@ -2570,7 +2690,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading message={row.message} />
+        {showReplyButton && <MessageBubbleReply message={row.message} />}
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -2692,7 +2812,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </span>
         </div>
       ) : null}
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+      <div
+        className={cn(
+          "flex w-full max-w-[80%] items-center pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
+          isUserMessageRightAligned(row.message) ? "justify-end" : "justify-start",
+        )}
+      >
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
@@ -2917,7 +3042,13 @@ function AttemptFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "at
   );
 }
 
-function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+function AssistantTimelineRow({
+  row,
+  showReplyButton = true,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  showReplyButton?: boolean;
+}) {
   const ctx = use(TimelineRowCtx);
   const bubbles = useClientSettings((settings) => settings.assistantMessageBubbles);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
@@ -2929,11 +3060,11 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
         className={cn(
           "relative min-w-0",
           bubbles
-            ? "w-fit max-w-[95%] rounded-2xl rounded-ss-md border border-border/50 bg-muted/40 px-4 py-3 sm:max-w-[90%]"
-            : "px-1 py-0.5",
+            ? "w-fit max-w-[calc(100%-2rem)] rounded-2xl rounded-ss-md border border-border/50 bg-muted/40 px-4 py-3 sm:max-w-[90%]"
+            : "me-8 px-1 py-0.5",
         )}
       >
-        <MessageAuthorHeading message={row.message} />
+        {showReplyButton && <MessageBubbleReply message={row.message} />}
         <div data-thread-find-text="true">
           <AssistantCitationSource
             messageId={row.message.id}
@@ -3560,7 +3691,7 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
             ) : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold">{label}</span>
+            <span className="block text-xs font-semibold">Started {label}</span>
             <span
               className={cn(
                 "block truncate text-3xs text-muted-foreground",
