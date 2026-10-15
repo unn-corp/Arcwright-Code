@@ -57,6 +57,12 @@ The owner-controlled Compose profile must retain:
   finite CPU/memory/PID limits and destruction of the container, network, and every
   job volume after completion or cancellation.
 
+The runner's PID budget is 2048, including host threads. Android emulator graphics,
+ADB and the Actions listener share it; 512 can exhaust the budget during native
+validation and abort ADB with `thread constructor failed: Resource temporarily unavailable`.
+Keep the 8-CPU and 16-GiB limits. Apply capacity changes to future workers through
+the trusted supervisor's Compose definition, preserving active jobs.
+
 The dedicated fork pool omits DinD. Enabled fork workflows and tests do not need
 Docker; the retained AUR container job is guarded for the upstream repository. A
 privileged DinD daemon on this host would expose host block devices to nested jobs

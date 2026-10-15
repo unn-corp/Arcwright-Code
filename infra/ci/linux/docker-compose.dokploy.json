@@ -116,7 +116,7 @@
           "limits": {
             "cpus": 8,
             "memory": "17179869184",
-            "pids": 512
+            "pids": 2048
           }
         },
         "placement": {}
