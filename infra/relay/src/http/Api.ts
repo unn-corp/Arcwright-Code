@@ -955,7 +955,19 @@ export const layerClientApi = HttpApiBuilder.group(
             yield* appendRelayCredentialResponseHeaders;
             const { userId } = yield* RelayClientPrincipal;
             yield* limiter.admit("linkEnvironment", { kind: "user", userId });
-            const result = yield* linker.link({ userId, request: payload });
+            const result = yield* linker.link({ userId, request: payload }).pipe(
+              Effect.tapError((error) =>
+                Effect.logWarning("Relay environment link failed", {
+                  errorTag: error._tag,
+                  ...("stage" in error ? { stage: error.stage } : {}),
+                  ...("operation" in error ? { operation: error.operation } : {}),
+                  ...("reason" in error ? { reason: error.reason } : {}),
+                  ...("cause" in error && error.cause instanceof Error
+                    ? { causeName: error.cause.name }
+                    : {}),
+                }),
+              ),
+            );
             return {
               ok: true,
               cloudUserId: userId,
