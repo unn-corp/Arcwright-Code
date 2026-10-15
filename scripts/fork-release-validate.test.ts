@@ -9,6 +9,7 @@ import {
   requireAndroidDowngradeRejection,
   requireAndroidInstrumentationReceipt,
   launchAndConfirm,
+  mustInstall,
   checkDebInstalled,
   checkLinuxPackages,
   debInstall,
@@ -480,6 +481,40 @@ describe("Debian package", () => {
 });
 
 describe("native Android interaction receipt", () => {
+  it("fails an install timeout and retains bounded, redacted package diagnostics", async () => {
+    const commands: { args: string[]; timeoutMs: number | undefined }[] = [];
+    const error = Object.assign(new Error("spawnSync adb ETIMEDOUT"), { code: "ETIMEDOUT" });
+    const message = await fail(
+      Promise.resolve().then(() =>
+        mustInstall("/fixture/candidate.apk", (args, timeoutMs) => {
+          commands.push({ args, timeoutMs });
+          const stdout =
+            args[0] === "install"
+              ? ""
+              : "Package installer stalled\nAuthorization: Bearer private-fixture-token\n";
+          return {
+            stdout,
+            stderr: "",
+            status: args[0] === "install" ? null : 0,
+            signal: null,
+            ...(args[0] === "install" ? { error } : {}),
+            pid: 1,
+            output: ["", stdout, ""],
+          };
+        }),
+      ),
+    );
+    assert.include(message, "exit null, signal null, error spawnSync adb ETIMEDOUT");
+    assert.include(message, "Package installer stalled");
+    assert.notInclude(message, "private-fixture-token");
+    assert.deepEqual(commands[0], {
+      args: ["install", "-r", "/fixture/candidate.apk"],
+      timeoutMs: undefined,
+    });
+    assert.equal(commands[1]?.timeoutMs, 10_000);
+    assert.equal(commands[2]?.timeoutMs, 10_000);
+  });
+
   it("fails a missing app process and retains redacted Android crash diagnostics", async () => {
     const commands: string[][] = [];
     let survivalWindow = 0;

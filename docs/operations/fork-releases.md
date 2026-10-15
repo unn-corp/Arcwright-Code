@@ -397,6 +397,16 @@ interaction, update, and recovery checks before adoption. This does not establis
 the APK's supported Android versions. Older images remain available through the read-only
 diagnostic workflow; emulator results do not replace real-phone commissioning.
 
+The host-runtime suite runs real Git operations on both supported host platforms. Windows Git
+uses `NUL` to disable global configuration; Node's extended Windows null-device path is rejected
+by Git for Windows. Unix hosts retain `/dev/null`, and system configuration and inherited Git
+overrides remain disabled.
+
+An Android installation timeout still fails the package gate. Its failure report includes the
+process exit, signal and spawn error, plus bounded, redacted package-manager logs and package
+state. Each diagnostic probe has a separate ten-second deadline; it does not retry or waive
+the failed installation.
+
 The Settings interaction waits for the resolved Settings package to have input focus before sending
 Back; a window-state event alone is insufficient. A failed return reports the focused package and
 shell visibility. Inspect that evidence before changing navigation or admission behavior; a failed

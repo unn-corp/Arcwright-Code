@@ -629,7 +629,7 @@ export const parseDumpsysPackage = (output: string): InstalledPackage => {
   return { versionCode, versionName, firstInstallTime, lastUpdateTime };
 };
 
-const adb = (args: string[]) => {
+const adb = (args: string[], timeoutMs = 180_000) => {
   const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
   const program = sdk ? NodePath.join(sdk, "platform-tools", "adb") : "adb";
   const serial = process.env.FORK_VALIDATION_ANDROID_SERIAL;
@@ -639,7 +639,7 @@ const adb = (args: string[]) => {
     );
   // A disconnected emulator can leave an install waiting indefinitely in ADB. Fail the gate
   // instead of retaining a command until the enclosing CI job times out.
-  return run(program, ["-s", serial, ...args], { timeout: 180_000 });
+  return run(program, ["-s", serial, ...args], { timeout: timeoutMs });
 };
 
 const installedPackage = (): InstalledPackage => {
@@ -718,11 +718,27 @@ export const launchAndConfirm = async (
   }
 };
 
-const mustInstall = (apk: string) => {
-  const result = adbInstall(apk);
+export const mustInstall = (apk: string, runAdb: typeof adb = adb) => {
+  const result = runAdb(["install", "-r", apk]);
   if (result.status !== 0 || !/Success/.test(result.stdout)) {
+    const lifecycle = runAdb(
+      [
+        "logcat",
+        "-d",
+        "-b",
+        "system",
+        "-t",
+        "200",
+        "PackageManager:I",
+        "PackageInstaller:I",
+        "installd:I",
+        "*:S",
+      ],
+      10_000,
+    );
+    const installed = runAdb(["shell", "dumpsys", "package", FORK_ANDROID_PACKAGE], 10_000);
     throw new Error(
-      `adb install ${NodePath.basename(apk)} failed: ${result.stdout}${result.stderr}`,
+      `adb install ${NodePath.basename(apk)} failed (exit ${result.status}, signal ${result.signal}, error ${redactCliSmokeOutput(result.error?.message ?? "none")}): ${redactCliSmokeOutput(`${result.stdout}${result.stderr}`).slice(-4_000)}\nAndroid package lifecycle:\n${redactCliSmokeOutput(`${lifecycle.stdout}${lifecycle.stderr}`).slice(-12_000)}\nAndroid package state:\n${redactCliSmokeOutput(`${installed.stdout}${installed.stderr}`).slice(-8_000)}`,
     );
   }
 };

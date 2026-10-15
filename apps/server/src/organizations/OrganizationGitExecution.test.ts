@@ -61,6 +61,7 @@ it("discovers Windows Git outside the repository without inheriting executable o
     assert.isUndefined(execution.env.NODE_OPTIONS);
     assert.equal(execution.env.GIT_NO_LAZY_FETCH, "1");
     assert.equal(execution.env.GIT_TERMINAL_PROMPT, "0");
+    assert.equal(execution.env.GIT_CONFIG_GLOBAL, "NUL");
   } finally {
     resolver.aliases = {};
   }
@@ -93,7 +94,10 @@ it("uses a real empty hook directory and removes it even when the Git operation 
       hooks = execution.args[1]!.slice("core.hooksPath=".length);
       assert.isTrue(NodePath.isAbsolute(hooks));
       assert.deepEqual(await NodeFSP.readdir(hooks), []);
-      assert.equal(execution.env.GIT_CONFIG_GLOBAL, NodeOS.devNull);
+      assert.equal(
+        execution.env.GIT_CONFIG_GLOBAL,
+        process.platform === "win32" ? "NUL" : "/dev/null",
+      );
       throw new Error("Fixture Git failure");
     }),
   ).rejects.toThrow("Fixture Git failure");

@@ -73,7 +73,8 @@ export function resolveOrganizationGitExecution(
     ...(systemRoot ? { SystemRoot: systemRoot } : {}),
     LC_ALL: "C",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: NodeOS.devNull,
+    // Git for Windows rejects Node's extended Windows null-device path.
+    GIT_CONFIG_GLOBAL: host.platform === "win32" ? "NUL" : "/dev/null",
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_NO_LAZY_FETCH: "1",
     GIT_OPTIONAL_LOCKS: "0",
