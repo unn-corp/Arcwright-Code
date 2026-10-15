@@ -82,6 +82,7 @@ export function buildUnavailableModelOptionDescriptors(
 type TraitsPersistence =
   | {
       threadRef?: ScopedThreadRef;
+      selectionBase?: string;
       draftId?: DraftId;
       onModelOptionsChange?: never;
     }
@@ -313,6 +314,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         ...(instanceId ? { instanceId } : {}),
         model,
         persistSticky: true,
+        ...(persistence.selectionBase !== undefined
+          ? { selectionBase: persistence.selectionBase }
+          : {}),
       });
     },
     [instanceId, model, persistence, provider, setProviderModelOptions],

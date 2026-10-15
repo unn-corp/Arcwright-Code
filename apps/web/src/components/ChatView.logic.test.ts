@@ -1400,7 +1400,7 @@ describe("resolveComposerProviderSelection", () => {
     ).toBe(importedEntry.instanceId);
   });
 
-  it("keeps the session driver authoritative over instance and draft selections", () => {
+  it("uses the authoritative thread driver when the runtime still reflects the previous provider", () => {
     const selected = entry("claudeAgent", "claude_work");
     const sessionEntry = entry("ollama", "local_models");
     const thread = importedThread(selected.instanceId);
@@ -1419,7 +1419,7 @@ describe("resolveComposerProviderSelection", () => {
         threadProvider: thread.modelSelection.instanceId,
         providers: [selected.snapshot, sessionEntry.snapshot],
       }),
-    ).toBe(sessionEntry.driverKind);
+    ).toBe(selected.driverKind);
   });
 
   it.each(["missing", "disabled"] as const)(

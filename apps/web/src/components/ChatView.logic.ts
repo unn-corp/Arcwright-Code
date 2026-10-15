@@ -1,4 +1,5 @@
 import * as Option from "effect/Option";
+import { createModelSelection } from "@t3tools/shared/model";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
@@ -47,7 +48,17 @@ import {
   type Thread,
   type TurnDiffSummary,
 } from "../types";
-import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
+import {
+  deriveEffectiveComposerModelState,
+  useComposerDraftModelState,
+  useComposerDraftStore,
+  type ComposerThreadTarget,
+  type ComposerDraftModelState,
+  type ComposerImageAttachment,
+  type DraftThreadState,
+} from "../composerDraftStore";
+import type { UnifiedSettings } from "@t3tools/contracts/settings";
+import { useEffect, useMemo } from "react";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadShells, environmentThreadDetails } from "../state/threads";
@@ -572,6 +583,8 @@ export function resolveComposerProviderSelection(input: {
   candidateInstanceIds: ReadonlyArray<ProviderInstanceId | null | undefined>;
   lockedProvider: ProviderDriverKind | null;
   lockedInstanceId: ProviderInstanceId | null | undefined;
+  /** Existing conversations must never fall back to a different account. */
+  requiredInstanceId?: ProviderInstanceId;
 }) {
   const requestedInstanceId = input.candidateInstanceIds.find(
     (candidate) => candidate != null && candidate !== NO_PROVIDER_MODEL_SELECTION.instanceId,
@@ -592,6 +605,7 @@ export function resolveComposerProviderSelection(input: {
     lockedContinuationGroupKey === null;
   const compatibleEntries = input.entries.filter(
     (entry) =>
+      (!input.requiredInstanceId || entry.instanceId === input.requiredInstanceId) &&
       (!input.lockedProvider || entry.driverKind === input.lockedProvider) &&
       (!lockedContinuationGroupKey || entry.continuationGroupKey === lockedContinuationGroupKey) &&
       (!requiresExactInstance || entry.instanceId === input.lockedInstanceId),
@@ -611,15 +625,195 @@ export function resolveComposerProviderSelection(input: {
     resolveSelectableProviderInstanceEntry(compatibleEntries, undefined);
   const unavailableProviderInstanceId = selectedProviderEntry
     ? undefined
-    : input.lockedProvider
-      ? (input.lockedInstanceId ?? requestedInstanceId)
-      : requestedInstanceId;
+    : input.requiredInstanceId
+      ? requestedInstanceId
+      : input.lockedProvider
+        ? (input.lockedInstanceId ?? requestedInstanceId)
+        : requestedInstanceId;
   return {
     selectedProviderEntry,
     requestedDriverKind,
     lockedContinuationGroupKey,
     unavailableProviderInstanceId,
   };
+}
+
+/** Stable across streaming/status updates, but changes when a client selects or starts a turn. */
+export function composerModelSelectionBase(
+  thread: Pick<Thread, "environmentId" | "id" | "modelSelection" | "latestRun">,
+): string {
+  const selection = thread.modelSelection;
+  return JSON.stringify([
+    thread.environmentId,
+    thread.id,
+    selection.instanceId,
+    selection.model,
+    [...(selection.options ?? [])].sort((a, b) => a.id.localeCompare(b.id)),
+    thread.latestRun?.runId ?? null,
+    thread.latestRun?.startedAt ?? null,
+  ]);
+}
+
+/** One selection for the chat chrome and the composer's next-turn dispatch. */
+export function resolveThreadComposerSelection(input: {
+  draft: ComposerDraftModelState | null | undefined;
+  /** Undefined for a local draft; null while an existing server thread loads. */
+  serverThread: Thread | null | undefined;
+  threadModelSelection: ModelSelection | null | undefined;
+  projectModelSelection: ModelSelection | null | undefined;
+  entries: ReadonlyArray<ProviderInstanceEntry>;
+  providers: ReadonlyArray<ServerProvider>;
+  lockedProvider: ProviderDriverKind | null;
+  settings: UnifiedSettings;
+}) {
+  const isServerThread = input.serverThread !== undefined;
+  const selectionBase = input.serverThread
+    ? composerModelSelectionBase(input.serverThread)
+    : undefined;
+  const pendingChoice =
+    !isServerThread ||
+    (selectionBase !== undefined &&
+      input.draft?.modelSelectionExplicit === true &&
+      input.draft.modelSelectionBase === selectionBase);
+  const draft =
+    pendingChoice &&
+    (!isServerThread ||
+      (input.draft?.activeProvider &&
+        input.draft.modelSelectionByProvider[input.draft.activeProvider]))
+      ? input.draft
+      : null;
+  const threadModelSelection = isServerThread
+    ? input.serverThread?.modelSelection
+    : input.threadModelSelection;
+  const requestedSelection =
+    (draft?.activeProvider ? draft.modelSelectionByProvider[draft.activeProvider] : null) ??
+    threadModelSelection;
+  const requestedInstanceId = requestedSelection?.instanceId;
+  const selection = resolveComposerProviderSelection({
+    entries: input.entries,
+    candidateInstanceIds: isServerThread
+      ? [requestedInstanceId]
+      : [
+          draft?.activeProvider,
+          threadModelSelection?.instanceId,
+          input.projectModelSelection?.instanceId,
+        ],
+    lockedProvider: input.lockedProvider,
+    lockedInstanceId: threadModelSelection?.instanceId,
+    ...(isServerThread
+      ? { requiredInstanceId: requestedInstanceId ?? NO_PROVIDER_MODEL_SELECTION.instanceId }
+      : {}),
+  });
+  const runtime = input.serverThread?.runtime;
+  const selectedProvider =
+    selection.selectedProviderEntry?.driverKind ??
+    (isServerThread
+      ? (input.entries.find((entry) => entry.instanceId === requestedInstanceId)?.driverKind ??
+        (runtime &&
+        runtime.providerInstanceId === requestedInstanceId &&
+        isProviderDriverKind(runtime.providerName)
+          ? runtime.providerName
+          : input.lockedProvider) ??
+        ProviderDriverKind.make("unconfigured"))
+      : selection.requestedDriverKind);
+  const selectedInstanceId =
+    selection.selectedProviderEntry?.instanceId ??
+    requestedInstanceId ??
+    NO_PROVIDER_MODEL_SELECTION.instanceId;
+  const modelState = isServerThread
+    ? {
+        selectedModel: requestedSelection?.model ?? "",
+        modelOptions: requestedSelection?.options?.length
+          ? { [requestedSelection.instanceId]: requestedSelection.options }
+          : null,
+      }
+    : deriveEffectiveComposerModelState({
+        draft,
+        providers: input.providers,
+        selectedProvider,
+        selectedInstanceId,
+        threadModelSelection,
+        projectModelSelection: input.projectModelSelection,
+        settings: input.settings,
+      });
+  return {
+    ...selection,
+    selectionBase,
+    selectedProvider,
+    selectedInstanceId,
+    // Passive existing-thread sends omit a selection so a newer server choice
+    // wins even before this client's shell stream catches up.
+    modelSelectionForDispatch:
+      !isServerThread || draft
+        ? createModelSelection(
+            selectedInstanceId,
+            modelState.selectedModel,
+            modelState.modelOptions?.[selectedInstanceId],
+          )
+        : undefined,
+    ...modelState,
+  };
+}
+
+export function useThreadComposerSelection(
+  input: Omit<Parameters<typeof resolveThreadComposerSelection>[0], "draft"> & {
+    threadRef: ComposerThreadTarget;
+  },
+) {
+  const {
+    threadRef,
+    entries,
+    lockedProvider,
+    projectModelSelection,
+    providers,
+    serverThread,
+    settings,
+    threadModelSelection,
+  } = input;
+  const draft = useComposerDraftModelState(threadRef);
+  const clearIntent = useComposerDraftStore((state) => state.clearModelSelectionIntent);
+  const selection = useMemo(
+    () =>
+      resolveThreadComposerSelection({
+        draft,
+        entries,
+        lockedProvider,
+        projectModelSelection,
+        providers,
+        serverThread,
+        settings,
+        threadModelSelection,
+      }),
+    [
+      draft,
+      entries,
+      lockedProvider,
+      projectModelSelection,
+      providers,
+      serverThread,
+      settings,
+      threadModelSelection,
+    ],
+  );
+  useEffect(() => {
+    // Forget an observed stale override so A -> B -> A cannot revive it.
+    // Content and remembered defaults stay intact. The expected-base guard
+    // also protects a newer picker edit made before this effect executes.
+    if (
+      selection.selectionBase !== undefined &&
+      draft.modelSelectionExplicit &&
+      draft.modelSelectionBase !== selection.selectionBase
+    ) {
+      clearIntent(threadRef, draft.modelSelectionBase);
+    }
+  }, [
+    clearIntent,
+    draft.modelSelectionBase,
+    draft.modelSelectionExplicit,
+    threadRef,
+    selection.selectionBase,
+  ]);
+  return selection;
 }
 
 /** Keep restored drafts and every plan control on the selected instance's supported mode. */
@@ -1025,9 +1219,6 @@ export function deriveLockedProvider(input: {
     return null;
   }
   const sessionProvider = input.thread?.runtime?.providerName ?? null;
-  if (sessionProvider && isProviderDriverKind(sessionProvider)) {
-    return sessionProvider;
-  }
   // Preserve the existing lock while an instance is missing from the catalog;
   // a started thread must not silently fall back to a different driver.
   const threadProvider =
@@ -1040,7 +1231,12 @@ export function deriveLockedProvider(input: {
     threadProvider && isProviderDriverKind(threadProvider) ? threadProvider : null;
   const narrowedSelectedProvider =
     selectedProvider && isProviderDriverKind(selectedProvider) ? selectedProvider : null;
-  return narrowedThreadProvider ?? narrowedSelectedProvider ?? null;
+  return (
+    narrowedThreadProvider ??
+    (sessionProvider && isProviderDriverKind(sessionProvider) ? sessionProvider : null) ??
+    narrowedSelectedProvider ??
+    null
+  );
 }
 
 export function getStartedThreadModelChangeBlockReason(input: {

@@ -45,6 +45,7 @@ type TraitsRenderInput = {
   provider: ProviderDriverKind;
   instanceId?: ProviderInstanceId;
   threadRef?: ScopedThreadRef;
+  selectionBase?: string;
   draftId?: DraftId;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
@@ -168,6 +169,7 @@ function renderTraitsControl(
     provider,
     instanceId,
     threadRef,
+    selectionBase,
     draftId,
     model,
     models,
@@ -208,6 +210,7 @@ function renderTraitsControl(
       {...(instanceId ? { instanceId } : {})}
       models={models}
       {...(threadRef ? { threadRef } : {})}
+      {...(selectionBase !== undefined ? { selectionBase } : {})}
       {...(draftId ? { draftId } : {})}
       model={model}
       modelOptions={resolvedModelOptions}
