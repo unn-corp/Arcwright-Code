@@ -44,7 +44,8 @@ type SidebarContextProps = {
   open: boolean;
   setOpen: (open: boolean) => void;
   openMobile: boolean;
-  mobileSheetMounted: boolean;
+  mobileSheetVisible: boolean;
+  setMobileSheetVisible: (visible: boolean) => void;
   setMobileSheetElement: (element: HTMLDivElement | null) => void;
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
@@ -117,10 +118,16 @@ function SidebarProvider({
   onOpenChange?: (open: boolean) => void;
 }) {
   const isMobile = useIsMobile();
-  const [openMobile, setOpenMobile] = React.useState(false);
-  const [mobileSheetMounted, setMobileSheetMounted] = React.useState(false);
+  const [openMobile, setOpenMobileState] = React.useState(false);
+  const [mobileSheetVisible, setMobileSheetVisible] = React.useState(false);
+  // A keepMounted popup remains in the DOM while closed. Track its visible
+  // lifetime so the floating trigger returns after the closing transition.
+  const setOpenMobile = React.useCallback((open: boolean) => {
+    if (open) setMobileSheetVisible(true);
+    setOpenMobileState(open);
+  }, []);
   const setMobileSheetElement = React.useCallback((element: HTMLDivElement | null) => {
-    setMobileSheetMounted(element !== null);
+    if (element === null) setMobileSheetVisible(false);
   }, []);
 
   // This is the internal state of the sidebar.
@@ -149,8 +156,8 @@ function SidebarProvider({
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-  }, [isMobile, setOpen]);
+    return isMobile ? setOpenMobile(!openMobile) : setOpen((open) => !open);
+  }, [isMobile, openMobile, setOpenMobile, setOpen]);
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -161,7 +168,8 @@ function SidebarProvider({
       isMobile,
       open,
       openMobile,
-      mobileSheetMounted,
+      mobileSheetVisible,
+      setMobileSheetVisible,
       setMobileSheetElement,
       setOpen,
       setOpenMobile,
@@ -174,7 +182,9 @@ function SidebarProvider({
       setOpen,
       isMobile,
       openMobile,
-      mobileSheetMounted,
+      setOpenMobile,
+      mobileSheetVisible,
+      setMobileSheetVisible,
       setMobileSheetElement,
       toggleSidebar,
     ],
@@ -222,7 +232,14 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
   resizable?: boolean | SidebarResizableOptions;
 }) {
-  const { isMobile, state, openMobile, setOpenMobile, setMobileSheetElement } = useSidebar();
+  const {
+    isMobile,
+    state,
+    openMobile,
+    setOpenMobile,
+    setMobileSheetVisible,
+    setMobileSheetElement,
+  } = useSidebar();
   const resolvedResizable = React.useMemo<SidebarResolvedResizableOptions | null>(() => {
     if (isMobile || collapsible === "none" || !resizable) {
       return null;
@@ -262,7 +279,11 @@ function Sidebar({
   if (isMobile) {
     return (
       <SidebarInstanceContext value={instanceContextValue}>
-        <Sheet onOpenChange={setOpenMobile} open={openMobile}>
+        <Sheet
+          onOpenChange={setOpenMobile}
+          onOpenChangeComplete={setMobileSheetVisible}
+          open={openMobile}
+        >
           <SheetPopup
             // Prepare navigation rows and their grips before the opening animation.
             keepMounted
