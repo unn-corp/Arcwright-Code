@@ -856,6 +856,17 @@ describe("artifact and CLI agreement", () => {
       steps.some((step) => step.name === "Remove signing material" && step.if === "always()"),
     );
   });
+
+  it("includes owned Connect configuration in the normal Android APK", () => {
+    assert.deepEqual(stepNamed(release.jobs.android!, "Build normal APK").env, {
+      T3CODE_CONNECT_MODE: "owned",
+      T3CODE_CONNECT_PROFILE_FILE: "arcwright-connect.public.json",
+    });
+    assert.notProperty(
+      stepNamed(release.jobs.android!, "Build recovery APK from the predecessor").env ?? {},
+      "T3CODE_CONNECT_MODE",
+    );
+  });
 });
 
 describe("withdrawal workflow", () => {

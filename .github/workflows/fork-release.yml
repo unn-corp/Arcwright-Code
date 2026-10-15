@@ -515,6 +515,9 @@ jobs:
 
       - name: Build normal APK
         working-directory: source
+        env:
+          T3CODE_CONNECT_MODE: owned
+          T3CODE_CONNECT_PROFILE_FILE: arcwright-connect.public.json
         run: |
           set -euo pipefail
           node scripts/build-android-pwa.ts \
