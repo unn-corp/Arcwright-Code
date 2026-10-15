@@ -1,7 +1,6 @@
 import * as Alchemy from "alchemy";
 import * as Axiom from "alchemy/Axiom";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Drizzle from "alchemy/Drizzle/Postgres";
 import * as Config from "effect/Config";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -35,6 +34,7 @@ import * as EnvironmentLinks from "./environments/EnvironmentLinks.ts";
 import * as ManagedEndpointAllocations from "./environments/ManagedEndpointAllocations.ts";
 import * as LiveActivities from "./agentActivity/LiveActivities.ts";
 import * as RelayDb from "./db.ts";
+import { runtimePostgres } from "./runtimePostgres.ts";
 import {
   RelayApnsDeliveryDeadLetterQueue,
   RelayApnsDeliveryQueue,
@@ -175,9 +175,7 @@ export const layer = Api.make(
     // pool: sql-pg < 4.0.0-rc.117 names them `effect1..N` per connection, and
     // inside a transaction a Bind can reach another request's statement
     // (#14070, Effect-TS/effect#8320). Unnamed statements cannot collide.
-    const db = yield* Drizzle.Postgres(hyperdrive.connectionString, undefined, {
-      prepare: false,
-    });
+    const db = yield* runtimePostgres(hyperdrive.connectionString);
 
     const existingClients =
       (yield* relayRuntimeTokenModeConfig) === "existing"

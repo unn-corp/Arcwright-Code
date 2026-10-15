@@ -10,10 +10,10 @@ import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as RelayDb from "../db.ts";
+import { transactionActive } from "../runtimePostgres.ts";
 import {
   relayEnvironmentLinks,
   relayManagedEndpointAllocations as table,
@@ -286,7 +286,7 @@ const make = Effect.gen(function* () {
       operation,
       key,
       Effect.gen(function* () {
-        if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService))) {
+        if (yield* transactionActive(db)) {
           return yield* new LifecycleTransitionRejected({ reason: "ambient-transaction" });
         }
         return yield* db.$client.withTransaction(
@@ -522,7 +522,7 @@ const make = Effect.gen(function* () {
         "get",
         key,
         Effect.gen(function* () {
-          if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService)))
+          if (yield* transactionActive(db))
             return yield* new LifecycleTransitionRejected({ reason: "ambient-transaction" });
           const rows = yield* db.select(selection).from(table).where(whereKey(key)).limit(1);
           return rows[0] ?? null;

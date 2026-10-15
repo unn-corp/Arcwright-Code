@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core/errors";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { SqlError } from "effect/sql/SqlError";
 import type * as RelayDb from "../db.ts";
+import { transactionActive } from "../runtimePostgres.ts";
 import { relayAccountAuthorities, relayAccountDeletions } from "../persistence/schema.ts";
 import { AccountPersistenceError, AccountTransactionRequired } from "./accountErrors.ts";
 import type { OwnedSubject } from "./ownedSubject.ts";
@@ -29,7 +29,7 @@ export const withAccountTransaction = <A, E, R>(
   sqlOnly: Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
-    if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService)))
+    if (yield* transactionActive(db))
       return yield* new AccountTransactionRequired({ reason: "ambient_transaction" });
     return yield* db.$client
       .withTransaction(
@@ -54,7 +54,7 @@ export const withAccountTransaction = <A, E, R>(
   });
 export const lockAccountSubject = (db: RelayDb.RelayDb["Service"], subject: OwnedSubject) =>
   Effect.gen(function* () {
-    if (Option.isNone(yield* Effect.serviceOption(db.$client.transactionService)))
+    if (!(yield* transactionActive(db)))
       return yield* new AccountTransactionRequired({ reason: "transaction_required" });
     const isolation = yield* persistAccount(
       "transaction",

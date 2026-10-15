@@ -3,10 +3,10 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as RelayDb from "../db.ts";
+import { transactionActive } from "../runtimePostgres.ts";
 import {
   relayManagedEndpointAllocations,
   relayManagedTunnelLimits,
@@ -92,7 +92,7 @@ export const make = Effect.gen(function* () {
 
         // A nested withTransaction is only a savepoint and returns before COMMIT.
         // Provider work must start only after this reservation's own COMMIT succeeds.
-        if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService))) {
+        if (yield* transactionActive(db)) {
           return yield* persistenceError(
             "transaction",
             new Error("Ambient SQL transaction rejected"),

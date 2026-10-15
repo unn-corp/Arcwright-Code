@@ -28,6 +28,7 @@ import {
   managedEndpointTunnelName,
 } from "../deploymentConfig.ts";
 import * as RelayDb from "../db.ts";
+import { transactionActive } from "../runtimePostgres.ts";
 import * as ManagedEndpointLifecycle from "./ManagedEndpointLifecycle.ts";
 import {
   targetFor,
@@ -575,8 +576,7 @@ export const make = Effect.gen(function* () {
   const limits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
 
   const rejectAmbient = Effect.gen(function* () {
-    if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService)))
-      return yield* conflict("Ambient SQL transaction rejected");
+    if (yield* transactionActive(db)) return yield* conflict("Ambient SQL transaction rejected");
   });
   const requireApplied = (result: TransitionResult) =>
     result.status === "Applied" ? Effect.void : conflict("Lifecycle checkpoint lost");

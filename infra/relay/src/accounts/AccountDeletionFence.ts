@@ -1,8 +1,8 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as RelayDb from "../db.ts";
+import { transactionActive } from "../runtimePostgres.ts";
 import {
   AccountAuthorityConflict,
   AccountDenied,
@@ -73,7 +73,7 @@ export const make = (authority: ConfiguredAccountAuthority) =>
           yield* validateOwnedSubject(subject, authority);
           // Auth reads must not inherit an older REPEATABLE READ snapshot.
           // Controlled transaction callers use lockAndCheckSubject instead.
-          if (Option.isSome(yield* Effect.serviceOption(db.$client.transactionService)))
+          if (yield* transactionActive(db))
             return yield* new AccountTransactionRequired({ reason: "ambient_transaction" });
           yield* inspectAllowed(subject, false);
         }),

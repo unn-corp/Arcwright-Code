@@ -1,7 +1,7 @@
 import type * as RelayDb from "../db.ts";
+import { transactionActive } from "../runtimePostgres.ts";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 
 // Two-int advisory locks have a PostgreSQL key space disjoint from the bigint
 // user/quota locks. Hash collisions serialize harmlessly; SQL predicates still
@@ -24,7 +24,7 @@ export const acquireEnvironmentLinkWriteLocks = (
   publicKeys: ReadonlyArray<string>,
 ) =>
   Effect.gen(function* () {
-    if (Option.isNone(yield* Effect.serviceOption(db.$client.transactionService)))
+    if (!(yield* transactionActive(db)))
       return yield* new EnvironmentLinkWriteTransactionRequired();
     const tuples = publicKeys.map((key) => encodeTuple([environmentId, key]));
     const locks = yield* db.$client<{ lock_id: number }>`
