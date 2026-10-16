@@ -1,10 +1,11 @@
-import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { Toolbar } from "../../components/ui/Toolbar";
+import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAuth, useUser } from "@clerk/expo";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { useNavigation } from "@react-navigation/native";
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import * as Effect from "effect/Effect";
 import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -19,7 +20,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
 import { setLiveActivityUpdatesEnabled } from "../agent-awareness/liveActivityPreferences";
 import { requestAgentNotificationPermission } from "../agent-awareness/notificationPermissions";
@@ -96,13 +97,13 @@ export function SettingsRouteScreen() {
       ) : null}
       {Platform.OS === "ios" && layout.usesSplitView ? (
         <>
-          <NativeHeaderToolbar placement="left">
-            <NativeHeaderToolbar.Button
+          <Toolbar placement="left">
+            <Toolbar.Button
               accessibilityLabel="Go back"
               icon="chevron.left"
               onPress={() => navigation.goBack()}
             />
-          </NativeHeaderToolbar>
+          </Toolbar>
         </>
       ) : null}
       <SettingsEnvironmentFilterHeader closeSettings />

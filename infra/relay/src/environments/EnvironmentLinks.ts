@@ -441,7 +441,6 @@ const make = Effect.gen(function* () {
               : eq(relayEnvironmentLinks.environmentPublicKey, input.environmentPublicKey),
           ),
         )
-        // At most one row per user who linked this environment.
         .pipe(
           Effect.map((rows) =>
             rows.map((row) => ({

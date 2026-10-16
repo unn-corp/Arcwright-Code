@@ -170,8 +170,6 @@ function CloudAuthBridge(props: { readonly children: ReactNode }) {
       deactivateCloudRelayAccount();
       activateAfterTransition(queueAccountCleanup(previous));
     } else {
-      // A failed disk write can be retried. The persisted account check above
-      // still requires cleanup before activating a different account.
       activateAfterTransition((accountTransitionRef.current ?? Promise.resolve()).catch(() => {}));
     }
 

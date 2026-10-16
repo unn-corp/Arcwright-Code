@@ -3,7 +3,7 @@ import type { EnvironmentId, ThreadId, RunLimits } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useState } from "react";
 import { View } from "react-native";
-import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsActionRow } from "./components/SettingsActionRow";

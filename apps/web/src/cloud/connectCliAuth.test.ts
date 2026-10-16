@@ -7,7 +7,6 @@ import {
   connectCliAuthRoutesEnabled,
 } from "./connectCliAuth";
 
-// Any pk_test_* key decodes to <base64 hostname>.clerk.accounts.dev.
 const TEST_PUBLISHABLE_KEY = `pk_test_${btoa("witty-mole-42.clerk.accounts.dev$")}`;
 
 const surface = vi.hoisted(() => ({ android: false, electron: false }));

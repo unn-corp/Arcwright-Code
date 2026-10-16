@@ -24,10 +24,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
 
-/**
- * Collapses the `show` alias onto `open` and defaults tab reuse.
- *
- * Deliberately leaves an unstated `open` unstated. Whether a preview the agent
+/** Whether a preview the agent
  * said nothing about surfaces is the user's `browserAutoShowFloatingPreview`
  * preference, which is desktop-local and unreadable from here — filling in
  * `true` would silently override it for every `preview_open`.
@@ -158,7 +155,6 @@ const handlers = {
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
   ),
   preview_snapshot: McpToolAccess.readsAsCaller((input) => {
-    // Output selection and saving are MCP-only; the browser still produces a complete snapshot.
     const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
     return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
   }),

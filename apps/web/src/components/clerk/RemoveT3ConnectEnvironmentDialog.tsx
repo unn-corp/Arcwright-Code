@@ -22,13 +22,11 @@ export function RemoveT3ConnectEnvironmentDialog({
   onCancel,
   onConfirm,
 }: {
-  /** The environment awaiting confirmation; null keeps the dialog closed. */
   readonly environmentLabel: string | null;
   readonly onCancel: () => void;
   readonly onConfirm: () => void;
 }) {
   const accountPage = useT3ConnectAccountPage();
-  // Keep the label through the close animation.
   const [shownLabel, setShownLabel] = useState(environmentLabel);
   if (environmentLabel !== null && environmentLabel !== shownLabel) setShownLabel(environmentLabel);
   const openAccountPage = accountPage.open;

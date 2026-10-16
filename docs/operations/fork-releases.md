@@ -1,5 +1,12 @@
 # Fork releases
 
+> Desktop app updates now follow upstream Electron's explicit check/download/install
+> flow. Confirmed installation stops owned backends and restarts without waiting
+> for idle chats. The legacy desktop maintenance poller is disabled; startup recovery
+> remains for already-recorded transactions. Coordinator admission, snapshots and
+> recovery described below apply to native Android/service maintenance and legacy
+> transactions. This does not authorize an agent to install over a running chat.
+
 How `unn-corp/t3code` builds, validates, publishes, withdraws, and recovers its own nightly and
 stable releases. Upstream's [release process](./release.md) publishes npm, web, relay, AUR, and
 announcement targets and is guarded off in this fork. The fork pipeline publishes only GitHub

@@ -8,33 +8,26 @@ baseline; a scheduled workflow being present does not mean a new release is avai
 
 ## Choose the device
 
-**Settings → General → App updates → This device** controls the client you are
-using. It remains local even when Settings is scoped to another environment.
-Choose Stable or Nightly, enable automatic installation, check/download, inspect
-waiting reasons, install a verified build, or pin the current build. Existing
-fork devices are bootstrapped onto Nightly; fresh stable installers use Stable. For a
-bootstrap blocker, choose **Review installations**, verify every known fork desktop,
-service, standalone, and development installation for this OS user runs a compatible fork build
-and is registered, then confirm the review. Unknown activity and missing capabilities
-continue to block installation.
-**Settings → General → About** shows the client identity and links to App updates.
-Android displays its source version separately from its installation sequence.
+**Desktop:** open **Settings → General → App updates** or the sidebar update
+button. Choose Stable or Nightly, check, download, then confirm installation.
+This follows upstream T3's Electron updater: it checks shortly after launch and
+every four minutes, downloads only on request, and installs only after your
+confirmation. Installation stops the desktop's backends and restarts the app;
+it does not wait for idle chats. Save terminal work before confirming. There is
+no automatic installation on quit. Compatible remote desktops use upstream's
+prepare/confirm/install handshake.
 
-The main label is **Arcwright Code 0.0.45 · Arcwright build 35 · Nightly**, for example.
-The T3 version identifies the upstream code included; the Arcwright number identifies
-our build. The sidebar starts with **Nightly N**, followed by the included T3 version. Hover over
-it for the full identity and exact installer release. **Hard rule:** all new nightly installations,
-including locally built copies, use the release pipeline's allocated
-`<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**. A separate
-**Local Nightly** name/counter or a `preview` artifact is not an accepted replacement.
-Existing preview builds keep their true identity until an admitted replacement; their labels
-must not be changed to impersonate a published nightly.
-Update checks recognize historical `0.0.x-preview` and `0.0.x-fork` installations and can
-offer a verified release. Installation still waits for bootstrap review and idle agents.
-About retains the exact upstream and Arcwright commits and the installer
-release for diagnosis. Android's installation sequence is separate: recovery installs
-older source using a higher Android code. Historical builds with unknown upstream
-provenance show only their Arcwright counter rather than guessing a T3 version.
+Arcwright discovers eligible numbered releases from our fork and binds each
+check to that release's immutable download directory. Installers retain their
+allocated `<version>-nightly.<YYYYMMDD>.<N>` identity and the display name
+**Arcwright Code — Nightly N**. The included T3 version and Arcwright counter
+remain separate in About. Do not rename a preview or reuse a release counter.
+
+**Standalone Android APK and managed services:** their native App updates and
+named-host maintenance controls retain verification, admission, saved channel,
+pins and recovery. These controls may wait for work to stop. They are separate
+from the desktop's upstream updater. Existing installed accounts and connections
+remain in their existing application data directories.
 
 ## Continue threads after restarts
 
@@ -53,35 +46,18 @@ A thread is not resumed while it waits for your approval, answer, or secret, or
 while it is archived, snoozed, or settled. After three automatic resumes in a row,
 the thread waits for your next message.
 
-Desktop sidebar update controls and **Check for Updates** in the application
-menu open this same status surface. Downloads are not ready to install until
-verification completes. Release history links to this fork.
+Desktop sidebar controls and **Check for Updates** use the upstream update status.
+Release history links to this fork.
 
 **Settings → Connections → Environments → Updates for [host]** controls that
 named host. Its channel, automatic installation policy, version, blockers, and
-recovery options are independent of the client. Desktop replacement can affect
-both Windows and WSL homes; review the affected homes rather than assuming one
-connection means one database. Standalone and development runtimes participate
+recovery options are independent of the client. Service recovery can affect multiple homes; review those homes before restoring. Standalone and development runtimes participate
 in activity checks but do not replace their own binaries automatically.
 
-Sidebar update notices identify the host and keep update progress outside the
-chat composer. Machine details and **Update all** remain available there when
-choosing an environment. A protocol mismatch requires
-updating the side named by the notice. Available releases, waiting, installation,
-verification, and failure are different states. Automatic updates wait for running work. **Update now** can interrupt this desktop’s
-owned sessions after confirmation; the warning appears only when work is running.
-An idle conversation can still show a waiting reason when a provider helper
-process remains alive. The host keeps waiting until that process finishes or
-its ownership and idle state can be verified.
-Compatibility notices compare the included T3 versions, independently of Arcwright
-release availability. An internal `1.x` installer number does not make a `0.0.45`
-host incompatible by itself.
-
-**Update all** groups explicit coordinator identities. One device's replacement
-targets are requested separately and serialized while independent devices can progress.
-Connections to the same replacement target share a request. Offline or
-blocked devices report their own result. Keep the client open to see status;
-closing it does not authorize a bypass of the host's admission checks.
+Native Android and service update controls distinguish checking, waiting,
+installing, verification and failure. Their automatic maintenance still waits
+for work to stop. Protocol compatibility compares the included T3 versions,
+independently of the Arcwright installation counter.
 
 ## Updating from a terminal
 
@@ -167,6 +143,9 @@ separate stopped-work transition before it can use managed updates. Do not run
 initialization over its home.
 
 ## Why installation waits
+
+This section applies to native Android and service maintenance. Desktop app
+updates use the explicit upstream installation flow described above.
 
 Check and download reports completion separately from installation; blocked
 installation keeps its waiting reasons visible alongside network errors.
@@ -284,7 +263,8 @@ it does not acquire this fork's native APK updater. See the
 ## Crash recovery and providers
 
 **Continue threads after restarts** applies to supported crash/machine-restart
-recovery, not an update safety bypass. Fork updates wait for stopped work.
+recovery, not an update safety bypass. Native Android and managed-service maintenance wait for stopped work; explicit
+desktop installation follows upstream and restarts the backends.
 Starting the application again is still required; terminal processes and
 provider sessions have their own restart limits.
 
@@ -292,7 +272,7 @@ Provider CLI updates in **Settings → Providers** are separate from fork app
 releases. Their controls target the selected environment and require its operate
 permission. Read the provider's own restart guidance.
 
-## Manual backups
+## Back up and restore
 
 For measured database contents and safe improvement options, see the
 [database storage audit](../operations/database-storage.md). A large database is not

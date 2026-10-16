@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { currentHuman, seedProfile } from "@t3tools/client-runtime/participants";
+import { useLayoutEffect, useRef, useState } from "react";
+import { currentHuman } from "@t3tools/client-runtime/participants";
 import { useClientSettings, persistClientSettingsUpdate } from "../../hooks/useSettings";
 import { ParticipantChip } from "../chat/ParticipantChip";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SettingsSection, SettingsRow } from "./settingsLayout";
+import { useManagedAuth } from "../../auth/managedAuthContext";
 
 /** Crop once at upload, keeping both persistence and message snapshots bounded. */
 export async function profileThumbnail(file: File): Promise<string> {
@@ -42,9 +43,15 @@ export function ParticipantProfileSettings() {
   const settings = useClientSettings();
   const human = currentHuman(settings);
   const profile = settings.participantProfiles[settings.activeParticipantProfile];
+  const auth = useManagedAuth();
+  const active = useRef({ auth, profileKey: settings.activeParticipantProfile });
+  useLayoutEffect(() => {
+    active.current = { auth, profileKey: settings.activeParticipantProfile };
+  }, [auth, settings.activeParticipantProfile]);
+  const accountProfile = settings.activeParticipantProfile.startsWith("account:");
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const save = async (patch: Partial<typeof human>) => {
+  const save = async (patch: Partial<typeof human>, photoSource?: "account" | "custom") => {
     const profileKey = settings.activeParticipantProfile;
     await persistClientSettingsUpdate((current) => {
       const existing = current.participantProfiles[profileKey];
@@ -53,10 +60,65 @@ export function ParticipantProfileSettings() {
         ...current,
         participantProfiles: {
           ...current.participantProfiles,
-          [profileKey]: seedProfile(undefined, participant, existing?.accounts ?? []),
+          [profileKey]: {
+            ...existing,
+            participant,
+            initialized: true,
+            accounts: existing?.accounts ?? [],
+            ...(photoSource === undefined ? {} : { photoSource }),
+          },
         },
       };
     });
+  };
+  const savePhoto = async (photo: string | null) => {
+    const captured = active.current;
+    if (!accountProfile) return save({ photo }, "custom");
+    if (
+      !auth.isSignedIn ||
+      captured.profileKey !== `account:${auth.userId}` ||
+      !auth.setProfilePhoto
+    )
+      throw new Error("Sign in again to update your account photo.");
+    const updated = await auth.setProfilePhoto(photo);
+    const stillCurrent = () => {
+      const next = active.current;
+      return (
+        next.profileKey === captured.profileKey &&
+        next.auth.isSignedIn &&
+        next.auth.userId === auth.userId &&
+        next.auth.sessionId === auth.sessionId &&
+        next.auth.generation === auth.generation
+      );
+    };
+    if (!stillCurrent()) throw new Error("Account changed. Please try again.");
+    await persistClientSettingsUpdate((current) => {
+      if (!stillCurrent()) return current;
+      const existing = current.participantProfiles[captured.profileKey];
+      return {
+        ...current,
+        participantProfiles: {
+          ...current.participantProfiles,
+          [captured.profileKey]: {
+            initialized: true,
+            accounts: existing?.accounts ?? [],
+            participant: { ...(existing?.participant ?? human), photo: updated },
+            photoSource: "account",
+          },
+        },
+      };
+    });
+  };
+  const updatePhoto = async (photo: string | null) => {
+    setUploading(true);
+    setError(null);
+    try {
+      await savePhoto(photo);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setUploading(false);
+    }
   };
   return (
     <SettingsSection id="profile" title="Profile">
@@ -83,11 +145,15 @@ export function ParticipantProfileSettings() {
       </SettingsRow>
       <SettingsRow
         title="Profile image"
-        description="The first account you sign in with supplies your starting photo. You can replace it or use initials."
+        description={
+          accountProfile
+            ? "Upload a photo or use initials everywhere you sign in to this account."
+            : "Choose a photo for this device, or use initials."
+        }
       >
         <div className="flex max-w-full flex-wrap items-center gap-2">
           <label className="relative inline-flex cursor-pointer items-center rounded-md border border-input px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
-            {uploading ? "Preparing image…" : "Upload photo"}
+            {uploading ? "Saving photo…" : "Upload photo"}
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp"
@@ -101,7 +167,7 @@ export function ParticipantProfileSettings() {
                 setUploading(true);
                 setError(null);
                 try {
-                  await save({ photo: await profileThumbnail(file) });
+                  await savePhoto(await profileThumbnail(file));
                 } catch (cause) {
                   setError(cause instanceof Error ? cause.message : String(cause));
                 } finally {
@@ -113,13 +179,12 @@ export function ParticipantProfileSettings() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              void save({ photo: null }).catch((cause: unknown) => setError(String(cause)))
-            }
+            disabled={uploading}
+            onClick={() => void updatePhoto(null)}
           >
             Use initials
           </Button>
-          {(profile?.accounts ?? [])
+          {(accountProfile ? [] : (profile?.accounts ?? []))
             .filter((account) => account.photo)
             .map((account) => (
               <Button
@@ -127,7 +192,7 @@ export function ParticipantProfileSettings() {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  void save({ photo: account.photo }).catch((cause: unknown) =>
+                  void save({ photo: account.photo }, "custom").catch((cause: unknown) =>
                     setError(String(cause)),
                   )
                 }

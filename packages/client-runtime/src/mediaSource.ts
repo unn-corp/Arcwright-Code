@@ -22,7 +22,6 @@ export type MediaSourceResource = Extract<
   { readonly _tag: "media-file" | "conversation-evidence" }
 >;
 
-/** What a piece of authored media is and how its bytes can be reached. */
 export type ResolvedMediaSource = {
   readonly kind: "image" | "video";
   readonly mimeType: string;

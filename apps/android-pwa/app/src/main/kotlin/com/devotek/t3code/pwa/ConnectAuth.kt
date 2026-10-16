@@ -28,6 +28,8 @@ interface ConnectAuthSdk {
     suspend fun relayToken(template: String, forceRefresh: Boolean): String
     /** Public presentation only; older adapters may have no profile metadata. */
     suspend fun participantProfile(account: ConnectAccount): ConnectParticipantProfile? = null
+    suspend fun setParticipantPhoto(account: ConnectAccount, photo: String?): ConnectParticipantProfile =
+        throw UnsupportedOperationException("Profile updates are unavailable.")
     suspend fun signOut()
     fun reset()
 }
@@ -47,6 +49,8 @@ class ConnectAuth(
     unavailableReason: String? = null,
 ) {
     companion object {
+        // New flows use Clerk's manifest-registered callback so its browser manager owns completion.
+        // Retain strict acceptance of the old endpoint for already-issued callbacks.
         const val REDIRECT_URL = "com.devotek.t3code.pwa://auth/callback"
         fun acceptsCallback(raw: String?): Boolean = try {
             if (raw == null || raw.length > 8192) false else URI(raw).let {
@@ -221,6 +225,14 @@ class ConnectAuth(
         check(isCurrent(fence)) { "Account session is not ready." }
         val profile = sdk!!.participantProfile(ConnectAccount(requireNotNull(fence.userId), requireNotNull(fence.sessionId)))
         check(isCurrent(fence)) { "Account changed while reading its profile." }
+        return profile
+    }
+
+    suspend fun setProfilePhoto(fence: ConnectAuthStatus, photo: String?): ConnectParticipantProfile {
+        check(isCurrent(fence)) { "Account session is not ready." }
+        require(photo == null || ConnectAuthProtocol.validPhoto(photo)) { "Invalid profile image." }
+        val profile = sdk!!.setParticipantPhoto(ConnectAccount(requireNotNull(fence.userId), requireNotNull(fence.sessionId)), photo)
+        check(isCurrent(fence)) { "Account changed while updating its profile." }
         return profile
     }
 

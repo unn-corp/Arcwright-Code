@@ -66,6 +66,13 @@ describe("collapsed thread statuses", () => {
     ).toEqual({ input: 2, failed: 2, done: 1 });
   });
 
+  it("keeps historical failures out of Snoozed and Settled summaries", () => {
+    expect(
+      summarizeCollapsedThreadStatuses([failed("old-failure"), completed("new-result")], {}, false),
+    ).toEqual({ input: 0, failed: 0, done: 1 });
+    expect(summarizeCollapsedThreadStatuses([failed("active-failure")], {}, true).failed).toBe(1);
+  });
+
   it("clears done counts after a server-side visit and honors mark-unread on another device", () => {
     const thread = completed("done");
     const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));

@@ -21,8 +21,6 @@ import * as ConnectHttp from "./http.ts";
 
 class ConnectTestApi extends HttpApi.make("environment").add(EnvironmentHttpApi.groups.connect) {}
 
-// The signed relay routes need no session, so a CloudLink that fails each
-// request shows how the transport answers that failure.
 type HealthFailure = Effect.Error<
   ReturnType<CloudLink.CloudLink["Service"]["answerHealthRequest"]>
 >;
@@ -35,7 +33,6 @@ const answerHealthWith = async (failure: HealthFailure) => {
         answerHealthRequest: () => Effect.fail(failure),
       }),
     ),
-    // The session-gated routes are declared too; this request never reaches them.
     Layer.provide(AuthHttp.layerAuthenticatedAuth),
     Layer.provide(Layer.mock(EnvironmentAuth.EnvironmentAuth)({})),
     Layer.provideMerge(

@@ -1,6 +1,8 @@
-import { type ThreadId } from "@t3tools/contracts";
-import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
-import { toKindScopedComposerContextId } from "./composerContextReferences";
+import type { ThreadId } from "@t3tools/contracts";
+import {
+  formatComposerContextReference,
+  toKindScopedComposerContextId,
+} from "@t3tools/shared/composerContextReferences";
 
 import { extractTrailingElementContexts, type ParsedElementContextEntry } from "./elementContext";
 
@@ -117,7 +119,6 @@ export function formatTerminalContextLabel(selection: {
   return `${selection.terminalLabel} ${formatTerminalContextRange(selection)}`;
 }
 
-/** Binds legacy U+FFFC placeholders to contexts in array order; leftover placeholders vanish. */
 export function migrateLegacyTerminalContextPlaceholders(
   prompt: string,
   contexts: ReadonlyArray<TerminalContextReferenceSource>,

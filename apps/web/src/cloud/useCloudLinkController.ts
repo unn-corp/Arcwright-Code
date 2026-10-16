@@ -30,17 +30,13 @@ import { readCachedPrimaryCloudLinkState, usePrimaryCloudLinkState } from "./pri
 export interface CloudLinkDesiredState {
   readonly managedTunnel: boolean;
   readonly publish: boolean;
-  /** Omit to leave the webhook-hold setting as it is. */
   readonly holdWebhooksWhileOffline?: boolean;
 }
 
 /**
- * Whether the link has a working managed tunnel. The local tunnel config can
- * outlive a relay link that drifted to publish-only, and clients then get
- * `endpoint_provider_not_managed`. So when relay discovery has this
- * environment's record, it must also say managed. Older environment servers
- * predate managedTunnelActive; for them a link always implies a tunnel. A link
- * the relay rejected (usually after a Deregister) gives no access at all.
+ * The local tunnel config can outlive a relay link that drifted to
+ * publish-only, and clients then get `endpoint_provider_not_managed`. So when
+ * relay discovery has this environment's record, it must also say managed.
  */
 function isManagedTunnelActive(
   linkState: EnvironmentCloudLinkStateResult,
@@ -108,11 +104,8 @@ export function useCloudLinkController() {
   };
 
   const linkData = primaryCloudLinkState.data;
-  // A revoked link reads as off; turning it on links again.
   const linkRevoked = linkData?.linkRevoked ?? false;
   const managedTunnelActive = linkData ? isManagedTunnelActive(linkData, relayProviderKind) : false;
-  // Local state says managed but the relay holds a publish-only link. Turning
-  // T3 Connect on relinks as managed, which repairs it.
   const managedTunnelOutOfSync =
     linkData !== null && !managedTunnelActive && isManagedTunnelActive(linkData, undefined);
   const publishAgentActivity = primaryCloudLinkState.data?.publishAgentActivity ?? false;

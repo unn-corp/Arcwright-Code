@@ -62,10 +62,6 @@ function cursorSandboxUnsupported(cause: unknown): boolean {
   return false;
 }
 
-/**
- * Build a Cursor text-generation closure bound to a specific `CursorSettings`
- * payload. See `makeCodexAdapter` for the overall per-instance rationale.
- */
 export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(function* (
   cursorSettings: CursorSettings,
   environment?: NodeJS.ProcessEnv,
@@ -162,8 +158,8 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         );
 
       const request = Effect.gen(function* () {
-        // Prefer the sandbox. When the SDK refuses it, the empty temp directory
-        // and empty setting sources still keep this run off the user's project.
+        // When the SDK refuses it, the empty temp directory and empty setting
+        // sources still keep this run off the user's project.
         const agent = yield* Effect.acquireRelease(
           createCursorAgent(true).pipe(
             Effect.catchIf(cursorSandboxUnsupported, () => createCursorAgent(false)),

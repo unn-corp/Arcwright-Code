@@ -6,8 +6,7 @@ import {
   type ProjectIconColor,
   type ProjectIconOverride,
 } from "@t3tools/contracts";
-import { DynamicIcon, type IconName } from "lucide-react/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   filterProjectIconNames,
   firstEmoji,
@@ -16,6 +15,7 @@ import {
   projectIconColorClassName,
 } from "../../projectIconOptions";
 import { cn } from "~/lib/utils";
+import { lucideIconByName } from "../../lib/lucideIconByName";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -30,9 +30,14 @@ import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
-const DEFAULT_ICON: IconName = "folder-code";
+const DEFAULT_ICON = "folder-code";
 const isMonogramText = Schema.is(ProjectMonogramText);
 type PickerMode = "lucide" | "emoji" | "monogram";
+
+function PickerIcon({ name }: { name: string }) {
+  const icon = lucideIconByName(name);
+  return icon ? createElement(icon, { className: "size-5" }) : null;
+}
 
 function iconLabel(name: string): string {
   return name
@@ -58,8 +63,8 @@ export function ProjectIconPickerDialog({
   const [mode, setMode] = useState<PickerMode>(
     current?.kind === "photo" ? "lucide" : (current?.kind ?? "lucide"),
   );
-  const [iconName, setIconName] = useState<IconName>(
-    current?.kind === "lucide" ? (current.name as IconName) : DEFAULT_ICON,
+  const [iconName, setIconName] = useState<string>(
+    current?.kind === "lucide" ? current.name : DEFAULT_ICON,
   );
   const [color, setColor] = useState<ProjectIconColor>(
     current && (current.kind === "lucide" || current.kind === "monogram")
@@ -77,7 +82,7 @@ export function ProjectIconPickerDialog({
   useEffect(() => {
     if (open && !previousOpenRef.current) {
       setMode(current?.kind === "photo" ? "lucide" : (current?.kind ?? "lucide"));
-      setIconName(current?.kind === "lucide" ? (current.name as IconName) : DEFAULT_ICON);
+      setIconName(current?.kind === "lucide" ? current.name : DEFAULT_ICON);
       setColor(
         current && (current.kind === "lucide" || current.kind === "monogram")
           ? current.color
@@ -176,7 +181,7 @@ export function ProjectIconPickerDialog({
                       )}
                       onClick={() => setIconName(name)}
                     >
-                      <DynamicIcon name={name} className="size-5" />
+                      <PickerIcon name={name} />
                     </button>
                   ))}
                 </div>

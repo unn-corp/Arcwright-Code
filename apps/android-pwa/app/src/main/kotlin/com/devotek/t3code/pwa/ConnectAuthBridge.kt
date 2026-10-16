@@ -37,9 +37,12 @@ class ConnectAuthBridge(private val activity: MainActivity, private val webView:
                             check(auth.isCurrent(fence)) { "Account changed." }
                             JSONObject().put("token", token).put("generation", fence.generation).put("userId", fence.userId).put("sessionId", fence.sessionId)
                         }
-                        "getParticipantProfile" -> {
+                        "getParticipantProfile", "setProfilePhoto" -> {
                             val fence = auth.accountFence()
-                            val profile = auth.getParticipantProfile(fence)
+                            val profile = if (request.action == "setProfilePhoto") {
+                                check(request.generation == fence.generation && request.userId == fence.userId && request.sessionId == fence.sessionId) { "Account changed." }
+                                auth.setProfilePhoto(fence, request.photo)
+                            } else auth.getParticipantProfile(fence)
                             check(auth.isCurrent(fence)) { "Account changed." }
                             val data = profile?.let {
                                 JSONObject().put("name", it.name).put("photo", it.photo ?: JSONObject.NULL)
@@ -93,19 +96,30 @@ class ConnectAuthBridge(private val activity: MainActivity, private val webView:
 /** Parse before dispatch: no caller-selected templates, URLs, credential operations or extra payload. */
 object ConnectAuthProtocol {
     const val ORIGIN = "https://appassets.androidplatform.net"
-    data class Request(val id: String, val action: String, val forceRefresh: Boolean)
+    data class Request(val id: String, val action: String, val forceRefresh: Boolean,
+        val photo: String? = null, val generation: Long? = null, val userId: String? = null, val sessionId: String? = null)
+    fun validPhoto(photo: String): Boolean = photo.length <= 16_384 && Regex("data:image/webp;base64,[A-Za-z0-9+/]+={0,2}").matches(photo)
     fun acceptsSender(origin: String, mainFrame: Boolean): Boolean = mainFrame && origin == ORIGIN
     fun parse(raw: String): Request? = try {
-        if (raw.length > 2048) null else {
+        if (raw.length > 24_576) null else {
             val json = JSONObject(raw)
             val id = json.get("id") as? String
             val action = json.get("action") as? String
             val keys = json.keys().asSequence().toSet()
-            val actions = setOf("status", "subscribe", "signIn", "getRelayToken", "getParticipantProfile", "signOut")
+            val actions = setOf("status", "subscribe", "signIn", "getRelayToken", "getParticipantProfile", "setProfilePhoto", "signOut")
+            val photoUpdate = action == "setProfilePhoto"
+            val allowedKeys = if (photoUpdate) setOf("id", "action", "photo", "generation", "userId", "sessionId") else setOf("id", "action", "forceRefresh")
+            val photo = if (json.has("photo") && !json.isNull("photo")) json.get("photo") as? String else null
+            val generation = if (json.opt("generation") is Int || json.opt("generation") is Long) json.getLong("generation") else null
+            val userId = json.opt("userId") as? String
+            val sessionId = json.opt("sessionId") as? String
             if (id == null || !id.matches(Regex("[A-Za-z0-9_-]{1,80}")) || action !in actions ||
-                !setOf("id", "action", "forceRefresh").containsAll(keys) ||
+                !allowedKeys.containsAll(keys) || (!photoUpdate && raw.length > 2048) ||
+                (photoUpdate && (keys != allowedKeys || (!json.isNull("photo") && (photo == null || !validPhoto(photo))) ||
+                    generation == null || generation < 0 || generation > 9_007_199_254_740_991L ||
+                    userId == null || userId.isEmpty() || userId.length > 256 || sessionId == null || sessionId.isEmpty() || sessionId.length > 256)) ||
                 (json.has("forceRefresh") && (action != "getRelayToken" || json.get("forceRefresh") !is Boolean))) null
-            else Request(id, action!!, json.optBoolean("forceRefresh", false))
+            else Request(id, action!!, json.optBoolean("forceRefresh", false), photo, generation, userId, sessionId)
         }
     } catch (_: Exception) { null }
 }

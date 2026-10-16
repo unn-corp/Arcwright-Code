@@ -56,7 +56,7 @@ public final class AgentNotificationService extends Service {
         }
         // Refreshing credentials or opening the app must not repost a dismissed healthy status.
         if (notificationState.start()) {
-            android.app.Notification notification = ongoing("Connecting to your environments");
+            android.app.Notification notification = ongoing("Background conversation alerts are enabled");
             if (Build.VERSION.SDK_INT >= 29) startForeground(ONGOING_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
             else startForeground(ONGOING_ID, notification);
         }
@@ -67,7 +67,7 @@ public final class AgentNotificationService extends Service {
         PendingIntent stop = PendingIntent.getService(this, 0, new Intent(this, AgentNotificationService.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, NativeNotifications.CONNECTION)
             .setSmallIcon(R.drawable.notification_icon).setContentTitle("Arcwright Code background alerts").setContentText(text)
-            .setOnlyAlertOnce(true).setOngoing(true).setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOnlyAlertOnce(true).setOngoing(false).setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setSilent(true).setPriority(NotificationCompat.PRIORITY_LOW).setShowWhen(false)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_NONE)
             .setContentIntent(NativeNotifications.tap(this, "/settings"))
@@ -77,8 +77,6 @@ public final class AgentNotificationService extends Service {
         if (destroyed) return;
         long live = connections.values().stream().filter(connection -> connection.connected).count();
         NativeNotifications.store(this).edit().putInt("connectedCount", (int) live).apply();
-        String changed = notificationState.changedStatus((int) live, connections.size());
-        if (changed != null) getSystemService(android.app.NotificationManager.class).notify(ONGOING_ID, ongoing(changed));
     }
     private void sync() {
         if (destroyed) return;

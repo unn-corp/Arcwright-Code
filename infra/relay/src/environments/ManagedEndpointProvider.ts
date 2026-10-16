@@ -80,9 +80,6 @@ const ManagedEndpointProvisioningStage = Schema.Literals([
   "sync-origin",
 ]);
 
-// Why a stage failed without an underlying error. `claim-lost` means another
-// provision, release, or deprovision changed the allocation's generation or
-// tunnel after this one loaded it.
 const ManagedEndpointProvisioningFailureReason = Schema.Literals([
   "claim-lost",
   "endpoint-mismatch",
@@ -207,10 +204,6 @@ export class ManagedEndpointProvider extends Context.Service<
       readonly expectedTarget?: Target;
       readonly expectedInactiveBefore?: string;
       readonly expectedStatus?: "inactive" | "down";
-      /**
-       * Record that cleanup removed a legacy host's tunnel, so status tells the
-       * user to update. Other releases leave hosts that recover on their own.
-       */
       readonly markReleased?: boolean;
     }) => Effect.Effect<boolean, ManagedEndpointDeprovisioningFailed>;
   }

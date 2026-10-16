@@ -40,7 +40,6 @@ export const readCliDesiredLinkMode = Effect.gen(function* () {
   if (Option.isNone(value)) {
     return "managed" as CliDesiredLinkMode;
   }
-  // Legacy links stored the literal "true" and are always managed.
   return new TextDecoder().decode(value.value) === "publish_only"
     ? ("publish_only" as CliDesiredLinkMode)
     : ("managed" as CliDesiredLinkMode);
@@ -61,11 +60,6 @@ export const setCliDesiredCloudLink = Effect.fn("cloud.cli_state.set_desired")(f
   }
 });
 
-/**
- * Drops a link the relay rejected, keeping the sign-in and preferences, so the
- * next start links this environment again. `t3 connect link` calls it: the
- * server never relinks a revoked link on its own. Returns whether it dropped one.
- */
 export const dropRevokedCloudLink = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   if (Option.isNone(yield* secrets.get(CLOUD_LINK_REVOKED))) {

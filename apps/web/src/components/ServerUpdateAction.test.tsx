@@ -186,8 +186,6 @@ describe("ServerUpdateProgress", () => {
     );
 
     expect(markup).toContain("Restarting…");
-    // The wait state is monochrome and calm: no versions, no step rail, no
-    // success/warning colors, and a static dot that never repaints.
     expect(markup).not.toContain("0.0.30");
     expect(markup).not.toContain("Resum");
     expect(markup).not.toContain("text-success");

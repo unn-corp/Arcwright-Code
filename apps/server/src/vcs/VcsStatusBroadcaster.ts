@@ -509,9 +509,6 @@ export const make = Effect.gen(function* () {
         const remote = yield* workflow.remoteStatus({ cwd }, options);
         const pulled = yield* maybeAutoPull(cwd, remote, options?.policyCwds ?? [cwd]);
         if (pulled !== null) return pulled.remote;
-        // Local status holds the Changes totals, which compare against remote refs. A fetch can
-        // move them with no local trigger (a push from a terminal, a PR merged on the host), so
-        // re-read local status on the first fetch and whenever divergence moves.
         if (
           options?.forceLocalRefresh ||
           (remote &&

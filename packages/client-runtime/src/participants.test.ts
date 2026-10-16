@@ -15,6 +15,7 @@ import {
   resolveMessageParticipant,
   resolveHumanParticipant,
   seedProfile,
+  syncAccountProfile,
 } from "./participants.ts";
 
 const alice = { id: "account:alice", name: "Alice", photo: "https://example.com/alice.png" };
@@ -32,6 +33,36 @@ const run = {
 };
 
 describe("participant profiles", () => {
+  it("follows canonical account photos and removal while preserving names and legacy choices", () => {
+    const first = syncAccountProfile(undefined, alice, []);
+    const next = syncAccountProfile(
+      { ...first, participant: { ...first.participant, name: "Chosen" } },
+      { ...alice, photo: "https://example.com/new.png" },
+      [],
+    );
+    expect(next.participant).toMatchObject({
+      name: "Chosen",
+      photo: "https://example.com/new.png",
+    });
+    const initials = syncAccountProfile(next, { ...alice, photo: null }, []);
+    expect(initials.participant.photo).toBeNull();
+    expect(syncAccountProfile(initials, { ...alice, photo: null }, [])).toBe(initials);
+    const legacy = seedProfile(undefined, { ...alice, photo: "data:image/webp;base64,AA==" }, []);
+    expect(syncAccountProfile(legacy, alice, []).participant.photo).toBe(legacy.participant.photo);
+    const legacyWithoutImage = seedProfile(undefined, { ...alice, photo: null }, []);
+    expect(syncAccountProfile(legacyWithoutImage, alice, []).participant.photo).toBe(alice.photo);
+    expect(
+      syncAccountProfile({ ...legacyWithoutImage, photoSource: "custom" }, alice, []).participant
+        .photo,
+    ).toBeNull();
+    const profiles = { "account:alice": next };
+    expect(
+      resolveHumanParticipant(alice, {
+        participantProfiles: profiles,
+        activeParticipantProfile: "account:alice",
+      }).photo,
+    ).toBe(next.participant.photo);
+  });
   it("seeds the first personal account and preserves its photo across later connections", () => {
     const first = seedProfile(undefined, alice, [
       { id: "github", label: "GitHub", photo: alice.photo },

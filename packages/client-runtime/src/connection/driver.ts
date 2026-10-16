@@ -61,16 +61,10 @@ export class ConnectionDriver extends Context.Service<
       reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
       relayRetry?: RelayRetryPolicy,
     ) => Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, Scope.Scope>;
-    /** Whether a direct route answers as the entry's environment, without credentials. */
     readonly checkRoute: (
       entry: ConnectionCatalogEntry,
       route: ConnectionRoute,
     ) => Effect.Effect<RouteCheck>;
-    /**
-     * Whether a direct route answers and accepts this client's credential,
-     * without opening a socket. Switching to a route that fails this would
-     * drop a working connection for nothing.
-     */
     readonly preflight: (
       entry: ConnectionCatalogEntry,
       route: ConnectionRoute,

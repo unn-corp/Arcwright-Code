@@ -67,6 +67,10 @@ export const DesktopConfig = Config.all({
   urlHandlerExecTarget: trimmedString("T3CODE_URL_HANDLER_EXEC_TARGET"),
   appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate,
+  mockUpdates: Config.Boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
+  mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
+    Config.withDefault(3000),
+  ),
 });
 
 export const layerTest = (env: Readonly<Record<string, string | undefined>>) =>

@@ -18,12 +18,13 @@ type CollapsedStatusThread = Omit<SidebarThreadSummary, "lastVisitedAt"> & {
 export function summarizeCollapsedThreadStatuses(
   threads: ReadonlyArray<CollapsedStatusThread>,
   localVisits: Readonly<Record<string, string>>,
+  includeFailures = true,
 ) {
   const counts = { input: 0, failed: 0, done: 0 };
   for (const thread of threads) {
     const status = resolveSidebarThreadStatus(thread);
     if (status === "input" || status === "approval") counts.input += 1;
-    else if (status === "failed" || status === "limited") counts.failed += 1;
+    else if (includeFailures && (status === "failed" || status === "limited")) counts.failed += 1;
     else if (
       status === "ready" &&
       hasUnseenCompletion({
@@ -43,12 +44,16 @@ export function summarizeCollapsedThreadStatuses(
 export function CollapsedThreadStatusIndicators({
   threads,
   id,
+  includeFailures = true,
 }: {
   threads: ReadonlyArray<CollapsedStatusThread>;
   id?: string;
+  includeFailures?: boolean;
 }) {
   const counts = useUiStateStore(
-    useShallow((state) => summarizeCollapsedThreadStatuses(threads, state.threadLastVisitedAtById)),
+    useShallow((state) =>
+      summarizeCollapsedThreadStatuses(threads, state.threadLastVisitedAtById, includeFailures),
+    ),
   );
   const badges = [
     {

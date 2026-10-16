@@ -28,6 +28,7 @@ export const ParticipantProfile = Schema.Struct({
   participant: HumanParticipant,
   initialized: Schema.Boolean,
   accounts: Schema.Array(ConnectedProfileAccount),
+  photoSource: Schema.optionalKey(Schema.Literals(["account", "custom"])),
 });
 export type ParticipantProfile = typeof ParticipantProfile.Type;
 export const ParticipantProfiles = Schema.Record(Schema.String, ParticipantProfile);

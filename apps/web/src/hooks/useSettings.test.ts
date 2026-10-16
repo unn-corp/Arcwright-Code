@@ -244,6 +244,15 @@ describe("persistClientSettingsPatch", () => {
 });
 
 describe("persistClientSettingsUpdate", () => {
+  it("does not persist or publish an unchanged profile refresh", async () => {
+    __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+    const persist = vi.fn();
+    await expect(persistClientSettingsUpdate((current) => current, persist)).resolves.toBe(
+      DEFAULT_CLIENT_SETTINGS,
+    );
+    expect(persist).not.toHaveBeenCalled();
+    expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
+  });
   it("publishes the update only after persistence succeeds", async () => {
     let finishPersistence!: () => void;
     const persistence = new Promise<void>((resolve) => {

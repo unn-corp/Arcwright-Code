@@ -4,6 +4,7 @@ import { resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
 import { resolveClerkSignInProps } from "../components/clerk/authRedirect";
 import { isElectron } from "../env";
 import { ManagedAuthContext, type AccountModalPage } from "./managedAuthContext";
+import { isProfileThumbnail, serializeProfilePhoto } from "./profilePhoto";
 
 /** Only mounted inside the selected browser/Electron ClerkProvider. */
 export function ClerkManagedAuthAdapter({ children }: { readonly children: ReactNode }) {
@@ -26,6 +27,29 @@ export function ClerkManagedAuthAdapter({ children }: { readonly children: React
     },
     [clerk, generation, getToken, isSignedIn, sessionId, userId],
   );
+  const setProfilePhoto = useCallback(
+    async (photo: string | null) => {
+      const captured = generation;
+      const user = clerk.user;
+      const current = () =>
+        clerk.session?.id === sessionId &&
+        clerk.user?.id === userId &&
+        logoutFence.current !== captured;
+      if (!isSignedIn || !sessionId || !userId || !user || !current())
+        throw new Error("Account changed. Please try again.");
+      if (photo !== null && !isProfileThumbnail(photo))
+        throw new Error("Choose a bounded profile thumbnail.");
+      return serializeProfilePhoto(userId, async () => {
+        if (!current()) throw new Error("Account changed. Please try again.");
+        await user.setProfileImage({ file: photo });
+        if (!current()) throw new Error("Account changed. Please try again.");
+        const updated = await user.reload();
+        if (!current()) throw new Error("Account changed. Please try again.");
+        return updated.hasImage ? updated.imageUrl : null;
+      });
+    },
+    [clerk, generation, isSignedIn, sessionId, userId],
+  );
   const value = useMemo(
     () => ({
       surface: isElectron ? ("electron" as const) : ("browser" as const),
@@ -37,6 +61,7 @@ export function ClerkManagedAuthAdapter({ children }: { readonly children: React
       error: null,
       isSigningIn: false,
       getRelayToken,
+      setProfilePhoto,
       openSignIn: () => clerk.openSignIn(resolveClerkSignInProps(window.location.href, isElectron)),
       signOut: async () => {
         logoutFence.current = generation;
@@ -48,7 +73,7 @@ export function ClerkManagedAuthAdapter({ children }: { readonly children: React
           customPages: pages,
         }),
     }),
-    [clerk, generation, getRelayToken, isLoaded, isSignedIn, sessionId, userId],
+    [clerk, generation, getRelayToken, isLoaded, isSignedIn, sessionId, setProfilePhoto, userId],
   );
   return <ManagedAuthContext value={value}>{children}</ManagedAuthContext>;
 }

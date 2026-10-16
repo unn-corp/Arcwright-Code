@@ -61,7 +61,6 @@ export interface ServerUpdateTarget {
 
 type UpdateButtonProps = Pick<ComponentProps<typeof Button>, "variant" | "size" | "className"> & {
   readonly label?: string;
-  /** "icon" renders a compact icon button with the label in a tooltip. */
   readonly appearance?: "button" | "icon";
 };
 
@@ -122,7 +121,6 @@ export function useServerUpdate() {
   };
 }
 
-/** Updates eligible machines independently; manual paths remain in the machine list. */
 export function ServerUpdatesAction({
   targets,
   label = "Update all",
@@ -183,12 +181,6 @@ export function canUpdateServer(
   return sessionGrantsScope(result.value, AuthEnvironmentMaintainScope);
 }
 
-/**
- * One-row status for an in-flight server update: "Downloading…" then
- * "Restarting…". The update is a wait, not a warning: a single static dot
- * and label, no step rail, no versions. Failure turns the row red with the
- * rollback reason.
- */
 export function ServerUpdateProgress({
   state,
 }: {

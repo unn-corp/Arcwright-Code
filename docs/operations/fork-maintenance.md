@@ -350,13 +350,22 @@ devices. Regression coverage lives in `UsagePage.refresh.test.tsx`,
 The shared participant contracts and client-runtime resolver retain message-time author photos
 and model attribution. Web, desktop and fork Android use the same chip and profile settings;
 upstream native mobile renders the shared attribution with its own chip. Preserve first personal
-account initialization, per-principal local profiles, manual photo choices, bounded raster
+account initialization, per-principal local profiles, manual names and legacy photo choices, bounded raster
 thumbnails, broken-photo initials, and instance colors through timeline and auth refactors.
 Provider credentials must never initialize human profiles. Author metadata is display information,
 not proof of authorization. Replies must canonicalize their author snapshots from the target.
 The fork APK uses its native session's optional public-profile request instead of Clerk browser
 hooks. That read and deferred local persistence are fenced to the captured account/session/generation;
 transient failure retains existing edits and metadata, and confirmed sign-out selects the local profile.
+Signed-in photo changes use Clerk's user-owned image API on web/Electron and the native SDK on
+the fork APK. `photoSource` distinguishes canonical account photos from retained local choices;
+new account profiles follow the account photo, including removal, without overriding manual names.
+Legacy null photos without a source marker also follow the account, so a previously photo-free
+account can receive an upload from another device; explicit `custom` choices remain local.
+Visible clients refresh on focus and at most once per minute on the interval; identical profiles
+do not cause persistence writes. The APK's photo mutation accepts only bounded WebP thumbnails
+with an exact account/session/generation fence, validates native image dimensions, and deletes
+its temporary upload file in `finally`. No arbitrary URL or credential capability is added.
 
 Known human authors resolve from current client profiles across chat, pinned chips and replies;
 unattributed legacy messages use the active profile, while unknown recorded authors retain their
@@ -377,7 +386,9 @@ component tests cover these boundaries.
 
 Focused coverage lives in the participant contract/runtime tests, `ParticipantChip.test.tsx`,
 `ParticipantProfileSync.test.tsx`, `AndroidParticipantProfileSync.test.tsx`, the native
-`ConnectParticipantProfileTest`, and `MessageReplies.integration.test.ts`. Keep plain and bubble
+`ConnectParticipantProfileTest`, `ConnectAuthProtocolTest`,
+`ParticipantProfileSettings.account.test.tsx`, `participantProfileRefresh.test.ts`, and
+`MessageReplies.integration.test.ts`. Keep plain and bubble
 messages, reply chains and related-agent lists using the same identity rules. See
 [chat profiles](../user/appearance.md#chat-participants-and-your-profile).
 
@@ -620,6 +631,14 @@ admission reopens. Keep oldest-first polling from moving the cursor past an unco
 This is host functionality, not an APK or cloud-push feature.
 
 ## Updates and recovery
+
+Desktop app delivery uses upstream `DesktopUpdates` / `ElectronUpdater` and the
+upstream renderer controls. `forkDesktopFeed` only selects an eligible owned release
+and maps the numbered fork tag to an immutable GenericProvider directory. Native
+Android and service maintenance keep their coordinator. Legacy desktop maintenance
+is retained for startup recovery, with its poller disabled. Explicit desktop install
+stops backends without an idle wait; auto-download and auto-install-on-quit remain off.
+The older coordinator details below describe Android/services and legacy transactions.
 
 Automatic thread settlement is passive bookkeeping for maintenance admission. It must
 retain its write lease and refuse a held fence without resetting agent idleness.
@@ -977,3 +996,5 @@ native provider instances share a bucket, retain every configured name and show 
 in account details; never hide a configured instance behind the first label or count its quota twice.
 
 The [October 15 upstream integration](upstream-integration-20261015.md) records ownership and regression coverage for the read-only SQLite worker, fork migration 108, strict backup headroom, physical Windows dependency staging, and retained client features.
+
+See the [16 October upstream integration](./upstream-20261016.md) for pinned commits, preserved paths, update behavior and verification boundaries.

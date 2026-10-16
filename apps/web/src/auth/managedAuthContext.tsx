@@ -24,6 +24,8 @@ export interface ManagedAuth {
   readonly openSignIn: () => void;
   readonly signOut: () => Promise<void>;
   readonly openAccountPages: ((pages: AccountModalPage[], startPath: string) => void) | null;
+  /** Bounded raster thumbnail, or null to remove the account image. */
+  readonly setProfilePhoto?: (photo: string | null) => Promise<string | null>;
 }
 
 const cloudless: ManagedAuth = {

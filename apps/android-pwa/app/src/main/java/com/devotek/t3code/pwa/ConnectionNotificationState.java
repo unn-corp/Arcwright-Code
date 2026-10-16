@@ -1,21 +1,12 @@
 package com.devotek.t3code.pwa;
 
-/** Keep an unchanged foreground-service status from resurfacing after the user dismisses it. */
+/** Reconnecting or refreshing credentials must not repost a dismissed service notification. */
 final class ConnectionNotificationState {
-    private String postedText;
+    private boolean started;
 
     synchronized boolean start() {
-        if (postedText != null) return false;
-        postedText = "Connecting to your environments";
+        if (started) return false;
+        started = true;
         return true;
-    }
-
-    synchronized String changedStatus(int connected, int total) {
-        String text = connected == total && total > 0
-            ? "Background agent alerts are ready"
-            : connected + " of " + total + " environments connected · Reconnecting";
-        if (text.equals(postedText)) return null;
-        postedText = text;
-        return text;
     }
 }

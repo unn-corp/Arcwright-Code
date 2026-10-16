@@ -28,6 +28,7 @@ export default function AndroidManagedAuthShell({
       isSigningIn: status.phase === "signingIn",
       isUnavailable: !status.available,
       getRelayToken: (forceRefresh = false) => androidAuthStore.getRelayToken(forceRefresh, status),
+      setProfilePhoto: (photo: string | null) => androidAuthStore.setProfilePhoto(photo, status),
       openSignIn: androidAuthStore.signIn,
       signOut: androidAuthStore.signOut,
       openAccountPages: null,

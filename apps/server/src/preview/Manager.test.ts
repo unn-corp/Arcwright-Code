@@ -10,7 +10,6 @@ import * as PreviewManager from "./Manager.ts";
 const DRAIN_LIMIT = 100;
 
 interface EventCollector {
-  /** Drain everything published since the last call (or since subscribe). */
   readonly drain: Effect.Effect<ReadonlyArray<PreviewEvent>>;
 }
 
@@ -67,10 +66,6 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const opened = yield* manager.open({ threadId, profileId: "work" });
       expect(opened.profileId).toBe("work");
 
-      // `navigate` and `reportStatus` rebuild the snapshot field by field
-      // rather than spreading it, so a new field is dropped unless carried
-      // explicitly — which would silently move the tab to another profile's
-      // partition on its first navigation.
       const navigated = yield* manager.navigate({
         threadId,
         tabId: opened.tabId,

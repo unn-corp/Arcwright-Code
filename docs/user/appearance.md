@@ -29,11 +29,14 @@ web, desktop, or fork Android client and also applies while replies stream.
 
 ## Chat participants and your profile
 
-Open **Settings → General → Profile** to set your chat name and upload a photo, choose a
-connected personal account's photo, or use initials. Your first personal sign-in initializes
-that account's profile. Later account connections preserve your choices. Provider API keys and
-environment Git credentials do not set your personal photo. Profile preferences are local to
-this device or browser; sent messages carry their name and photo to other connected clients. On this client,
+Open **Settings → General → Profile** to set your chat name, upload a photo, or use initials.
+When signed in, uploading a photo or choosing initials updates your Arcwright Connect account.
+Other signed-in web, desktop, and fork Android clients refresh that photo when brought forward
+and about once a minute while visible. Removing the photo also syncs; it does not restore an
+older Google image. Your chosen chat name stays local to each device or browser. Older manually
+uploaded device photos stay in place until you replace them; unsigned profiles remain
+local. Provider API keys and environment Git credentials do not set your personal photo.
+Sent messages carry their name and photo to other connected clients. On this client,
 messages and replies by a known user display that user’s current profile, including
 older chats. Older messages without a recorded author use your active profile.
 Messages by other recorded users keep their identity; changing your profile does not rewrite history.

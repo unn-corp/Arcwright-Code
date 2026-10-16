@@ -21,12 +21,6 @@ import { OtlpHeadersFromString, OtlpProtocol, type SignalExport } from "./observ
 /** The signals Arcwright Code exports, spelled as the variable names spell them. */
 type OtlpSignalName = "TRACES" | "METRICS" | "LOGS";
 
-/**
- * What the OTEL variables say about one signal. `Off` is a signal they
- * claimed with an endpoint, protocol, or headers that do not read, or turned
- * off with `OTEL_<SIGNAL>_EXPORTER=none`, so it is exported nowhere rather
- * than to the bootstrap or Settings collector.
- */
 export type OtelSignal = Data.TaggedEnum<{
   Unset: {};
   Off: {};
@@ -39,25 +33,20 @@ export type OtelSignal = Data.TaggedEnum<{
 export const OtelSignal = Data.taggedEnum<OtelSignal>();
 
 export interface OtelEnvironment {
-  /** Whether OTLP export is off, whatever endpoint is configured. */
   readonly disabled: boolean;
-  /** Messages for the caller to log once at startup. */
   readonly warnings: ReadonlyArray<string>;
-  /** `OTEL_RESOURCE_ATTRIBUTES`, or nothing when it could not be read. */
   readonly resourceAttributes: Readonly<Record<string, string>>;
   readonly traces: OtelSignal;
   readonly metrics: OtelSignal;
   readonly logs: OtelSignal;
 }
 
-/** A set but blank value reads as unset, so the source under it can answer. */
 const blankAsUnset = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
   return trimmed === undefined || trimmed === "" ? undefined : trimmed;
 };
 
 interface Flag {
-  /** `undefined` when the variable is unset, blank, or unreadable. */
   readonly value: boolean | undefined;
   readonly warning?: string;
 }
@@ -71,10 +60,6 @@ const TrimmedLowercase = Schema.String.pipe(
   ),
 );
 
-/**
- * Reads a boolean that accepts `truthy` and `falsy`, ignoring case and padding.
- * Any other value is ignored with a warning rather than failing startup.
- */
 const flag = (
   name: string,
   truthy: ReadonlyArray<string>,
@@ -110,7 +95,6 @@ interface ResourceAttributes {
   readonly warning?: string;
 }
 
-// The schema Effect's OTLP exporters read this variable with.
 const resourceAttributes = Config.Record(
   Schema.StringFromUriComponent,
   Schema.StringFromUriComponent,
@@ -134,10 +118,6 @@ interface Setting<A> {
   readonly warning?: string;
 }
 
-/**
- * Reads one variable. Blank reads as unset, and a value `parse` rejects warns
- * without echoing it, since these variables carry credentials.
- */
 const readOrWarn = <A>(
   name: string,
   parse: (raw: string) => Option.Option<A>,
@@ -243,16 +223,9 @@ const withSignalPath = (signal: OtlpSignalName, base: URL) => {
 
 interface ResolvedSignal {
   readonly signal: OtelSignal;
-  /** The settings this signal read, whose warnings are the signal's to report. */
   readonly used: ReadonlyArray<Setting<unknown>>;
 }
 
-/**
- * A signal whose endpoint, protocol, or headers do not read is not exported
- * rather than sent somewhere, in a format, or without the credentials its
- * collector expects. `none` turns the signal off before any of those are read,
- * whether or not an endpoint was named.
- */
 const signal = (
   name: OtlpSignalName,
   exporter: Setting<Exporter>,
@@ -320,7 +293,6 @@ export const load: Effect.Effect<OtelEnvironment> = Config.all({
 }).pipe(
   Effect.map(({ t3, spec, resource, generic, exporters, ...own }) => {
     const disabled = t3.value ?? spec.value ?? false;
-    // The kill switch wins outright, so the signals say nothing once it is set.
     const signals = disabled
       ? undefined
       : {
@@ -328,7 +300,6 @@ export const load: Effect.Effect<OtelEnvironment> = Config.all({
           metrics: signal("METRICS", exporters.metrics, own.metrics, generic),
           logs: signal("LOGS", exporters.logs, own.logs, generic),
         };
-    // A generic variable read by several signals warns once.
     const used = new Set(
       signals === undefined ? [] : Object.values(signals).flatMap((resolved) => resolved.used),
     );
@@ -354,7 +325,6 @@ export const load: Effect.Effect<OtelEnvironment> = Config.all({
       logs: signals?.logs.signal ?? OtelSignal.Unset(),
     };
   }),
-  // Every read above falls back instead of failing, so this cannot happen.
   Effect.orDie,
 );
 
@@ -410,13 +380,11 @@ export const layerResourceAttributes = (attributes: Readonly<Record<string, stri
           .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
           .join(","),
       },
-      // Keeps an emptied list from falling through to the raw value.
       preserveEmptyStrings: true,
     }),
     { asPrimary: true },
   );
 
-/** An environment that asked for nothing, for tests and for the pairing CLI. */
 export const none: OtelEnvironment = {
   disabled: false,
   warnings: [],

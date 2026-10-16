@@ -5,13 +5,14 @@ import {
 import { WS_METHODS } from "@t3tools/contracts";
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { RunLimitsPanel } from "../settings/RunLimitsPanel";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
+import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
 import { useWorktreeSetup } from "./use-worktree-setup";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
-import { ScreenHeader } from "../../components/ScreenHeader";
+import { AppBar } from "../../components/ui/AppBar";
 import {
   StackActions,
   useFocusEffect,
@@ -44,7 +45,7 @@ import { recoverFailedThreadDraft } from "../../state/recover-failed-thread-draf
 import { useEnvironmentQuery } from "../../state/query";
 import { dismissGitActionResult, useGitActionProgress } from "../../state/use-vcs-action-state";
 import { vcsEnvironment } from "../../state/vcs";
-import { EmptyState } from "../../components/EmptyState";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
@@ -117,8 +118,6 @@ function InspectorPaneRoleActivation() {
   return null;
 }
 
-// A blank param (a hand-typed deep link) is treated as missing, since branded
-// IDs reject whitespace-only values.
 function firstRouteParam(value: string | string[] | undefined): string | null {
   const first = Array.isArray(value) ? value[0] : value;
   return first === undefined || first.trim().length === 0 ? null : first;
@@ -140,7 +139,7 @@ function ThreadRouteFallbackLayout(props: { readonly children: ReactNode }) {
 
   return (
     <>
-      <ScreenHeader
+      <AppBar
         title="Thread"
         options={{ contentStyle: { backgroundColor: themeVariables["--color-header"] } }}
         onBack={layout.usesSplitView ? undefined : returnToList}
@@ -166,7 +165,6 @@ function OpeningThreadLoadingScreen() {
 type ThreadRouteScreenRouteProps = StaticScreenProps<{
   readonly environmentId: string;
   readonly threadId: string;
-  /** A prompt link's draft text. See useThreadPromptLink. */
   readonly prompt?: string | string[];
 }>;
 
@@ -175,7 +173,6 @@ interface ThreadRouteScreenProps extends ThreadRouteScreenRouteProps {
   readonly renderInspector?: (headerInset: number) => ReactNode;
 }
 
-/** Shows recovery only after the target route has reached a terminal unavailable state. */
 function ThreadUnavailableScreen(props: {
   readonly actionLabel: string;
   readonly onAction: () => void;
@@ -233,11 +230,6 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
     return <OpeningThreadLoadingScreen />;
   }
 
-  // Render the full thread chrome (header, feed, composer) as soon as the
-  // thread SHELL is known — no blocking on message detail. The feed shows a
-  // loading placeholder while messages fetch, the floating pill above the
-  // composer reports loading/syncing, and the composer's connection pill
-  // reports connecting/reconnecting status.
   if (selectedThread !== null && selectedThreadKey === routeThreadKey) {
     return <ThreadRouteContent {...props} selectedThreadDetailState={selectedThreadDetailState} />;
   }
@@ -288,6 +280,7 @@ function ThreadRouteContent(
   const {
     selectedThread,
     selectedThreadCreation,
+    selectedThreadDetailRef,
     selectedThreadProject,
     selectedEnvironmentConnection,
   } = useThreadSelection();
@@ -430,9 +423,6 @@ function ThreadRouteContent(
     useCallback(() => {
       return () => {
         if (props.renderInspector === undefined) {
-          // Inspectors are contextual to this chat destination. Clear the
-          // hidden chat copy after a native push so returning from Files,
-          // Review, or Terminal cannot reserve an empty trailing pane.
           setInspectorSelection(null);
         }
       };
@@ -493,7 +483,6 @@ function ThreadRouteContent(
     [composer.interactionMode, composer.modelSelection, composer.runtimeMode, selectedThread],
   );
 
-  /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
   const headerSubtitle = [
     selectedThreadProject?.title ?? null,
@@ -501,7 +490,6 @@ function ThreadRouteContent(
   ]
     .filter(Boolean)
     .join(" · ");
-  /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
@@ -530,7 +518,6 @@ function ThreadRouteContent(
     onReconnectEnvironment(environmentId);
   }, [environmentId, onReconnectEnvironment]);
 
-  /* ─── Git action progress (for overlay banner) ──────────────────── */
   const gitActionProgressTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
@@ -615,9 +602,6 @@ function ThreadRouteContent(
     },
     [fileInspector.supported, navigation, selectedThread],
   );
-  // The workspace inspector column spans the full window height. On iOS the
-  // panes bring their own nested native headers (which underlap the status
-  // bar); elsewhere the pane content pads itself below the top inset.
   const safeAreaInsets = useSafeAreaInsets();
   const inspectorHeaderInset = Platform.OS === "ios" ? 0 : safeAreaInsets.top;
   const GitInspector = useCallback(
@@ -676,9 +660,6 @@ function ThreadRouteContent(
     ],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
-  // Hand the inspector to the workspace so it renders beside the navigator,
-  // outside this screen's native header — the terminal/git/files toolbar
-  // stays anchored to the chat pane instead of floating above the inspector.
   useRegisterWorkspaceInspector(activeInspectorRenderer);
 
   const handleOpenConnectionEditor = useCallback(() => {
@@ -889,7 +870,7 @@ function ThreadRouteContent(
     try {
       await recoverFailedThreadDraft(creation);
     } catch (error) {
-      Alert.alert(
+      Dialog.alert(
         "Could not restore draft",
         error instanceof Error ? error.message : String(error),
       );
@@ -1043,6 +1024,7 @@ function ThreadRouteContent(
         <ThreadDetailScreen
           canOperateThread={canOperateThread}
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
+          selectedThreadDetailRef={selectedThreadDetailRef}
           contentPresentation={contentPresentation}
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}

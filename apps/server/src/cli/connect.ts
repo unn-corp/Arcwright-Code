@@ -106,7 +106,6 @@ function formatDeviceAuthorizationPrompt(
   ].join("\n");
 }
 
-/** Returns the connected account identity, if the flow could determine one. */
 const authorizeCli = Effect.fn("cloud.cli.authorize")(function* (options: {
   readonly headless: boolean;
 }) {
@@ -119,8 +118,6 @@ const authorizeCli = Effect.fn("cloud.cli.authorize")(function* (options: {
     }
     yield* Console.log("\nHeadless mode enabled. A new authorization link is ready below.");
   }
-  // A stored credential whose refresh fails (revoked, expired grant) must
-  // fall through to a fresh device authorization, not dead-end the command.
   const existing = yield* tokens.getExisting.pipe(
     Effect.catchTags({
       CloudCliCredentialRefreshError: () =>
@@ -159,7 +156,6 @@ interface CloudCliStatus {
   readonly desired: boolean;
   readonly authenticated: boolean;
   readonly linked: boolean;
-  // The relay rejected the stored link, usually after a Deregister.
   readonly revoked: boolean;
   readonly cloudUserId: string | null;
   readonly relayUrl: string | null;
@@ -808,13 +804,8 @@ export const connectCommand = Command.make("connect", {
         if (!linked) {
           return;
         }
-        // Show which account was linked so an unexpected identity (an
-        // authorization code for a different account) is visible before the
-        // machine is brought online.
         yield* Console.log(`✓ Authorized${connectedAs(linked.identity)}`);
 
-        // Authorization is stored. If service setup fails, preserve it and
-        // show how to run the server manually.
         const background = yield* recoverServiceOnboardingOffer(offerServiceDuringOnboarding);
         if (background) {
           const platform = yield* HostProcess.Platform;

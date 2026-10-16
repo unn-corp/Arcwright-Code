@@ -7,7 +7,7 @@ import {
   participantColor,
   type Participant,
 } from "@t3tools/client-runtime/participants";
-import { AppText as Text } from "./AppText";
+import { AppText as Text } from "./ui/AppText";
 import { ProviderIcon } from "./ProviderIcon";
 
 export function ParticipantChip({ participant }: { participant: Participant }) {

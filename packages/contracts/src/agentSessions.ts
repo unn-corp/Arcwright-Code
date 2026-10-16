@@ -2,11 +2,9 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
-/** Coding agent home directories the scanner knows how to read. */
 export const AgentSessionSource = Schema.Literals(["claudeAgent", "codex"]);
 export type AgentSessionSource = typeof AgentSessionSource.Type;
 
-/** File identity saved with an imported session so bounded retries can skip unchanged history. */
 export const AgentSessionImportSource = Schema.Struct({
   provider: AgentSessionSource,
   providerInstanceId: ProviderInstanceId,
@@ -20,10 +18,6 @@ export const AgentSessionImportSource = Schema.Struct({
 });
 export type AgentSessionImportSource = typeof AgentSessionImportSource.Type;
 
-/**
- * Empty for now. Kept as a struct so future scan options (source filters,
- * explicit roots) can be added without a new method.
- */
 export const AgentSessionScanInput = Schema.Struct({});
 export type AgentSessionScanInput = typeof AgentSessionScanInput.Type;
 
@@ -52,11 +46,6 @@ export const AgentSessionProjectCandidate = Schema.Struct({
   threadCount: NonNegativeInt,
   lastActiveAt: Schema.NullOr(IsoDateTime),
   alreadyImported: Schema.Boolean,
-  /**
-   * `null` when the directory is not the root of a git repository. Missing on
-   * servers that predate the git scan, where the client cannot tell repositories
-   * from plain folders and should treat every candidate as a standalone project.
-   */
   git: Schema.optionalKey(Schema.NullOr(AgentSessionProjectGit)),
 });
 export type AgentSessionProjectCandidate = typeof AgentSessionProjectCandidate.Type;

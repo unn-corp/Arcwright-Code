@@ -81,6 +81,31 @@ export function seedProfile(
     accounts,
   };
 }
+
+/** Refresh account photos without overwriting a chosen name or a legacy local photo. */
+export function syncAccountProfile(
+  existing: ParticipantProfile | undefined,
+  participant: HumanParticipant,
+  accounts: ReadonlyArray<ConnectedProfileAccount>,
+): ParticipantProfile {
+  const photoSource =
+    existing?.photoSource ??
+    (existing?.initialized && existing.participant.photo?.startsWith("data:")
+      ? "custom"
+      : "account");
+  const next: ParticipantProfile = {
+    participant: existing?.initialized
+      ? {
+          ...existing.participant,
+          photo: photoSource === "account" ? participant.photo : existing.participant.photo,
+        }
+      : participant,
+    initialized: true,
+    accounts,
+    photoSource,
+  };
+  return existing && JSON.stringify(existing) === JSON.stringify(next) ? existing : next;
+}
 export function authorContext(
   context: import("@t3tools/contracts").OrchestrationMessageContext | undefined,
   author: HumanParticipant,

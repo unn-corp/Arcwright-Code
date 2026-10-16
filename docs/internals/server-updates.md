@@ -1,5 +1,12 @@
 # Server updates
 
+> Desktop app updates now follow upstream Electron's explicit check/download/install
+> flow. Confirmed installation stops owned backends and restarts without waiting
+> for idle chats. The legacy desktop maintenance poller is disabled; startup recovery
+> remains for already-recorded transactions. Coordinator admission, snapshots and
+> recovery described below apply to native Android/service maintenance and legacy
+> transactions. This does not authorize an agent to install over a running chat.
+
 Every way of installing or reversing a build on a device (App updates in the web or desktop UI, a
 remote client's RPC, `t3 maintenance`, MCP, the desktop's automatic gate) calls one controller,
 [`createForkMaintenanceController`](../../packages/shared/src/forkMaintenanceController.ts). It owns

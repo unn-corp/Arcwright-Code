@@ -112,6 +112,7 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
   SettingResetButton,
@@ -173,6 +174,7 @@ const PROJECT_AUTOMATION_SETTINGS = [
 }>;
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 
 const ProjectIconPickerDialog = lazy(() =>
   import("./ProjectIconPickerDialog").then((module) => ({
@@ -184,7 +186,6 @@ function memberKey(member: { environmentId: string; id: string }): string {
   return `${member.environmentId}:${member.id}`;
 }
 
-/** `project` is the Projects page shortcut: the new-thread defaults people change most. */
 export type ProjectSettingsCategory = "general" | "integrations" | "source-control" | "project";
 
 export function ProjectSettingsPanel({
@@ -229,8 +230,6 @@ export function ProjectSettingsPanel({
     };
   }, [selected, members, environmentId, checkoutKey]);
 
-  // A grouping-rule change replaces the group key mid-visit; follow the
-  // project to its new key instead of parking on the not-found state.
   useEffect(() => {
     if (members.length > 0) return;
     const last = lastSelectionRef.current;
@@ -578,8 +577,6 @@ function ProjectDetail({
     [reportFailure],
   );
 
-  // Group-shared fields live on each physical project record, so a
-  // group-level edit fans out to every member.
   const updateAllMembers = useCallback(
     async (
       input: Partial<{
@@ -618,8 +615,6 @@ function ProjectDetail({
           () => undefined,
         );
         if (result._tag === "Failure") {
-          // A partial fan-out is possible: earlier members already took the
-          // write. Name the environment so the user knows where it stopped.
           reportFailure(
             group.memberProjects.length > 1
               ? `${failureTitle} on ${member.environmentLabel ?? "the current environment"}`
@@ -991,26 +986,88 @@ function ProjectDetail({
     ],
   );
 
+  const checkoutsByEnvironment = new Map<EnvironmentId, SidebarProjectGroupMember[]>();
+  for (const member of group.memberProjects) {
+    const members = checkoutsByEnvironment.get(member.environmentId);
+    if (members) members.push(member);
+    else checkoutsByEnvironment.set(member.environmentId, [member]);
+  }
+  const checkoutRemoveButton = (member: SidebarProjectGroupMember) => (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!editableIds.has(member.environmentId)}
+      onClick={() => void removeMembers([member])}
+      aria-label={`Remove checkout ${member.workspaceRoot}`}
+    >
+      Remove
+    </Button>
+  );
   const checkoutChoices = (
     <SettingsSection title="Checkouts">
-      {group.memberProjects.map((member) => (
-        <SettingsRow
-          key={member.physicalProjectKey}
-          title={member.environmentLabel ?? "Environment"}
-          description={member.workspaceRoot}
-          control={
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!editableIds.has(member.environmentId)}
-              onClick={() => void removeMembers([member])}
-              aria-label={`Remove checkout ${member.workspaceRoot}`}
-            >
-              Remove
-            </Button>
-          }
-        />
-      ))}
+      {Array.from(checkoutsByEnvironment, ([environmentId, members]) => {
+        if (checkoutsByEnvironment.size === 1) {
+          return members.map((member) => (
+            <SettingsRow
+              key={member.physicalProjectKey}
+              title={member.environmentLabel ?? "Environment"}
+              description={member.workspaceRoot}
+              control={checkoutRemoveButton(member)}
+            />
+          ));
+        }
+        const firstMember = members[0]!;
+        const hasMultiple = members.length > 1;
+        const environment = environmentById.get(environmentId);
+        const labels = environment
+          ? settingsScopeEnvironmentLabels(environment, environments)
+          : { primary: firstMember.environmentLabel ?? "Environment", secondary: environmentId };
+        return (
+          <SettingsRow
+            key={environmentId}
+            title={labels.primary}
+            description={
+              <>
+                {labels.secondary ? (
+                  <span className="block truncate">{labels.secondary}</span>
+                ) : null}
+                {!hasMultiple ? (
+                  <Tooltip>
+                    <TooltipTrigger render={<span className="block truncate" />}>
+                      {firstMember.workspaceRoot}
+                    </TooltipTrigger>
+                    <TooltipPopup>{firstMember.workspaceRoot}</TooltipPopup>
+                  </Tooltip>
+                ) : null}
+              </>
+            }
+            control={hasMultiple ? undefined : checkoutRemoveButton(firstMember)}
+          >
+            {hasMultiple ? (
+              <div className="space-y-3 pb-2 pt-1">
+                {members.map((member) => (
+                  <div
+                    key={member.physicalProjectKey}
+                    className="flex min-w-0 items-center justify-between gap-3"
+                  >
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="min-w-0 truncate text-xs text-muted-foreground/80" />
+                        }
+                      >
+                        {member.workspaceRoot}
+                      </TooltipTrigger>
+                      <TooltipPopup>{member.workspaceRoot}</TooltipPopup>
+                    </Tooltip>
+                    <div className="shrink-0">{checkoutRemoveButton(member)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </SettingsRow>
+        );
+      })}
     </SettingsSection>
   );
 

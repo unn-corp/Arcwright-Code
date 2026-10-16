@@ -25,13 +25,11 @@ export const wakeHeldHooks = Effect.fn("HeldHooksWaker.wake")(function* () {
   return pending;
 });
 
-/** Wakes held webhooks each time the managed tunnel connects. */
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const runtime = yield* CloudManagedEndpointRuntime.CloudManagedEndpointRuntime;
     const wake = wakeHeldHooks().pipe(
       Effect.timeout("10 seconds"),
-      // The relay retries on its own schedule too, so a few tries are enough.
       Effect.retry({ schedule: Schedule.exponential("2 seconds"), times: 3 }),
       Effect.tap((pending) =>
         pending

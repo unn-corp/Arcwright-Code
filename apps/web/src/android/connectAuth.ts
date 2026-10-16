@@ -1,5 +1,6 @@
 // oxlint-disable unicorn/prefer-add-event-listener, unicorn/require-post-message-target-origin -- Android WebMessage listener exposes onmessage/postMessage without DOM event or targetOrigin APIs.
 import * as Schema from "effect/Schema";
+import { isProfileThumbnail, serializeProfilePhoto } from "../auth/profilePhoto";
 
 /** Native SDK avatars are HTTPS URLs; manual-profile raster data uses a separate contract. */
 const NativeParticipantPhoto = Schema.String.check(
@@ -143,8 +144,15 @@ export function createAndroidAuthStore(readBridge: () => AuthBridge | undefined)
       | "signIn"
       | "getRelayToken"
       | "getParticipantProfile"
+      | "setProfilePhoto"
       | "signOut",
     forceRefresh?: boolean,
+    photoUpdate?: {
+      readonly photo: string | null;
+      readonly generation: number;
+      readonly userId: string | null;
+      readonly sessionId: string | null;
+    },
   ): Promise<unknown> => {
     const bridge = readBridge();
     if (!bridge) {
@@ -185,14 +193,22 @@ export function createAndroidAuthStore(readBridge: () => AuthBridge | undefined)
         reject(new Error("Too many account requests."));
         return;
       }
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error("Account request timed out. Please try again."));
-      }, 15_000);
+      const timer = setTimeout(
+        () => {
+          pending.delete(id);
+          reject(new Error("Account request timed out. Please try again."));
+        },
+        action === "setProfilePhoto" ? 60_000 : 15_000,
+      );
       pending.set(id, { resolve, reject, timer });
       try {
         bridge.postMessage(
-          JSON.stringify({ id, action, ...(forceRefresh === undefined ? {} : { forceRefresh }) }),
+          JSON.stringify({
+            id,
+            action,
+            ...(forceRefresh === undefined ? {} : { forceRefresh }),
+            ...photoUpdate,
+          }),
         );
       } catch {
         pending.delete(id);
@@ -280,6 +296,33 @@ export function createAndroidAuthStore(readBridge: () => AuthBridge | undefined)
         return null;
       return result.profile;
     },
+    setProfilePhoto: (photo: string | null, captured = snapshot): Promise<string | null> =>
+      serializeProfilePhoto(captured.userId ?? "signedOut", async () => {
+        if (!isCurrentAccount(captured)) throw new Error("Account changed. Please try again.");
+        if (photo !== null && !isProfileThumbnail(photo))
+          throw new Error("Choose a bounded profile thumbnail.");
+        const result = await request("setProfilePhoto", undefined, {
+          photo,
+          generation: captured.generation,
+          userId: captured.userId,
+          sessionId: captured.sessionId,
+        });
+        if (
+          !isCurrentAccount(captured) ||
+          typeof result !== "object" ||
+          result === null ||
+          !("generation" in result) ||
+          result.generation !== captured.generation ||
+          !("userId" in result) ||
+          result.userId !== captured.userId ||
+          !("sessionId" in result) ||
+          result.sessionId !== captured.sessionId ||
+          !("profile" in result) ||
+          !isParticipantProfile(result.profile)
+        )
+          throw new Error("Account changed or profile update was unavailable. Please try again.");
+        return result.profile.photo;
+      }),
     dispose: () => {
       for (const call of pending.values()) {
         clearTimeout(call.timer);

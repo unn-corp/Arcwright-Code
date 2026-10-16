@@ -179,9 +179,6 @@ export class DesktopTelemetryReceiver extends Context.Service<
     readonly setDiagnosticsDemand: (
       enabled: boolean,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
-    /** Asks the desktop app supervising this server to update itself. The
-        desktop answers with desktopUpdateStatus reports carrying the same
-        requestId. */
     readonly requestDesktopUpdate: (
       requestId: string,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;

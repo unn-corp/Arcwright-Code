@@ -70,8 +70,4 @@ export const traceAuthenticatedRelayRequest = <A, E, R>(
     }),
   );
 
-/**
- * Keeps the work inside a relay-traced handler on the local tracer. The
- * handler's span still records the timing and outcome.
- */
 export const traceLocalHandlerWork = withLocalTracing;

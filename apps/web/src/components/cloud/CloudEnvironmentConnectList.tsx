@@ -49,9 +49,7 @@ function discoveredCompatibilityError(
 export interface SavedCloudEnvironmentConnection {
   readonly environmentId: EnvironmentId;
   readonly connection: EnvironmentConnectionPresentation;
-  /** False for a machine saved over another route (LAN, Tailscale, SSH) only. */
   readonly relayManaged: boolean;
-  /** Present once connected; carries the user's icon override. */
   readonly serverConfig?: ServerConfig | null;
 }
 
@@ -293,8 +291,6 @@ export function CloudEnvironmentConnectRows({
   }
 
   if (standalone && visibleEnvironments.length === 0) {
-    // A failed or offline discovery is not "no environments" — misreporting it
-    // as empty would read as the user's devices having disappeared.
     const discoveryProblem = environmentsState.offline
       ? "You appear to be offline."
       : (Option.getOrNull(environmentsState.error)?.message ?? null);
@@ -335,13 +331,8 @@ export function CloudEnvironmentConnectRows({
       : savedEnvironment
         ? presentSavedCloudEnvironmentConnection(savedEnvironment.connection)
         : null;
-    // A connected machine's own config (with the user's icon pick) wins. Before
-    // that, the relay's health probe already carries the server's descriptor, so
-    // a machine can wear its detected glyph before this device ever connects.
     const relayStatus = status === undefined ? null : Option.getOrNull(status);
     const descriptor = relayStatus?.descriptor;
-    // Why the relay reports this environment offline, when it knows more than
-    // "no answer". Shown for saved and unsaved rows alike.
     const offlineReason =
       availability === "offline" && relayStatus !== null
         ? relayOfflineReasonMessage(relayStatus)

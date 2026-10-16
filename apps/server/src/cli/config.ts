@@ -84,7 +84,6 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.optional,
 );
 
-// Trace file location, shared by the server and `t3 trace summary`.
 export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
   Config.option,
   Config.map(Option.getOrUndefined),

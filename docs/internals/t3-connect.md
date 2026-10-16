@@ -305,12 +305,19 @@ its next launch. A mismatched profile cannot initialize the SDK to perform that 
 [ConnectAuthBridge.kt](../../apps/android-pwa/app/src/main/kotlin/com/devotek/t3code/pwa/ConnectAuthBridge.kt)
 provides `t3ConnectAuth` only to main-frame messages from `https://appassets.androidplatform.net`.
 It accepts bounded JSON/request IDs for status, subscribe, sign-in, relay token, public participant
-profile and sign-out. The optional request-only profile action leaves protocol-1 status unchanged.
+profile, bounded profile-photo mutation, and sign-out. The optional profile actions leave protocol-1 status unchanged.
 It reads only the matching session's public name, avatar and external-account presentation, under
 the same user/session/generation fence as relay tokens; it never serializes SDK objects or credentials.
 The APK selects a per-user local participant profile, preserves manual edits and existing metadata
 when the optional read fails, and switches to its local profile only on confirmed sign-out. Older
 bridges keep authentication and manual profiles, with a neutral initial profile when metadata is absent.
+Photo writes carry the caller's exact account/session/generation fence and accept only a null
+removal or a WebP data thumbnail of at most 16,384 characters. Native code validates the decoded
+image and dimensions (at most 96×96), uses the matching Clerk user's image API, reloads canonical
+metadata, and deletes the temporary file on success, failure, or cancellation. The operation holds
+phone maintenance admission until it ends. Public profile reads reload the SDK user so visible
+clients can pick up account photo changes from another device. Manual display names and legacy
+local photos remain per-principal preferences; account photos and removals use `photoSource: account`.
 Token requests use only the compiled JWT template; no arbitrary template, URL, fetch, device
 credential, refresh credential, or proof key is exposed. Account generation, user and session
 fences reject renewal results after logout or account replacement. Navigation clears listeners
@@ -427,3 +434,5 @@ seconds; a finite one-second heartbeat detects compromised ownership. Automatic 
 reaping is disabled. Scoped release runs on failure and interruption, and release refusal reports
 cleanup failure. A crash-leftover `.json.lock` directory requires manual review after all server/CLI
 writers sharing the data directory are stopped; it never schedules remote cleanup or contains credentials.
+
+The Android APK starts hosted auth with Clerk's default `clerk://com.devotek.t3code.pwa.callback` redirect. The SDK's own manifest receiver returns to its browser manager, completes PKCE and dismisses the authentication activity before returning to the app. The strict legacy callback activity remains for old callbacks; new flows do not launch MainActivity early. Production Clerk Native applications must retain package `com.devotek.t3code.pwa`.

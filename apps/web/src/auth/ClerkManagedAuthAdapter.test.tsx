@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
   openSignIn: vi.fn(),
   signOut: vi.fn(),
   openUserProfile: vi.fn(),
+  setProfileImage: vi.fn(),
+  reload: vi.fn(),
 }));
 vi.mock("@clerk/react", () => ({
   useAuth: () => ({
@@ -25,7 +27,7 @@ vi.mock("@clerk/react", () => ({
       return { id: state.sessionId };
     },
     get user() {
-      return { id: state.userId };
+      return { id: state.userId, setProfileImage: state.setProfileImage, reload: state.reload };
     },
     openSignIn: state.openSignIn,
     signOut: state.signOut,
@@ -72,6 +74,10 @@ beforeEach(() => {
   state.sessionId = "s1";
   state.token.mockReset().mockResolvedValue("jwt");
   state.signOut.mockReset().mockResolvedValue(undefined);
+  state.setProfileImage.mockReset().mockResolvedValue(undefined);
+  state.reload
+    .mockReset()
+    .mockResolvedValue({ hasImage: true, imageUrl: "https://example.test/current.png" });
 });
 afterEach(async () => {
   await act(async () => renderer?.unmount());
@@ -79,6 +85,46 @@ afterEach(async () => {
 });
 
 describe("browser and Electron account adapter", () => {
+  it("writes account thumbnails and removal through Clerk on both surfaces", async () => {
+    for (const electron of [false, true]) {
+      state.electron = electron;
+      await render();
+      await expect(auth.setProfilePhoto!("data:image/webp;base64,AA==")).resolves.toBe(
+        "https://example.test/current.png",
+      );
+      expect(state.setProfileImage).toHaveBeenLastCalledWith({
+        file: "data:image/webp;base64,AA==",
+      });
+      state.reload.mockResolvedValueOnce({
+        hasImage: false,
+        imageUrl: "https://example.test/default.png",
+      });
+      await expect(auth.setProfilePhoto!(null)).resolves.toBeNull();
+      expect(state.setProfileImage).toHaveBeenLastCalledWith({ file: null });
+    }
+    await expect(auth.setProfilePhoto!("https://arbitrary.test/image")).rejects.toThrow("bounded");
+  });
+  it("does not publish a photo response across account replacement or logout", async () => {
+    let finish!: () => void;
+    state.setProfileImage.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render();
+    const update = auth.setProfilePhoto!(null);
+    await Promise.resolve();
+    state.userId = "u2";
+    state.sessionId = "s2";
+    await render();
+    finish();
+    await expect(update).rejects.toThrow("Account changed");
+    expect(state.reload).not.toHaveBeenCalled();
+    const stale = auth.setProfilePhoto!;
+    await auth.signOut();
+    await expect(stale(null)).rejects.toThrow("Account changed");
+  });
   it("keeps each Clerk surface's configured token and account-modal capabilities", async () => {
     for (const electron of [false, true]) {
       state.electron = electron;

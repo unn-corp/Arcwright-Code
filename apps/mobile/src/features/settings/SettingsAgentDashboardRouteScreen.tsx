@@ -1,6 +1,5 @@
-import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
-import { useThemeColor } from "../../lib/useThemeColor";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
 import { agentDashboardEnvironment } from "../../state/agent-dashboard";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
@@ -42,7 +41,6 @@ export function SettingsAgentDashboardRouteScreen() {
           input: {},
         }),
   );
-  const icon = useThemeColor("--color-icon");
   const health = query.data?.portfolioHealth;
   const findings = (query.data?.findings ?? [])
     .filter(
@@ -51,7 +49,7 @@ export function SettingsAgentDashboardRouteScreen() {
         finding.disposition.state !== "dismissed" &&
         finding.disposition.state !== "blocked",
     )
-    .toSorted(
+    .sort(
       (left, right) =>
         SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity] ||
         Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt),
@@ -85,7 +83,12 @@ export function SettingsAgentDashboardRouteScreen() {
             disabled={environment === null || query.isPending}
             onPress={query.refresh}
           >
-            <SymbolView name="arrow.clockwise" size={18} tintColor={icon} type="monochrome" />
+            <SymbolView
+              name="arrow.clockwise"
+              size={18}
+              tintColorClassName="accent-icon"
+              type="monochrome"
+            />
           </Pressable>
         </View>
 

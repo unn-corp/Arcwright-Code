@@ -44,7 +44,6 @@ function absolutePathParts(path: string) {
   return { root: windows ? root.toLowerCase() : root, segments, windows };
 }
 
-/** Compares paths lexically for the copy menu; it does not resolve filesystem symlinks. */
 export function mediaFileReference(
   path: string,
   workspaceRoot?: string | null,

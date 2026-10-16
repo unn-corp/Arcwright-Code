@@ -1,3 +1,13 @@
+import type { DesktopUpdateChannel } from "@t3tools/contracts";
+import { useDesktopUpdateState } from "../../state/desktopUpdate";
+import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
+import {
+  canCheckForUpdate,
+  getDesktopUpdateButtonTooltip,
+  getDesktopUpdateInstallConfirmationMessage,
+  isDesktopUpdateButtonDisabled,
+  resolveDesktopUpdateButtonAction,
+} from "../desktopUpdate.logic";
 import { ParticipantProfileSettings } from "./ParticipantProfileSettings";
 import { ClientBuildIdentity } from "./ClientBuildIdentity";
 import { AppUpdateSettings } from "./AppUpdateSettings";
@@ -9,6 +19,7 @@ import {
 } from "./AgentNotificationSettings";
 import { RunLimitsSettings } from "./RunLimitsSettings";
 import { useAtomValue } from "@effect/atom-react";
+import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import {
@@ -93,7 +104,12 @@ import { createModelSelection } from "@t3tools/shared/model";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
-import { APP_BUILD_IDENTITY, APP_VERSION } from "../../branding";
+import {
+  APP_BUILD_IDENTITY,
+  APP_VERSION,
+  HOSTED_APP_CHANNEL,
+  HOSTED_APP_CHANNEL_LABEL,
+} from "../../branding";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
 
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
@@ -341,6 +357,239 @@ function AboutVersionTitle() {
   );
 }
 
+function AboutVersionSection() {
+  const updateState = useDesktopUpdateState();
+  const [isChangingUpdateChannel, setIsChangingUpdateChannel] = useState(false);
+  const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
+
+  const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
+  const selectedUpdateChannel = updateState?.channel ?? "latest";
+  const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
+
+  const handleUpdateChannelChange = useCallback(
+    (channel: DesktopUpdateChannel) => {
+      const bridge = window.desktopBridge;
+      if (
+        !bridge ||
+        typeof bridge.setUpdateChannel !== "function" ||
+        channel === selectedUpdateChannel
+      ) {
+        return;
+      }
+
+      setIsChangingUpdateChannel(true);
+      void bridge
+        .setUpdateChannel(channel)
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not change update track",
+              description: error instanceof Error ? error.message : "Update track change failed.",
+            }),
+          );
+        })
+        .finally(() => {
+          setIsChangingUpdateChannel(false);
+        });
+    },
+    [selectedUpdateChannel],
+  );
+
+  const handleButtonClick = useCallback(async () => {
+    const bridge = window.desktopBridge;
+    if (!bridge) return;
+
+    const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
+
+    if (action === "download") {
+      void bridge.downloadUpdate().catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not download update",
+            description: error instanceof Error ? error.message : "Download failed.",
+          }),
+        );
+      });
+      return;
+    }
+
+    if (action === "install") {
+      if (isUpdateActionPending) return;
+      setIsUpdateActionPending(true);
+      let confirmed = false;
+      try {
+        confirmed = await ensureLocalApi().dialogs.confirm(
+          getDesktopUpdateInstallConfirmationMessage(
+            updateState ?? { availableVersion: null, downloadedVersion: null },
+          ),
+        );
+      } catch (error) {
+        setIsUpdateActionPending(false);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not confirm update",
+            description: error instanceof Error ? error.message : "Update confirmation failed.",
+          }),
+        );
+        return;
+      }
+      if (!confirmed) {
+        setIsUpdateActionPending(false);
+        return;
+      }
+      void bridge
+        .installUpdate()
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not install update",
+              description: error instanceof Error ? error.message : "Install failed.",
+            }),
+          );
+        })
+        .finally(() => setIsUpdateActionPending(false));
+      return;
+    }
+
+    if (typeof bridge.checkForUpdate !== "function") return;
+    void bridge
+      .checkForUpdate()
+      .then((result) => {
+        if (!result.checked) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not check for updates",
+              description:
+                result.state.message ?? "Automatic updates are not available in this build.",
+            }),
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not check for updates",
+            description: error instanceof Error ? error.message : "Update check failed.",
+          }),
+        );
+      });
+  }, [isUpdateActionPending, updateState]);
+
+  const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
+  const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
+  const buttonDisabled =
+    action === "none"
+      ? !canCheckForUpdate(updateState)
+      : isDesktopUpdateButtonDisabled(updateState);
+
+  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const statusLabel: Record<string, string> = {
+    checking: "Checking…",
+    downloading: "Downloading…",
+    "up-to-date": "Up to Date",
+  };
+  const buttonLabel =
+    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
+  const description =
+    action === "download" || action === "install"
+      ? "Update available."
+      : "Current version of the application.";
+
+  return (
+    <>
+      <SettingsRow
+        id={searchableSetting("app-version").id}
+        title={<AboutVersionTitle />}
+        description={description}
+        control={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={buttonDisabled || isUpdateActionPending}
+                  onClick={handleButtonClick}
+                >
+                  {buttonLabel}
+                </Button>
+              }
+            />
+            {buttonTooltip ? <TooltipPopup>{buttonTooltip}</TooltipPopup> : null}
+          </Tooltip>
+        }
+      />
+      {hasDesktopBridge ? (
+        <SettingsRow
+          {...searchableSetting("update-track")}
+          description="Use stable releases or nightly builds. Switch back anytime."
+          control={
+            <Select
+              value={selectedUpdateChannel}
+              onValueChange={(value) => {
+                handleUpdateChannelChange(value as DesktopUpdateChannel);
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-full sm:w-40"
+                aria-label="Update track"
+                disabled={isChangingUpdateChannel}
+              >
+                <SelectValue>
+                  {selectedUpdateChannel === "nightly" ? "Nightly" : "Stable"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="latest">
+                  Stable
+                </SelectItem>
+                <SelectItem hideIndicator value="nightly">
+                  Nightly
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+      ) : selectedHostedAppChannel ? (
+        <SettingsRow
+          {...searchableSetting("update-track")}
+          description="Switches the hosted app release channel."
+          control={
+            <Select
+              value={selectedHostedAppChannel}
+              onValueChange={(value) => {
+                if (value === selectedHostedAppChannel) return;
+                window.location.assign(
+                  buildHostedChannelSelectionUrl({ channel: value as HostedAppChannel }),
+                );
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Update track">
+                <SelectValue>{HOSTED_APP_CHANNEL_LABEL}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="latest">
+                  Latest
+                </SelectItem>
+                <SelectItem hideIndicator value="nightly">
+                  Nightly
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function useSettingsRestore(onRestored?: () => void) {
   const {
     theme,
@@ -514,6 +763,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.browserRecordingShowMousePresses,
       settings.browserLinkTarget,
       settings.browserAutoShowFloatingPreview,
+      settings.pullRequestLinksOpenInApp,
       settings.appearanceContrast,
       settings.diffColorScheme,
       settings.chatWidth,
@@ -594,16 +844,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     let previousTheme = theme;
     try {
       previousTheme = readThemePreference();
-    } catch {
-      // Storage is unreadable; the render-time value is the best rollback.
-    }
-    // The mix may have changed while the confirmation dialog was open; both
-    // the dirty check and the rollback must see the live value.
+    } catch {}
     const liveHalves = readThemeHalves();
     const needsThemeReset = previousTheme !== "system";
     const needsMixReset = liveHalves !== null;
-    // Same for the appearance mode: trusting the render-time value would skip
-    // the reset and report success while a non-system mode stayed in storage.
     const needsFollowSystemReset = readAppearanceModePreference(previousTheme) !== "system";
     const notifyThemeRestoreFailure = () => {
       toastManager.add(
@@ -706,9 +950,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       browserRecordingShowMousePresses: DEFAULT_UNIFIED_SETTINGS.browserRecordingShowMousePresses,
       browserLinkTarget: DEFAULT_UNIFIED_SETTINGS.browserLinkTarget,
       browserAutoShowFloatingPreview: DEFAULT_UNIFIED_SETTINGS.browserAutoShowFloatingPreview,
-      // Re-granted like any other default. The confirmation dialog lists it by
-      // name, so a user restoring defaults is told the agent regains access
-      // rather than discovering it later.
+      pullRequestLinksOpenInApp: DEFAULT_UNIFIED_SETTINGS.pullRequestLinksOpenInApp,
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
     });
     onRestored?.();
@@ -1425,9 +1667,6 @@ export function AppearanceSettingsPanel() {
 
 function useFontDefaultFamilies() {
   const settings = useScopedSettings();
-  // An unset preference shows the font it resolves to on this machine; the
-  // default stacks are the platform's own faces, so the name is probed, not
-  // hardcoded.
   const defaults = useMemo(
     () => ({
       sans: resolveDefaultFamilyLabel(DEFAULT_SANS_FONT_STACK) ?? "System default",
@@ -1438,7 +1677,6 @@ function useFontDefaultFamilies() {
   return {
     sans: defaults.sans,
     code: defaults.code,
-    // The composer inherits whatever the interface preference resolves to.
     interfaceFamily: settings.fontFamilySans.trim() || defaults.sans,
   };
 }
@@ -1654,11 +1892,6 @@ function FontSettingsGroup() {
   );
 }
 
-/**
- * The two-font view: one sans, one monospace. The prompt follows the
- * interface font and the terminal follows the monospace font, so the demos
- * under each row show every surface the choice reaches.
- */
 function SimpleFontRows() {
   const settings = useScopedSettings();
   return (
@@ -1699,13 +1932,6 @@ const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
     : []),
 ]);
 
-/**
- * The two-font view by default - one sans, one monospace, each cascading to
- * every surface it reaches - with an Advanced switch in the section header
- * that reveals the per-surface override rows. The choice persists locally,
- * and a settings-search jump to an override row flips Advanced on so the
- * target exists to scroll to.
- */
 function TypographySection() {
   const [advanced, setAdvanced] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
@@ -1713,9 +1939,6 @@ function TypographySection() {
     Schema.Boolean,
   );
   const searchTargetId = useSettingsSearchTargetId();
-  // Flip Advanced on once per search jump so the hidden target can mount and
-  // scroll; tracking the handled id lets the user turn it back off without
-  // the still-set target immediately re-expanding the section.
   const lastExpandedTargetRef = useRef<string | null>(null);
   useEffect(() => {
     if (searchTargetId === null || !ADVANCED_TYPOGRAPHY_TARGET_IDS.has(searchTargetId)) return;
@@ -1760,9 +1983,7 @@ function FontFamilySettingsRow({
   id?: string;
   title: string;
   description: string;
-  /** What an unset preference renders as, e.g. "Menlo". */
   defaultFamily: string;
-  /** The persisted family value supplied by the unified settings defaults. */
   defaultValue: string;
   preview?: ReactNode;
   value: string;
@@ -1779,9 +2000,6 @@ function FontFamilySettingsRow({
   };
 }) {
   const trimmed = value.trim();
-  // The fallback input edits a draft; the preference only commits once typing
-  // pauses and the text probes as an available font (or is an explicit
-  // clear), so the current font holds and nothing reflows mid-word.
   const [draft, setDraft] = useState(value);
   const [draftSettled, setDraftSettled] = useState(true);
   const commitTimerRef = useRef<number | null>(null);
@@ -1807,8 +2025,6 @@ function FontFamilySettingsRow({
     isFontFamilyAvailable(candidate) && (!requireMonospace || isMonospaceFamily(candidate));
   const commitDraft = (next: string) => {
     setDraftSettled(true);
-    // A rejected name stays in the field, flagged: the terminal would silently
-    // fall back to its default, so the row must not claim it took the value.
     if (next.trim().length === 0 || acceptsFamily(next)) {
       onValueChange(next);
     }
@@ -1820,8 +2036,6 @@ function FontFamilySettingsRow({
     commitDraft(draft);
   };
   const draftTrimmed = draft.trim();
-  // Flag an unknown name only once typing pauses, and never for an empty
-  // field - that is the starting state, not a rejected entry.
   const draftPending = draftSettled && draftTrimmed.length > 0 && draftTrimmed !== trimmed;
   const resetToDefault = () => {
     if (commitTimerRef.current !== null) {
@@ -1837,10 +2051,6 @@ function FontFamilySettingsRow({
       <SettingResetButton label={title.toLowerCase()} onClick={resetToDefault} />
     ) : null;
   const fontEnumeration = useFontEnumeration();
-  // Everyone starts on the plain input; focusing it is the user gesture that
-  // runs font discovery. Where the engine can enumerate, the control then
-  // upgrades to the picker - popped open when the swap happens under focus,
-  // so the interaction continues without a second click.
   const inputFocusedRef = useRef(false);
   const familyControl =
     fontEnumeration.status === "granted" ? (
@@ -1951,8 +2161,6 @@ function AutoSettleDaysInput({
   value: number;
   onCommit: (days: number) => void;
 }) {
-  // Local draft so the field can be emptied mid-edit; the setting only moves
-  // on valid input and snaps back to the persisted value on blur.
   const [draft, setDraft] = useState(String(value));
   useEffect(() => {
     setDraft(String(value));
@@ -1968,9 +2176,6 @@ function AutoSettleDaysInput({
       value={draft}
       onChange={(event) => {
         setDraft(event.target.value);
-        // Number(), not parseInt: "3.5" must be rejected (not truncated to a
-        // committed 3 while the field shows 3.5) — commit only when the
-        // persisted value matches the displayed one.
         const parsed = Number(event.target.value);
         if (
           Number.isInteger(parsed) &&
@@ -1986,8 +2191,6 @@ function AutoSettleDaysInput({
   );
 }
 
-// The legacy rows sit behind the fold, so a settings-search jump has to
-// expand the section before its target can mount and scroll.
 const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-context-window-indicator",
@@ -1995,24 +2198,15 @@ const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-sidebar",
 ]);
 
-/**
- * Retired features kept only for users who still depend on them. Collapsed by
- * default so they stay out of the everyday settings path; a settings-search
- * jump to one of the rows unfolds the section.
- */
 function LegacyFeaturesSection() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const [open, setOpen] = useState(false);
   const searchTargetId = useSettingsSearchTargetId();
   const targetRef = useSettingsSearchTarget<HTMLElement>("legacy-features");
-  // Unfold once per search jump; tracking the handled id lets the user fold
-  // the section back up without the still-set target immediately reopening it.
   const lastExpandedTargetRef = useRef<string | null>(null);
   useEffect(() => {
     if (searchTargetId === null) {
-      // A handled jump clears the target; forgetting it here lets a later
-      // jump to the same row expand the section again.
       lastExpandedTargetRef.current = null;
       return;
     }
@@ -4680,13 +4874,7 @@ export function GeneralSettingsPanel() {
                 {textGenInstanceEntry ? (
                   <TraitsPicker
                     provider={textGenProvider}
-                    models={
-                      // Use the exact instance's models (rather than the
-                      // first-kind-match) so a custom text-gen instance like
-                      // `codex_personal` gets its own model list, not the
-                      // default Codex one.
-                      textGenInstanceEntry?.models ?? []
-                    }
+                    models={textGenInstanceEntry?.models ?? []}
                     model={textGenModel}
                     prompt=""
                     onPromptChange={() => {}}
@@ -4858,7 +5046,7 @@ export function GeneralSettingsPanel() {
         </>
       )}
 
-      <AppUpdateSettings />
+      <AppUpdateSettings desktopControls={<AboutVersionSection />} />
       <SettingsSection id="about" title="About">
         <SettingsRow
           title={<AboutVersionTitle />}
@@ -4929,7 +5117,7 @@ export function GeneralSettingsPanel() {
 }
 
 export function ArchivedThreadsPanel() {
-  const { scope } = useSettingsScope();
+  const { scope, groups: projectGroups, environments } = useSettingsScope();
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   const {
     snapshots: archivedSnapshots,
@@ -4938,7 +5126,7 @@ export function ArchivedThreadsPanel() {
     refresh: refreshArchivedThreads,
   } = useArchivedThreadSnapshots(scope.environmentIds);
 
-  const archivedGroups = useMemo(() => {
+  const { groups: archivedGroups, hasMultipleEnvironments } = useMemo(() => {
     const selectedProjectKeys =
       scope.kind === "project" || scope.kind === "checkout"
         ? new Set(scope.members.map((member) => `${member.environmentId}:${member.id}`))
@@ -4956,15 +5144,43 @@ export function ArchivedThreadsPanel() {
           ),
       ),
     );
+    const environmentLabels = new Map(
+      environments.map((environment) => {
+        const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
+        return [environment.environmentId, secondary ? `${primary} (${secondary})` : primary];
+      }),
+    );
     const threads = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
-      snapshot.threads.map((thread) => presentThreadShell(environmentId, thread)),
+      snapshot.threads.map((thread) => ({
+        ...presentThreadShell(environmentId, thread),
+        environmentLabel: environmentLabels.get(environmentId) ?? environmentId,
+      })),
+    );
+    const hasMultipleEnvironments =
+      new Set(
+        threads
+          .filter((thread) =>
+            projectsByEnvironmentAndId.has(`${thread.environmentId}:${thread.projectId}`),
+          )
+          .map((thread) => thread.environmentId),
+      ).size > 1;
+    const logicalGroupsByProjectKey = new Map(
+      projectGroups.flatMap((group) =>
+        group.memberProjectRefs.map(
+          (member) => [`${member.environmentId}:${member.projectId}`, group] as const,
+        ),
+      ),
     );
 
     const archivedProjects = Array.from(projectsByEnvironmentAndId.values());
-    const groups: Array<{
-      readonly project: (typeof archivedProjects)[number];
-      readonly threads: Array<(typeof threads)[number]>;
-    }> = [];
+    const groups = new Map<
+      string,
+      {
+        readonly project: (typeof archivedProjects)[number];
+        readonly title: string;
+        readonly threads: Array<(typeof threads)[number]>;
+      }
+    >();
     for (const project of archivedProjects) {
       const projectThreads: Array<(typeof threads)[number]> = [];
       for (const thread of threads) {
@@ -4973,18 +5189,34 @@ export function ArchivedThreadsPanel() {
         }
       }
       if (projectThreads.length > 0) {
-        groups.push({
-          project,
-          threads: projectThreads.toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.createdAt;
-            return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          }),
-        });
+        const physicalProjectKey = `${project.environmentId}:${project.id}` as const;
+        const logicalGroup = hasMultipleEnvironments
+          ? logicalGroupsByProjectKey.get(physicalProjectKey)
+          : undefined;
+        const groupKey = logicalGroup?.projectKey ?? physicalProjectKey;
+        const group = groups.get(groupKey);
+        if (group) {
+          group.threads.push(...projectThreads);
+        } else {
+          groups.set(groupKey, {
+            project,
+            title: logicalGroup?.displayName ?? project.title,
+            threads: projectThreads,
+          });
+        }
       }
     }
-    return groups;
-  }, [archivedSnapshots, scope]);
+    const sortedGroups = Array.from(groups, ([key, group]) => ({
+      ...group,
+      key,
+      threads: group.threads.toSorted((left, right) => {
+        const leftKey = left.archivedAt ?? left.createdAt;
+        const rightKey = right.archivedAt ?? right.createdAt;
+        return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+      }),
+    }));
+    return { groups: sortedGroups, hasMultipleEnvironments };
+  }, [archivedSnapshots, environments, projectGroups, scope]);
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
@@ -5064,16 +5296,16 @@ export function ArchivedThreadsPanel() {
           />
         </SettingsSection>
       ) : (
-        archivedGroups.map(({ project, threads: projectThreads }, index) => (
+        archivedGroups.map(({ key, project, title, threads: projectThreads }, index) => (
           <SettingsSection
-            key={`${project.environmentId}:${project.id}`}
+            key={key}
             id={index === 0 ? searchableSetting("archive").id : undefined}
-            title={project.title}
+            title={title}
             icon={<ProjectFavicon project={project} />}
           >
             {projectThreads.map((thread) => (
               <SettingsRow
-                key={thread.id}
+                key={`${thread.environmentId}:${thread.id}`}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   void (async () => {
@@ -5101,11 +5333,12 @@ export function ArchivedThreadsPanel() {
                 }}
                 title={thread.title}
                 description={
-                  <>
+                  <span className={hasMultipleEnvironments ? "block truncate" : undefined}>
+                    {hasMultipleEnvironments ? `${thread.environmentLabel} · ` : null}
                     Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
                     {" \u00b7 Created "}
                     {formatRelativeTimeLabel(thread.createdAt)}
-                  </>
+                  </span>
                 }
                 control={
                   <Button

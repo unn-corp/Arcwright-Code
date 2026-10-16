@@ -115,7 +115,6 @@ function previewProfileName(
 
 const localApi = typeof window === "undefined" ? null : ensureLocalApi();
 
-/** Resolves stream access only while a server tab shows a file it downloaded. */
 function ServerTabFileNotShown(props: {
   readonly threadRef: ScopedThreadRef;
   readonly tabId: string;
@@ -197,17 +196,13 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         : findActiveBrowserRecordingRuntimeTabId(threadRef, tabId)
       : null;
   const snapshot = tabId ? (previewState.sessions[tabId] ?? null) : null;
-  // Server tabs run in the environment's browser and stream to any client, except the
-  // desktop app's own server's tabs, which render here natively while the server drives them.
   const nativeServerTab = useRendersServerTabNatively(threadRef.environmentId, snapshot);
   const isServerTab = snapshot?.runtime === "server" && !nativeServerTab;
-  /** The server owns this tab's appearance, zoom, and size, whoever renders it. */
   const serverOwnsRendering = snapshot?.runtime === "server";
   const serverSurfaceRef = useRef<ServerBrowserHandle | null>(null);
   const [serverAspectRatioLocked, setServerAspectRatioLocked] = useState(false);
   const serverBodyRef = useRef<HTMLDivElement | null>(null);
   const [serverToolbarWidth, setServerToolbarWidth] = useState(0);
-  // The streamed tab's device toolbar spans the panel; only measured while it shows.
   const serverToolbarShown =
     snapshot?.runtime === "server" && (snapshot.viewport ?? FILL_PREVIEW_VIEWPORT)._tag !== "fill";
   useEffect(() => {
@@ -234,10 +229,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const controller = desktopOverlay?.controller ?? "none";
   const viewport = snapshot?.viewport ?? FILL_PREVIEW_VIEWPORT;
   const browserDefaults = useBrowserDefaults();
-  // A tab created before profiles existed carries no profile of its own. It
-  // runs in the built-in `default` partition — the scope the browser used
-  // before profiles — not in whatever profile is configured as the default
-  // now, so that is what its label names and its clear actions target.
   // Passing the snapshot's raw `undefined` through would reach the IPC layer
   // as "every profile".
   const activeProfileId = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID;
@@ -252,9 +243,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const threadKey = scopedThreadKey(threadRef);
   useEffect(() => {
     if (!navUrl || !navTitle || !latestHistoryUrl) return;
-    // Agent-driven pages only enrich an existing requested URL.
     setTitleForThreadUrl(threadRefRef.current, navUrl, navTitle, environmentHostname);
-    // threadKey stands in for threadRef, whose identity churns on every thread update.
   }, [environmentHostname, latestHistoryUrl, navTitle, navUrl, threadKey]);
 
   const navigateToResolvedUrl = useCallback(
@@ -266,7 +255,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         return true;
       }
       if (runtimeTabId && previewBridge) {
-        // The bridge mirrors the resolved URL back to the server.
         await previewBridge.navigate(runtimeTabId, resolvedUrl);
         rememberPreviewUrl(threadRef, resolvedUrl);
         return true;
@@ -294,9 +282,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         if (await navigateToResolvedUrl(resolved)) {
           recordVisitForThread(threadRef, resolved);
         }
-      } catch {
-        // Only empty input or an unsupported scheme lands here; the bar keeps the text.
-      }
+      } catch {}
     },
     [navigateToResolvedUrl, threadRef],
   );
@@ -304,7 +290,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const handleOpenServerUrl = useCallback(
     async (next: string) => {
       try {
-        // A server tab's browser runs on the environment, where loopback is already right.
         const resolved =
           isServerTab || !previewBridge
             ? normalizePreviewUrl(next)
@@ -312,9 +297,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         if (await navigateToResolvedUrl(resolved)) {
           recordVisitForThread(threadRef, next);
         }
-      } catch {
-        // Server-side `failed` event renders the unreachable view.
-      }
+      } catch {}
     },
     [isServerTab, navigateToResolvedUrl, threadRef],
   );
@@ -324,7 +307,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     else if (previewBridge && runtimeTabId) void previewBridge.refresh(runtimeTabId);
   }, [isServerTab, runtimeTabId]);
 
-  /** Appearance and zoom of a server tab, through the server for every client. */
   const adjustServerTab = useCallback(
     async (change: Omit<PreviewAdjustInput, "threadId" | "tabId">) => {
       if (!tabId) return;
@@ -441,8 +423,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     void localApi.shell.openExternal(url).catch(() => undefined);
   }, [url]);
 
-  // A desktop tab of a remote environment can only reach what this computer
-  // reaches; the environment's browser reaches its own network, and its agents.
   const moveTarget = alternatePreviewRuntime(
     threadRef.environmentId,
     primaryEnvironmentId,
@@ -456,7 +436,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     const result = await openPreviewSession({
       openPreview: open,
       threadRef,
-      // Loopback means the environment's machine, which this computer reaches by its address.
       ...(url
         ? {
             url:
@@ -493,11 +472,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     useRightPanelStore.getState().close(threadRef);
   }, [miniPlayerTabId, tabId, threadRef]);
 
-  /**
-   * The menu's actions. A server tab, streamed or rendered natively here, runs
-   * them through its environment, so every client and agent sees one state.
-   * Opening DevTools and a separate window need the desktop's own page.
-   */
   const desktopCall = (op: ((tabId: string) => Promise<void>) | undefined) => () => {
     if (op && runtimeTabId) void op(runtimeTabId).catch(() => undefined);
   };
@@ -928,8 +902,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         onRefresh={handleRefresh}
         onSubmit={(next) => void handleSubmitUrl(next)}
         onOpenInBrowser={tabId ? handleOpenInBrowser : undefined}
-        // Capture, annotation, and the more menu drive the desktop webview, so
-        // server tabs leave them out. Floating works for both.
         onCapture={previewBridge && tabId && !isServerTab ? handleCapture : undefined}
         captureDisabled={!desktopOverlay || isUnreachable}
         recording={recordingRuntimeTabId !== null}
@@ -956,17 +928,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
           isUnreachable ? "Page didn't load — pick unavailable until the page renders" : undefined
         }
         leadingActions={
-          // Only when it differs from the default: labelling every tab
-          // "Default" would be noise on the common case, while a tab in
-          // another profile is exactly what needs calling out.
           activeProfileId !== browserDefaults.profileId ? (
-            // Capped: profile names run to 48 characters, and an unbounded
-            // badge in this row takes its width from the URL input, the only
-            // flexible element in the compact chrome. The cap sits on the
-            // badge and the truncation on an inner span, because `Badge` is an
-            // `inline-flex` with `whitespace-nowrap` — `text-overflow` never
-            // reaches a bare text node inside it, so the name would be cut off
-            // at both ends with no ellipsis.
             <Tooltip>
               <TooltipTrigger render={<Badge variant="outline" className="max-w-28 shrink-0" />}>
                 <span className="truncate">{activeProfileName}</span>

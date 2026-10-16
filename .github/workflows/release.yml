@@ -51,7 +51,7 @@ jobs:
   resolve_commit:
     if: github.repository == 'pingdotgg/t3code'
     name: Resolve release commit
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 5
     outputs:
       ref: ${{ steps.resolve.outputs.ref }}
@@ -105,7 +105,7 @@ jobs:
     if: |
       needs.resolve_commit.result == 'success' &&
       (github.event_name != 'schedule' || needs.resolve_commit.outputs.has_changes == 'true')
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     outputs:
       release_channel: ${{ steps.release_meta.outputs.release_channel }}
@@ -235,7 +235,7 @@ jobs:
     name: Release quality checks
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -269,7 +269,7 @@ jobs:
     name: Release tests
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -295,17 +295,8 @@ jobs:
 
       - name: Install browser secret helper build libraries
         run: |
-          set -euo pipefail
-          for tool in cc pkg-config; do
-            command -v "$tool" >/dev/null 2>&1 || {
-              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
-              exit 1
-            }
-          done
-          pkg-config --exists libsecret-1 || {
-            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
-            exit 1
-          }
+          sudo sed -i 's|http://|https://|g' /etc/apt/blacksmith-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
@@ -314,7 +305,7 @@ jobs:
     name: Release server tests ${{ matrix.shard }}
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -347,14 +338,14 @@ jobs:
         run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   relay_public_config:
-    name: Resolve Arcwright Connect public config
+    name: Resolve T3 Connect public config
     # Consumes only the release commit, not preflight's resolved version, so it
     # runs alongside preflight instead of after it. The condition mirrors preflight's.
     needs: [resolve_commit]
     if: |
       needs.resolve_commit.result == 'success' &&
       (github.event_name != 'schedule' || needs.resolve_commit.outputs.has_changes == 'true')
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 5
     environment:
       name: production
@@ -466,7 +457,7 @@ jobs:
     # this runs alongside preflight. See the condition comment there.
     needs: [preflight, relay_public_config]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 30
     env:
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
@@ -526,18 +517,7 @@ jobs:
       # @t3tools/desktop#build compiles the Linux browser secret helper on a
       # Linux host before packing, and that needs libsecret headers.
       - name: Install browser secret helper build libraries
-        run: |
-          set -euo pipefail
-          for tool in cc pkg-config; do
-            command -v "$tool" >/dev/null 2>&1 || {
-              echo "::error::Missing $tool. Preinstall build-essential and pkg-config in the isolated runner image."
-              exit 1
-            }
-          done
-          pkg-config --exists libsecret-1 || {
-            echo "::error::Missing libsecret development headers. Preinstall libsecret-1-dev in the isolated runner image."
-            exit 1
-          }
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       # Runs t3#build (which depends on @t3tools/web#build) and
       # @t3tools/desktop#build, so apps/server/dist holds the server bundle
@@ -716,11 +696,8 @@ jobs:
       resource_key: win32-arm64
       cli_archive: true
 
-  # npm gets the same bytes as the GitHub Release: the launcher plus one
-  # package per CLI archive. Preview publishes too, under the `preview`
-  # dist-tag, which nothing resolves unless asked for by name.
-  publish_cli:
-    name: Publish CLI to npm
+  release:
+    name: Publish GitHub Release
     needs:
       [
         preflight,
@@ -729,75 +706,14 @@ jobs:
         test,
         test_server,
         desktop_mac_arm64,
-        desktop_linux_x64,
-        desktop_linux_arm64,
-        desktop_win_x64,
-        desktop_win_arm64,
-      ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref }}
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: |
-            args:
-              - --filter=t3...
-              - --filter=@t3tools/scripts...
-
-      - name: Download all CLI archives
-        uses: actions/download-artifact@v8
-        with:
-          pattern: cli-*
-          merge-multiple: true
-          path: release-cli
-
-      - name: Build npm packages from CLI archives
-        run: node scripts/build-npm-platform-packages.ts --archives-dir release-cli --version "${{ needs.preflight.outputs.version }}" --output-dir npm-packages
-
-      # A dry run of every package first: an auth or scope error here (the
-      # @t3code org missing, a package without a trusted publisher) fails
-      # before anything is live, instead of after some platforms already are.
-      - name: Check npm publish access (dry run)
-        run: |
-          if ! node apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --dry-run --verbose; then
-            echo "::error::npm publish --dry-run failed. Make sure the @t3code npm org exists and that t3 and every @t3code/t3-<platform> package has a trusted publisher registered for .github/workflows/release.yml (see docs/operations/release.md)." >&2
-            exit 1
-          fi
-
-      - name: Publish CLI packages
-        run: node apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --verbose
-
-  release:
-    name: Publish GitHub Release
-    needs:
-      [
-        preflight,
-        desktop_mac_arm64,
         desktop_mac_x64,
         desktop_linux_x64,
         desktop_linux_arm64,
         desktop_win_x64,
         desktop_win_arm64,
-        publish_cli,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 30
     permissions:
       contents: write
@@ -833,6 +749,18 @@ jobs:
           pattern: cli-*
           merge-multiple: true
           path: release-assets
+
+      - name: Download internal Android APK for Nightly
+        if: needs.preflight.outputs.release_channel == 'nightly'
+        continue-on-error: true
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          PACKAGE_NAME: com.t3tools.t3code
+          APK_OUTPUT_DIR: release-assets
+        run: |
+          if [ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            node .github/scripts/mirror-play-apk.cjs
+          fi
 
       # Installers verify archives against this file, so it is written from the
       # signed bytes that get uploaded, never from an earlier stage.
@@ -915,6 +843,10 @@ jobs:
               echo 'release-assets/*.yml'
             fi
             echo 'release-assets/*.tar.gz'
+            # Only list APKs when Play has a processed internal build available.
+            for apk in release-assets/*.apk; do
+              [[ -f "$apk" ]] && echo "$apk"
+            done
             echo 'release-assets/SHA256SUMS'
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
@@ -932,7 +864,7 @@ jobs:
           > [!WARNING]
           > **This is a preview build. Do not install it unless you know exactly why you are here.**
           >
-          > Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, are never offered as updates, and are not supported. If you want Arcwright Code, install the [latest release](https://github.com/pingdotgg/t3code/releases/latest) or a nightly instead.
+          > Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, are never offered as updates, and are not supported. If you want T3 Code, install the [latest release](https://github.com/pingdotgg/t3code/releases/latest) or a nightly instead.
 
           Built from `${{ needs.preflight.outputs.ref }}`.
           EOF
@@ -968,6 +900,49 @@ jobs:
           fail_on_unmatched_files: true
           token: ${{ github.token }}
 
+  # The `t3` npm package is a launcher that downloads this version's CLI
+  # archive from the GitHub Release, so it publishes only once that release
+  # exists. Preview publishes too, under the `preview` dist-tag, which
+  # nothing resolves unless asked for by name.
+  publish_cli:
+    name: Publish CLI to npm
+    needs: [preflight, release]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' }}
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=t3...
+              - --filter=@t3tools/scripts...
+
+      - name: Build the npm launcher
+        run: node scripts/build-npm-launcher.ts --version "${{ needs.preflight.outputs.version }}" --output-dir npm-packages
+
+      - name: Publish the npm launcher
+        run: |
+          if ! node apps/server/scripts/cli.ts publish --packages-dir npm-packages --tag "${{ needs.preflight.outputs.cli_dist_tag }}" --provenance --verbose; then
+            echo "::error::npm publish failed. Make sure package t3 has a trusted publisher registered for .github/workflows/release.yml (see docs/operations/release.md)." >&2
+            exit 1
+          fi
+
   publish_aur:
     name: Publish AUR package
     needs: [preflight, release]
@@ -988,7 +963,7 @@ jobs:
     name: Build hosted web app
     needs: [preflight, relay_public_config]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     outputs:
       deployment_url: ${{ steps.deploy.outputs.deployment_url }}
@@ -1085,9 +1060,9 @@ jobs:
 
   deploy_web:
     name: Deploy hosted web app
-    needs: [preflight, build_web, release]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_web.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    needs: [preflight, build_web, release, publish_cli]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_web.result == 'success' && needs.release.result == 'success' && needs.publish_cli.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     env:
       DEPLOYMENT_URL: ${{ needs.build_web.outputs.deployment_url }}
@@ -1154,37 +1129,6 @@ jobs:
               "${vercel_scope_args[@]}"
           fi
 
-          verify_static_asset() {
-            local path="$1"
-            local expected_content_type="$2"
-            local headers body content_type
-            headers="$(mktemp)"
-            body="$(mktemp)"
-            trap 'rm -f "$headers" "$body"' RETURN
-            curl --fail --silent --show-error --location --dump-header "$headers" --output "$body" \
-              "https://${verify_domain}$path"
-            content_type="$(tr -d '\r' < "$headers" | awk -F': ' 'tolower($1) == "content-type" { print tolower($2) }' | tail -n 1)"
-            if [[ "$content_type" != *"$expected_content_type"* ]] || grep --quiet --ignore-case '<!doctype html\|<html' "$body"; then
-              echo "Hosted PWA asset check failed for $path (content type: $content_type)." >&2
-              exit 1
-            fi
-            rm -f "$headers" "$body"
-            trap - RETURN
-          }
-
-          # Keep these checks against the alias just updated above. An SPA fallback
-          # returning index.html here would make installed-PWA push impossible.
-          verify_domain="$channel_domain"
-          verify_static_asset "/service-worker.js" "javascript"
-          verify_static_asset "/sw.js" "javascript"
-          verify_static_asset "/manifest.webmanifest" "manifest"
-          verify_static_asset "/sounds/agent-completed.ogg" "audio/ogg"
-
-          if [[ "$channel_name" == "latest" && -n "$router_domain" ]]; then
-            verify_domain="$router_domain"
-            verify_static_asset "/service-worker.js" "javascript"
-          fi
-
   # Same split as the web app: build a production deployment early, then
   # promote it to t3.codes once the release it links to exists. As above, the
   # project's own *.vercel.app hostname moves at build time.
@@ -1192,7 +1136,7 @@ jobs:
     name: Build marketing site
     needs: [preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     outputs:
       deployment_url: ${{ steps.deploy.outputs.deployment_url }}
@@ -1256,7 +1200,7 @@ jobs:
     name: Deploy marketing site
     needs: [preflight, build_marketing, release]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_marketing.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     env:
       DEPLOYMENT_URL: ${{ needs.build_marketing.outputs.deployment_url }}
@@ -1301,7 +1245,7 @@ jobs:
     name: Finalize release
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'stable' }}
     needs: [preflight, release]
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     steps:
       - id: app_token
@@ -1387,7 +1331,7 @@ jobs:
       needs.deploy_web.result == 'success' &&
       (needs.finalize.result == 'success' || needs.finalize.result == 'skipped')
     needs: [preflight, relay_public_config, release, deploy_web, finalize]
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
     timeout-minutes: 10
     steps:
       - name: Checkout

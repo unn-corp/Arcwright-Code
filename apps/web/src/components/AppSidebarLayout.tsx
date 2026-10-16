@@ -124,9 +124,7 @@ function SidebarControl() {
       toggleSidebar();
     };
 
-    // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
     window.addEventListener("keydown", onKeyDown, true);
-    // A focused desktop browser page forwards the chord as a menu action.
     const unsubscribe = window.desktopBridge?.onMenuAction((action) => {
       if (action === "sidebar.toggle") toggleSidebar();
     });
@@ -156,8 +154,6 @@ function SidebarControl() {
         <TooltipTrigger
           render={
             <SidebarTrigger
-              // Over the stage artwork the trigger is a control on imagery, like the media
-              // viewer's arrows; that variant positions itself, so the layout is reset here.
               variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
               className={cn(
                 "pointer-events-auto",
@@ -267,9 +263,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
-  // Settings routes show the settings nav in place of whichever thread
-  // sidebar is active.
-  // Seeds server-side visited tracking from this browser's localStorage the
   useThreadVisitedMigration();
   const pathname = useLocation({ select: (location) => location.pathname });
   const panelAnimationsSuppressed = usePanelNavigationSuppression(pathname);
@@ -372,7 +365,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
             onResize: setSidebarWidth,
           }}
-          // The narrow-window sidebar is a sheet, portaled outside the provider's styles.
           style={windowControlsInsetStyle}
         >
           {isOnSettings ? (

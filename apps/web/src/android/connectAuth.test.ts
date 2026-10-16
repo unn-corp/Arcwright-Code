@@ -31,6 +31,46 @@ function fixture() {
   return { store, bridge, messages, emit, status };
 }
 describe("native managed auth store", () => {
+  it("updates the account photo with an exact principal fence and returns canonical metadata", async () => {
+    const { store, messages, emit, status } = fixture();
+    for (const photo of ["data:image/webp;base64,AA==", null]) {
+      const pending = store.setProfilePhoto(photo);
+      await Promise.resolve();
+      const request = messages.at(-1)!;
+      expect(request).toEqual({
+        id: request.id,
+        action: "setProfilePhoto",
+        photo,
+        generation: status.generation,
+        userId: status.userId,
+        sessionId: status.sessionId,
+      });
+      const canonical = photo ? "https://example.test/uploaded.png" : null;
+      emit({
+        id: request.id,
+        result: { ...status, profile: { name: "Alice", photo: canonical, accounts: [] } },
+      });
+      await expect(pending).resolves.toBe(canonical);
+    }
+    const count = messages.length;
+    await expect(store.setProfilePhoto("https://arbitrary.test/image")).rejects.toThrow("bounded");
+    expect(messages).toHaveLength(count);
+  });
+  it("rejects photo writes and responses from a replaced native principal", async () => {
+    const { store, messages, emit, status } = fixture();
+    const pending = store.setProfilePhoto(null);
+    await Promise.resolve();
+    const request = messages.at(-1)!;
+    emit({ event: { ...status, generation: 2, userId: "bob", sessionId: "bob-session" } });
+    emit({
+      id: request.id,
+      result: { ...status, profile: { name: "Alice", photo: null, accounts: [] } },
+    });
+    await expect(pending).rejects.toThrow("Account changed");
+    const count = messages.length;
+    await expect(store.setProfilePhoto(null, status)).rejects.toThrow("Account changed");
+    expect(messages).toHaveLength(count);
+  });
   it("reads bounded public profile metadata without changing strict protocol-1 status", async () => {
     const { store, messages, emit, status } = fixture();
     const promise = store.getParticipantProfile();

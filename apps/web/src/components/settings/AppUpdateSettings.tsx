@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   openAndroidInstallPermission,
   openAndroidRecovery,
@@ -11,8 +11,15 @@ import { ForkUpdateControls } from "./ForkUpdateControls";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 /** Client preferences stay local even when Settings is scoped to a remote environment. */
-export function AppUpdateSettings() {
+export function AppUpdateSettings({ desktopControls }: { desktopControls: ReactNode }) {
   const [nativeError, setNativeError] = useState<string | null>(null);
+  if (isElectron) {
+    return (
+      <SettingsSection id="app-updates" title="App updates">
+        {desktopControls}
+      </SettingsSection>
+    );
+  }
   if (!isElectron && !isAndroidPwa) return null;
   const controller = localForkUpdateController();
   return (

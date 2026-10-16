@@ -151,9 +151,7 @@ export const make = Effect.gen(function* () {
   >(new Map());
 
   /**
-   * Confirms a direct address still serves the expected environment before a
-   * credential is sent there. A saved LAN address can belong to another
-   * machine on a different network.
+   * A saved LAN address can belong to another machine on a different network.
    */
   const verifyDirectEndpoint = Effect.fn("clientRuntime.connection.remote.verifyDirectEndpoint")(
     function* (input: {
@@ -578,7 +576,6 @@ export const make = Effect.gen(function* () {
       Effect.result,
     );
     if (Result.isFailure(socket)) {
-      // A direct address that refuses the socket says nothing about the token.
       if (endpoint === undefined || socket.failure._tag === "ConnectionBlockedError") {
         yield* tokenLock.withPermits(1)(
           removeRejectedToken(input.expectedEnvironmentId, selected.token.accessToken),

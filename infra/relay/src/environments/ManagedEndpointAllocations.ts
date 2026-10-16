@@ -40,7 +40,6 @@ export interface ManagedEndpointAllocation {
   readonly origin: RelayManagedEndpointOrigin | null;
   readonly updatedAt: string;
   readonly generation: number;
-  /** When cleanup deleted the recorded tunnel; null once a tunnel is recorded again. */
   readonly tunnelReleasedAt: string | null;
 }
 
@@ -117,7 +116,6 @@ export class ManagedEndpointAllocations extends Context.Service<
     readonly get: (
       input: ManagedEndpointAllocationKey,
     ) => Effect.Effect<ManagedEndpointAllocation | null, ManagedEndpointAllocationPersistenceError>;
-    /** The allocation that owns a tunnel name; tunnel names are unique. */
     readonly getByTunnelName: (
       tunnelName: string,
     ) => Effect.Effect<ManagedEndpointAllocation | null, ManagedEndpointAllocationPersistenceError>;

@@ -1,141 +1,111 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type {
-  DesktopUpdateState,
-  ForkMaintenanceError,
-  ForkUpdateStatus,
-} from "@t3tools/contracts";
-import { ForkMaintenanceError as MaintenanceError } from "@t3tools/contracts";
+import type { DesktopUpdateState } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as PlatformError from "effect/PlatformError";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as PubSub from "effect/PubSub";
-import * as Ref from "effect/Ref";
-import * as Stream from "effect/Stream";
 
+import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import * as DesktopForkMaintenance from "../maintenance/DesktopForkMaintenance.ts";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
-
-/** Shared test harness: the legacy update facade over a scripted maintenance controller. */
 
 export const flushCallbacks = Effect.yieldNow;
 
-const NEW_DIGEST = "b".repeat(64);
-const build = (version: string, artifactSha256: string) => ({
-  version,
-  commit: "c".repeat(40),
-  channel: "stable" as const,
-  artifactSha256,
-});
-
-export const idleStatus = (overrides: Partial<ForkUpdateStatus> = {}): ForkUpdateStatus => ({
-  coordinatorId: "device",
-  phase: "idle",
-  policy: { channel: "stable", automaticInstallation: false, pinnedBuild: null },
-  currentBuild: build("1.2.3", "a".repeat(64)),
-  targetBuild: null,
-  blockers: [],
-  recoveryOptions: [],
-  transactionId: null,
-  automationReviewRequired: false,
-  installable: false,
-  ...overrides,
-});
-
-export const stagedStatus = (overrides: Partial<ForkUpdateStatus> = {}): ForkUpdateStatus =>
-  idleStatus({
-    phase: "staged",
-    targetBuild: build("1.2.4", NEW_DIGEST),
-    installable: true,
-    ...overrides,
-  });
-
 export interface UpdatesHarnessOptions {
-  readonly initial?: ForkUpdateStatus;
-  /** What a check leaves the controller in. */
-  readonly afterCheck?: ForkUpdateStatus;
-  readonly checkFailure?: string;
-  readonly installFailure?: string;
-  readonly afterInstall?: ForkUpdateStatus;
-  readonly policyFailure?: string;
-  readonly disabledReason?: string | undefined;
+  readonly checkForUpdates?: Effect.Effect<
+    void,
+    ElectronUpdater.ElectronUpdaterCheckForUpdatesError
+  >;
+  readonly beforeSetUpdateChannel?: Effect.Effect<void>;
+  readonly setUpdateChannelError?: DesktopAppSettings.DesktopSettingsWriteError;
+  readonly setDisableDifferentialDownload?: Effect.Effect<void>;
+  readonly downloadUpdate?: Effect.Effect<void>;
+  readonly quitAndInstall?: Effect.Effect<void, ElectronUpdater.ElectronUpdaterQuitAndInstallError>;
+  readonly stopBackend?: Effect.Effect<void>;
+  readonly startBackend?: Effect.Effect<void>;
+  readonly env?: Record<string, string | undefined>;
+  readonly platform?: NodeJS.Platform;
+  readonly packageType?: string | undefined;
+  readonly installRecord?: string | undefined;
 }
 
 export function makeHarness(options: UpdatesHarnessOptions = {}) {
-  const installs: string[] = [];
-  const policies: unknown[] = [];
-  let checks = 0;
+  let checkCount = 0;
+  let quitAndInstallCount = 0;
+  let downloadCount = 0;
+  let allowDowngrade = false;
+  let fullChangelog = false;
+  const feedUrls: ElectronUpdater.ElectronUpdaterFeedUrl[] = [];
+  const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
+  const installSteps: string[] = [];
 
-  const make = Effect.gen(function* () {
-    const current = yield* Ref.make<ForkUpdateStatus>(options.initial ?? idleStatus());
-    const changes = yield* PubSub.unbounded<ForkUpdateStatus>();
-    const set = (status: ForkUpdateStatus) =>
-      Ref.set(current, status).pipe(
-        Effect.andThen(PubSub.publish(changes, status)),
-        Effect.as(status),
-      );
-    const fail = (reason: string): Effect.Effect<never, ForkMaintenanceError> =>
-      Effect.fail(new MaintenanceError({ reason }));
-    const controller = DesktopForkMaintenance.DesktopForkMaintenance.of({
-      status: Ref.get(current),
-      subscribe: Effect.gen(function* () {
-        const subscription = yield* PubSub.subscribe(changes);
-        return { latest: yield* Ref.get(current), changes: Stream.fromSubscription(subscription) };
+  const addListener = (eventName: string, listener: (...args: readonly unknown[]) => void) => {
+    const eventListeners = listeners.get(eventName) ?? new Set();
+    eventListeners.add(listener);
+    listeners.set(eventName, eventListeners);
+  };
+
+  const removeListener = (eventName: string, listener: (...args: readonly unknown[]) => void) => {
+    const eventListeners = listeners.get(eventName);
+    if (!eventListeners) {
+      return;
+    }
+    eventListeners.delete(listener);
+    if (eventListeners.size === 0) {
+      listeners.delete(eventName);
+    }
+  };
+
+  const layerUpdater = Layer.succeed(ElectronUpdater.ElectronUpdater, {
+    setFeedURL: (options) =>
+      Effect.sync(() => {
+        feedUrls.push(options);
       }),
-      // Like the real controller: it announces the check, then settles on what it found.
-      check: Effect.sync(() => void (checks += 1)).pipe(
-        Effect.andThen(
-          Ref.get(current).pipe(Effect.flatMap((status) => set({ ...status, phase: "checking" }))),
-        ),
-        Effect.andThen(Effect.yieldNow),
-        Effect.andThen(
-          options.checkFailure === undefined
-            ? set(options.afterCheck ?? idleStatus())
-            : fail(options.checkFailure),
-        ),
-      ),
-      install: (digest) =>
-        Effect.sync(() => void installs.push(digest)).pipe(
-          Effect.andThen(
-            options.installFailure === undefined
-              ? set(options.afterInstall ?? idleStatus({ phase: "installing" }))
-              : fail(options.installFailure),
-          ),
-        ),
-      cancelCountdown: Ref.get(current),
-      updatePolicy: (patch) =>
-        Effect.sync(() => void policies.push(patch)).pipe(
-          Effect.andThen(
-            options.policyFailure === undefined
-              ? Ref.get(current).pipe(
-                  Effect.flatMap((status) =>
-                    set({
-                      ...status,
-                      policy: {
-                        ...status.policy,
-                        ...(patch.channel === undefined ? {} : { channel: patch.channel }),
-                      },
-                    }),
-                  ),
-                )
-              : fail(options.policyFailure),
-          ),
-        ),
-      runAction: () => Ref.get(current),
-      recover: () => Ref.get(current),
-      reportInteraction: () => Effect.void,
-      disabledReason: Effect.succeed(Option.fromNullishOr(options.disabledReason)),
-      prepareStartup: Effect.succeed({ kind: "idle" } as const),
-      resumeInBackground: Effect.void,
-      configure: Effect.void,
-    });
-    return { controller, set };
-  });
+    setAutoDownload: () => Effect.void,
+    setAutoInstallOnAppQuit: () => Effect.void,
+    setChannel: () => Effect.void,
+    setAllowPrerelease: () => Effect.void,
+    allowDowngrade: Effect.sync(() => allowDowngrade),
+    setAllowDowngrade: (value) =>
+      Effect.sync(() => {
+        allowDowngrade = value;
+      }),
+    setFullChangelog: (value) =>
+      Effect.sync(() => {
+        fullChangelog = value;
+      }),
+    setDisableDifferentialDownload: () => options.setDisableDifferentialDownload ?? Effect.void,
+    checkForUpdates: Effect.sync(() => {
+      checkCount += 1;
+    }).pipe(Effect.andThen(options.checkForUpdates ?? Effect.void)),
+    downloadUpdate: Effect.sync(() => {
+      downloadCount += 1;
+    }).pipe(Effect.andThen(options.downloadUpdate ?? Effect.void)),
+    quitAndInstall: () =>
+      Effect.sync(() => {
+        quitAndInstallCount += 1;
+        installSteps.push("quitAndInstall");
+      }).pipe(Effect.andThen(options.quitAndInstall ?? Effect.void)),
+    on: (eventName, listener) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          addListener(eventName, listener as unknown as (...args: readonly unknown[]) => void);
+        }),
+        () =>
+          Effect.sync(() => {
+            removeListener(eventName, listener as unknown as (...args: readonly unknown[]) => void);
+          }),
+      ).pipe(Effect.asVoid),
+  } satisfies ElectronUpdater.ElectronUpdater["Service"]);
 
-  const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
+  const layerWindow = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeedNone,
     currentMainOrFirst: Effect.succeedNone,
@@ -148,14 +118,35 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       Effect.sync(() => {
         sentStates.push(state as DesktopUpdateState);
       }),
-    destroyAll: Effect.void,
+    destroyAll: Effect.sync(() => {
+      installSteps.push("destroyAll");
+    }),
     syncAllAppearance: () => Effect.void,
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 
-  const environmentLayer = DesktopEnvironment.layer({
+  const stubBackendInstance: DesktopBackendPool.DesktopBackendInstance = {
+    id: DesktopBackendPool.PRIMARY_INSTANCE_ID,
+    label: Effect.succeed("Windows"),
+    start: Effect.sync(() => {
+      installSteps.push("startBackend");
+    }).pipe(Effect.andThen(options.startBackend ?? Effect.void)),
+    stop: () => options.stopBackend ?? Effect.void,
+    currentConfig: Effect.succeedNone,
+    snapshot: Effect.succeed({
+      desiredRunning: false,
+      ready: false,
+      activePid: Option.none(),
+      restartAttempt: 0,
+      restartScheduled: false,
+    }),
+    waitForReady: () => Effect.succeed(true),
+  };
+  const layerBackend = DesktopBackendPool.layerTest([stubBackendInstance]);
+
+  const layerEnvironment = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: `/tmp/t3-desktop-updates-home-${process.pid}`,
-    platform: "linux",
+    platform: options.platform ?? "darwin",
     processArch: "x64",
     appVersion: "1.2.3",
     appPath: "/repo",
@@ -166,38 +157,129 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     Layer.provide(
       Layer.mergeAll(
         NodeServices.layer,
-        DesktopConfig.layerTest({ T3CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}` }),
+        DesktopConfig.layerTest({
+          T3CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}`,
+          T3CODE_DESKTOP_MOCK_UPDATES: "true",
+          T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
+          ...options.env,
+        }),
       ),
     ),
   );
 
-  const controllerLayer = Layer.effect(
-    DesktopForkMaintenance.DesktopForkMaintenance,
-    make.pipe(Effect.map(({ controller, set }) => Object.assign(controller, { __set: set }))),
-  );
+  let testSettings: DesktopAppSettings.DesktopSettings = {
+    ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+  };
+  const setUpdateChannelError = options.setUpdateChannelError;
+  const layerSettings =
+    setUpdateChannelError || options.beforeSetUpdateChannel
+      ? Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
+          get: Effect.sync(() => testSettings),
+          load: Effect.sync(() => testSettings),
+          setMainWindowBounds: () => Effect.die("unexpected main window bounds update"),
+          setServerExposureMode: () => Effect.die("unexpected server exposure update"),
+          setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
+          setUpdateChannel: (channel) =>
+            setUpdateChannelError
+              ? Effect.fail(setUpdateChannelError)
+              : (options.beforeSetUpdateChannel ?? Effect.void).pipe(
+                  Effect.andThen(
+                    Effect.sync(() => {
+                      const changed = testSettings.updateChannel !== channel;
+                      testSettings = {
+                        ...testSettings,
+                        updateChannel: channel,
+                        updateChannelConfiguredByUser: true,
+                      };
+                      return { settings: testSettings, changed };
+                    }),
+                  ),
+                ),
+          setWslBackendEnabled: () => Effect.die("unexpected WSL backend toggle"),
+          setWslDistro: () => Effect.die("unexpected WSL distro change"),
+          setLocalEnvironmentEnabled: () => Effect.die("unexpected local environment toggle"),
+          setWslOnly: () => Effect.die("unexpected WSL-only toggle"),
+          applyWslWindowsFallback: Effect.die("unexpected WSL Windows fallback"),
+          applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
+        } satisfies DesktopAppSettings.DesktopAppSettings["Service"])
+      : DesktopAppSettings.layer;
+
+  const updateRestartMarkers = new Set<string>();
+  const installRecords = new Map<string, string>();
+  let previousInstallRecord = options.installRecord;
+  const isInstallRecord = (path: string) =>
+    path.endsWith(DesktopUpdates.DESKTOP_UPDATE_INSTALL_RECORD_FILE);
+  const layerFileSystem = FileSystem.layerNoop({
+    readFileString: (path) => {
+      const installRecord = isInstallRecord(path)
+        ? (installRecords.get(path) ?? previousInstallRecord)
+        : undefined;
+      if (installRecord !== undefined) return Effect.succeed(installRecord);
+      return path === "/missing/resources/package-type" && options.packageType !== undefined
+        ? Effect.succeed(options.packageType)
+        : Effect.fail(
+            PlatformError.systemError({
+              module: "FileSystem",
+              method: "readFileString",
+              _tag: "NotFound",
+              pathOrDescriptor: path,
+            }),
+          );
+    },
+    makeDirectory: () => Effect.void,
+    writeFileString: (path, data) =>
+      Effect.sync(() => {
+        if (isInstallRecord(path)) installRecords.set(path, data);
+        else updateRestartMarkers.add(path);
+      }),
+    remove: (path) =>
+      Effect.sync(() => {
+        updateRestartMarkers.delete(path);
+        installRecords.delete(path);
+        if (isInstallRecord(path)) previousInstallRecord = undefined;
+      }),
+  });
+
   const layer = DesktopUpdates.layer.pipe(
-    Layer.provideMerge(controllerLayer),
-    Layer.provideMerge(windowLayer),
-    Layer.provideMerge(environmentLayer),
+    Layer.provide(layerFileSystem),
+    Layer.provideMerge(layerUpdater),
+    Layer.provideMerge(layerWindow),
+    Layer.provideMerge(layerBackend),
+    Layer.provideMerge(DesktopState.layer),
+    Layer.provideMerge(layerSettings),
+    Layer.provideMerge(
+      DesktopConfig.layerTest({
+        T3CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}`,
+        T3CODE_DESKTOP_MOCK_UPDATES: "true",
+        T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
+        ...options.env,
+      }),
+    ),
+    Layer.provideMerge(layerEnvironment),
     Layer.provideMerge(NodeServices.layer),
   );
 
   return {
     layer,
-    installs,
-    policies,
-    checks: () => checks,
+    checkCount: () => checkCount,
+    quitAndInstalls: () => quitAndInstallCount,
+    installSteps,
+    updateRestartMarkers,
+    installRecords,
+    previousInstallRecord: () => previousInstallRecord,
+    downloadCount: () => downloadCount,
+    feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,
+    fullChangelog: () => fullChangelog,
+    listenerCount: () =>
+      Array.from(listeners.values()).reduce(
+        (total, eventListeners) => total + eventListeners.size,
+        0,
+      ),
     sentStates,
-    /** Moves the scripted controller to a new status, as its own timers and the relay do. */
-    publish: (status: ForkUpdateStatus) =>
-      Effect.gen(function* () {
-        const controller =
-          (yield* DesktopForkMaintenance.DesktopForkMaintenance) as DesktopForkMaintenance.DesktopForkMaintenance["Service"] & {
-            __set: (status: ForkUpdateStatus) => Effect.Effect<ForkUpdateStatus>;
-          };
-        yield* controller.__set(status);
-        // The facade follows the controller from its own fiber; let it deliver this change before the caller reads.
-        for (let turn = 0; turn < 10; turn += 1) yield* Effect.yieldNow;
-      }),
+    emit: (eventName: string, payload?: unknown) => {
+      for (const listener of listeners.get(eventName) ?? []) {
+        listener(payload);
+      }
+    },
   };
 }

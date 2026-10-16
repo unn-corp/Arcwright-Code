@@ -70,10 +70,6 @@ function ConfiguredConnectOnboardingDialog() {
   const canReadRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayReadScope);
   const canWriteRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayWriteScope);
   const canManageRelay = canReadRelay && canWriteRelay;
-  // The publish step is only offered when we know the answer; opening the
-  // wizard before the session state resolves would let the step set change
-  // mid-flight. A failed session read still opens the wizard — it just means
-  // no publish step.
   const sessionScopesKnown =
     primaryEnvironmentId === null ? environmentsReady : primarySessionState._tag !== "Initial";
 
@@ -101,10 +97,6 @@ function ConfiguredConnectOnboardingDialog() {
 
   const optOutAccounts = optOutState.optOutAccounts;
 
-  // Every sign-in or account switch that completes during this session
-  // requests the wizard — account transitions clear the connected relay
-  // environments, so each new session starts with no devices to reach. A cold
-  // load observes undefined → account and must not re-prompt.
   useEffect(() => {
     if (!isLoaded) return;
     // A loaded-but-incomplete snapshot (signed in, user id not yet populated)
@@ -125,8 +117,6 @@ function ConfiguredConnectOnboardingDialog() {
   // becomes available and freeze there.
   const publishStepDecided = !canManageRelay || controller.linkState.target !== null;
 
-  // Open once the session scopes resolve so the step set is stable. Accounts
-  // that chose "Don't show this again" are skipped.
   useEffect(() => {
     if (requestedAccount === null || openForAccount !== null) return;
     if (optOutAccounts.includes(requestedAccount)) {
@@ -151,8 +141,6 @@ function ConfiguredConnectOnboardingDialog() {
     sessionScopesKnown,
   ]);
 
-  // Signing out (or switching accounts) mid-wizard invalidates everything the
-  // wizard would do — close it and let the sign-in trigger re-evaluate.
   useEffect(() => {
     if (openForAccount !== null && (!isSignedIn || userId !== openForAccount)) {
       setOpenForAccount(null);
@@ -162,11 +150,6 @@ function ConfiguredConnectOnboardingDialog() {
     }
   }, [isSignedIn, openForAccount, requestedAccount, userId]);
 
-  // Toggles default on, but an environment that is already linked should show
-  // its actual configuration instead of silently proposing to rewrite it.
-  // Only when the link belongs to the account being onboarded, though — after
-  // an account switch the cached link state can still describe the previous
-  // account's setup.
   const linkStateData = controller.linkState.data;
   useEffect(() => {
     if (openForAccount === null || prefilledFromLinkStateRef.current || linkStateData === null) {
@@ -184,8 +167,6 @@ function ConfiguredConnectOnboardingDialog() {
   }, [linkStateData, openForAccount]);
 
   const complete = () => {
-    // Keep the wizard up while a link request is in flight so its outcome
-    // (and any failure) stays visible.
     if (isApplying) return;
     const account = openForAccount;
     setOpenForAccount(null);
@@ -236,8 +217,6 @@ function ConfiguredConnectOnboardingDialog() {
     <Dialog
       open={openForAccount !== null}
       onOpenChange={(open) => {
-        // Keep the dialog up while a link request is in flight so its outcome
-        // (and any failure) stays visible.
         if (!open && !isApplying) complete();
       }}
     >

@@ -43,7 +43,6 @@ export function threadRelationshipStatusLabel(status: string | null): string {
   }
 }
 
-/** Shared by lineage and timeline links, including the provider glyph and status badge. */
 export function ThreadRelationshipIcon({
   participant,
   driver,

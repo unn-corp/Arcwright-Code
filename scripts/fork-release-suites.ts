@@ -184,6 +184,8 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "src/backend/DesktopBackendManager.test.ts",
       "src/updates/DesktopRemoteUpdates.test.ts",
       "src/updates/DesktopUpdates.test.ts",
+      "src/updates/forkDesktopFeed.test.ts",
+      "src/electron/ElectronUpdater.test.ts",
       "src/updates/remoteUpdateFlow.test.ts",
       "src/updates/updateChannels.test.ts",
       "src/updates/updateMachine.test.ts",
@@ -297,9 +299,7 @@ export const requiredSuiteRuns = (): ReadonlyArray<{
   return [...needed].flatMap((suite) => SUITES[suite].targets.map((target) => ({ suite, target })));
 };
 
-// ---------------------------------------------------------------------------------------------
 // Receipts
-// ---------------------------------------------------------------------------------------------
 
 export interface SuiteReceipt {
   readonly format: 1;
@@ -376,9 +376,7 @@ export const suiteReceiptCounts = (
     receipt.files.some((file) => file.name === name && file.tests > 0),
   );
 
-// ---------------------------------------------------------------------------------------------
 // Result parsing
-// ---------------------------------------------------------------------------------------------
 
 interface VitestReport {
   readonly testResults?: ReadonlyArray<{
@@ -455,9 +453,7 @@ export const parseJunitReports = (
   return { files, problems };
 };
 
-// ---------------------------------------------------------------------------------------------
 // Running
-// ---------------------------------------------------------------------------------------------
 
 const git = (dir: string, ...args: string[]): string =>
   NodeChildProcess.execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();

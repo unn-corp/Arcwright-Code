@@ -56,7 +56,7 @@ export class ServerSelfUpdate extends Context.Service<
       readonly targetVersion: string;
       readonly expectedArchiveSha256?: string | undefined;
     }) => Effect.Effect<PinnedRuntimePaths, ServerSelfUpdateError>;
-    /** Retired wire method. Installs run through the device maintenance coordinator; this always refuses. */
+    /** Desktop updates delegate to the upstream desktop updater; service replacement retains its coordinator. */
     readonly update: (
       input: ServerSelfUpdateInput,
       reportProgress?: (
@@ -64,7 +64,7 @@ export class ServerSelfUpdate extends Context.Service<
       ) => Effect.Effect<void, ServerSelfUpdateError>,
       onHandoffAccepted?: () => Effect.Effect<void>,
     ) => Effect.Effect<ServerSelfUpdateResult, ServerSelfUpdateError>;
-    /** Retired wire method. See `update`. */
+    /** Commit a desktop update prepared through the remote desktop handshake. */
     readonly commitDesktopUpdate: (
       requestId: string,
       onHandoffAccepted?: () => Effect.Effect<void>,
@@ -84,7 +84,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const platform = yield* HostProcess.Platform;
   const arch = yield* HostProcess.Architecture;
   // Kept so existing compositions still construct; desktop-managed servers no longer drive it.
-  yield* DesktopAppUpdate.DesktopAppUpdate;
+  const desktopAppUpdate = yield* DesktopAppUpdate.DesktopAppUpdate;
   const httpClient = yield* HttpClient.HttpClient;
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
@@ -197,8 +197,14 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   return ServerSelfUpdate.of({
     capability,
     stage,
-    update: () => Effect.fail(failWith(RETIRED_REASON)),
-    commitDesktopUpdate: () => Effect.fail(failWith(RETIRED_REASON)),
+    update: (_input, reportProgress = () => Effect.void) =>
+      capability === "desktop-managed" && desktopAppUpdate.available
+        ? desktopAppUpdate.run(reportProgress)
+        : Effect.fail(failWith(RETIRED_REASON)),
+    commitDesktopUpdate: (requestId, onHandoffAccepted) =>
+      capability === "desktop-managed" && desktopAppUpdate.available
+        ? desktopAppUpdate.commit(requestId, onHandoffAccepted)
+        : Effect.fail(failWith(RETIRED_REASON)),
   });
 });
 

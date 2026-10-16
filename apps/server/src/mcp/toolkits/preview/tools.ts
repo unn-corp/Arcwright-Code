@@ -43,7 +43,6 @@ const dependencies = [
   ConversationEvidence.ConversationEvidence,
 ];
 
-/** What a browser action fails with, including the access gate's refusal. */
 const PreviewToolFailure = Schema.Union([PreviewAutomationError, OrchestratorMcpFailure]);
 
 const presentationFields = { toolIcon: Schema.optional(ToolActivityIcon) };
@@ -52,15 +51,12 @@ const PreviewActionResult = Schema.Struct(presentationFields).annotate({
   description: "The preview action completed successfully.",
 });
 
-/** Drives the real browser and can destroy page state. */
 const browserTool = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, true) as T;
 
-/** Same open-world browser access, but the action does not destroy page state. */
 const safeBrowserTool = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, false) as T;
 
-/** A safe browser action that only observes, so it is also repeatable. */
 const readonlyBrowserTool = <T extends Tool.Any>(tool: T): T =>
   safeBrowserTool(tool).annotate(Tool.Readonly, true).annotate(Tool.Idempotent, true) as T;
 

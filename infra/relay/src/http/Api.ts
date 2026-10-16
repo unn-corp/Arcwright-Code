@@ -209,9 +209,6 @@ export const layerDocsRedirectRoute = HttpRouter.add(
 // request hangs (e.g. a stuck upstream query), the client would otherwise
 // abort first, the invocation would die with the request span still open, and
 // the batched spans would never export — leaving no server-side trace at all.
-// Failing server-side first turns the hang into a completed 504 whose trace
-// contains the exact child span that stalled, and the response still carries
-// the traceparent back to the client.
 export const RELAY_REQUEST_DEADLINE_MS = 9_000;
 // Linking/unlinking owns several short database transactions around Cloudflare
 // tunnel and DNS calls. Give that bounded setup room to finish before the
@@ -253,7 +250,6 @@ export const relayRequestDeadline = <A, E, R>(
     ),
   );
 
-/** Trace context headers in every format the tracer reads (W3C and B3). */
 const SENDER_TRACE_HEADER = /^(traceparent|tracestate|b3|x-b3-.*)$/i;
 
 export const traceRelayHttpRequest = <E, R>(
@@ -336,14 +332,11 @@ export const traceRelayHttpRequest = <E, R>(
       ),
     ).pipe(
       Effect.provideService(HttpServerRequest.HttpServerRequest, redacted),
-      // The worker turns its own request span off; this one is ours.
       Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => false),
       Effect.ensuring(Effect.yieldNow),
     );
   });
 
-// Webhook senders put shared secrets and signatures in headers such as
-// x-hub-signature-256, stripe-signature, x-gitlab-token and x-webhook-key.
 const layerWebhookHeaderRedaction = Layer.effect(
   Headers.CurrentRedactedNames,
   Effect.map(Headers.CurrentRedactedNames, (names) => [
@@ -578,7 +571,6 @@ export const unlinkEnvironmentRecord = Effect.fn("relay.api.client.unlinkEnviron
   function* (input: {
     readonly userId: string;
     readonly environmentId: string;
-    /** The stage's tunnel-name namespace, to find this link's held webhook requests. */
     readonly managedEndpointNamespace?: string | undefined;
   }) {
     const lifecycle = yield* ManagedEndpointLifecycle.ManagedEndpointLifecycle;

@@ -18,8 +18,30 @@ const state = vi.hoisted(() => ({
     }[];
   },
   settings: null as ClientSettings | null,
+  refresh: null as (() => Promise<void>) | null,
 }));
-vi.mock("@clerk/react", () => ({ useUser: () => ({ isLoaded: true, user: state.user }) }));
+vi.mock("@clerk/react", () => ({
+  useUser: () => ({
+    isLoaded: true,
+    user: state.user ? { ...state.user, reload: async () => state.user } : null,
+  }),
+  useClerk: () => ({
+    get user() {
+      return state.user;
+    },
+    get session() {
+      return state.user ? { id: `session-${state.user.id}` } : null;
+    },
+  }),
+}));
+vi.mock("./participantProfileRefresh", () => ({
+  startParticipantProfileRefresh: (refresh: () => Promise<void>) => {
+    state.refresh = refresh;
+    return () => {
+      state.refresh = null;
+    };
+  },
+}));
 vi.mock("../../hooks/useSettings", () => ({
   persistClientSettingsUpdate: async (update: (settings: ClientSettings) => ClientSettings) => {
     state.settings = update(state.settings!);
@@ -65,6 +87,7 @@ it("seeds personal sign-in, preserves edits and separates accounts and sign-out"
       ...state.settings.participantProfiles,
       "account:alice": {
         ...first,
+        photoSource: "custom",
         participant: { ...first.participant, name: "My name", photo: null },
       },
     },
@@ -103,4 +126,50 @@ it("seeds personal sign-in, preserves edits and separates accounts and sign-out"
   await act(async () => renderer!.update(<ParticipantProfileSync />));
   expect(state.settings.activeParticipantProfile).toBe("local");
   expect(state.settings.participantProfiles["account:alice"]?.participant.name).toBe("My name");
+});
+it("refreshes the canonical photo on another client while retaining its chosen name and explicit account initials", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  state.settings = DEFAULT_CLIENT_SETTINGS;
+  state.user = {
+    id: "alice",
+    fullName: "Alice",
+    username: "alice",
+    hasImage: true,
+    imageUrl: "https://example.com/first.png",
+    externalAccounts: [],
+  };
+  await act(async () => {
+    renderer = create(<ParticipantProfileSync />);
+  });
+  const first = state.settings.participantProfiles["account:alice"]!;
+  state.settings = {
+    ...state.settings,
+    participantProfiles: {
+      "account:alice": { ...first, participant: { ...first.participant, name: "Chosen name" } },
+    },
+  };
+  state.user = { ...state.user, imageUrl: "https://example.com/updated.png" };
+  await act(async () => state.refresh!());
+  expect(state.settings.participantProfiles["account:alice"]?.participant).toMatchObject({
+    name: "Chosen name",
+    photo: "https://example.com/updated.png",
+  });
+  state.user = {
+    ...state.user,
+    hasImage: false,
+    externalAccounts: [
+      {
+        id: "google",
+        provider: "google",
+        username: "alice",
+        emailAddress: "",
+        imageUrl: "https://example.com/google.png",
+      },
+    ],
+  };
+  await act(async () => state.refresh!());
+  expect(state.settings.participantProfiles["account:alice"]?.participant.photo).toBeNull();
+  const unchanged = state.settings;
+  await act(async () => state.refresh!());
+  expect(state.settings).toBe(unchanged);
 });

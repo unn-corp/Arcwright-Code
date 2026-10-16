@@ -98,11 +98,8 @@ interface NetworkInformationLike extends EventTarget {
 }
 
 /**
- * Wakes connections when the browser reports a different network type, such
- * as a laptop moving from Wi-Fi to a phone hotspot. `change` also fires for
- * bandwidth and latency estimates on the same network, so only a type change
- * counts. Browsers without `navigator.connection.type` rely on the periodic
- * route check instead.
+ * `change` also fires for bandwidth and latency estimates on the same network,
+ * so only a type change counts.
  */
 const networkPathChanges = Stream.callback<"network-changed">((queue) =>
   Effect.acquireRelease(
@@ -357,9 +354,6 @@ const loadPrimaryConnectionRegistration = Effect.fn(
   });
 });
 
-// A desktop-local secondary backend (e.g. a parallel WSL backend) lives on its
-// own loopback origin, so — unlike the same-origin primary — it authenticates
-// with a bearer token minted from the bootstrap credential the desktop issues.
 const loadSecondaryConnectionRegistration = Effect.fn(
   "web.connectionPlatform.loadSecondaryConnectionRegistration",
 )(function* (entry: DesktopEnvironmentBootstrap) {
@@ -379,8 +373,6 @@ const loadSecondaryConnectionRegistration = Effect.fn(
     Effect.mapError(mapRemoteEnvironmentError),
   );
   const issuedAtEpochMs = yield* Clock.currentTimeMillis;
-  // The desktop seed grant is administrative so the primary window can manage
-  // access; a secondary backend session only needs to operate its environment.
   const access = yield* bootstrapRemoteBearerSession({
     httpBaseUrl,
     credential: entry.bootstrapToken,
@@ -392,9 +384,6 @@ const loadSecondaryConnectionRegistration = Effect.fn(
   // backend id lets desktop-only operations (notably the WSL folder picker)
   // route back to the instance that owns the environment.
   const connectionId = desktopLocalConnectionId(entry.id);
-  // Prefer the desktop's bootstrap label (it identifies the backend and distro,
-  // e.g. "WSL: Ubuntu") over the generic descriptor label, so consumers can show
-  // a meaningful name without recovering it from the bootstrap list later.
   const label = entry.label || descriptor.label;
   return {
     registration: new BearerConnectionRegistration({
@@ -445,7 +434,6 @@ interface CachedPlatformRegistration {
   readonly registration: PlatformConnectionRegistration;
   readonly expiresAtEpochMs?: number;
   readonly refreshAtEpochMs?: number;
-  /** The bootstrap token a desktop-local bearer was exchanged for. */
   readonly bootstrapToken?: string;
 }
 
@@ -502,7 +490,6 @@ export function canRetainCachedPlatformRegistrationAfterRefreshFailure(
 const REJECTED_BOOTSTRAP_RETRY_INITIAL_MS = 60_000;
 const REJECTED_BOOTSTRAP_RETRY_MAX_MS = 30 * 60_000;
 
-/** A bootstrap token a backend rejected, and when the poll may try it again. */
 export interface RejectedSecondaryBootstrap {
   readonly signature: string;
   readonly retryAtEpochMs: number;
@@ -512,10 +499,9 @@ export interface RejectedSecondaryBootstrap {
 /**
  * A backend that rejected a bootstrap token will usually keep rejecting it, so
  * the poll backs off on that exact signature instead of re-presenting a dead
- * credential every few seconds. It still retries on a capped backoff: a
- * backend that restarts on the same port seeds a fresh grant for the same
- * token, and nothing in the topology says it restarted. A new token or
- * endpoint retries at once.
+ * credential every few seconds. It still retries on a capped backoff: a backend
+ * that restarts on the same port seeds a fresh grant for the same token, and
+ * nothing in the topology says it restarted.
  */
 export function isRejectedSecondaryBootstrap(
   rejected: RejectedSecondaryBootstrap | undefined,
@@ -665,7 +651,6 @@ const layerPlatformConnectionSource = Layer.effect(
           const previouslyRejected = rejected.get(bootstrap.id);
           if (isRejectedSecondaryBootstrap(previouslyRejected, signature, nowEpochMs)) {
             nextRejected.set(bootstrap.id, previouslyRejected);
-            // The bearer minted before the token died is still good until it expires.
             if (
               cached !== undefined &&
               canRetainCachedPlatformRegistrationAfterRefreshFailure(

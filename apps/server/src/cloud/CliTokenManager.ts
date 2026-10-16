@@ -172,11 +172,6 @@ const OidcIdentityClaimsJson = Schema.fromJsonString(
 );
 const decodeOidcIdentityClaimsJson = Schema.decodeUnknownOption(OidcIdentityClaimsJson);
 
-/**
- * Best-effort read of the `email` (or fallback) claim from an OIDC id_token.
- * Only used to show the operator which account they linked, so a malformed
- * token degrades to "no identity" rather than an error.
- */
 function idTokenIdentity(idToken: string | undefined): string | null {
   if (!idToken) return null;
   const payload = idToken.split(".")[1];
@@ -335,13 +330,6 @@ export interface DeviceAuthorizationPrompt {
 const isTransportError = (error: unknown) =>
   HttpClientError.isHttpClientError(error) && error.reason._tag === "TransportError";
 
-/**
- * Polls Clerk's token endpoint until the user approves or denies the device
- * request in the browser (RFC 8628 §3.4/3.5). `authorization_pending` keeps
- * waiting, while `slow_down` and transient failures widen the interval before
- * the next tick; the caller bounds the whole loop with the device code's
- * lifetime.
- */
 const pollDeviceToken = Effect.fn("cloud.cli_token.poll_device_token")(function* (
   metadata: Pick<CloudCliOAuthConfig, "tokenEndpoint" | "clientId">,
   deviceCode: string,
@@ -393,13 +381,6 @@ const pollDeviceToken = Effect.fn("cloud.cli_token.poll_device_token")(function*
   }
 });
 
-/**
- * OAuth device authorization grant for machines without a local browser
- * (SSH). Clerk issues a short user code; the user approves it on Clerk's
- * hosted device page from any browser while this process polls the token
- * endpoint. Nothing is typed into the terminal and no redirect URI is
- * involved, so the hosted app plays no part in this flow.
- */
 export const deviceAuthorizationLogin = Effect.fn("cloud.cli_token.device_authorization_login")(
   function* <E, R>(showPrompt: (prompt: DeviceAuthorizationPrompt) => Effect.Effect<void, E, R>) {
     const authority = yield* selectedConnectAuthority;
@@ -416,7 +397,6 @@ export const deviceAuthorizationLogin = Effect.fn("cloud.cli_token.device_author
       Effect.flatMap(HttpClientResponse.schemaBodyJson(DeviceAuthorizationResponse)),
       Effect.timeout(OAUTH_REQUEST_TIMEOUT),
     );
-    // Clerk's advertised lifetime and interval are authoritative.
     const expiresIn = Duration.seconds(authorization.expires_in);
     const interval =
       authorization.interval === undefined
@@ -439,8 +419,6 @@ export const deviceAuthorizationLogin = Effect.fn("cloud.cli_token.device_author
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  // Capture exactly the services the login/refresh flows need at build time,
-  // not the whole ambient context.
   const crypto = yield* Crypto.Crypto;
   const httpClient = yield* HttpClient.HttpClient;
   const services = Context.make(Crypto.Crypto, crypto).pipe(

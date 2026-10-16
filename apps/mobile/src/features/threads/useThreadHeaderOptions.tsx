@@ -34,8 +34,6 @@ export function useThreadHeaderOptions(props: {
       ...(!usesDuoHeader
         ? [
             {
-              // Match Mail's split-view detail toolbar: the first detail action sits
-              // inside the content pane, not flush against the sidebar divider.
               spacing: 18,
               type: "spacing" as const,
             },
@@ -88,9 +86,6 @@ export function useThreadHeaderOptions(props: {
       usesNativeWorkspaceColumns,
     ],
   );
-  // Deep links / cold starts land with Thread as the ONLY route, where the
-  // native back button does not render. Provide an explicit Home escape for
-  // that case; when history exists the native back button is used instead.
   const canGoBack = navigation.canGoBack();
   const compactHomeHeaderItems = useMemo<NativeHeaderItems>(
     () => [
@@ -161,9 +156,6 @@ export function useThreadHeaderOptions(props: {
       : undefined,
     title: props.title,
     headerBackVisible: !layout.usesSplitView,
-    // Compact uses the NATIVE back button when a previous route exists;
-    // deep links / cold starts get an explicit Home button instead.
-    // Split view always uses its custom left items.
     unstable_headerLeftItems: layout.usesSplitView
       ? () => splitLeftHeaderItems
       : canGoBack

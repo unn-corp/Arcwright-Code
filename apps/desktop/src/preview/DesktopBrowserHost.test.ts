@@ -74,7 +74,6 @@ const makeDebuggee = (
   };
 };
 
-/** Reads `count` events from one backend's subscription. */
 const takeEvents = (host: DesktopBrowserHost.DesktopBrowserHost["Service"], count: number) =>
   host.events.pipe(
     Stream.take(count),
@@ -264,7 +263,7 @@ describe("DesktopBrowserHost", () => {
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;
       host.attach(key, makeDebuggee().tab);
-      // A restarted backend subscribes after the attach and still hears it.
+
       expect(yield* takeEvents(host, 1)).toEqual([{ type: "attached", ...key }]);
       expect(yield* takeEvents(host, 1)).toEqual([{ type: "attached", ...key }]);
     }),
@@ -276,7 +275,7 @@ describe("DesktopBrowserHost", () => {
       const debuggee = makeDebuggee();
       host.attach(key, debuggee.tab);
       const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
-      // Wait until the reader has received the announcement.
+
       yield* Effect.yieldNow;
       const command = (id: number, method: string) =>
         host.handleCommandLine(
@@ -292,7 +291,7 @@ describe("DesktopBrowserHost", () => {
       debuggee.release();
       yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
       const [, reply] = yield* Fiber.join(reader);
-      // Only the new connection's reply arrives; the old one's id could collide.
+
       expect(reply).toMatchObject({ type: "cdp" });
       expect(decodeCdpReply((reply as { message: string }).message).id).toBe(2);
     }).pipe(Effect.scoped),
@@ -307,7 +306,7 @@ describe("DesktopBrowserHost", () => {
       const item = {
         setSavePath: (path: string) => void paths.push(path),
       } as unknown as Electron.DownloadItem;
-      // Before the server sets a directory, Electron keeps its own handling.
+
       expect(host.placeDownload(debuggee.tab.webContents, item)).toBe(false);
       yield* host.handleCommandLine(
         encodeJson({
@@ -331,7 +330,7 @@ describe("DesktopBrowserHost", () => {
       const host = yield* DesktopBrowserHost.make;
       const debuggee = makeDebuggee();
       host.attach(key, debuggee.tab);
-      // Reading the page is not acting on it.
+
       yield* host.handleCommandLine(
         encodeJson({
           type: "cdp",

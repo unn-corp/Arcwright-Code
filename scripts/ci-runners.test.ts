@@ -405,9 +405,10 @@ describe("fork CI platform capacity", () => {
 
   it("disables the native detector and every macOS preview stage without altering upstream", () => {
     const workflows = loadWorkflows();
-    const detector = workflows["ci.yml"]!.jobs.mobile_native_changes!;
-    expect(admitsJob(detector, "unn-corp/t3code")).toBe(false);
-    expect(admitsJob(detector, "pingdotgg/t3code")).toBe(true);
+    // Upstream consolidated native change detection into the shared changes job.
+    const analysis = workflows["ci.yml"]!.jobs.mobile_native_static_analysis!;
+    expect(admitsJob(analysis, "unn-corp/t3code")).toBe(false);
+    expect(admitsJob(analysis, "pingdotgg/t3code")).toBe(true);
     for (const [file, workflow] of Object.entries(workflows)) {
       if (!file.startsWith("desktop-macos-preview")) continue;
       for (const [name, job] of Object.entries(workflow.jobs)) {
@@ -486,12 +487,15 @@ describe("fork CI platform capacity", () => {
     if (gate?.run === undefined || !Array.isArray(check.needs))
       throw new Error("Missing Check gate");
     const initial = Object.fromEntries(check.needs.map((name) => [name, { result: "success" }]));
-    const disabled = new Set(["mobile_native_changes", "mobile_native_static_analysis"]);
+    const disabled = new Set(["mobile_native_static_analysis"]);
     const fork = {
       ...initial,
       ...Object.fromEntries([...disabled].map((name) => [name, { result: "skipped" }])),
     };
-    const runGate = (repository: string, states: typeof initial) => {
+    const runGate = (
+      repository: string,
+      states: Record<string, { result: string; outputs?: Record<string, string> }>,
+    ) => {
       const env = { ...process.env };
       delete env.REPOSITORY;
       delete env.RESULTS;
@@ -518,6 +522,7 @@ describe("fork CI platform capacity", () => {
     expect(
       runGate("pingdotgg/t3code", {
         ...initial,
+        changes: { result: "success", outputs: { mobile_native: "false" } },
         mobile_native_static_analysis: { result: "skipped" },
       }).status,
     ).toBe(0);

@@ -35,11 +35,9 @@ export const GitHubAccountPatch = Schema.Struct({
 export type GitHubAccountPatch = typeof GitHubAccountPatch.Type;
 
 /**
- * `SourceControlProviderKind` — open branded slug naming a source control host, such as `github`.
- *
  * Open on purpose, like `ProviderDriverKind`: a server can report a host this client does not
  * ship a definition for, and clients fall back to a generic presentation instead of failing to
- * decode. `unknown` is what the server reports for a remote it cannot attribute to any host.
+ * decode.
  */
 export const SourceControlProviderKind = TrimmedNonEmptyString.check(
   Schema.isMaxLength(64),
@@ -64,10 +62,8 @@ export const ChangeRequest = Schema.Struct({
   url: Schema.String,
   baseRefName: TrimmedNonEmptyString,
   headRefName: TrimmedNonEmptyString,
-  /** The head commit, when the provider's read includes it. */
   headSha: Schema.optional(TrimmedNonEmptyString),
   state: ChangeRequestState,
-  /** Present when the provider can tell that an open change request is still a draft. */
   isDraft: Schema.optional(Schema.Boolean),
   closedAt: Schema.optional(Schema.NullOr(Schema.String)),
   mergedAt: Schema.optional(Schema.NullOr(Schema.String)),
@@ -245,7 +241,6 @@ export const SourceControlProviderAuth = Schema.Struct({
   account: Schema.Option(TrimmedNonEmptyString),
   host: Schema.Option(TrimmedNonEmptyString),
   detail: Schema.Option(TrimmedNonEmptyString),
-  /** Every login the provider CLI holds, across hosts. Only GitHub reports these today. */
   accounts: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({

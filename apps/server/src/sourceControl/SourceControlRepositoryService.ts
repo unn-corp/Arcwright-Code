@@ -43,11 +43,6 @@ export class SourceControlRepositoryService extends Context.Service<
     readonly lookupRepository: (
       input: SourceControlRepositoryLookupInput,
     ) => Effect.Effect<SourceControlRepositoryInfo, SourceControlRepositoryError>;
-    /**
-     * Everything `cloneRepository` checks before running git: the resolved
-     * remote, the normalized destination, and that the destination is empty.
-     * Lets a caller create the project first and clone afterwards.
-     */
     readonly prepareClone: (
       input: SourceControlCloneRepositoryInput,
     ) => Effect.Effect<SourceControlPreparedClone, SourceControlRepositoryError>;
@@ -55,7 +50,6 @@ export class SourceControlRepositoryService extends Context.Service<
       input: SourceControlCloneRepositoryInput,
       options?: SourceControlCloneOptions,
     ) => Effect.Effect<SourceControlCloneRepositoryResult, SourceControlRepositoryError>;
-    /** Removes a partial or failed clone so the destination is empty again. */
     readonly discardClone: (
       destinationPath: string,
     ) => Effect.Effect<void, SourceControlRepositoryError>;
@@ -82,9 +76,7 @@ export class SourceControlRepositoryService extends Context.Service<
 
 export interface SourceControlPreparedClone {
   readonly destinationPath: string;
-  /** Credential-free; safe to show and to store in snapshots. */
   readonly remoteUrl: string;
-  /** What git is given; may carry embedded credentials. */
   readonly cloneUrl: string;
   readonly repository: SourceControlRepositoryInfo | null;
 }
@@ -163,7 +155,6 @@ function redactRemoteUrl(remoteUrl: string): string {
 // host boundary goes.
 const URL_WITH_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/]+@/gi;
 
-/** Drops `user:token@` from any URL embedded in free text. */
 function redactUrlCredentials(text: string): string {
   return text.replace(URL_WITH_USERINFO, "$1");
 }

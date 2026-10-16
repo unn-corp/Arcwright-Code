@@ -11,6 +11,15 @@ const state = vi.hoisted(() => ({
   readProfile: (_status: AndroidAuthStatus): Promise<AndroidParticipantProfile | null> =>
     Promise.resolve(null),
   pendingWrites: null as Array<(settings: ClientSettings) => ClientSettings> | null,
+  refresh: null as (() => Promise<void>) | null,
+}));
+vi.mock("./participantProfileRefresh", () => ({
+  startParticipantProfileRefresh: (refresh: () => Promise<void>) => {
+    state.refresh = refresh;
+    return () => {
+      state.refresh = null;
+    };
+  },
 }));
 vi.mock("../../android/connectAuth", () => ({
   androidAuthStore: {
@@ -85,6 +94,7 @@ it("seeds native personal metadata, preserves manual edits, and switches account
       ...state.settings!.participantProfiles,
       "account:alice": {
         ...first,
+        photoSource: "custom",
         participant: { ...first.participant, name: "My name", photo: null },
       },
     },
@@ -99,6 +109,35 @@ it("seeds native personal metadata, preserves manual edits, and switches account
   await transition({ ...signedIn("alice", 4), phase: "signedOut", userId: null, sessionId: null });
   expect(state.settings!.activeParticipantProfile).toBe("local");
   expect(state.settings!.participantProfiles["account:alice"]!.participant.name).toBe("My name");
+});
+it("refreshes native account photos and removal across clients without repeated identical writes", async () => {
+  state.settings = DEFAULT_CLIENT_SETTINGS;
+  state.status = signedIn("alice", 1);
+  state.readProfile = async () => ({
+    name: "Alice",
+    photo: "https://example.test/first.png",
+    accounts: [],
+  });
+  await mount();
+  state.readProfile = async () => ({
+    name: "Alice",
+    photo: "https://example.test/replaced.png",
+    accounts: [],
+  });
+  await act(async () => state.refresh!());
+  expect(state.settings!.participantProfiles["account:alice"]?.participant.photo).toBe(
+    "https://example.test/replaced.png",
+  );
+  state.readProfile = async () => ({
+    name: "Alice",
+    photo: null,
+    accounts: [{ id: "google", label: "Google", photo: "https://example.test/google.png" }],
+  });
+  await act(async () => state.refresh!());
+  expect(state.settings!.participantProfiles["account:alice"]?.participant.photo).toBeNull();
+  const unchanged = state.settings;
+  await act(async () => state.refresh!());
+  expect(state.settings).toBe(unchanged);
 });
 it("cannot seed or activate an old account from a delayed native profile or queued persistence callback", async () => {
   state.settings = DEFAULT_CLIENT_SETTINGS;
