@@ -74,7 +74,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
-import { withWork } from "../maintenance/WorkAdmission.ts";
+import { withPassiveWork, withWork } from "../maintenance/WorkAdmission.ts";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -11427,7 +11427,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   });
 
   const dispatchWithReceipt = (command: OrchestrationV2ServerCommand) =>
-    withWork(
+    // Automatic settlement is bounded bookkeeping. Keep its write fenced without
+    // restarting the agent idle window every time the background sweep tidies a thread.
+    (command.type === "thread.auto-settle" ? withPassiveWork : withWork)(
       Effect.gen(function* () {
         const dispatch = threadDispatch.withLock(
           commandThreadId(command),

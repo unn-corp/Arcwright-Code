@@ -202,6 +202,9 @@ Uploads, unknown activity, unrelated runtimes, and all other safety checks still
 installation. Interrupting WSL sessions and managed-service sessions is not yet supported;
 those runtimes must become idle. Android retains its native background and activity requirements.
 
+Automatically tidying completed conversations does not restart the idle timer.
+Background file cleanup still counts as work until it finishes.
+
 The coordinator acquires its interprocess admission
 lock, fences new work, and checks every participant again. Desktop automatic
 installation also waits for input inactivity and unfinished uploads, then shows

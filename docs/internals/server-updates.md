@@ -105,7 +105,9 @@ background service, development servers). Constraints that are easy to get wrong
   the exact browser trace-ingestion POST: it holds a passive lease while the bounded upload runs, so
   fencing cannot overlap it, without treating diagnostic export as agent activity or restarting the
   idle window. Other uploads and pairing remain active writes. Orchestrator dispatch and provider turn
-  start hold leases too. Each storage-cleanup sweep takes an active lease at execution time, so
+  start hold leases too. The exact internal `thread.auto-settle` command uses a passive lease:
+  automatically tidying an idle thread must not restart the five-minute window. Its writes still
+  refuse a held fence; manual settlement and provider work retain active leases. Each storage-cleanup sweep takes an active lease at execution time, so
   evidence and worktree removal cannot overlap snapshots or restoration. Maintenance methods are exempt so a fenced device can be observed and recovered.
 
 Server-scoped autonomous work uses this coordinator through the runtime dependency context.

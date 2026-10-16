@@ -621,6 +621,11 @@ This is host functionality, not an APK or cloud-push feature.
 
 ## Updates and recovery
 
+Automatic thread settlement is passive bookkeeping for maintenance admission. It must
+retain its write lease and refuse a held fence without resetting agent idleness.
+Manual actions, provider work and storage-cleanup file mutations remain active work.
+Keep the real coordinator/orchestrator regression in `IdleBookkeeping.integration.test.ts`.
+
 **Update now** uses the same exact-artifact installation action as the CLI and host controls.
 Explicit installation skips the automatic idle window and countdown through a durable
 transaction journal flag; automatic delivery keeps both. Preserve fresh process and activity
