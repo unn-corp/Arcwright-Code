@@ -1199,7 +1199,9 @@ export class CoordinatorStore {
       const emptyForRecovery = options.forRecovery === true && living.length === 0;
       if (!registry.bootstrapped && !emptyForRecovery)
         throw new Error("Device bootstrap is incomplete.");
-      const blockers = emptyForRecovery ? [] : participantBlockers(living, now);
+      const blockers = emptyForRecovery
+        ? []
+        : participantBlockers(living, now, undefined, intent.manualInstallation === true);
       if (blockers.length > 0) throw new Error(blockers.map((entry) => entry.label).join(" "));
       if ((await this.liveLeases()).length > 0) throw new Error("Local operations are running.");
       // If this write lands but the registry save below does not, the journal is inert: no caller
@@ -1237,7 +1239,13 @@ export class CoordinatorStore {
           throw new Error("Participant ownership changed after admission.");
       }
       if ((await this.liveLeases()).length > 0) throw new Error("Local operations are running.");
-      const blockers = participantBlockers(registry.participants, now, transactionId);
+      const journal = await this.readJournal(transactionId);
+      const blockers = participantBlockers(
+        registry.participants,
+        now,
+        transactionId,
+        journal?.manualInstallation === true,
+      );
       if (blockers.length > 0) throw new Error(blockers.map((entry) => entry.label).join(" "));
       return registry.participants;
     });

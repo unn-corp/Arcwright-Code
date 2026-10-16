@@ -67,7 +67,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 function button(text: string) {
-  return [...container.querySelectorAll("button")].find((element) => element.textContent === text)!;
+  return [...document.querySelectorAll("button")].find((element) => element.textContent === text)!;
 }
 async function mount(controller: ForkUpdateController) {
   await act(async () =>
@@ -96,8 +96,8 @@ it("shows the blocked install reason alongside a feed error and refuses a disabl
   expect(container.textContent).toContain(
     "Installation is waiting: A registered runtime cannot be verified.",
   );
-  expect(button("Install when idle").disabled).toBe(true);
-  await act(async () => button("Install when idle").click());
+  expect(button("Update now").disabled).toBe(true);
+  await act(async () => button("Update now").click());
   expect(f.action).not.toHaveBeenCalled();
 });
 
@@ -141,7 +141,7 @@ it("binds install to the verified digest and reports waiting without claiming co
     ],
   });
   await mount(f.controller);
-  await act(async () => button("Install when idle").click());
+  await act(async () => button("Update now").click());
   expect(f.action).toHaveBeenCalledExactlyOnceWith({
     action: "install",
     targetArtifactSha256: target.artifactSha256,
@@ -163,4 +163,74 @@ it("keeps a failed button action visible after a successful status poll", async 
   await act(async () => button("Check and download").click());
   expect(container.textContent).not.toContain("Host permission denied");
   expect(container.textContent).toContain("Check completed.");
+});
+
+it("updates without a warning when no sessions are running", async () => {
+  const f = fixture({ ...waiting, installable: true, blockers: [] });
+  await mount(f.controller);
+  await act(async () => button("Update now").click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(f.action).toHaveBeenCalledExactlyOnceWith({
+    action: "install",
+    targetArtifactSha256: target.artifactSha256,
+  });
+});
+
+it("warns only for running work and cancellation does not interrupt it", async () => {
+  const f = fixture({
+    ...waiting,
+    interruptible: true,
+    blockers: [
+      { participantId: "runtime", reason: "active-agents", label: "A session is running." },
+    ],
+  });
+  await mount(f.controller);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(button("Update now").disabled).toBe(false);
+  await act(async () => button("Update now").click());
+  expect(document.body.textContent).toContain("Interrupt sessions and update?");
+  expect(f.action).not.toHaveBeenCalled();
+  await act(async () => button("Cancel").click());
+  expect(f.action).not.toHaveBeenCalled();
+});
+
+it("confirmation authorizes interruption only for the reviewed artifact", async () => {
+  const f = fixture({
+    ...waiting,
+    interruptible: true,
+    blockers: [
+      { participantId: "runtime", reason: "active-agents", label: "A session is running." },
+    ],
+  });
+  await mount(f.controller);
+  await act(async () => button("Update now").click());
+  await act(async () => button("Interrupt and update").click());
+  expect(f.action).toHaveBeenCalledExactlyOnceWith({
+    action: "install",
+    targetArtifactSha256: target.artifactSha256,
+    interruptActiveWork: true,
+  });
+});
+
+it("refuses a changed target while the interruption warning is open", async () => {
+  let status: ForkUpdateStatus = {
+    ...waiting,
+    interruptible: true,
+    blockers: [
+      { participantId: "runtime", reason: "active-agents", label: "A session is running." },
+    ],
+  };
+  const action = vi.fn(async () => status);
+  const controller = new ForkUpdateController({
+    status: async () => status,
+    action,
+    policy: async () => status,
+    recover: async () => status,
+  });
+  await mount(controller);
+  await act(async () => button("Update now").click());
+  status = { ...status, targetBuild: { ...target, artifactSha256: "d".repeat(64) } };
+  await act(async () => button("Interrupt and update").click());
+  expect(action).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("The update changed.");
 });

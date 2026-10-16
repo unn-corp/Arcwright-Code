@@ -8,9 +8,14 @@ launching trial runtimes, WSL homes) arrives as ports, so no entry point can ins
 checks than another. The legacy `server.updateServer*` / `commitDesktopUpdate` RPCs now refuse with a
 pointer to App updates: they were a second install path that bypassed the coordinator.
 
-Updates never stop agents. Activity blocks installation; it is never an input to "stop and update".
-`continueRunningThreads` is retired for the same reason. Crash and restart continuation (below) is a
-different feature and is unchanged.
+Automatic updates never stop agents. An exact-artifact manual installation may explicitly
+confirm interruption when the desktop advertises `interruptible`. The desktop first uses its
+normal backend shutdown path, preserving restart-continuation preparation; it retains the
+affected-home cohort while backends are stopped, then acquires normal admission. Unknown
+activity, surviving processes and leases still block replacement. Pre-trial failure restarts
+the old backends only after admission is released. Standalone, service and WSL sessions do not
+currently advertise interruption. Existing restart-continuation preferences remain unchanged.
+`continueRunningThreads` remains retired.
 
 Database upgrades preserve the fork's published migration IDs. The
 [migration upgrade guide](../orchestration-v2/migration-upgrades.md) describes how recognized
@@ -74,9 +79,12 @@ background service, development servers). Constraints that are easy to get wrong
   missing row, or malformed row is unreadable and keeps admission blocked. Fresh descendant collection,
   lease cleanup, and child reconciliation use batches, splitting oversized trees rather than truncating
   them or spawning one PowerShell process per child while holding the registry lock.
-- **Idle means five stopped minutes** for every participant, then the fence is taken and every
-  participant must re-observe it (`frozenFor`) before the transaction starts. Held queues are not
-  activity and are never cleared.
+- **Automatic installation requires five stopped minutes** for every participant. An explicit
+  **Update now** request records `manualInstallation` in its exact transaction journal and skips
+  only that delay and the automatic countdown. Fresh activity, process ownership, leases, and
+  every participant’s fence acknowledgement (`frozenFor`) remain mandatory, including WSL
+  admission and fenced rechecks. Older members that do not support manual timing still require
+  their idle window. Held queues are not activity and are never cleared.
 - **Activity polling stays independent of controller actions.** The desktop reports activity on its
   own five-second loop while serialized update actions wait for fence acknowledgements. Combining
   those loops can block the desktop's own acknowledgement and make a stopped device appear stale.

@@ -63,6 +63,30 @@ describe("device admission", () => {
     ).toBe("unknown-participant");
     expect(participantBlockers([participant({ frozenFor: "new" })], 600_000, "new")).toEqual([]);
   });
+  it("manual timing skips only the delay, retaining activity, freshness and fence checks", () => {
+    const stopped = participant({ idleSince: 600_000 });
+    expect(participantBlockers([stopped], 600_000, undefined, true)).toEqual([]);
+    expect(participantBlockers([stopped], 600_000, "tx", true)[0]?.reason).toBe(
+      "unknown-participant",
+    );
+    expect(participantBlockers([{ ...stopped, frozenFor: "tx" }], 600_000, "tx", true)).toEqual([]);
+    for (const overrides of [
+      { idleSince: null },
+      { idleSince: 600_001 },
+      { observedAt: 500_000 },
+      { activityProtocol: CURRENT_ACTIVITY_PROTOCOL - 1 },
+      {
+        blockers: [
+          { participantId: "p1", reason: "commands" as const, label: "Command is running" },
+        ],
+      },
+      { orphaned: true, descendants: [{ pid: 9, started: "x", label: "terminal" }] },
+    ]) {
+      expect(
+        participantBlockers([{ ...stopped, ...overrides }], 600_000, undefined, true),
+      ).not.toEqual([]);
+    }
+  });
   it("exempts only the transaction's own trial runtime from idleness, never another transaction's", () => {
     const trial = participant({
       trialFor: "new",

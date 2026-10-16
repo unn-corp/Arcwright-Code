@@ -333,10 +333,22 @@ async function makeDevice() {
   /** Resolves once a process has launched the helper and reached its final wait for its own exit. */
   const nextHandoff = () => new Promise<void>((resolve) => void handoffSeen.push(resolve));
   /** Starts an install and resolves when the helper was launched; a refusal fails the test with the reason instead of timing out. */
-  const installUntilHandoff = async (core: DesktopMaintenance, digest: string) => {
+  const installUntilHandoff = async (
+    core: DesktopMaintenance,
+    digest: string,
+    interruptActiveWork = false,
+  ) => {
     const staged = await core.status();
     const launched = nextHandoff();
-    const refused = core.install(digest).then(
+    const refused = (
+      interruptActiveWork
+        ? core.runAction({
+            action: "install",
+            targetArtifactSha256: digest,
+            interruptActiveWork: true,
+          })
+        : core.install(digest)
+    ).then(
       () => new Promise<never>(() => undefined),
       (error: { reason?: string }) => {
         throw new Error(
@@ -395,6 +407,111 @@ const rowsOf = (home: string) => {
 };
 
 describe("DesktopForkMaintenance", () => {
+  it("restarts old backends if admission fails after an explicit interruption", async () => {
+    const device = await makeDevice();
+    const runtime = await device.server(9001, "desktop-server");
+    runtime.blockers.push({
+      participantId: runtime.id,
+      reason: "active-agents",
+      label: "Session is running",
+    });
+    const independentHome = await device.otherHome("independent-service");
+    let starts = 0;
+    let core!: DesktopMaintenance;
+    core = device.makeCore({
+      pid: 100,
+      version: "1.0.0",
+      commit: commit("1"),
+      overrides: {
+        runtime: {
+          stopRuntimes: async () => {
+            device.killProcess(9001);
+            await device.server(9002, "surviving-runtime", {
+              kind: "service",
+              home: independentHome,
+            });
+          },
+          startRuntimes: async () => {
+            starts++;
+            await device.server(9003, "restarted-desktop");
+          },
+          quit: async () => undefined,
+          self: async () => ({ pid: 100, started: device.table.get(100)! }),
+        },
+      },
+    });
+    await core.start();
+    await core.runAction({ action: "confirm-bootstrap" });
+    await core.check();
+    await device.observeAll();
+    // A surviving operation must block admission even after the owned backend stops.
+    const leaseStore = await CoordinatorStore.open(device.coordinator, device.identity, 100);
+    const release = await leaseStore.beginWork(
+      (await leaseStore.status(device.clock.value)).participants.find(
+        (entry) => entry.owner.pid === 100,
+      )!.id,
+    );
+    try {
+      await expect(
+        core.runAction({
+          action: "install",
+          targetArtifactSha256: NEW_DIGEST,
+          interruptActiveWork: true,
+        }),
+      ).rejects.toMatchObject({ reason: expect.stringContaining("blocked") });
+    } finally {
+      await release();
+    }
+    expect(starts).toBe(1);
+    expect(device.table.has(9002)).toBe(true);
+    expect(device.handoffs).toEqual([]);
+    expect((await leaseStore.status(device.clock.value)).fence).toBeNull();
+  });
+  it("interrupts owned sessions only after explicit confirmation, preserving homes through handoff", async () => {
+    const device = await makeDevice();
+    const runtime = await device.server(9001, "desktop-server");
+    runtime.blockers.push({
+      participantId: runtime.id,
+      reason: "active-agents",
+      label: "Session is running",
+    });
+    let stops = 0;
+    const core = device.makeCore({
+      pid: 100,
+      version: "1.0.0",
+      commit: commit("1"),
+      overrides: {
+        runtime: {
+          stopRuntimes: async () => {
+            stops++;
+            device.killProcess(9001);
+          },
+          startRuntimes: async () => undefined,
+          quit: async () => undefined,
+          self: async () => ({ pid: 100, started: device.table.get(100)! }),
+        },
+      },
+    });
+    await core.start();
+    await core.runAction({ action: "confirm-bootstrap" });
+    await core.check();
+    await device.observeAll();
+    expect((await core.status()).interruptible).toBe(true);
+    await expect(core.install(NEW_DIGEST)).rejects.toMatchObject({
+      reason: expect.stringContaining("blocked"),
+    });
+    expect(stops).toBe(0);
+    await device.installUntilHandoff(core, NEW_DIGEST, true);
+    expect(stops).toBeGreaterThan(0);
+    const store = await CoordinatorStore.open(device.coordinator, device.identity, 100);
+    const journal = await store.readJournal(device.handoffTransactionId());
+    expect(journal?.manualInstallation).toBe(true);
+    expect(journal?.homes).toContain(device.home);
+    expect(journal?.snapshots[device.home]).toBeDefined();
+    expect((await store.status(device.clock.value)).fence).not.toBeNull();
+    expect(rowsOf(device.home)).toEqual(["before the update"]);
+  });
+
   it("starts a fresh stable installation on stable and an existing device on nightly, and persists the choice", async () => {
     const fresh = await makeDevice();
     await fresh.server(9001, "desktop-server");

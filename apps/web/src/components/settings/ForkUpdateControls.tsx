@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
 import type {
   EnvironmentId,
+  ForkBuildIdentity,
   ForkMaintenanceActionInput,
   ForkRecoveryOption,
   ForkUpdateStatus,
@@ -22,6 +23,7 @@ import { SettingsRow } from "./settingsLayout";
 import { isAndroidPwa } from "../../env";
 import { UpdateSafetyReviewDialog } from "./UpdateSafetyReviewDialog";
 import { UpdateRecoveryDialog } from "./UpdateRecoveryDialog";
+import { UpdateInstallDialog } from "./UpdateInstallDialog";
 
 export function ForkUpdateControls({
   controller,
@@ -33,6 +35,8 @@ export function ForkUpdateControls({
   environmentId?: EnvironmentId;
 }) {
   const { status, busy, error } = useForkUpdates(controller);
+  const [installReview, setInstallReview] = useState<ForkBuildIdentity | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<ForkRecoveryOption | null>(null);
   const [review, setReview] = useState<"bootstrap" | "automation" | null>(null);
   const [now, setNow] = useState(Date.now);
@@ -71,6 +75,29 @@ export function ForkUpdateControls({
       setPendingAction(null);
     }
   };
+  const updateNow = async () => {
+    const reviewed = status?.targetBuild;
+    if (!reviewed) return;
+    setInstallError(null);
+    try {
+      const fresh = await controller.refresh();
+      if (fresh.targetBuild?.artifactSha256 !== reviewed.artifactSha256)
+        throw new Error("The update changed. Review the current build before updating.");
+      if (
+        fresh.blockers.some((blocker) =>
+          ["active-agents", "commands", "background-work"].includes(blocker.reason),
+        )
+      ) {
+        setInstallReview(reviewed);
+        return;
+      }
+      await requestUpdate({ action: "install", targetArtifactSha256: reviewed.artifactSha256 });
+    } catch (failure) {
+      setInstallError(
+        failure instanceof Error ? failure.message : "Could not check update status.",
+      );
+    }
+  };
   if (!status)
     return (
       <SettingsRow
@@ -95,7 +122,8 @@ export function ForkUpdateControls({
   const displayBuild = forkStatusDisplayBuild(status);
   const pinnedBuildLabel = forkPinnedBuildLabel(status);
   const installUnavailable =
-    status.installable === false || !["staged", "waiting", "failed"].includes(status.phase);
+    (status.installable === false && status.interruptible !== true) ||
+    !["staged", "waiting", "failed"].includes(status.phase);
   const installReason = installUnavailable
     ? status.blockers.length
       ? `Installation is waiting: ${[...new Set(status.blockers.map((blocker) => forkWaitingLabels[blocker.reason]))].join("; ")}.`
@@ -120,6 +148,7 @@ export function ForkUpdateControls({
             </p>
             {detail ? <p className="whitespace-normal break-words">{detail}</p> : null}
             {actionFeedback?.phase === status.phase ? <p>{actionFeedback.message}</p> : null}
+            {installError ? <p role="alert">{installError}</p> : null}
             {status.lastError ? (
               <p role="alert" className="text-destructive">
                 {status.lastError}
@@ -152,7 +181,7 @@ export function ForkUpdateControls({
       {status.blockers.length && environmentId ? (
         <SettingsRow
           title="Inspect host activity"
-          description="Review the named host’s processes and working agents. The updater never stops them."
+          description="Review the named host’s processes and running sessions before updating."
           control={
             <Link
               to="/settings/diagnostics"
@@ -206,7 +235,7 @@ export function ForkUpdateControls({
       />
       <SettingsRow
         title="Automatic installation"
-        description="Waits for this device’s idle and activity checks. Updates never stop agents."
+        description="Install automatically when idle, or turn this off and use Update now to choose when to restart. Update now asks before interrupting running sessions."
         control={
           <Switch
             aria-label={`${device} automatic installation`}
@@ -242,24 +271,19 @@ export function ForkUpdateControls({
       ) : null}
       {status.targetBuild ? (
         <SettingsRow
-          title="Install verified update"
+          title="Update now"
           description={
             installReason ??
-            "The controller rechecks release eligibility, stopped work, and recovery capacity before replacement."
+            "Restart and install now. If sessions are running, you’ll be asked before interrupting them. Saved conversations remain available after restart."
           }
           control={
             <Button
               size="sm"
               disabled={busy || working || installUnavailable}
               title={installReason ?? undefined}
-              onClick={() =>
-                void requestUpdate({
-                  action: "install",
-                  targetArtifactSha256: status.targetBuild!.artifactSha256,
-                })
-              }
+              onClick={() => void updateNow()}
             >
-              {pendingAction === "install" ? "Checking installation…" : "Install when idle"}
+              {pendingAction === "install" ? "Checking installation…" : "Update now"}
             </Button>
           }
         />
@@ -344,6 +368,14 @@ export function ForkUpdateControls({
               </Button>
             </div>
           }
+        />
+      ) : null}
+      {installReview ? (
+        <UpdateInstallDialog
+          device={device}
+          controller={controller}
+          build={installReview}
+          onClose={() => setInstallReview(null)}
         />
       ) : null}
       <UpdateSafetyReviewDialog

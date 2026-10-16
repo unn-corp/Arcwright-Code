@@ -619,6 +619,17 @@ This is host functionality, not an APK or cloud-push feature.
 
 ## Updates and recovery
 
+**Update now** uses the same exact-artifact installation action as the CLI and host controls.
+Explicit installation skips the automatic idle window and countdown through a durable
+transaction journal flag; automatic delivery keeps both. Preserve fresh process and activity
+checks, admission leases, all runtime fence acknowledgements, snapshots and recovery capacity.
+Turning off automatic installation leaves manual installation available. Desktop controllers
+without WSL members advertise interruption support. The UI warns only when work is running,
+then sends an exact-artifact `interruptActiveWork` confirmation. Normal backend shutdown
+preserves session recovery; the affected cohort remains pinned until handoff or a safe abort.
+An abort restarts old backends after admission is released. Surviving work and unrelated
+runtimes still block installation. Android retains its native installation guard.
+
 Maintenance uses the `active-runtime` projection selector; restart recovery keeps
 `runtime`, which also reconciles ready provider sessions. A ready session alone is
 not active work. Keep one shared `IdleProcessRoots` service at server scope so

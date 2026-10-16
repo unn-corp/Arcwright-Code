@@ -90,6 +90,12 @@ const installCommand = Command.make("install", {
   baseDir: baseDirFlag,
   json: jsonFlag,
   digest: Flag.String("digest"),
+  interruptActiveWork: Flag.Boolean("interrupt-active-work").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription(
+      "Confirm interruption of this device’s running sessions before installing.",
+    ),
+  ),
   optimizeStorage: Flag.Boolean("optimize-storage").pipe(
     Flag.withDefault(false),
     Flag.withDescription(
@@ -100,8 +106,16 @@ const installCommand = Command.make("install", {
   Command.withDescription(
     "Install the staged build. The digest must be the exact target artifact digest you reviewed in `status`.",
   ),
-  Command.withHandler(({ baseDir: flag, json, digest, optimizeStorage }) =>
+  Command.withHandler(({ baseDir: flag, json, digest, optimizeStorage, interruptActiveWork }) =>
     operate(flag, json, async (target) => {
+      if (interruptActiveWork) {
+        const current = await callOperator(target, "status", {});
+        if (!current.ok) return current;
+        if (current.status.interruptible !== true)
+          throw new Error(
+            "This controller cannot interrupt sessions for the reviewed update. Review maintenance status.",
+          );
+      }
       if (optimizeStorage) {
         const current = await callOperator(target, "status", {});
         if (!current.ok) return current;
@@ -114,6 +128,7 @@ const installCommand = Command.make("install", {
         action: "install",
         targetArtifactSha256: digest,
         ...(optimizeStorage ? { optimizeStorage: true } : {}),
+        ...(interruptActiveWork ? { interruptActiveWork: true } : {}),
       });
     }),
   ),

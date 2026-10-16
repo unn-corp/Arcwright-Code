@@ -215,6 +215,7 @@ export function createDesktopMaintenance(input: DesktopMaintenanceInput): Deskto
           phase: "recovery",
           lastError: heldReason,
           installable: false,
+          interruptible: false,
           blockers: [
             ...status.blockers,
             { participantId: "coordinator", reason: "transaction", label: heldReason },
@@ -360,7 +361,12 @@ export function createDesktopMaintenance(input: DesktopMaintenanceInput): Deskto
     }
     return members;
   };
-  const cohort = async () => {
+  let interruptedCohort: Awaited<ReturnType<typeof cohort>> | null = null;
+  const cohort = async (): Promise<{
+    homes: CohortHome[];
+    members: { member: WslMember; fence: FenceControl }[];
+  }> => {
+    if (interruptedCohort !== null) return interruptedCohort;
     if (store === null) throw new Error("Device maintenance is not running.");
     const journal = await inFlightJournal();
     const status = await store.status(now());
@@ -719,7 +725,39 @@ export function createDesktopMaintenance(input: DesktopMaintenanceInput): Deskto
       policy: policyStore,
       defaultPolicy: base,
       feed: input.feed,
-      installer: installerPorts,
+      installer: {
+        ...installerPorts,
+        get currentBuild() {
+          return installerPorts!.currentBuild;
+        },
+        // The normal backend stop path prepares restart continuations before provider shutdown.
+        // WSL and independently managed services retain their own admission checks.
+        canInterruptWork: async () =>
+          cohort().then(
+            (value) => value.members.length === 0,
+            () => false,
+          ),
+        interruptWork: async () => {
+          const prepared = await cohort();
+          if (prepared.members.length > 0)
+            throw new Error(
+              "Interrupting WSL sessions for an update is not supported by this controller.",
+            );
+          interruptedCohort = prepared;
+          const resume = async () => {
+            interruptedCohort = null;
+            await input.runtime.startRuntimes();
+          };
+          try {
+            await input.runtime.stopRuntimes();
+            await observeDesktop();
+          } catch (cause) {
+            await resume();
+            throw cause;
+          }
+          return resume;
+        },
+      },
       interaction: () => interaction.read(input.hasWindow()),
       ...(input.onStatus === undefined
         ? {}
@@ -1081,8 +1119,13 @@ export function createDesktopMaintenance(input: DesktopMaintenanceInput): Deskto
           return check();
         case "install":
           return shared(
-            `install:${action.targetArtifactSha256}:${action.optimizeStorage === true}`,
-            () => requireController().install(action.targetArtifactSha256, action.optimizeStorage),
+            `install:${action.targetArtifactSha256}:${action.optimizeStorage === true}:${action.interruptActiveWork === true}`,
+            () =>
+              requireController().install(
+                action.targetArtifactSha256,
+                action.optimizeStorage,
+                action.interruptActiveWork,
+              ),
           );
         case "optimize-storage":
           return shared(`storage:${action.targetArtifactSha256}`, () =>

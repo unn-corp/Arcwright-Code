@@ -117,6 +117,8 @@ export const ForkUpdateStatus = Schema.Struct({
   countdown: Schema.optionalKey(Schema.NullOr(ForkUpdateCountdown)),
   lastError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   installable: Schema.optionalKey(Schema.Boolean),
+  /** This controller can stop its owned sessions for an explicitly confirmed install. */
+  interruptible: Schema.optionalKey(Schema.Boolean),
   /** Explicit storage optimization support; older controllers omit this capability. */
   storageOptimization: Schema.optionalKey(Schema.Boolean),
   /** Durable historical conversion requested by the database upgrade, independent of binary auto-update policy. */
@@ -150,6 +152,8 @@ export const ForkMaintenanceActionInput = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("install"),
     targetArtifactSha256: Schema.String,
+    /** Explicit confirmation to interrupt this device’s sessions; never inherited by automatic updates. */
+    interruptActiveWork: Schema.optionalKey(Schema.Boolean),
     optimizeStorage: Schema.optionalKey(Schema.Boolean),
   }),
   /** Restart this exact verified installed build for data maintenance; allocates no new build identity. */

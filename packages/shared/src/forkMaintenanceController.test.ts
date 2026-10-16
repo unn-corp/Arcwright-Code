@@ -379,6 +379,60 @@ async function harness(
 }
 
 describe("fork maintenance controller", () => {
+  it("updates immediately after work stops with automatic installation disabled", async () => {
+    const h = await harness({ autoInstall: false });
+    await h.idleRuntimes([
+      { participantId: "chat", reason: "active-agents", label: "Chat is running" },
+    ]);
+    await h.ready();
+    expect((await h.controller.status()).installable).toBe(false);
+    await expect(h.controller.install(sha("2"))).rejects.toThrow("blocked");
+    expect(h.events).not.toContain("startTrial");
+    await h.idleRuntimes();
+    const ready = await h.controller.status();
+    expect(ready.blockers).toContainEqual(expect.objectContaining({ reason: "idle-window" }));
+    expect(ready.installable).toBe(true);
+    h.interaction.value = { inputActiveAt: h.clock.value, uploadsInFlight: 0 };
+    const done = await h.controller.install(sha("2"));
+    expect(done.phase).toBe("completed");
+    expect(done.countdown).toBeNull();
+    expect(done.policy.automaticInstallation).toBe(false);
+    const journal = (await h.controllerStore.listJournals()).find(
+      (entry) => entry.phase === "committed",
+    )!;
+    expect(journal.manualInstallation).toBe(true);
+    expect(Object.keys(journal.snapshots)).toHaveLength(2);
+    expect(Object.keys(journal.receipts)).toHaveLength(2);
+    await h.admitting();
+  });
+
+  it("manual installation waits for unfinished uploads without interrupting work", async () => {
+    const h = await harness();
+    await h.ready();
+    h.interaction.value = { inputActiveAt: null, uploadsInFlight: 1 };
+    expect((await h.controller.status()).installable).toBe(false);
+    await expect(h.controller.install(sha("2"))).rejects.toThrow("upload");
+    expect(h.events).not.toContain("startTrial");
+  });
+
+  it("automatic installation still waits five minutes after work stops", async () => {
+    const h = await harness({ autoInstall: true });
+    await h.idleRuntimes([
+      { participantId: "chat", reason: "commands", label: "Command is running" },
+    ]);
+    await h.ready();
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).countdown).toBeNull();
+    expect(h.events).not.toContain("startTrial");
+    h.clock.value += 300_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).countdown).not.toBeNull();
+    h.clock.value += 15_000;
+    await h.idleRuntimes();
+    expect((await h.controller.tick()).phase).toBe("completed");
+    expect((await h.controllerStore.listJournals())[0]?.manualInstallation).not.toBe(true);
+  });
+
   it("checks and stages from a historical preview while active agents still block installation", async () => {
     const h = await harness({
       autoInstall: true,

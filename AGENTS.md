@@ -69,7 +69,9 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
   or compatibility. Describe implemented behavior; label uncommissioned delivery explicitly.
 - Desktop/server installation and recovery must use the device's maintenance coordinator. Registered
   standalone/development runtimes block installation but are never automatic binary-update targets.
-  Unknown activity or missing safety capability blocks installation; never stop agents for an update.
+  Unknown activity or missing safety capability blocks installation. Automatic updates never stop
+  agents; explicit Update now interruption requires the user’s exact-artifact confirmation and
+  normal shutdown/session recovery before stopped-work admission.
 - Separate activity participants from affected data homes. Snapshot every affected Windows/WSL home
   before trial, keep external writes and launches fenced, and commit all health receipts durably
   before admission. Never restore an older database silently after writes have been admitted.

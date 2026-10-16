@@ -68,8 +68,8 @@ Sidebar update notices identify the host and keep update progress outside the
 chat composer. Machine details and **Update all** remain available there when
 choosing an environment. A protocol mismatch requires
 updating the side named by the notice. Available releases, waiting, installation,
-verification, and failure are different states. Stop remains an agent action;
-an updater never stops work to obtain an installation window.
+verification, and failure are different states. Automatic updates wait for running work. **Update now** can interrupt this desktop’s
+owned sessions after confirmation; the warning appears only when work is running.
 An idle conversation can still show a waiting reason when a provider helper
 process remains alive. The host keeps waiting until that process finishes or
 its ownership and idle state can be verified.
@@ -191,7 +191,18 @@ An additional desktop instance using a different data home blocks desktop replac
 close that instance after its work stops. Managed services remain activity participants,
 but desktop replacement does not restore their databases.
 
-The coordinator requires five idle minutes, acquires its interprocess admission
+Automatic installation requires five idle minutes. To choose the timing yourself, turn off
+**Automatic installation** and select **Update now** after the update finishes downloading
+and verification. On desktop and managed servers, this skips the idle delay and automatic
+countdown. If sessions or their commands are running, a warning offers **Interrupt and update**.
+Confirming shuts down this desktop’s owned backends through normal session recovery, then
+rechecks admission before replacement. Saved conversations remain available; automatic
+continuation follows your existing recovery settings. The warning is skipped when work is idle.
+Uploads, unknown activity, unrelated runtimes, and all other safety checks still block
+installation. Interrupting WSL sessions and managed-service sessions is not yet supported;
+those runtimes must become idle. Android retains its native background and activity requirements.
+
+The coordinator acquires its interprocess admission
 lock, fences new work, and checks every participant again. Desktop automatic
 installation also waits for input inactivity and unfinished uploads, then shows
 a cancellable 15-second countdown. Drafts and queued messages remain saved.

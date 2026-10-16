@@ -47,6 +47,7 @@ export function participantBlockers(
   participants: ReadonlyArray<MaintenanceParticipant>,
   now: number,
   transactionId?: string,
+  manualInstallation = false,
 ): ReadonlyArray<ForkActivityBlocker> {
   if (participants.length === 0) {
     return [
@@ -96,7 +97,11 @@ export function participantBlockers(
       ];
     }
     if (participant.blockers.length > 0) return [...participant.blockers];
-    if (participant.idleSince === null || now - participant.idleSince < AGENT_IDLE_WINDOW_MS) {
+    if (
+      participant.idleSince === null ||
+      participant.idleSince > now ||
+      (!manualInstallation && now - participant.idleSince < AGENT_IDLE_WINDOW_MS)
+    ) {
       return [blocker("idle-window", `${participant.label} must remain stopped for five minutes.`)];
     }
     if (transactionId !== undefined && participant.frozenFor !== transactionId) {

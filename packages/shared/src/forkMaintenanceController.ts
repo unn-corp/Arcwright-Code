@@ -120,6 +120,9 @@ export interface ForkInstallerPorts extends Omit<
    * installation then waits and shows why; only a person-initiated install proceeds, and the prompt is theirs to approve.
    */
   readonly authorizationRequired?: () => string | null;
+  /** Stops owned backends using normal shutdown/recovery, returning a restart callback if installation aborts. */
+  readonly interruptWork?: () => Promise<() => Promise<void>>;
+  readonly canInterruptWork?: () => Promise<boolean>;
   readonly currentBuild: ForkBuildIdentity;
   /** Downloads and digest-verifies the payload and the recovery assets. Returns the digest of the staged payload. */
   readonly stage: (target: ForkTargetSelection) => Promise<{ readonly artifactSha256: string }>;
@@ -349,11 +352,18 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     const unavailable = await installer.unavailableReason?.();
     const coordinator = await coordinatorState();
     const blockers: ForkActivityBlocker[] = [...coordinator.blockers, ...feedBlockers()];
+    if ((ports.interaction()?.uploadsInFlight ?? 0) > 0)
+      blockers.push({
+        participantId: "interaction",
+        reason: "uploads",
+        label: "An upload is still finishing.",
+      });
     if (unavailable !== null && unavailable !== undefined)
       blockers.push({ participantId: "coordinator", reason: "launcher", label: unavailable });
     const digest = targetDigest();
     const staged = stagedSha256 !== null && stagedSha256 === digest;
-    const hardBlocked = blockers.length > 0;
+    // Manual installation may skip the idle delay; every activity and capability blocker remains.
+    const hardBlocked = blockers.some((blocker) => blocker.reason !== "idle-window");
     blockers.push(...waitingBlockers);
     let shown = phase;
     if (policy.pinnedBuild !== null && (phase === "idle" || phase === "available"))
@@ -396,6 +406,17 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       affectedHomes,
       installable:
         staged && !hardBlocked && policy.pinnedBuild === null && activeTransactionId === null,
+      interruptible:
+        staged &&
+        policy.pinnedBuild === null &&
+        activeTransactionId === null &&
+        installer.interruptWork !== undefined &&
+        (await installer.canInterruptWork?.()) === true &&
+        blockers.every((blocker) =>
+          ["idle-window", "input-active", "active-agents", "commands", "background-work"].includes(
+            blocker.reason,
+          ),
+        ),
     };
     return result;
   };
@@ -492,6 +513,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     kind: MaintenanceJournal["kind"],
     snapshots?: Readonly<Record<string, string>>,
     optimizeStorage = false,
+    manualInstallation = false,
   ) => {
     const initial = newJournal({
       id: transactionId,
@@ -513,7 +535,11 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       now: ports.now(),
       ...(snapshots === undefined ? {} : { snapshots }),
     });
-    const journal = optimizeStorage ? { ...initial, storageOptimization: true } : initial;
+    const journal = {
+      ...initial,
+      ...(optimizeStorage ? { storageOptimization: true } : {}),
+      ...(manualInstallation ? { manualInstallation: true } : {}),
+    };
     try {
       await store.freeze(transactionId, ports.now(), { intent: journal });
     } catch (cause) {
@@ -648,6 +674,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     automatic: boolean,
     optimizeStorage = false,
     currentBuildMaintenance = false,
+    interruptActiveWork = false,
   ) => {
     await loadPolicy();
     const unavailable = await installer.unavailableReason?.();
@@ -705,14 +732,28 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       throw fail(messageOf(cause));
     });
 
+    if ((ports.interaction()?.uploadsInFlight ?? 0) > 0)
+      throw fail("An upload is still finishing.");
+    let resumeInterruptedWork: (() => Promise<void>) | undefined;
+    if (interruptActiveWork) {
+      if (
+        automatic ||
+        installer.interruptWork === undefined ||
+        !(await installer.canInterruptWork?.())
+      )
+        throw fail("This controller cannot interrupt sessions for installation.");
+      const reviewed = await status();
+      if (!reviewed.interruptible) throw fail("Installation is blocked.", reviewed.blockers);
+      resumeInterruptedWork = await installer.interruptWork();
+    }
     const transactionId = `u${ports.now()}-${NodeCrypto.randomUUID().slice(0, 8)}`;
     activeTransactionId = transactionId;
     phase = "installing";
     countdown = null;
     storageCountdown = null;
-    await publish();
     let journal: MaintenanceJournal;
     try {
+      await publish();
       journal = await fenceDevice(
         transactionId,
         homes,
@@ -721,10 +762,12 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
         "update",
         undefined,
         optimizeStorage,
+        !automatic,
       );
     } catch (cause) {
       activeTransactionId = null;
       phase = "staged";
+      if ((await store.status(ports.now())).fence === null) await resumeInterruptedWork?.();
       throw cause;
     }
     try {
@@ -737,15 +780,27 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       await abortFence(transactionId);
       activeTransactionId = null;
       phase = "staged";
+      if (
+        (await store.readJournal(transactionId))?.phase === "aborted" &&
+        (await store.status(ports.now())).fence === null
+      )
+        await resumeInterruptedWork?.();
       throw cause;
     }
     phase = "installing";
     await settle(transactionId, beginUpdateTransaction(journal, transactionPorts()));
+    if (
+      (await store.readJournal(transactionId))?.phase === "aborted" &&
+      (await store.status(ports.now())).fence === null
+    )
+      await resumeInterruptedWork?.();
     return publish();
   };
 
-  const install = (expectedSha256: string, optimizeStorage = false) =>
-    serialized(() => runInstall(expectedSha256, false, optimizeStorage));
+  const install = (expectedSha256: string, optimizeStorage = false, interruptActiveWork = false) =>
+    serialized(() =>
+      runInstall(expectedSha256, false, optimizeStorage, false, interruptActiveWork),
+    );
 
   const runStorageOptimization = async (expectedSha256: string, automatic = false) => {
     await loadPolicy();

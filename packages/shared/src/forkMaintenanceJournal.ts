@@ -46,6 +46,8 @@ export const MaintenanceJournal = Schema.Struct({
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
   failure: Schema.NullOr(Schema.String),
+  /** Explicit manual timing skips only the idle delay, including during fenced rechecks and WSL admission. */
+  manualInstallation: Schema.optionalKey(Schema.Boolean),
   /** Explicitly requested lossless storage optimization, bound to this exact update and its snapshots. */
   storageOptimization: Schema.optionalKey(Schema.Boolean),
   /** Exact binary handoffs authorized by the controller, including legacy build-to-installer mapping. */

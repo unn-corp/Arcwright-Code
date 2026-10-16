@@ -278,7 +278,11 @@ const make = Effect.gen(function* () {
           });
         case "install":
           return attempt(() =>
-            controller.install(input.targetArtifactSha256, input.optimizeStorage),
+            controller.install(
+              input.targetArtifactSha256,
+              input.optimizeStorage,
+              input.interruptActiveWork,
+            ),
           );
         case "optimize-storage":
           return attempt(() => controller.optimizeStorage(input.targetArtifactSha256));
