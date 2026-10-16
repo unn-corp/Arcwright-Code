@@ -14,6 +14,7 @@ import {
 import * as Schema from "effect/Schema";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { DownloadIcon, InfoIcon } from "lucide-react";
 import { organizationEnvironment, useOrganizations } from "../../state/organizations";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
@@ -23,6 +24,20 @@ import { randomUUID } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Card, CardPanel } from "../ui/card";
 import { Input } from "../ui/input";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import { Checkbox } from "../ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+  DialogTrigger,
+} from "../ui/dialog";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
 const kinds = [
   "all",
@@ -614,12 +629,17 @@ export function OrganizationRepository({
   );
 }
 
-export function OrganizationRepositoryLoader() {
+export function OrganizationRepositoryLoader({
+  disabled = false,
+}: {
+  readonly disabled?: boolean;
+}) {
   const navigate = useNavigate();
   const settings = usePrimarySettings();
   const organizations = useOrganizations();
   const environmentId = usePrimaryEnvironmentId();
   const load = useAtomCommand(organizationEnvironment.repositoryLoad, { reportFailure: false });
+  const [open, setOpen] = useState(false);
   const [repository, setRepository] = useState("");
   const [accountId, setAccountId] = useState("");
   const [autoSync, setAutoSync] = useState(true);
@@ -628,7 +648,7 @@ export function OrganizationRepositoryLoader() {
   const [error, setError] = useState<string | null>(null);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!environmentId || busy || !repository.trim()) return;
+    if (!environmentId || disabled || busy || !repository.trim()) return;
     setBusy(true);
     setError(null);
     try {
@@ -646,6 +666,7 @@ export function OrganizationRepositoryLoader() {
         return;
       }
       organizations.refresh();
+      setOpen(false);
       void navigate({
         to: "/organizations/$organizationId",
         params: { organizationId: result.value.organizationId },
@@ -655,73 +676,124 @@ export function OrganizationRepositoryLoader() {
     }
   }
   return (
-    <Card>
-      <CardPanel>
-        <h2 className="font-medium">Load a shared Organization</h2>
-        <p className="text-sm text-muted-foreground">
-          Open a GitHub Organization repository as a local draft. Shared history stays available in
-          its archive; reconnect Projects and review policy here before publishing.
-        </p>
-        <form className="space-y-3" onSubmit={(event) => void submit(event)}>
-          <label htmlFor="organization-repository-load" className="text-sm font-medium">
-            Owner / repository
-          </label>
-          <Input
-            id="organization-repository-load"
-            value={repository}
-            onChange={(event) => setRepository(event.target.value)}
-            placeholder="owner/organization-record"
-            disabled={busy || environmentId === null}
-          />
-          <label className="flex items-center gap-2 text-sm">
-            GitHub account
-            <select
-              value={accountId}
-              onChange={(event) => setAccountId(event.target.value)}
-              disabled={busy || environmentId === null}
-              className="rounded-md border border-input bg-background px-2 py-1"
-            >
-              <option value="">Default GitHub CLI account</option>
-              {Object.entries(settings.githubAccounts).map(([id, account]) => (
-                <option key={id} value={id}>
-                  {account.label || id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={autoSync}
-              onChange={(event) => setAutoSync(event.target.checked)}
-              disabled={busy || environmentId === null}
-            />{" "}
-            Sync automatically
-          </label>
-          <div role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">
-            This repository may be public. Automatic sync can publish portable conversations,
-            observations, decisions, work history, and evidence. Known credentials are filtered, but
-            user-entered text may still be sensitive. Review its records before sharing.
-            <label className="mt-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={publicAcknowledged}
-                onChange={(event) => setPublicAcknowledged(event.target.checked)}
-                disabled={busy || environmentId === null}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!busy) setOpen(next);
+      }}
+    >
+      <DialogTrigger
+        aria-label="Import from GitHub"
+        render={<Button variant="outline" disabled={disabled || environmentId === null} />}
+      >
+        <DownloadIcon />
+        <span className="sm:hidden">Import</span>
+        <span className="hidden sm:inline">Import from GitHub</span>
+      </DialogTrigger>
+      <DialogPopup showCloseButton={!busy}>
+        <DialogHeader>
+          <DialogTitle>Import an organization</DialogTitle>
+          <DialogDescription>
+            Bring a shared organization from GitHub into a local draft. Review its settings and
+            reconnect Projects before publishing.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(event) => void submit(event)}
+          aria-busy={busy}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <DialogPanel>
+            <div className="space-y-2">
+              <label htmlFor="organization-repository-load" className="text-sm font-medium">
+                GitHub repository
+              </label>
+              <Input
+                id="organization-repository-load"
+                value={repository}
+                onValueChange={setRepository}
+                placeholder="owner/organization-record"
+                disabled={busy || disabled || environmentId === null}
+                required
               />
-              I understand this repository may expose shared records publicly.
+              <p className="text-sm text-muted-foreground">
+                Enter the owner and repository name of a shared organization.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label id="organization-import-account-label" className="text-sm font-medium">
+                GitHub account
+              </label>
+              <Select
+                value={accountId}
+                onValueChange={(value) => setAccountId(value ?? "")}
+                disabled={busy || disabled || environmentId === null}
+              >
+                <SelectTrigger aria-labelledby="organization-import-account-label">
+                  <SelectValue>
+                    {accountId
+                      ? settings.githubAccounts[GitHubAccountId.make(accountId)]?.label || accountId
+                      : "Default GitHub CLI account"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="">Default GitHub CLI account</SelectItem>
+                  {Object.entries(settings.githubAccounts).map(([id, account]) => (
+                    <SelectItem key={id} value={id}>
+                      {account.label || id}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
+            <label className="flex cursor-pointer items-start gap-3 py-2 text-sm">
+              <Checkbox
+                checked={autoSync}
+                onCheckedChange={setAutoSync}
+                disabled={busy || disabled || environmentId === null}
+              />
+              <span className="space-y-1">
+                <span className="block font-medium">Sync automatically</span>
+                <span className="block text-muted-foreground">
+                  Keep shared records up to date with this repository.
+                </span>
+              </span>
             </label>
-          </div>
-          <Button type="submit" disabled={busy || environmentId === null || !repository.trim()}>
-            {busy ? "Loading…" : "Load Organization"}
-          </Button>
+            <Alert role="note" controlAlignment="first-line">
+              <InfoIcon />
+              <AlertTitle>Review what you share</AlertTitle>
+              <AlertDescription>
+                This repository may be public. Sync can publish conversations, decisions,
+                observations, work history, and evidence. Known credentials are filtered, but other
+                sensitive text may remain.
+              </AlertDescription>
+            </Alert>
+            <label className="flex cursor-pointer items-start gap-3 py-2 text-sm">
+              <Checkbox
+                checked={publicAcknowledged}
+                onCheckedChange={setPublicAcknowledged}
+                disabled={busy || disabled || environmentId === null}
+              />
+              <span>I understand shared records may be visible publicly.</span>
+            </label>
+            {error ? (
+              <Alert variant="error">
+                <AlertTitle>Organization wasn’t imported</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={busy} />}>Cancel</DialogClose>
+            <Button
+              type="submit"
+              disabled={busy || disabled || environmentId === null || !repository.trim()}
+            >
+              <DownloadIcon /> {busy ? "Importing…" : "Import organization"}
+            </Button>
+          </DialogFooter>
         </form>
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-      </CardPanel>
-    </Card>
+      </DialogPopup>
+    </Dialog>
   );
 }
