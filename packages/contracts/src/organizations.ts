@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
+import { ModelSelection } from "./orchestration.ts";
 import {
   IsoDateTime,
   NonNegativeInt,
@@ -56,6 +57,8 @@ export const OrganizationRole = Schema.Struct({
   title: TrimmedNonEmptyString,
   mandate: Schema.String,
   poolSize: PositiveInt,
+  /** Environment-local employee configuration, controlled by the human. */
+  modelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
 });
 export type OrganizationRole = typeof OrganizationRole.Type;
 export const OrganizationEdge = Schema.Struct({
@@ -207,13 +210,23 @@ export const OrganizationCreateInput = Schema.Struct({
 export type OrganizationCreateInput = typeof OrganizationCreateInput.Type;
 
 export const OrganizationChange = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("add-role"), role: OrganizationRole }),
+  Schema.Struct({
+    type: Schema.Literal("add-role"),
+    role: OrganizationRole,
+    position: Schema.optional(
+      Schema.Struct({
+        x: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+        y: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+      }),
+    ),
+  }),
   Schema.Struct({
     type: Schema.Literal("update-role"),
     roleId: OrganizationRoleId,
     title: Schema.optional(TrimmedNonEmptyString),
     mandate: Schema.optional(Schema.String),
     poolSize: Schema.optional(PositiveInt),
+    modelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   }),
   Schema.Struct({ type: Schema.Literal("remove-role"), roleId: OrganizationRoleId }),
   Schema.Struct({ type: Schema.Literal("add-edge"), edge: OrganizationEdge }),

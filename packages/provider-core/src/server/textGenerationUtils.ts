@@ -31,6 +31,15 @@ export function requireAllJsonSchemaProperties(value: unknown): unknown {
   );
   const properties = result["properties"];
   if (properties !== null && typeof properties === "object" && !Array.isArray(properties)) {
+    // A required nullable placeholder represents an omitted optional field. Without
+    // this, a partial role edit has to invent a title, mandate, and capacity.
+    const required = new Set(Array.isArray(result["required"]) ? result["required"] : []);
+    result["properties"] = Object.fromEntries(
+      Object.entries(properties).map(([key, property]) => [
+        key,
+        required.has(key) ? property : { anyOf: [property, { type: "null" }] },
+      ]),
+    );
     result["required"] = Object.keys(properties);
   }
   return result;

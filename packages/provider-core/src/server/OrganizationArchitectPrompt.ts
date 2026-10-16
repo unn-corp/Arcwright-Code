@@ -1,8 +1,14 @@
-import { TextGenerationError, type OrganizationArchitectTurnOutput } from "@t3tools/contracts";
+import { OrganizationArchitectTurnOutput, TextGenerationError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+
+import { toJsonSchemaObject } from "./textGenerationUtils.ts";
 
 import type { OrganizationArchitectTurnInput } from "./textGeneration.ts";
 import { redactOrganizationArchitectText } from "./OrganizationArchitectRedaction.ts";
+
+// ACP text providers receive no native structured-output schema. Keep their prompt contract
+// identical to the schema used by native structured-output providers.
+const outputSchemaJson = JSON.stringify(toJsonSchemaObject(OrganizationArchitectTurnOutput));
 
 const OPERATION = "generateOrganizationArchitectTurn";
 const MAX_USER_BYTES = 4_000;
@@ -145,6 +151,10 @@ export const buildOrganizationArchitectPrompt = (
     "Never propose deleting roles, changing lifecycle or bindings, publishing, or editing layout.",
     `Every proposal baseRevision must equal ${input.organization.draftRevision}.`,
     "Use fresh role and edge IDs for additions. Preserve existing role IDs when updating.",
+    "Employee provider/model assignments are environment-local human choices. Never propose modelSelection or provider options, and preserve these choices when suggesting role edits.",
+    "Return exactly one JSON object matching the response JSON Schema below. Put all conversational text in reply; use proposals: [] when no structural change is warranted. Do not return Markdown fences or prose outside the JSON object.",
+    "Response JSON Schema:",
+    outputSchemaJson,
     "Organization configuration JSON:",
     snapshot,
     "Organization setup state JSON:",

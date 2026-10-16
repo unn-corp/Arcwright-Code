@@ -263,6 +263,19 @@ it("removes credential metadata and machine authority while retaining attributed
   });
   const content = sanitizePortableContent({
     attributes,
+    graph: {
+      roles: [
+        {
+          id: "engineer",
+          modelSelection: {
+            instanceId: "local-instance",
+            model: "private-model",
+            options: { localOption: "local-value" },
+          },
+        },
+      ],
+    },
+    config: { graph: { roles: [{ modelSelection: null }] } },
     title: "Observed issue",
     body: "Cookie: sessionid=abc123 in /home/alice/project/log.txt",
     binding: { access: "write", capabilities: ["write-files"] },
@@ -271,5 +284,8 @@ it("removes credential metadata and machine authority while retaining attributed
   const text = JSON.stringify(content);
   assert.match(text, /incident:42/);
   assert.match(text, /issue:42/);
-  assert.notMatch(text, /abc123|Bearer private|\/home\/alice|write-files|sessionId|Cookie/);
+  assert.notMatch(
+    text,
+    /abc123|Bearer private|\/home\/alice|write-files|sessionId|Cookie|modelSelection|local-instance|private-model|localOption|local-value/,
+  );
 });

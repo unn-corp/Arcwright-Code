@@ -83,6 +83,68 @@ const initialize = Effect.gen(function* () {
 });
 
 layer("Organization Architect transcript", (it) => {
+  it.effect("preserves human employee models through saved AI suggestions and explicit Apply", () =>
+    Effect.gen(function* () {
+      yield* initialize;
+      const organizations = yield* OrganizationStore;
+      const transcript = yield* OrganizationArchitectTranscriptStore;
+      const initial = yield* organizations.get({ organizationId });
+      const selected = yield* organizations.mutate({
+        organizationId,
+        mutationId: "employee-select",
+        baseRevision: 1,
+        actor: "user",
+        change: { type: "update-role", roleId: initial.architectRoleId, modelSelection },
+      });
+      // Simulate excess provider fields; complete must decode and discard this assignment.
+      const untrustedChange = {
+        type: "update-role" as const,
+        roleId: initial.architectRoleId,
+        mandate: "Clarify responsibilities",
+        modelSelection: null,
+      };
+      const request = input("employee-proposal", organizationId, selected.draftRevision);
+      yield* transcript.begin(request, principal);
+      const completed = yield* transcript.complete(
+        {
+          organizationId,
+          messageId: request.messageId,
+          output: {
+            reply: "Clarify the mandate",
+            proposals: [
+              {
+                baseRevision: selected.draftRevision,
+                change: untrustedChange,
+              },
+            ],
+          },
+        },
+        principal,
+      );
+      assert.isFalse("modelSelection" in completed.proposals[0]!.change);
+      const before = yield* organizations.get({ organizationId });
+      assert.equal(before.draftRevision, selected.draftRevision);
+      assert.deepEqual(
+        before.graph.roles.find((r) => r.id === initial.architectRoleId)?.modelSelection,
+        modelSelection,
+      );
+      const applied = yield* organizations.applyArchitectBatch({
+        organizationId,
+        mutationId: "employee-apply",
+        baseRevision: selected.draftRevision,
+        proposalIds: completed.proposals.map((p) => p.id),
+      });
+      assert.deepEqual(
+        applied.graph.roles.find((r) => r.id === initial.architectRoleId)?.modelSelection,
+        modelSelection,
+      );
+      assert.equal(
+        applied.graph.roles.find((r) => r.id === initial.architectRoleId)?.mandate,
+        "Clarify responsibilities",
+      );
+    }),
+  );
+
   it.effect("applies roles and a valid workflow together and rejects an invalid workflow", () =>
     Effect.gen(function* () {
       yield* initialize;

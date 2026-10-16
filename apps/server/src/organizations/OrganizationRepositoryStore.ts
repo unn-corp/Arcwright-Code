@@ -28,6 +28,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { validateOrganizationGraph, validateOrganizationWorkflow } from "./OrganizationStore.ts";
 import {
   collectOrganizationRepositoryRecords,
+  sanitizePortableContent,
   organizationRepositoryExclusions,
 } from "./OrganizationRepositoryCollector.ts";
 import {
@@ -537,7 +538,8 @@ const make = Effect.gen(function* () {
           publishedRevision: null,
           architectRoleId: c.architectRoleId,
           directorRoleId: c.directorRoleId,
-          graph: c.graph,
+          // Remote employee execution choices belong to the source environment.
+          graph: sanitizePortableContent(c.graph),
           workflows: c.workflows,
           layout: c.layout,
           bindings: [],

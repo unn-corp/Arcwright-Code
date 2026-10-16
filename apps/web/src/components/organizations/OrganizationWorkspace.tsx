@@ -271,7 +271,13 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
 
   return (
     <OrganizationPageShell>
-      <header className="space-y-4 border-b border-border/70 pb-5">
+      <header
+        className={
+          tab === "designer"
+            ? "space-y-2 border-b border-border/70 pb-3"
+            : "space-y-4 border-b border-border/70 pb-5"
+        }
+      >
         <Button size="sm" variant="ghost" render={<Link to="/organizations" />}>
           <ArrowLeftIcon /> Organizations
         </Button>
@@ -349,7 +355,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
         <>
           <nav
             aria-label="Organization views"
-            className="flex flex-wrap gap-2 border-b border-border/70 pb-3"
+            className="flex min-w-0 gap-2 overflow-x-auto border-b border-border/70 pb-3"
           >
             {(
               [
@@ -367,6 +373,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
             ).map((view) => (
               <Button
                 key={view}
+                className="shrink-0"
                 size="sm"
                 variant={tab === view ? "secondary" : "ghost"}
                 aria-current={tab === view ? "page" : undefined}
@@ -388,7 +395,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           {tab === "overview" ? (
             <div className="grid gap-4 md:grid-cols-2">
               <Card>
-                <CardPanel className="p-6">
+                <CardPanel>
                   <h2 className="text-lg font-semibold">Mission</h2>
                   <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
                     {organization.mission || "No mission set yet."}
@@ -396,7 +403,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
                 </CardPanel>
               </Card>
               <Card>
-                <CardPanel className="p-6">
+                <CardPanel>
                   <h2 className="text-lg font-semibold">Current structure</h2>
                   <dl className="mt-3 space-y-2 text-sm">
                     <div className="flex justify-between">
@@ -420,7 +427,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
                 </CardPanel>
               </Card>
               <Card className="md:col-span-2">
-                <CardPanel className="p-6">
+                <CardPanel>
                   <h2 className="text-lg font-semibold">Operating status</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
                     Live Operations shows evidence, waiting intents, Project work, approvals, and
@@ -431,23 +438,20 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
             </div>
           ) : null}
           {tab === "designer" ? (
-            <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]">
-              <div className="min-w-0 xl:order-2">
+            <OrganizationDesigner
+              key={organization.id}
+              organization={organization}
+              busy={busy || isOffline || isArchived}
+              onChange={applyChange}
+              assistant={
                 <OrganizationArchitectConversation
                   organization={organization}
                   offline={isOffline}
                   busy={busy}
                   onApplyBatch={applyProposalBatch}
                 />
-              </div>
-              <div className="min-w-0 xl:order-1">
-                <OrganizationDesigner
-                  organization={organization}
-                  busy={busy || isOffline || isArchived}
-                  onChange={applyChange}
-                />
-              </div>
-            </div>
+              }
+            />
           ) : null}
           {tab === "director" ? (
             <OrganizationDirectorConversation

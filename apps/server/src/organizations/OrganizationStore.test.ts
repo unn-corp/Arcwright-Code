@@ -5,8 +5,10 @@ import {
   OrganizationRoleId,
   OrganizationEdgeId,
   ProjectId,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import { createModelSelection } from "@t3tools/shared/model";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -376,6 +378,101 @@ layer("OrganizationStore", (it) => {
         });
         assert.equal(archived.lifecycle, "archived");
         assert.notEqual(archived.bindings[0]?.detachedAt, null);
+      }),
+  );
+  it.effect(
+    "persists manual employee choices and atomic placement, preserving omitted fields",
+    () =>
+      Effect.gen(function* () {
+        yield* runMigrations();
+        const store = yield* OrganizationStore;
+        const created = yield* create(id("org-employee"), "employee-create");
+        const roleId = OrganizationRoleId.make("employee-engineer");
+        const modelSelection = createModelSelection(
+          ProviderInstanceId.make("local-provider"),
+          "local-model",
+        );
+        const role = {
+          id: roleId,
+          kind: "engineering" as const,
+          title: "Engineer",
+          mandate: "Build",
+          poolSize: 1,
+          modelSelection,
+        };
+        const added = yield* store.mutate({
+          organizationId: created.id,
+          mutationId: "employee-add",
+          baseRevision: 1,
+          actor: "user",
+          change: { type: "add-role", role, position: { x: 12.5, y: 30 } },
+        });
+        assert.equal(added.draftRevision, 2);
+        assert.deepStrictEqual(added.layout.positions, [{ roleId, x: 12.5, y: 30 }]);
+        const updated = yield* store.mutate({
+          organizationId: created.id,
+          mutationId: "employee-title",
+          baseRevision: 2,
+          actor: "user",
+          change: { type: "update-role", roleId, title: "Senior Engineer" },
+        });
+        assert.deepStrictEqual(
+          updated.graph.roles.find((r) => r.id === roleId),
+          { ...role, title: "Senior Engineer" },
+        );
+        const forbidden = yield* Effect.flip(
+          store.mutate({
+            organizationId: created.id,
+            mutationId: "employee-forbidden",
+            baseRevision: 3,
+            actor: "architect",
+            change: { type: "update-role", roleId, modelSelection: null },
+          }),
+        );
+        assert.equal(forbidden.code, "forbidden");
+        const reloaded = yield* store.get({ organizationId: created.id });
+        assert.deepStrictEqual(
+          reloaded.graph.roles.find((r) => r.id === roleId)?.modelSelection,
+          modelSelection,
+        );
+        for (const [index, position] of [
+          { x: -1, y: 0 },
+          { x: Infinity, y: 0 },
+          { x: 0, y: NaN },
+        ].entries()) {
+          const bad = yield* Effect.flip(
+            store.mutate({
+              organizationId: created.id,
+              mutationId: `employee-position-${index}`,
+              baseRevision: 3,
+              actor: "user",
+              change: {
+                type: "add-role",
+                role: { ...role, id: OrganizationRoleId.make(`invalid-${index}`) },
+                position,
+              },
+            }),
+          );
+          assert.equal(bad.code, "invalid");
+        }
+        const cleared = yield* store.mutate({
+          organizationId: created.id,
+          mutationId: "employee-clear",
+          baseRevision: 3,
+          actor: "user",
+          change: { type: "update-role", roleId, modelSelection: null },
+        });
+        assert.deepStrictEqual(
+          cleared.graph.roles.find((r) => r.id === roleId),
+          { ...role, title: "Senior Engineer", modelSelection: null },
+        );
+        assert.deepStrictEqual(cleared.layout, added.layout);
+        assert.equal(
+          (yield* store.get({ organizationId: created.id })).graph.roles.find(
+            (r) => r.id === roleId,
+          )?.modelSelection,
+          null,
+        );
       }),
   );
 });

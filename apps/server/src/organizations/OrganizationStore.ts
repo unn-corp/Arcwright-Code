@@ -287,7 +287,26 @@ const applyChange = (
   const graph = organization.graph;
   switch (change.type) {
     case "add-role":
-      return { ...organization, graph: { ...graph, roles: [...graph.roles, change.role] } };
+      if (
+        change.position &&
+        (!Number.isFinite(change.position.x) ||
+          !Number.isFinite(change.position.y) ||
+          change.position.x < 0 ||
+          change.position.y < 0)
+      )
+        throw invalid("Role position must have finite nonnegative coordinates.");
+      return {
+        ...organization,
+        graph: { ...graph, roles: [...graph.roles, change.role] },
+        layout: change.position
+          ? {
+              positions: [
+                ...organization.layout.positions,
+                { roleId: change.role.id, ...change.position },
+              ],
+            }
+          : organization.layout,
+      };
     case "update-role":
       if (!graph.roles.some((role) => role.id === change.roleId)) throw invalid("Role not found.");
       return {
@@ -301,6 +320,9 @@ const applyChange = (
                   ...(change.title !== undefined ? { title: change.title } : {}),
                   ...(change.mandate !== undefined ? { mandate: change.mandate } : {}),
                   ...(change.poolSize !== undefined ? { poolSize: change.poolSize } : {}),
+                  ...(change.modelSelection !== undefined
+                    ? { modelSelection: change.modelSelection }
+                    : {}),
                 }
               : role,
           ),
@@ -624,13 +646,15 @@ const make = Effect.gen(function* () {
         const current = yield* checkedCurrent(input);
         if (
           input.actor !== "user" &&
-          (input.change.type === "set-mission" ||
+          ((input.change.type === "add-role" && input.change.role.modelSelection !== undefined) ||
+            (input.change.type === "update-role" && input.change.modelSelection !== undefined) ||
+            input.change.type === "set-mission" ||
             (input.change.type === "add-role" && input.change.role.poolSize > 1) ||
             (input.change.type === "update-role" && input.change.poolSize !== undefined))
         )
           return yield* new OrganizationError({
             code: "forbidden",
-            message: "A user must approve mission or capacity changes.",
+            message: "A user must approve mission, capacity, or employee model changes.",
           });
         const next = yield* Effect.try({
           try: () => applyChange(current, input.change),

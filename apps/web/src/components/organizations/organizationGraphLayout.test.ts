@@ -7,6 +7,7 @@ import {
   layoutWithMovedRole,
   roleBounds,
   rolePositions,
+  positionForNewEmployee,
   zoomGraphAt,
 } from "./organizationGraphLayout";
 
@@ -71,4 +72,25 @@ describe("organization graph interaction geometry", () => {
       inverseOrganizationChange(organization, { type: "remove-role", roleId: directorId }),
     ).toBeNull();
   });
+});
+
+it("places a new employee near the requested point without covering a moved employee", () => {
+  const requested = { x: 32, y: 32 };
+  const free = positionForNewEmployee(organization, requested);
+  expect(free.x).toBe(requested.x);
+  expect(free.y).toBeGreaterThan(requested.y + 100);
+  expect(positionForNewEmployee(organization, { x: 900, y: 300 })).toEqual({ x: 900, y: 300 });
+});
+it("undo restores or clears employee AI selection only when that selection was edited", () => {
+  const change = { type: "update-role", roleId: directorId, title: "New director" } as const;
+  expect(inverseOrganizationChange(organization, change)).not.toHaveProperty("modelSelection");
+  expect(
+    inverseOrganizationChange(organization, {
+      ...change,
+      modelSelection: {
+        instanceId: "codex" as import("@t3tools/contracts").ProviderInstanceId,
+        model: "model",
+      },
+    }),
+  ).toMatchObject({ modelSelection: null });
 });

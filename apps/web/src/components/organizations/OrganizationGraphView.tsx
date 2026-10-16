@@ -1,3 +1,4 @@
+import { ContextMenu } from "@base-ui/react/context-menu";
 import type { Organization, OrganizationRoleId } from "@t3tools/contracts";
 import { GripIcon, Maximize2Icon, MinusIcon, PlusIcon } from "lucide-react";
 import {
@@ -11,7 +12,10 @@ import {
 } from "react";
 
 import { cn } from "../../lib/utils";
+import { observeResize } from "../../lib/observeResize";
 import { Button } from "../ui/button";
+import { MenuItem, MenuPopup } from "../ui/menu";
+import { RELATIONSHIP_LABELS } from "./OrganizationRelationshipsDialog";
 import {
   fitGraphViewport,
   NODE_HEIGHT,
@@ -48,6 +52,9 @@ export function OrganizationGraphView({
   busy,
   onSelectRole,
   onMoveRole,
+  onAddEmployee,
+  onEditEmployee,
+  onConnectEmployee,
 }: {
   readonly organization: Organization;
   readonly selectedRoleId: string | null;
@@ -55,8 +62,12 @@ export function OrganizationGraphView({
   readonly busy: boolean;
   readonly onSelectRole: (roleId: string) => void;
   readonly onMoveRole: (roleId: OrganizationRoleId, point: Point) => Promise<boolean>;
+  readonly onAddEmployee?: (point?: Point) => void;
+  readonly onEditEmployee?: (roleId: string) => void;
+  readonly onConnectEmployee?: (roleId: string) => void;
 }) {
   const markerId = useId();
+  const [context, setContext] = useState<{ roleId?: string; point?: Point }>({});
   const frameRef = useRef<HTMLDivElement | null>(null);
   const fittedOrganizationId = useRef<string | null>(null);
   const lastSelectedRoleId = useRef(selectedRoleId);
@@ -73,6 +84,21 @@ export function OrganizationGraphView({
     return next;
   }, [dragPreview, positions]);
   const bounds = useMemo(() => roleBounds(displayedPositions), [displayedPositions]);
+  const boundsRef = useRef(bounds);
+  useEffect(() => {
+    boundsRef.current = bounds;
+  }, [bounds]);
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || typeof ResizeObserver === "undefined") return;
+    let size = { width: frame.clientWidth, height: frame.clientHeight };
+    return observeResize(frame, () => {
+      const next = { width: frame.clientWidth, height: frame.clientHeight };
+      if (next.width === size.width && next.height === size.height) return;
+      size = next;
+      setViewport(fitGraphViewport(boundsRef.current, next));
+    });
+  }, []);
   const normalizedSearch = search.trim().toLowerCase();
   const graphWidth = Math.max(1, bounds.maxX + NODE_WIDTH);
   const graphHeight = Math.max(1, bounds.maxY + NODE_HEIGHT);
@@ -268,10 +294,8 @@ export function OrganizationGraphView({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          Drag a role by its handle. Drag empty space with a mouse to pan. Use Shift with the wheel
-          to pan, or Ctrl or Command with the wheel to zoom. On touch screens, use the controls
-          below or the role outline.
+        <p className="text-xs text-muted-foreground">
+          Right-click to add or connect employees. Double-click an employee to edit.
         </p>
         <div className="flex items-center gap-1" aria-label="Graph controls">
           <Button
@@ -293,177 +317,242 @@ export function OrganizationGraphView({
           </Button>
         </div>
       </div>
-      <div
-        ref={frameRef}
-        role="region"
-        tabIndex={0}
-        aria-label="Organization role graph"
-        className="relative h-72 overflow-hidden rounded-xl border border-border bg-muted/20 outline-none touch-pan-y focus-visible:ring-2 focus-visible:ring-ring sm:h-96 lg:h-112"
-        onWheel={handleWheel}
-        onPointerDown={startPan}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endPointer}
-        onPointerCancel={cancelPointer}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === "Home") {
-            event.preventDefault();
-            fitToView();
-          } else if (event.key === "+" || event.key === "=") {
-            event.preventDefault();
-            zoomBy(1.2);
-          } else if (event.key === "-") {
-            event.preventDefault();
-            zoomBy(1 / 1.2);
-          } else if (
-            event.key === "ArrowLeft" ||
-            event.key === "ArrowRight" ||
-            event.key === "ArrowUp" ||
-            event.key === "ArrowDown"
-          ) {
-            event.preventDefault();
-            setViewport((current) => ({
-              ...current,
-              x:
-                current.x + (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0),
-              y: current.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0),
-            }));
-          }
-        }}
-      >
-        <div
-          className="absolute left-0 top-0 origin-top-left"
-          style={{
-            width: graphWidth,
-            height: graphHeight,
-            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+      <ContextMenu.Root>
+        <ContextMenu.Trigger
+          ref={frameRef}
+          role="region"
+          tabIndex={0}
+          aria-label="Organization role graph"
+          className="relative h-[clamp(20rem,calc(100dvh-26rem),44rem)] overflow-hidden rounded-xl border border-border bg-muted/20 outline-none touch-pan-y focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          onContextMenu={(event) => {
+            const node =
+              event.target instanceof Element
+                ? event.target.closest<HTMLElement>("[data-role-id]")
+                : null;
+            const rect = frameRef.current?.getBoundingClientRect();
+            setContext(
+              node?.dataset.roleId
+                ? { roleId: node.dataset.roleId }
+                : rect
+                  ? {
+                      point: {
+                        x: Math.max(
+                          0,
+                          Math.round((event.clientX - rect.left - viewport.x) / viewport.zoom),
+                        ),
+                        y: Math.max(
+                          0,
+                          Math.round((event.clientY - rect.top - viewport.y) / viewport.zoom),
+                        ),
+                      },
+                    }
+                  : {},
+            );
+          }}
+          onWheel={handleWheel}
+          onPointerDown={startPan}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endPointer}
+          onPointerCancel={cancelPointer}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Home") {
+              event.preventDefault();
+              fitToView();
+            } else if (event.key === "+" || event.key === "=") {
+              event.preventDefault();
+              zoomBy(1.2);
+            } else if (event.key === "-") {
+              event.preventDefault();
+              zoomBy(1 / 1.2);
+            } else if (
+              event.key === "ArrowLeft" ||
+              event.key === "ArrowRight" ||
+              event.key === "ArrowUp" ||
+              event.key === "ArrowDown"
+            ) {
+              event.preventDefault();
+              setViewport((current) => ({
+                ...current,
+                x:
+                  current.x +
+                  (event.key === "ArrowLeft" ? 40 : event.key === "ArrowRight" ? -40 : 0),
+                y: current.y + (event.key === "ArrowUp" ? 40 : event.key === "ArrowDown" ? -40 : 0),
+              }));
+            }
           }}
         >
-          <svg
-            className="pointer-events-none absolute inset-0 overflow-visible"
-            width={graphWidth}
-            height={graphHeight}
-            aria-hidden="true"
+          <div
+            className="absolute left-0 top-0 origin-top-left"
+            style={{
+              width: graphWidth,
+              height: graphHeight,
+              transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+            }}
           >
-            <defs>
-              <marker
-                id={markerId}
-                viewBox="0 0 10 10"
-                refX="9"
-                refY="5"
-                markerWidth="5"
-                markerHeight="5"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
-              </marker>
-            </defs>
-            {organization.graph.edges.map((edge) => {
-              const from = displayedPositions.get(edge.fromRoleId);
-              const to = displayedPositions.get(edge.toRoleId);
-              if (!from || !to) return null;
-              const fromX = from.x + NODE_WIDTH / 2;
-              const fromY = from.y + NODE_HEIGHT / 2;
-              const toX = to.x + NODE_WIDTH / 2;
-              const toY = to.y + NODE_HEIGHT / 2;
-              const direction = toY >= fromY ? 1 : -1;
-              const startY = fromY + (direction * NODE_HEIGHT) / 2;
-              const endY = toY - (direction * NODE_HEIGHT) / 2;
-              const controlY = (startY + endY) / 2;
+            <svg
+              className="pointer-events-none absolute inset-0 overflow-visible"
+              width={graphWidth}
+              height={graphHeight}
+              aria-hidden="true"
+            >
+              <defs>
+                <marker
+                  id={markerId}
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="5"
+                  markerHeight="5"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
+                </marker>
+              </defs>
+              {organization.graph.edges.map((edge) => {
+                const from = displayedPositions.get(edge.fromRoleId);
+                const to = displayedPositions.get(edge.toRoleId);
+                if (!from || !to) return null;
+                const fromX = from.x + NODE_WIDTH / 2;
+                const fromY = from.y + NODE_HEIGHT / 2;
+                const toX = to.x + NODE_WIDTH / 2;
+                const toY = to.y + NODE_HEIGHT / 2;
+                const horizontal =
+                  Math.abs(toX - fromX) / NODE_WIDTH > Math.abs(toY - fromY) / NODE_HEIGHT;
+                const direction = horizontal ? (toX >= fromX ? 1 : -1) : toY >= fromY ? 1 : -1;
+                const startX = fromX + (horizontal ? (direction * NODE_WIDTH) / 2 : 0);
+                const endX = toX - (horizontal ? (direction * NODE_WIDTH) / 2 : 0);
+                const startY = fromY + (horizontal ? 0 : (direction * NODE_HEIGHT) / 2);
+                const endY = toY - (horizontal ? 0 : (direction * NODE_HEIGHT) / 2);
+                const controlX = (startX + endX) / 2;
+                const controlY = (startY + endY) / 2;
+                const path = horizontal
+                  ? `M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`
+                  : `M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`;
+                return (
+                  <g key={edge.id}>
+                    <path
+                      d={path}
+                      fill="none"
+                      className="stroke-muted-foreground/75"
+                      strokeWidth="2"
+                      markerEnd={`url(#${markerId})`}
+                    />
+                    <text
+                      x={controlX}
+                      y={controlY - 7}
+                      textAnchor="middle"
+                      className="fill-foreground text-sm font-medium"
+                      stroke="var(--color-background)"
+                      strokeWidth="6"
+                      paintOrder="stroke"
+                    >
+                      {RELATIONSHIP_LABELS[edge.kind].toLowerCase()}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+            {organization.graph.roles.map((role) => {
+              const position = displayedPositions.get(role.id);
+              if (!position) return null;
+              const matches =
+                normalizedSearch.length === 0 ||
+                `${role.title} ${role.kind} ${role.mandate}`
+                  .toLowerCase()
+                  .includes(normalizedSearch);
               return (
-                <g key={edge.id}>
-                  <path
-                    d={`M ${fromX} ${startY} C ${fromX} ${controlY}, ${toX} ${controlY}, ${toX} ${endY}`}
-                    fill="none"
-                    className="stroke-muted-foreground/75"
-                    strokeWidth="2"
-                    markerEnd={`url(#${markerId})`}
-                  />
-                  <text
-                    x={(fromX + toX) / 2}
-                    y={controlY - 7}
-                    textAnchor="middle"
-                    className="fill-foreground text-sm font-medium"
-                    stroke="var(--color-background)"
-                    strokeWidth="6"
-                    paintOrder="stroke"
+                <div
+                  key={role.id}
+                  data-role-node
+                  data-role-id={role.id}
+                  onFocus={() => revealRole(position)}
+                  className={cn(
+                    "absolute rounded-xl border bg-card shadow-sm",
+                    selectedRoleId === role.id
+                      ? "z-10 border-primary ring-2 ring-inset ring-primary/30"
+                      : "border-border",
+                    !matches && "opacity-40",
+                  )}
+                  style={{
+                    left: position.x,
+                    top: position.y,
+                    width: NODE_WIDTH,
+                    height: NODE_HEIGHT,
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={selectedRoleId === role.id}
+                    aria-label={`Select ${role.title}`}
+                    onClick={() => onSelectRole(role.id)}
+                    onDoubleClick={() => {
+                      if (!busy) onEditEmployee?.(role.id);
+                    }}
+                    className="absolute inset-0 w-full rounded-xl px-4 py-3 pr-12 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
-                    {edge.kind}
-                  </text>
-                </g>
+                    <span className="block truncate text-sm font-semibold">{role.title}</span>
+                    <span className="mt-1 block truncate text-sm text-muted-foreground">
+                      {role.kind}
+                      {role.poolSize > 1 ? ` · ${role.poolSize} workers` : ""}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-muted-foreground">
+                      {role.modelSelection?.model ?? "AI model not assigned"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${role.title}. Use arrow keys for small steps.`}
+                    disabled={busy}
+                    onPointerDown={(event) => startRoleDrag(event, role.id)}
+                    onKeyDown={(event) => {
+                      const delta = event.shiftKey ? 40 : 16;
+                      const next =
+                        event.key === "ArrowLeft"
+                          ? { x: position.x - delta, y: position.y }
+                          : event.key === "ArrowRight"
+                            ? { x: position.x + delta, y: position.y }
+                            : event.key === "ArrowUp"
+                              ? { x: position.x, y: position.y - delta }
+                              : event.key === "ArrowDown"
+                                ? { x: position.x, y: position.y + delta }
+                                : null;
+                      if (next) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void onMoveRole(role.id, {
+                          x: Math.max(0, next.x),
+                          y: Math.max(0, next.y),
+                        });
+                      }
+                    }}
+                    className="absolute right-1 top-1 flex size-11 touch-none cursor-grab items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing"
+                  >
+                    <GripIcon className="size-5" />
+                  </button>
+                </div>
               );
             })}
-          </svg>
-          {organization.graph.roles.map((role) => {
-            const position = displayedPositions.get(role.id);
-            if (!position) return null;
-            const matches =
-              normalizedSearch.length === 0 ||
-              `${role.title} ${role.kind} ${role.mandate}`.toLowerCase().includes(normalizedSearch);
-            return (
-              <div
-                key={role.id}
-                data-role-node
-                onFocus={() => revealRole(position)}
-                className={cn(
-                  "absolute rounded-xl border bg-card shadow-sm",
-                  selectedRoleId === role.id
-                    ? "border-primary ring-2 ring-primary/30"
-                    : "border-border",
-                  !matches && "opacity-40",
-                )}
-                style={{
-                  left: position.x,
-                  top: position.y,
-                  width: NODE_WIDTH,
-                  height: NODE_HEIGHT,
-                }}
-              >
-                <button
-                  type="button"
-                  aria-pressed={selectedRoleId === role.id}
-                  aria-label={`Select ${role.title}`}
-                  onClick={() => onSelectRole(role.id)}
-                  className="absolute inset-0 w-full rounded-xl px-4 py-3 pr-12 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="block truncate text-sm font-semibold">{role.title}</span>
-                  <span className="mt-1 block truncate text-sm text-muted-foreground">
-                    {role.kind}, pool {role.poolSize}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${role.title}. Use arrow keys for small steps.`}
-                  title={`Move ${role.title}`}
-                  disabled={busy}
-                  onPointerDown={(event) => startRoleDrag(event, role.id)}
-                  onKeyDown={(event) => {
-                    const delta = event.shiftKey ? 40 : 16;
-                    const next =
-                      event.key === "ArrowLeft"
-                        ? { x: position.x - delta, y: position.y }
-                        : event.key === "ArrowRight"
-                          ? { x: position.x + delta, y: position.y }
-                          : event.key === "ArrowUp"
-                            ? { x: position.x, y: position.y - delta }
-                            : event.key === "ArrowDown"
-                              ? { x: position.x, y: position.y + delta }
-                              : null;
-                    if (next) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void onMoveRole(role.id, { x: Math.max(0, next.x), y: Math.max(0, next.y) });
-                    }
-                  }}
-                  className="absolute right-1 top-1 flex size-11 touch-none cursor-grab items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-                >
-                  <GripIcon className="size-5" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+          </div>
+        </ContextMenu.Trigger>
+        <MenuPopup align="start">
+          {context.roleId ? (
+            <>
+              <MenuItem disabled={busy} onClick={() => onEditEmployee?.(context.roleId!)}>
+                Edit employee
+              </MenuItem>
+              <MenuItem disabled={busy} onClick={() => onConnectEmployee?.(context.roleId!)}>
+                Connect to another employee
+              </MenuItem>
+            </>
+          ) : (
+            <MenuItem disabled={busy} onClick={() => onAddEmployee?.(context.point)}>
+              Add employee here
+            </MenuItem>
+          )}
+          <MenuItem onClick={fitToView}>Fit team to view</MenuItem>
+        </MenuPopup>
+      </ContextMenu.Root>
     </div>
   );
 }

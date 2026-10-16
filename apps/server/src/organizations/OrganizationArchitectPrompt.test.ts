@@ -39,6 +39,9 @@ it.effect("Architect prompt projects only the selected configuration and transcr
       userText: "What would you change?",
     });
 
+    expect(prompt).toContain("Return exactly one JSON object");
+    expect(prompt).toContain('"baseRevision"');
+    expect(prompt).toContain('"required":["reply","proposals"]');
     expect(prompt).toContain("Plan useful work");
     expect(prompt).toContain("Add QA");
     expect(prompt).toContain("mission, intended outcomes, and success measures");

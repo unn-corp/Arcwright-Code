@@ -4,7 +4,13 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
-import { GitHubAccountId, OrganizationId } from "@t3tools/contracts";
+import {
+  GitHubAccountId,
+  OrganizationId,
+  OrganizationGraph,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
+import { createModelSelection } from "@t3tools/shared/model";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -29,7 +35,12 @@ import {
 } from "./OrganizationRepositoryGit.ts";
 
 const organizationId = OrganizationId.make("shared-knowledge-fixture");
+const employeeModel = createModelSelection(
+  ProviderInstanceId.make("local-employee-provider"),
+  "private-employee-model",
+);
 const human = { subject: "fixture-human", interactive: true } as const;
+const decodeGraph = Schema.decodeUnknownEffect(OrganizationGraph);
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 it.effect(
@@ -101,12 +112,23 @@ it.effect(
               yield* runMigrations();
               const organizations = yield* OrganizationStore;
               const repositories = yield* OrganizationRepositoryStore;
-              yield* organizations.create({
+              const original = yield* organizations.create({
                 organizationId,
                 mutationId: "create-shared-org",
                 title: "Shared organization",
                 mission: "Investigate safely",
                 actor: "user",
+              });
+              yield* organizations.mutate({
+                organizationId,
+                mutationId: "choose-local-employee",
+                baseRevision: original.draftRevision,
+                actor: "user",
+                change: {
+                  type: "update-role",
+                  roleId: original.architectRoleId,
+                  modelSelection: employeeModel,
+                },
               });
               const selectedWithoutToken = yield* Effect.exit(
                 repositories.link(
@@ -183,6 +205,33 @@ it.effect(
               assert.equal(synced.pendingCount, 0);
               const other = NodePath.join(root, "other");
               NodeChildProcess.execFileSync("git", ["clone", "-q", bare, other]);
+              const remoteConfig = (yield* Effect.promise(() =>
+                readRepositoryRecords(other, organizationId),
+              )).get("configuration/current")!;
+              assert.notMatch(
+                JSON.stringify(remoteConfig),
+                /modelSelection|local-employee-provider|private-employee-model/,
+              );
+              const remoteGraph = yield* decodeGraph(remoteConfig.content.graph);
+              yield* Effect.promise(() =>
+                writeRepositoryRecord(other, {
+                  ...remoteConfig,
+                  content: {
+                    ...remoteConfig.content,
+                    graph: {
+                      ...remoteGraph,
+                      roles: remoteGraph.roles.map((role) => ({
+                        ...role,
+                        modelSelection: createModelSelection(
+                          ProviderInstanceId.make("foreign-provider"),
+                          "foreign-model",
+                        ),
+                      })),
+                    },
+                  },
+                }),
+              );
+              NodeChildProcess.execFileSync("git", ["-C", other, "add", "records"]);
               NodeChildProcess.execFileSync("git", [
                 "-C",
                 other,
@@ -213,6 +262,12 @@ it.effect(
               ]);
               const deleted = yield* repositories.sync({ organizationId }, human);
               assert.equal(deleted.conflictCount, 1);
+              const retained = yield* organizations.get({ organizationId });
+              assert.deepEqual(
+                retained.graph.roles.find((role) => role.id === original.architectRoleId)
+                  ?.modelSelection,
+                employeeModel,
+              );
               const row = (yield* repositories.listRecords({ organizationId, kind: "memory" }))
                 .records[0]!;
               assert.equal(row.remoteDigest, "0".repeat(64));
@@ -280,6 +335,11 @@ it.effect(
                 human,
               );
               assert.equal(loaded.organizationId, organizationId);
+              const organizations = yield* OrganizationStore;
+              const importedDraft = yield* organizations.get({ organizationId });
+              assert.isFalse(
+                importedDraft.graph.roles.some((role) => role.modelSelection !== undefined),
+              );
               assert.equal(loaded.conflictCount, 0);
               assert.equal(loaded.publicExposureAcknowledged, false);
               remoteVisibility = "public";

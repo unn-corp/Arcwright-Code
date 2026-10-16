@@ -199,7 +199,7 @@ export const sanitizePortableContent = (value: unknown): unknown => {
       Object.entries(value)
         .filter(
           ([key]) =>
-            !/(?:secret|token|credential|private_key|password|absolute_path|scope_unit|lease_until|binding|capabilit|access|cookie|session|authorization|auth[_-]?header|api[_-]?key)/i.test(
+            !/(?:model_?selection|provider_?instance_?id|secret|token|credential|private_key|password|absolute_path|scope_unit|lease_until|binding|capabilit|access|cookie|session|authorization|auth[_-]?header|api[_-]?key)/i.test(
               key,
             ),
         )
@@ -314,6 +314,7 @@ export const organizationRepositoryExclusions = [
   "Project bindings and capabilities",
   "source credentials and account tokens",
   "provider settings and budgets",
+  "employee provider/model assignments and options",
   "leases, permits, and process identities",
   "absolute machine paths",
   "non-text artifact and evidence bytes (digest retained)",

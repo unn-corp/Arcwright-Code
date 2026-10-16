@@ -84,6 +84,28 @@ describe("Organization Architect proposal boundary", () => {
     }
   });
 
+  it("does not allow AI suggestions to install or clear employee models", () => {
+    for (const modelSelection of [null, { providerInstanceId: "remote", model: "remote-model" }]) {
+      const result = decode({
+        reply: "Edit the title",
+        proposals: [
+          {
+            baseRevision: 3,
+            change: {
+              type: "update-role",
+              roleId: "engineering-1",
+              title: "Lead",
+              modelSelection,
+            },
+          },
+        ],
+      });
+      expect(Exit.isSuccess(result)).toBe(true);
+      if (Exit.isSuccess(result))
+        expect(result.value.proposals[0]?.change).not.toHaveProperty("modelSelection");
+    }
+  });
+
   it("rejects an unbounded proposal batch", () => {
     const change = { type: "add-role", role };
     expect(

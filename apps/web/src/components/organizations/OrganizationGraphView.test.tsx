@@ -6,6 +6,13 @@ import { OrganizationGraphView } from "./OrganizationGraphView";
 import { NODE_WIDTH } from "./organizationGraphLayout";
 
 vi.mock("../ui/button", () => ({ Button: "button" }));
+vi.mock("@base-ui/react/context-menu", () => ({
+  ContextMenu: {
+    Root: ({ children }: { children: import("react").ReactNode }) => <>{children}</>,
+    Trigger: "div",
+  },
+}));
+vi.mock("../ui/menu", () => ({ MenuPopup: () => null, MenuItem: "button" }));
 
 const directorId = OrganizationRoleId.make("director");
 const architectId = OrganizationRoleId.make("architect");

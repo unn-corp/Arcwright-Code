@@ -91,9 +91,12 @@ function readJsonRpcRequests(
 }
 
 it.layer(GrokTextGenerationTestLayer)("GrokTextGeneration", (it) => {
-  it.effect("generates an Architect reply without always-approve", () =>
-    withFakeAcpGrok(
+  it.effect("sends the Architect response schema through ACP without always-approve", () => {
+    const logDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3code-architect-contract-"));
+    const logPath = NodePath.join(logDir, "requests.ndjson");
+    return withFakeAcpGrok(
       {
+        T3_ACP_REQUEST_LOG_PATH: logPath,
         T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
           reply: "Clarify QA ownership.",
           proposals: [],
@@ -105,10 +108,20 @@ it.layer(GrokTextGenerationTestLayer)("GrokTextGeneration", (it) => {
             architectTurnInput("grok", "grok-build"),
           );
           expect(generated.reply).toBe("Clarify QA ownership.");
+          const prompt = readJsonRpcRequests(logPath).find(
+            (request) => request.method === "session/prompt",
+          );
+          const sent = JSON.stringify(prompt?.params);
+          expect(sent).toContain("Return exactly one JSON object");
+          expect(sent).toContain("Response JSON Schema");
+          expect(sent).toContain("baseRevision");
+          expect(sent).toContain("upsert-workflow");
         }),
       true,
-    ),
-  );
+    ).pipe(
+      Effect.ensuring(Effect.sync(() => NodeFS.rmSync(logDir, { recursive: true, force: true }))),
+    );
+  });
   it.effect("runs Architect without always-approve and rejects attempted tool work", () =>
     withFakeAcpGrok(
       {

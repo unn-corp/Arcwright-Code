@@ -1,7 +1,7 @@
 import type { Organization, OrganizationLayout, OrganizationRoleId } from "@t3tools/contracts";
 
-export const NODE_WIDTH = 188;
-export const NODE_HEIGHT = 100;
+export const NODE_WIDTH = 240;
+export const NODE_HEIGHT = 112;
 const COLUMN_GAP = 76;
 const ROW_GAP = 100;
 const CANVAS_PADDING = 32;
@@ -59,7 +59,7 @@ export function fitGraphViewport(
   const height = Math.max(1, size.height);
   const contentWidth = Math.max(1, bounds.maxX - bounds.minX + CANVAS_PADDING * 2);
   const contentHeight = Math.max(1, bounds.maxY - bounds.minY + CANVAS_PADDING * 2);
-  const zoom = Math.max(0.08, Math.min(1.5, width / contentWidth, height / contentHeight));
+  const zoom = Math.max(0.08, Math.min(1, width / contentWidth, height / contentHeight));
   return {
     x: (width - (bounds.minX + bounds.maxX) * zoom) / 2,
     y: (height - (bounds.minY + bounds.maxY) * zoom) / 2,
@@ -92,4 +92,23 @@ export function layoutWithMovedRole(
       return { roleId: role.id, x: point.x, y: point.y };
     }),
   };
+}
+
+/** Keep a newly created employee clear of existing cards, including manually moved ones. */
+export function positionForNewEmployee(organization: Organization, requested?: Point): Point {
+  const existing = [...rolePositions(organization).values()];
+  const origin = requested ?? { x: CANVAS_PADDING, y: CANVAS_PADDING };
+  let point = { x: Math.max(0, Math.round(origin.x)), y: Math.max(0, Math.round(origin.y)) };
+  while (
+    existing.some(
+      (other) =>
+        point.x < other.x + NODE_WIDTH + 24 &&
+        point.x + NODE_WIDTH + 24 > other.x &&
+        point.y < other.y + NODE_HEIGHT + 24 &&
+        point.y + NODE_HEIGHT + 24 > other.y,
+    )
+  ) {
+    point = { x: point.x, y: point.y + NODE_HEIGHT + ROW_GAP };
+  }
+  return point;
 }

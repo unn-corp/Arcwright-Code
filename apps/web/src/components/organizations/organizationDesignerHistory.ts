@@ -17,6 +17,9 @@ export function inverseOrganizationChange(
             title: role.title,
             mandate: role.mandate,
             poolSize: role.poolSize,
+            ...(change.modelSelection !== undefined
+              ? { modelSelection: role.modelSelection ?? null }
+              : {}),
           }
         : null;
     }
