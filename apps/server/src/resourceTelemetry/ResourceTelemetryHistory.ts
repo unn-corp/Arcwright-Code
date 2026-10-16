@@ -66,42 +66,72 @@ export type ResourceTelemetryHistoryWithLegacyBuckets = ResourceTelemetryHistory
 function summarizeProcesses(
   samples: ReadonlyArray<ProcessSample>,
 ): ReadonlyArray<ResourceTelemetryProcessSummary> {
-  const groups = new Map<string, ProcessSample[]>();
+  const groups = new Map<
+    string,
+    {
+      first: ProcessSample;
+      latest: ProcessSample;
+      count: number;
+      cpuTotal: number;
+      maxCpu: number;
+      cpuTimeMs: number;
+      peakRss: number;
+      ioReadBytes: number;
+      ioWriteBytes: number;
+    }
+  >();
   for (const sample of samples) {
-    const identityKey = processIdentityKey(
+    const key = processIdentityKey(
       sample.process.identity.pid,
       sample.process.identity.startTimeMs,
     );
-    const current = groups.get(identityKey) ?? [];
-    current.push(sample);
-    groups.set(identityKey, current);
+    let group = groups.get(key);
+    if (group === undefined) {
+      group = {
+        first: sample,
+        latest: sample,
+        count: 0,
+        cpuTotal: 0,
+        maxCpu: -Infinity,
+        cpuTimeMs: 0,
+        peakRss: -Infinity,
+        ioReadBytes: 0,
+        ioWriteBytes: 0,
+      };
+      groups.set(key, group);
+    }
+    if (sample.sampledAtMs < group.first.sampledAtMs) group.first = sample;
+    if (sample.sampledAtMs >= group.latest.sampledAtMs) group.latest = sample;
+    group.count += 1;
+    group.cpuTotal += sample.process.cpuPercent;
+    group.maxCpu = Math.max(group.maxCpu, sample.process.cpuPercent);
+    group.cpuTimeMs += sample.cpuTimeMs;
+    group.peakRss = Math.max(group.peakRss, sample.process.residentBytes);
+    group.ioReadBytes += sample.ioReadBytes;
+    group.ioWriteBytes += sample.ioWriteBytes;
   }
-
   return [...groups.values()]
-    .map((processSamples): ResourceTelemetryProcessSummary => {
-      const sorted = processSamples.toSorted((left, right) => left.sampledAtMs - right.sampledAtMs);
-      const first = sorted[0]!;
-      const latest = sorted[sorted.length - 1]!;
-      const cpuTotal = sorted.reduce((total, sample) => total + sample.process.cpuPercent, 0);
+    .map((group): ResourceTelemetryProcessSummary => {
+      const latest = group.latest.process;
       return {
-        identity: latest.process.identity,
-        ppid: latest.process.ppid,
-        depth: latest.process.depth,
-        name: latest.process.name,
-        command: latest.process.command,
-        category: latest.process.category,
-        firstSeenAt: first.process.firstSeenAt,
-        lastSeenAt: latest.process.lastSeenAt,
-        currentCpuPercent: latest.process.cpuPercent,
-        avgCpuPercent: cpuTotal / sorted.length,
-        maxCpuPercent: Math.max(...sorted.map((sample) => sample.process.cpuPercent)),
-        cpuTimeMs: sorted.reduce((total, sample) => total + sample.cpuTimeMs, 0),
-        currentRssBytes: latest.process.residentBytes,
-        peakRssBytes: Math.max(...sorted.map((sample) => sample.process.residentBytes)),
-        ioReadBytes: sorted.reduce((total, sample) => total + sample.ioReadBytes, 0),
-        ioWriteBytes: sorted.reduce((total, sample) => total + sample.ioWriteBytes, 0),
-        ioSemantics: latest.process.ioSemantics,
-        sampleCount: sorted.length,
+        identity: latest.identity,
+        ppid: latest.ppid,
+        depth: latest.depth,
+        name: latest.name,
+        command: latest.command,
+        category: latest.category,
+        firstSeenAt: group.first.process.firstSeenAt,
+        lastSeenAt: latest.lastSeenAt,
+        currentCpuPercent: latest.cpuPercent,
+        avgCpuPercent: group.cpuTotal / group.count,
+        maxCpuPercent: group.maxCpu,
+        cpuTimeMs: group.cpuTimeMs,
+        currentRssBytes: latest.residentBytes,
+        peakRssBytes: group.peakRss,
+        ioReadBytes: group.ioReadBytes,
+        ioWriteBytes: group.ioWriteBytes,
+        ioSemantics: latest.ioSemantics,
+        sampleCount: group.count,
       };
     })
     .toSorted(
@@ -116,28 +146,44 @@ function buildBuckets(input: {
   readonly bucketMs: number;
 }): ReadonlyArray<ResourceTelemetryHistoryBucket> {
   const windowStartMs = input.nowMs - input.windowMs;
+  // Samples arrive in timestamp order from the snapshot traversal.
+  let sampleIndex = 0;
   const buckets: ResourceTelemetryHistoryBucket[] = [];
   for (let startedAtMs = windowStartMs; startedAtMs < input.nowMs; startedAtMs += input.bucketMs) {
     const endedAtMs = Math.min(input.nowMs, startedAtMs + input.bucketMs);
-    const samples = input.samples.filter(
-      (sample) =>
-        sample.sampledAtMs >= startedAtMs &&
-        (endedAtMs === input.nowMs
-          ? sample.sampledAtMs <= endedAtMs
-          : sample.sampledAtMs < endedAtMs),
-    );
-    const cpuTotal = samples.reduce((total, sample) => total + sample.cpuPercent, 0);
+    let count = 0,
+      cpuTotal = 0,
+      maxCpu = -Infinity,
+      maxRss = -Infinity,
+      ioReadBytes = 0,
+      ioWriteBytes = 0,
+      maxProcessCount = -Infinity;
+    while (sampleIndex < input.samples.length) {
+      const sample = input.samples[sampleIndex]!;
+      if (
+        sample.sampledAtMs > endedAtMs ||
+        (sample.sampledAtMs === endedAtMs && endedAtMs !== input.nowMs)
+      )
+        break;
+      sampleIndex += 1;
+      if (sample.sampledAtMs < startedAtMs) continue;
+      count += 1;
+      cpuTotal += sample.cpuPercent;
+      maxCpu = Math.max(maxCpu, sample.cpuPercent);
+      maxRss = Math.max(maxRss, sample.rssBytes);
+      ioReadBytes += sample.ioReadBytes;
+      ioWriteBytes += sample.ioWriteBytes;
+      maxProcessCount = Math.max(maxProcessCount, sample.processCount);
+    }
     buckets.push({
       startedAt: DateTime.makeUnsafe(startedAtMs),
       endedAt: DateTime.makeUnsafe(endedAtMs),
-      avgCpuPercent: samples.length === 0 ? 0 : cpuTotal / samples.length,
-      maxCpuPercent:
-        samples.length === 0 ? 0 : Math.max(...samples.map((sample) => sample.cpuPercent)),
-      maxRssBytes: samples.length === 0 ? 0 : Math.max(...samples.map((sample) => sample.rssBytes)),
-      ioReadBytes: samples.reduce((total, sample) => total + sample.ioReadBytes, 0),
-      ioWriteBytes: samples.reduce((total, sample) => total + sample.ioWriteBytes, 0),
-      maxProcessCount:
-        samples.length === 0 ? 0 : Math.max(...samples.map((sample) => sample.processCount)),
+      avgCpuPercent: count === 0 ? 0 : cpuTotal / count,
+      maxCpuPercent: count === 0 ? 0 : maxCpu,
+      maxRssBytes: count === 0 ? 0 : maxRss,
+      ioReadBytes,
+      ioWriteBytes,
+      maxProcessCount: count === 0 ? 0 : maxProcessCount,
     });
   }
   return buckets;

@@ -128,6 +128,7 @@ import Migration0105 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 import Migration0106 from "./Migrations/061_PullRequestReviewGuides.ts";
 import Migration0107 from "./Migrations/107_CompactHistoryBlocks.ts";
 import Migration0108 from "./Migrations/062_ThreadFailureLookupIndex.ts";
+import Migration0109 from "./Migrations/109_ThreadSearchIndex.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -248,6 +249,7 @@ export const migrationEntries = [
   [106, "PullRequestReviewGuides", Migration0106],
   [107, "CompactHistoryBlocks", Migration0107],
   [108, "ThreadFailureLookupIndex", Migration0108],
+  [109, "ThreadSearchIndex", Migration0109],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

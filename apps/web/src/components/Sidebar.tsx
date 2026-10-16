@@ -1,3 +1,4 @@
+import { subscribeElapsedClock } from "../lib/elapsedClock";
 import { getProjectOrderKey } from "../logicalProject";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useExportThread } from "../hooks/useExportThread";
@@ -389,17 +390,23 @@ function JumpHintBadge(props: { label: string }) {
   );
 }
 
-// Self-ticking so only this span re-renders each second, not the whole row.
+// The shared clock writes only this label, without re-rendering the sidebar row.
 function WorkingDuration(props: { startedAt: string | null }) {
   const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
-  const [, setTick] = useState(0);
+  const textRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    if (Number.isNaN(startedMs)) return;
-    const id = window.setInterval(() => setTick((tick) => tick + 1), 1_000);
-    return () => window.clearInterval(id);
+    if (!Number.isFinite(startedMs)) return;
+    return subscribeElapsedClock((now) => {
+      if (textRef.current)
+        textRef.current.textContent = formatWorkingDurationLabel(now - startedMs);
+    }, textRef.current ?? undefined);
   }, [startedMs]);
   if (Number.isNaN(startedMs)) return null;
-  return <span className="tabular-nums">{formatWorkingDurationLabel(Date.now() - startedMs)}</span>;
+  return (
+    <span ref={textRef} className="tabular-nums">
+      {formatWorkingDurationLabel(Date.now() - startedMs)}
+    </span>
+  );
 }
 
 function terminalProcessLabel(count: number): string {

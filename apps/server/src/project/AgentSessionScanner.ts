@@ -213,6 +213,7 @@ interface RawCandidate {
 
 interface TranscriptCandidate {
   readonly filePath: string;
+  readonly metadataIdentity: string;
   readonly mtimeMs: number;
   readonly providerInstanceId: ProviderInstanceId;
   readonly size: number;
@@ -601,6 +602,16 @@ function transcriptIdentity(filePath: string, stats: FileSystem.File.Info) {
   };
 }
 
+function metadataIdentity(stats: FileSystem.File.Info): string {
+  return JSON.stringify([
+    stats.dev,
+    Option.getOrNull(stats.ino),
+    String(stats.size),
+    Option.map(stats.mtime, (date) => date.getTime()),
+    Option.map(stats.birthtime, (date) => date.getTime()),
+  ]);
+}
+
 function sameTranscriptIdentity(
   left: ReturnType<typeof transcriptIdentity>,
   right: ReturnType<typeof transcriptIdentity>,
@@ -963,6 +974,7 @@ export const make = Effect.gen(function* () {
           }
           transcripts.push({
             filePath,
+            metadataIdentity: metadataIdentity(stats.value),
             mtimeMs: stats.value.mtime.value.getTime(),
             providerInstanceId,
             size: Number(stats.value.size),
@@ -1026,6 +1038,7 @@ export const make = Effect.gen(function* () {
               ) {
                 transcripts.push({
                   filePath,
+                  metadataIdentity: metadataIdentity(stats.value),
                   mtimeMs: stats.value.mtime.value.getTime(),
                   providerInstanceId,
                   size: Number(stats.value.size),
@@ -1038,6 +1051,26 @@ export const make = Effect.gen(function* () {
       return { transcripts, truncated };
     },
   );
+
+  const metadataCwds = new Map<string, { identity: string; cwd: string }>();
+  const readCachedCwd = Effect.fn("AgentSessionScanner.readCachedCwd")(function* (
+    transcript: TranscriptCandidate,
+    budget: MetadataReadBudget,
+  ) {
+    const cached = metadataCwds.get(transcript.filePath);
+    if (cached?.identity === transcript.metadataIdentity) return cached.cwd;
+    metadataCwds.delete(transcript.filePath);
+    const cwd = yield* readCwd(transcript, budget);
+    if (cwd !== null) {
+      const after = yield* statOption(transcript.filePath);
+      if (Option.isSome(after) && metadataIdentity(after.value) === transcript.metadataIdentity) {
+        if (metadataCwds.size >= MAX_TRANSCRIPTS_PER_SOURCE * 2)
+          metadataCwds.delete(metadataCwds.keys().next().value!);
+        metadataCwds.set(transcript.filePath, { identity: transcript.metadataIdentity, cwd });
+      }
+    }
+    return cwd;
+  });
 
   const groupTranscriptsByCwd = Effect.fn("AgentSessionScanner.groupTranscriptsByCwd")(function* (
     source: AgentSessionSource,
@@ -1055,7 +1088,7 @@ export const make = Effect.gen(function* () {
     >();
 
     for (const transcript of transcripts) {
-      const cwd = yield* readCwd(transcript, budget);
+      const cwd = yield* readCachedCwd(transcript, budget);
       if (cwd === null) continue;
       const key = `${transcript.providerInstanceId}\0${cwd}`;
       const existing = byOwnerAndCwd.get(key);
@@ -1216,37 +1249,45 @@ export const make = Effect.gen(function* () {
     const directoryKeys = new Map<string, string>();
     const gitIdentities = new Map<string, AgentSessionProjectGit | null>();
 
+    const resolvedRoots = [
+      ...new Set(
+        raw
+          .map((candidate) => expandHomePath(candidate.cwd.trim(), homeDir))
+          .filter((expanded) => path.isAbsolute(expanded))
+          .map((expanded) => path.resolve(expanded))
+          .filter((resolved) => !isExcludedProjectPath(resolved)),
+      ),
+    ];
+    const validatedRoots = yield* Effect.forEach(
+      resolvedRoots,
+      (resolved) =>
+        Effect.gen(function* () {
+          const stats = yield* statOption(resolved);
+          if (Option.isNone(stats) || stats.value.type !== "Directory")
+            return { resolved, key: "", git: null };
+          const realPath = yield* fileSystem
+            .realPath(resolved)
+            .pipe(Effect.orElseSucceed(() => resolved));
+          if (isExcludedProjectPath(realPath)) return { resolved, key: "", git: null };
+          const gitIdentity = yield* readGitIdentity(resolved);
+          if (gitIdentity._tag === "Worktree") return { resolved, key: "", git: null };
+          return {
+            resolved,
+            key: yield* directoryIdentity(resolved, stats.value),
+            git: gitIdentity._tag === "Repository" ? gitIdentity.git : null,
+          };
+        }),
+      { concurrency: 8 },
+    );
+    for (const root of validatedRoots) {
+      directoryKeys.set(root.resolved, root.key);
+      if (root.key !== "") gitIdentities.set(root.key, root.git);
+    }
     for (const candidate of raw) {
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
-      if (isExcludedProjectPath(resolved)) continue;
-      let key = directoryKeys.get(resolved);
-      if (key === undefined) {
-        const stats = yield* statOption(resolved);
-        // Directories that no longer exist can't be imported.
-        if (Option.isNone(stats) || stats.value.type !== "Directory") {
-          directoryKeys.set(resolved, "");
-          continue;
-        }
-        const realPath = yield* fileSystem
-          .realPath(resolved)
-          .pipe(Effect.orElseSucceed(() => resolved));
-        // A symlink can point into the worktrees directory even when its own
-        // spelling doesn't; check again with links resolved.
-        if (isExcludedProjectPath(realPath)) {
-          key = "";
-        } else {
-          const gitIdentity = yield* readGitIdentity(resolved);
-          if (gitIdentity._tag === "Worktree") {
-            key = "";
-          } else {
-            key = yield* directoryIdentity(resolved, stats.value);
-            gitIdentities.set(key, gitIdentity._tag === "Repository" ? gitIdentity.git : null);
-          }
-        }
-        directoryKeys.set(resolved, key);
-      }
+      const key = directoryKeys.get(resolved) ?? "";
       if (key === "") continue;
 
       const existing = merged.get(key);

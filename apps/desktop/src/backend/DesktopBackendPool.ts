@@ -93,6 +93,7 @@ import * as FileSystem from "effect/FileSystem";
 import { HttpClient } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
+import { notifyLocalEnvironmentTopologyChanged } from "./topologyEvents.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
@@ -370,7 +371,10 @@ export const layer = Layer.effect(
         ).pipe(
           Effect.flatMap((result) =>
             result._tag === "Registered"
-              ? Effect.succeed(result.instance)
+              ? Effect.sync(() => {
+                  notifyLocalEnvironmentTopologyChanged();
+                  return result.instance;
+                })
               : Deferred.await(result.done).pipe(Effect.andThen(register(spec))),
           ),
         ),
@@ -408,6 +412,7 @@ export const layer = Layer.effect(
           },
         );
 
+        yield* Effect.sync(notifyLocalEnvironmentTopologyChanged);
         if (action._tag === "Absent") return;
         if (action._tag === "Wait") {
           yield* Deferred.await(action.done);

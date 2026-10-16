@@ -2,6 +2,8 @@
 import * as NodeFSP from "node:fs/promises";
 
 import * as Context from "effect/Context";
+import * as Cache from "effect/Cache";
+import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -141,6 +143,15 @@ export const make = Effect.gen(function* () {
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
   const vcsProcess = yield* VcsProcess.VcsProcess;
 
+  const browseDirectories = yield* Cache.makeWith(
+    (parentPath: string) =>
+      Effect.tryPromise({
+        try: () => NodeFSP.readdir(parentPath, { withFileTypes: true }),
+        catch: (cause) =>
+          new WorkspaceEntriesReadDirectoryError({ partialPath: parentPath, parentPath, cause }),
+      }),
+    { capacity: 64, timeToLive: (exit) => (Exit.isSuccess(exit) ? 250 : 0) },
+  );
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
     cwd: string,
   ): Effect.fn.Return<string, WorkspaceEntriesError> {
@@ -149,6 +160,7 @@ export const make = Effect.gen(function* () {
 
   const refresh: WorkspaceEntries["Service"]["refresh"] = Effect.fn("WorkspaceEntries.refresh")(
     function* (cwd) {
+      yield* Cache.invalidateAll(browseDirectories);
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
         Effect.orElseSucceed(() => cwd),
       );
@@ -193,16 +205,16 @@ export const make = Effect.gen(function* () {
       const parentPath = endsWithSeparator ? resolvedInputPath : path.dirname(resolvedInputPath);
       const prefix = endsWithSeparator ? "" : path.basename(resolvedInputPath);
 
-      const dirents = yield* Effect.tryPromise({
-        try: () => NodeFSP.readdir(parentPath, { withFileTypes: true }),
-        catch: (cause) =>
-          new WorkspaceEntriesReadDirectoryError({
-            cwd: input.cwd,
-            partialPath: input.partialPath,
-            parentPath,
-            cause,
-          }),
-      }).pipe(
+      const dirents = yield* Cache.get(browseDirectories, parentPath).pipe(
+        Effect.mapError(
+          (error) =>
+            new WorkspaceEntriesReadDirectoryError({
+              cwd: input.cwd,
+              partialPath: input.partialPath,
+              parentPath,
+              cause: error.cause,
+            }),
+        ),
         Effect.catchIf(
           (error) => {
             const code = (error.cause as NodeJS.ErrnoException | undefined)?.code;
@@ -321,8 +333,19 @@ export const make = Effect.gen(function* () {
         // Use stdin so large directories cannot exceed the command-line argument limit.
         // Ignore classification is optional in non-git workspaces or when git is unavailable.
         const ignored = new Set<string>();
-        for (let offset = 0; offset < entries.length; offset += 1000) {
-          const chunk = entries.slice(offset, offset + 1000);
+        for (let offset = 0; offset < entries.length;) {
+          // stdin has no argv limit; keep both input and worst-case output below
+          // the process output budget instead of launching once per 1,000 files.
+          const chunk: ProjectEntry[] = [];
+          let bytes = 0;
+          while (offset < entries.length) {
+            const entry = entries[offset]!;
+            const entryBytes = Buffer.byteLength(entry.path) + 1;
+            if (chunk.length > 0 && bytes + entryBytes > 1024 * 1024) break;
+            chunk.push(entry);
+            bytes += entryBytes;
+            offset += 1;
+          }
           const result = yield* vcsProcess
             .run({
               operation: "WorkspaceEntries.list",

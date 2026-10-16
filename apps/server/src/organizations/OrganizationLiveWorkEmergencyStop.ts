@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off preferSchemaOverJson:off - Host-local process markers, UTC receipts and broker identity receipts.
+import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import {
@@ -106,6 +107,7 @@ export const makeOrganizationEmergencyProviderObserver = (
           spawned_at = NULL, exited_at = NULL, launch_marker = excluded.launch_marker
         WHERE organization_provider_processes.state = 'exited'
         RETURNING work_id`;
+        yield* OrganizationWorkStatusChanges.changed(organizationId);
         if (inserted.length !== 1)
           return yield* Effect.die(new Error("Provider launch intent is held or unauthorized."));
       }).pipe(Effect.orDie),
@@ -117,6 +119,7 @@ export const makeOrganizationEmergencyProviderObserver = (
         SET state = 'running', process_id = ${handle.pid}, spawned_at = ${spawnedAt}
         WHERE work_id = ${workId} AND organization_id = ${organizationId}
           AND state = 'launching' RETURNING work_id`;
+        yield* OrganizationWorkStatusChanges.changed(organizationId);
         if (updated.length !== 1)
           return yield* Effect.die(new Error("Provider process identity could not be saved."));
       }).pipe(Effect.orDie),
@@ -129,6 +132,7 @@ export const makeOrganizationEmergencyProviderObserver = (
         WHERE work_id = ${workId} AND organization_id = ${organizationId}
           AND state = 'running' AND process_id = ${handle.pid}
         RETURNING work_id`;
+        yield* OrganizationWorkStatusChanges.changed(organizationId);
         if (updated.length !== 1)
           return yield* Effect.die(new Error("Provider process exit could not be saved."));
         yield* recordOrganizationProviderExit({
@@ -240,6 +244,7 @@ export const stopAndVerifyOrganizationEmergencyScopes = (
         VALUES (${entry.operationId}, ${organizationId}, ${attempt.work_id},
           ${attempt.attempt_id}, ${evidence.disposition}, ${identityJson}, ${verifiedAt})
         ON CONFLICT(operation_id) DO NOTHING`;
+      yield* OrganizationWorkStatusChanges.changed(organizationId);
       verified.push(entry.operationId);
     }
     return { verified, held } satisfies OrganizationEmergencyScopeStopReport;
@@ -354,6 +359,7 @@ export const requestOrganizationEmergencyStop = (
         yield* sql`INSERT INTO organization_emergency_stops
           (organization_id, request_id, requested_by, requested_at)
           VALUES (${input.organizationId}, ${input.requestId}, ${principal.subject}, ${requestedAt})`;
+        yield* OrganizationWorkStatusChanges.changed(input.organizationId);
       }),
     );
     // A timed-out interruption leaves the durable stop fence in place. A retry
@@ -383,4 +389,5 @@ export const recordOrganizationProviderExit = (input: {
         AND EXISTS (SELECT 1 FROM organization_work_items w
           WHERE w.work_id = ${input.workId} AND w.organization_id = ${input.organizationId})
       ON CONFLICT(work_id) DO NOTHING`;
+    yield* OrganizationWorkStatusChanges.changed(input.organizationId);
   });

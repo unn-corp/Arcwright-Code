@@ -1,8 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off preferSchemaOverJson:off tryCatchInEffectGen:off - Linux pidfd recovery is host local and returns bounded JSON evidence.
+import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeUtil from "node:util";
-import { OrganizationWorkError } from "@t3tools/contracts";
+import { OrganizationWorkError, type OrganizationId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -174,6 +175,7 @@ export const recoverOrganizationProviderProcessesAtStartup = Effect.gen(function
       yield* sql`UPDATE organization_provider_processes SET state = 'exited', exited_at = ${exitedAt}
         WHERE work_id = ${row.work_id} AND organization_id = ${row.organization_id}
           AND state <> 'exited' AND launch_marker = ${row.launch_marker}`;
+      yield* OrganizationWorkStatusChanges.changed(row.organization_id as OrganizationId);
       continue;
     }
     const result = yield* Effect.result(
@@ -221,6 +223,7 @@ export const recoverOrganizationProviderProcessesAtStartup = Effect.gen(function
     yield* sql`UPDATE organization_provider_processes SET state = 'exited', exited_at = ${exitedAt}
       WHERE work_id = ${row.work_id} AND organization_id = ${row.organization_id}
         AND state <> 'exited' AND launch_marker = ${row.launch_marker}`;
+    yield* OrganizationWorkStatusChanges.changed(row.organization_id as OrganizationId);
   }
   return { held };
 });

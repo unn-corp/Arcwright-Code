@@ -1,3 +1,4 @@
+import * as OrganizationWorkStatusChanges from "./organizations/OrganizationWorkStatusChanges.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -387,6 +388,9 @@ const layerHttpServer = Layer.unwrap(
 const layerPlatformServices = NodeServices.layer;
 
 const layerPersistence = Layer.empty.pipe(Layer.provideMerge(SqlitePersistence.layerConfig));
+const layerOrganizationWorkStatusChanges = OrganizationWorkStatusChanges.layer.pipe(
+  Layer.provide(layerPersistence),
+);
 
 const layerVcsDriverRegistry = VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer));
 
@@ -691,6 +695,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(layerGit),
   Layer.provideMerge(layerVcs),
   Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
+  Layer.provideMerge(layerOrganizationWorkStatusChanges),
   Layer.provideMerge(layerPersistence),
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
@@ -1453,6 +1458,7 @@ const layerMakeServer = Layer.unwrap(
 
     return layerServerApplication.pipe(
       Layer.provideMerge(OrganizationWorkIntentStoreLive),
+      Layer.provideMerge(layerOrganizationWorkStatusChanges),
       // The connect routes and the startup/shutdown link work share one instance.
       Layer.provide(CloudLink.layer),
       Layer.provideMerge(layerRuntimeServices),

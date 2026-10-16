@@ -5,6 +5,7 @@ import {
   OrganizationBindingId,
   OrganizationId,
   OrganizationWorkId,
+  type OrganizationWorkStatusSnapshot,
   ProjectId,
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -13,6 +14,10 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+import * as OrganizationWorkStatus from "./OrganizationWorkStatus.ts";
+import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { ChildProcessSpawner } from "effect/process";
 
@@ -45,6 +50,7 @@ let ready = true;
 const testLayer = it.layer(
   Layer.mergeAll(
     OrganizationStoreLive,
+    OrganizationWorkStatusChanges.layer,
     Layer.succeed(OrganizationLiveWorkRuntimeReadiness, {
       status: () => ({ ready, reason: ready ? "ready" : "not_ready" }),
     }),
@@ -155,6 +161,32 @@ const seedActivatedWork = (fixture: {
       VALUES (${intentId}, ${organizationId}, ${workId}, '{}', 'human-a', ${stamp})`;
   });
 
+const subscribeStatus = (id: OrganizationId) =>
+  Effect.gen(function* () {
+    const queue = yield* Queue.unbounded<OrganizationWorkStatusSnapshot>();
+    const observed: OrganizationWorkStatusSnapshot[] = [];
+    const fiber = yield* OrganizationWorkStatus.stream(id).pipe(
+      Stream.runForEach((snapshot) =>
+        Effect.sync(() => observed.push(snapshot)).pipe(
+          Effect.andThen(Queue.offer(queue, snapshot)),
+        ),
+      ),
+      Effect.forkChild,
+    );
+    const initial = yield* Queue.take(queue);
+    return { queue, fiber, initial, observed };
+  });
+const nextStatus = (
+  queue: Queue.Queue<OrganizationWorkStatusSnapshot>,
+  predicate: (status: OrganizationWorkStatusSnapshot) => boolean,
+) =>
+  Effect.gen(function* () {
+    while (true) {
+      const status = yield* Queue.take(queue);
+      if (predicate(status)) return status;
+    }
+  });
+
 testLayer("Organization live work lifecycle", (it) => {
   it.effect("clears an uncertain provider launch only after a different Linux boot", () =>
     Effect.gen(function* () {
@@ -167,7 +199,9 @@ testLayer("Organization live work lifecycle", (it) => {
         fixture.workId,
         sql,
       );
+      const client = yield* subscribeStatus(fixture.organizationId);
       yield* observer.preparing();
+      yield* nextStatus(client.queue, (s) => s.emergencyStop.unverifiedProviderLaunches === 1);
       const row = (yield* sql<{ launch_marker: string }>`SELECT launch_marker
         FROM organization_provider_processes WHERE work_id = ${fixture.workId}`)[0]!;
       const parts = row.launch_marker.split("|");
@@ -175,6 +209,8 @@ testLayer("Organization live work lifecycle", (it) => {
       yield* sql`UPDATE organization_provider_processes SET launch_marker = ${previousBoot}
         WHERE work_id = ${fixture.workId}`;
       assert.deepEqual((yield* recoverOrganizationProviderProcessesAtStartup).held, []);
+      yield* nextStatus(client.queue, (s) => s.emergencyStop.unverifiedProviderLaunches === 0);
+      yield* Fiber.interrupt(client.fiber);
       assert.equal(
         (yield* readOrganizationEmergencyStop(fixture.organizationId)).unverifiedProviderLaunches,
         0,
@@ -240,7 +276,9 @@ testLayer("Organization live work lifecycle", (it) => {
           identity: null,
         }),
       };
+      const client = yield* subscribeStatus(fixture.organizationId);
       yield* observer.preparing();
+      yield* nextStatus(client.queue, (s) => s.emergencyStop.unverifiedProviderLaunches === 1);
       assert.equal(
         (yield* recoverOrganizationProviderProcessesAtStartup).held[0]?.reason,
         "provider_exit_unverified",
@@ -265,6 +303,13 @@ testLayer("Organization live work lifecycle", (it) => {
       const status = yield* readOrganizationEmergencyStop(fixture.organizationId);
       assert.equal(status.unverifiedProviderLaunches, 0);
       assert.equal(status.verifiedProviderExits, 1);
+      yield* nextStatus(
+        client.queue,
+        (s) =>
+          s.emergencyStop.verifiedProviderExits === 1 &&
+          s.emergencyStop.unverifiedProviderLaunches === 0,
+      );
+      yield* Fiber.interrupt(client.fiber);
       assert.deepEqual((yield* reconcileOrganizationEmergencyStopsAfterRecovery(broker)).held, []);
     }),
   );
@@ -287,6 +332,9 @@ testLayer("Organization live work lifecycle", (it) => {
           { organizationId: fixture.organizationId, requestId: `${fixture.tag}-emergency` },
           interactive,
         );
+        const client = yield* subscribeStatus(fixture.organizationId);
+        assert.equal(client.initial.emergencyStop.admittedPhases, 0);
+        assert.equal(client.initial.emergencyStop.unverifiedProviderLaunches, 0);
         const qaId = `${organizationQABrokerOperationPrefix(attemptId)}qa-1`;
         const entries = [attemptId, qaId, "unrelated-attempt"];
         const called: string[] = [];
@@ -335,6 +383,8 @@ testLayer("Organization live work lifecycle", (it) => {
           broker,
         );
         assert.deepEqual(retry.held, []);
+        yield* nextStatus(client.queue, (s) => s.emergencyStop.verifiedScopes === 2);
+        yield* Fiber.interrupt(client.fiber);
         assert.deepEqual(
           (yield* reconcileOrganizationEmergencyStopsAfterRecovery(broker)).held,
           [],
@@ -570,6 +620,141 @@ testLayer("Organization live work lifecycle", (it) => {
     }),
   );
 
+  it.effect(
+    "pushes idle cross-client status, async drain completion, resume, and a fresh reconnect",
+    () =>
+      Effect.gen(function* () {
+        ready = true;
+        const fixture = yield* seed;
+        yield* seedActivatedWork(fixture);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE organizations SET lifecycle = 'active' WHERE organization_id = ${fixture.organizationId}`;
+        const first = yield* subscribeStatus(fixture.organizationId);
+        const second = yield* subscribeStatus(fixture.organizationId);
+        assert.equal(first.initial.drain.state, "none");
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const phase = yield* withOrganizationLiveWorkPhaseClaim(
+          fixture.workId,
+          "attempt",
+          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        yield* nextStatus(first.queue, (s) => s.emergencyStop.admittedPhases === 1);
+        yield* requestOrganizationWorkDrain(
+          { organizationId: fixture.organizationId, requestId: `${fixture.tag}-push-drain` },
+          interactive,
+        );
+        yield* nextStatus(first.queue, (s) => s.drain.state === "draining");
+        yield* nextStatus(second.queue, (s) => s.drain.state === "draining");
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(phase);
+        const done = yield* nextStatus(first.queue, (s) => s.drain.state === "paused");
+        assert.equal(done.emergencyStop.admittedPhases, 0);
+        yield* nextStatus(second.queue, (s) => s.drain.state === "paused");
+        yield* resumePausedOrganization(
+          {
+            organizationId: fixture.organizationId,
+            mutationId: `${fixture.tag}-push-resume`,
+            baseRevision: fixture.org.draftRevision + 1,
+            actor: "user",
+            lifecycle: "active",
+          },
+          interactive,
+        );
+        yield* nextStatus(first.queue, (s) => s.drain.state === "none");
+        yield* Fiber.interrupt(first.fiber);
+        yield* Fiber.interrupt(second.fiber);
+        yield* requestOrganizationEmergencyStop(
+          { organizationId: fixture.organizationId, requestId: `${fixture.tag}-push-stop` },
+          interactive,
+        );
+        const reconnected = yield* subscribeStatus(fixture.organizationId);
+        assert.equal(reconnected.initial.emergencyStop.state, "requested");
+        yield* Fiber.interrupt(reconnected.fiber);
+      }),
+  );
+
+  it.effect("subscribes safely while the initial snapshot races an outer commit", () =>
+    Effect.gen(function* () {
+      const fixture = yield* seed;
+      const other = yield* seed;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE organizations SET lifecycle = 'active' WHERE organization_id = ${fixture.organizationId}`;
+      const unrelated = yield* subscribeStatus(other.organizationId);
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const writer = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* requestOrganizationWorkDrain(
+              { organizationId: fixture.organizationId, requestId: `${fixture.tag}-initial-race` },
+              interactive,
+            );
+            yield* Deferred.succeed(entered, undefined);
+            yield* Deferred.await(release);
+          }),
+        )
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      const connecting = yield* subscribeStatus(fixture.organizationId).pipe(Effect.forkChild);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(writer);
+      const connected = yield* Fiber.join(connecting);
+      assert.equal(connected.initial.drain.state, "paused");
+      assert.equal(yield* Queue.size(unrelated.queue), 0);
+      yield* Fiber.interrupt(connected.fiber);
+      yield* Fiber.interrupt(unrelated.fiber);
+    }),
+  );
+
+  it.effect(
+    "does not publish a nested transaction's rolled-back drain and cannot miss the outer commit",
+    () =>
+      Effect.gen(function* () {
+        const fixture = yield* seed;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE organizations SET lifecycle = 'active' WHERE organization_id = ${fixture.organizationId}`;
+        const client = yield* subscribeStatus(fixture.organizationId);
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const writer = yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* requestOrganizationWorkDrain(
+                { organizationId: fixture.organizationId, requestId: `${fixture.tag}-rolled-back` },
+                interactive,
+              );
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+              return yield* Effect.fail("rollback");
+            }),
+          )
+          .pipe(Effect.exit, Effect.forkChild);
+        yield* Deferred.await(entered);
+        assert.equal(yield* Queue.size(client.queue), 0);
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(writer);
+        yield* requestOrganizationEmergencyStop(
+          { organizationId: fixture.organizationId, requestId: `${fixture.tag}-committed` },
+          interactive,
+        );
+        const updated = yield* nextStatus(
+          client.queue,
+          (s) => s.emergencyStop.state === "requested",
+        );
+        assert.equal(updated.drain.state, "none");
+        assert.equal(
+          client.observed.some((s) => s.drain.state !== "none"),
+          false,
+        );
+        yield* Fiber.interrupt(client.fiber);
+        const fresh = yield* subscribeStatus(fixture.organizationId);
+        assert.equal(fresh.initial.drain.state, "none");
+        yield* Fiber.interrupt(fresh.fiber);
+      }),
+  );
+
   it.effect("holds stale claims until exclusive startup recovery clears them", () =>
     Effect.gen(function* () {
       ready = true;
@@ -588,7 +773,14 @@ testLayer("Organization live work lifecycle", (it) => {
         )).state,
         "draining",
       );
+      const client = yield* subscribeStatus(fixture.organizationId);
+      assert.equal(client.initial.drain.state, "draining");
       assert.deepEqual((yield* reconcileOrganizationWorkDrainsAfterRecovery).held, []);
+      yield* nextStatus(
+        client.queue,
+        (s) => s.drain.state === "paused" && s.emergencyStop.admittedPhases === 0,
+      );
+      yield* Fiber.interrupt(client.fiber);
       assert.equal((yield* readOrganizationWorkDrain(fixture.organizationId)).state, "paused");
     }),
   );
@@ -643,6 +835,8 @@ testLayer("Organization live work lifecycle", (it) => {
         interactive,
       );
       assert.equal(drained.state, "paused");
+      const client = yield* subscribeStatus(fixture.organizationId);
+      assert.equal(client.initial.drain.state, "paused");
       const store = yield* OrganizationStore;
       const archived = yield* store.setLifecycle({
         organizationId: fixture.organizationId,
@@ -652,6 +846,8 @@ testLayer("Organization live work lifecycle", (it) => {
         lifecycle: "archived",
       });
       assert.equal(archived.lifecycle, "archived");
+      yield* nextStatus(client.queue, (s) => s.drain.state === "none");
+      yield* Fiber.interrupt(client.fiber);
       assert.equal((yield* readOrganizationWorkDrain(fixture.organizationId)).state, "none");
       const rows = yield* sql<{ request_id: string }>`SELECT request_id
         FROM organization_live_work_drains WHERE organization_id = ${fixture.organizationId}`;

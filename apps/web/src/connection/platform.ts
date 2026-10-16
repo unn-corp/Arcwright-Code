@@ -58,6 +58,7 @@ import {
   readDesktopSecondaryBootstrapsResult,
   type DesktopSecondaryBootstrapsRead,
 } from "./desktopLocal";
+import { registrationReconciliation } from "./registrationReconciliation";
 import * as ConnectionStorage from "./storage";
 import { clientPresentationMetadata } from "./clientMetadata";
 import { installBrowserConnectionWakeups } from "./browserWakeups";
@@ -416,10 +417,9 @@ const loadSecondaryConnectionRegistration = Effect.fn(
   };
 });
 
-// Poll cadence for the desktop bootstrap topology. There is no change event on
-// the bridge, so the renderer polls; successful registrations are cached by a
-// signature of their endpoint until bearer credentials approach expiry.
-const PLATFORM_POLL_INTERVAL = "3 seconds";
+// Legacy bridges and transient discovery failures retry at this cadence.
+// Push-capable bridges otherwise wait for topology events or credential deadlines.
+const PLATFORM_RETRY_INTERVAL_MS = 3_000;
 const SECONDARY_BEARER_REFRESH_SKEW_MS = 5_000;
 
 export function secondaryBearerExpiresAtEpochMs(
@@ -574,9 +574,11 @@ const layerPlatformConnectionSource = Layer.effect(
     // Resolve the full set of platform-managed environments the host currently
     // reports: the primary (same-origin cookie auth) plus any desktop-local
     // backends running alongside it (bearer auth). Reused registrations come
-    // from the cache; a failed entry is skipped and retried on the next poll.
+    // from the cache; failed entries retain their retry deadlines.
+    let needsRetry = false;
     const buildPlatformRegistrations = Effect.gen(function* () {
       const previous = yield* Ref.get(cacheRef);
+      needsRetry = false;
       const nowEpochMs = yield* Clock.currentTimeMillis;
       const next = new Map<string, CachedPlatformRegistration>();
       const registrations: Array<PlatformConnectionRegistration> = [];
@@ -592,6 +594,7 @@ const layerPlatformConnectionSource = Layer.effect(
       }
 
       if (primaryTopologyRead._tag === "Failure") {
+        needsRetry = true;
         yield* Effect.logWarning("Could not read the primary environment topology.", {
           cause: primaryTopologyRead.cause,
         });
@@ -612,6 +615,7 @@ const layerPlatformConnectionSource = Layer.effect(
             ),
             Effect.option,
           );
+          if (Option.isNone(built)) needsRetry = true;
           if (Option.isSome(built)) {
             const cacheEntry = { signature, registration: built.value };
             next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, cacheEntry);
@@ -631,6 +635,7 @@ const layerPlatformConnectionSource = Layer.effect(
       }
 
       if (topologyRead._tag === "Failure") {
+        needsRetry = true;
         yield* Effect.logWarning("Could not read the desktop-local backend topology.", {
           cause: topologyRead.cause,
         });
@@ -701,6 +706,7 @@ const layerPlatformConnectionSource = Layer.effect(
             ),
             Effect.option,
           );
+          if (Option.isNone(built)) needsRetry = true;
           if (Option.isSome(built)) {
             const cacheEntry = {
               signature: endpointSignature,
@@ -731,9 +737,41 @@ const layerPlatformConnectionSource = Layer.effect(
     }).pipe(Effect.provide(FetchHttpClient.layer));
 
     return PlatformConnectionSource.PlatformConnectionSource.of({
-      registrations: Stream.tick(PLATFORM_POLL_INTERVAL).pipe(
-        Stream.mapEffect(() => buildPlatformRegistrations),
-      ),
+      registrations: registrationReconciliation({
+        build: buildPlatformRegistrations,
+        subscribe: (wake) => {
+          const unsubscribe = window.desktopBridge?.onLocalEnvironmentBootstrapsChanged?.(wake);
+          window.addEventListener("focus", wake);
+          return () => {
+            unsubscribe?.();
+            window.removeEventListener("focus", wake);
+          };
+        },
+        nextDelay: Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const cache = yield* Ref.get(cacheRef);
+          const rejected = yield* Ref.get(rejectedRef);
+          const deadlines = [
+            ...Array.from(cache.values()).flatMap((entry) =>
+              [entry.refreshAtEpochMs, entry.expiresAtEpochMs].filter(
+                (deadline): deadline is number => deadline !== undefined,
+              ),
+            ),
+            ...Array.from(rejected.values(), (entry) => entry.retryAtEpochMs),
+          ];
+          // Push-capable bridges stay idle until a topology event or credential
+          // deadline. Transient failures and legacy bridges still retry.
+          if (
+            needsRetry ||
+            (window.desktopBridge && !window.desktopBridge.onLocalEnvironmentBootstrapsChanged)
+          ) {
+            deadlines.push(now + PLATFORM_RETRY_INTERVAL_MS);
+          }
+          if (deadlines.length === 0) return undefined;
+          const delay = Math.min(...deadlines) - now;
+          return delay > 0 ? delay : PLATFORM_RETRY_INTERVAL_MS;
+        }),
+      }),
     });
   }),
 );

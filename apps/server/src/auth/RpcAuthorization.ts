@@ -68,6 +68,7 @@ const FORK_RPC_REQUIRED_SCOPES = {
   [WS_METHODS.organizationsActivateWorkIntent]: AuthOrchestrationOperateScope,
   [WS_METHODS.organizationsCancelWork]: AuthOrchestrationOperateScope,
   [WS_METHODS.organizationsRequestWorkDrain]: AuthOrchestrationOperateScope,
+  [WS_METHODS.organizationsSubscribeWorkStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.organizationsGetWorkDrainStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.organizationsRequestEmergencyStop]: AuthOrchestrationOperateScope,
   [WS_METHODS.organizationsGetEmergencyStopStatus]: AuthOrchestrationReadScope,

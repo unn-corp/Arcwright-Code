@@ -142,6 +142,48 @@ function desktopSnapshot(sampledAtUnixMs: number): DesktopHostTelemetrySnapshot 
 }
 
 describe("ResourceTelemetry", () => {
+  it.effect("shares in-flight history reads without caching completed samples", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      let reads = 0;
+      const layer = ResourceTelemetry.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            NativeTelemetryClient.layerTest({
+              readHistory: () =>
+                Effect.gen(function* () {
+                  reads += 1;
+                  yield* Deferred.succeed(started, undefined);
+                  yield* Deferred.await(release);
+                  return [];
+                }),
+            }),
+            DesktopTelemetryReceiver.layerTest(),
+            ResourceAttribution.layer,
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const telemetry = yield* ResourceTelemetry.ResourceTelemetry;
+        const first = yield* Effect.forkChild(
+          telemetry.readHistory({ windowMs: 1000, bucketMs: 1000 }),
+        );
+        yield* Deferred.await(started);
+        const second = yield* Effect.forkChild(
+          telemetry.readHistory({ windowMs: 1000, bucketMs: 1000 }),
+          { startImmediately: true },
+        );
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(first);
+        yield* Fiber.join(second);
+        expect(reads).toBe(1);
+        yield* telemetry.readHistory({ windowMs: 1000, bucketMs: 1000 });
+        expect(reads).toBe(2);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
   it.effect("replays churning history and retains baselines for returning processes", () =>
     Effect.gen(function* () {
       const readAtMs = DateTime.toEpochMillis(yield* DateTime.now);

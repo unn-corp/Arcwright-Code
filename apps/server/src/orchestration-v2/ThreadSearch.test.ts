@@ -180,6 +180,77 @@ it.layer(layerTest)("ThreadSearch", (it) => {
     }),
   );
 
+  it.effect(
+    "preserves literal substring and Unicode semantics through index updates and deletes",
+    () =>
+      Effect.gen(function* () {
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const search = yield* ThreadSearch.ThreadSearch;
+        const sql = yield* SqlClient.SqlClient;
+        const project = ProjectId.make("project:search-literals");
+        yield* createProject(project);
+        const texts = ["prefix NEEDLE suffix", 'a%b _xy !xy a"b', "ééé Ééé", "😀界文", "ab"];
+        for (const [index, text] of texts.entries()) {
+          const id = ThreadId.make(`thread:literal:${index}`);
+          yield* projections.apply(thread(id, project));
+          yield* projections.apply(message(id, `literal:${index}`, "user", text));
+        }
+        for (const query of [
+          "eed",
+          "NEED",
+          "a%b",
+          "_xy",
+          "!xy",
+          'a"b',
+          "é",
+          "ééé",
+          "Ééé",
+          "😀界文",
+          "ab",
+          "a\0b",
+        ]) {
+          const pattern = `%${query.replaceAll("!", "!!").replaceAll("%", "!%").replaceAll("_", "!_")}%`;
+          const expected = yield* sql<{
+            thread_id: string;
+          }>`SELECT thread_id FROM orchestration_v2_projection_messages
+          WHERE thread_id LIKE 'thread:literal:%' AND json_extract(payload_json, '$.text') LIKE ${pattern} ESCAPE '!'`;
+          assert.deepEqual(
+            (yield* search.search({ query })).matches
+              .filter((match) => match.threadId.startsWith("thread:literal:"))
+              .map((match) => match.threadId)
+              .sort(),
+            expected.map((row) => row.thread_id).sort(),
+          );
+        }
+        const id = ThreadId.make("thread:literal:0");
+        yield* projections.apply(message(id, "literal:0", "user", "replacement text"));
+        assert.deepEqual(
+          (yield* search.search({ query: "needle" })).matches.filter((match) =>
+            match.threadId.startsWith("thread:literal:"),
+          ),
+          [],
+        );
+        assert.lengthOf((yield* search.search({ query: "replacement" })).matches, 1);
+        yield* projections.apply(
+          message(id, "literal:0", "user", "replacement text", { streaming: true }),
+        );
+        assert.deepEqual(
+          (yield* search.search({ query: "replacement" })).matches.filter((match) =>
+            match.threadId.startsWith("thread:literal:"),
+          ),
+          [],
+        );
+        yield* projections.apply(message(id, "literal:0", "user", "replacement text"));
+        yield* sql`DELETE FROM orchestration_v2_projection_messages WHERE message_id='literal:0'`;
+        assert.deepEqual(
+          (yield* search.search({ query: "replacement" })).matches.filter((match) =>
+            match.threadId.startsWith("thread:literal:"),
+          ),
+          [],
+        );
+      }),
+  );
+
   it.effect("reports an unreadable match as a decode failure", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;

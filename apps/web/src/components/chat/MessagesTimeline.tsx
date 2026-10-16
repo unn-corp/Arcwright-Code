@@ -3,6 +3,7 @@ import {
   withSubagentMilestones,
   type SubagentActivityMember,
 } from "./SubagentActivity";
+import { subscribeElapsedClock } from "../../lib/elapsedClock";
 import { PinnedTimelineParticipant, timelineParticipantGroups } from "./TimelineParticipants";
 import { ParticipantChip } from "./ParticipantChip";
 import { agentInstanceId, resolveMessageParticipant } from "@t3tools/client-runtime/participants";
@@ -3832,8 +3833,7 @@ function WorkingTimer({ createdAt }: { createdAt: string }) {
       }
     };
     updateText();
-    const id = setInterval(updateText, 1000);
-    return () => clearInterval(id);
+    return subscribeElapsedClock(updateText, textRef.current ?? undefined);
   }, [createdAt]);
 
   return (

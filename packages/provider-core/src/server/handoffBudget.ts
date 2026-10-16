@@ -216,10 +216,21 @@ export function historyCost(
   messages: ReadonlyArray<OrchestrationV2HistoricalMessage>,
   context: string,
 ): number {
+  const rendered = messages.map(renderHistoricalMessage);
+  const responseItems = [
+    { type: "message", role: "user", content: [{ type: "input_text", text: context }] },
+    ...messages.map((message, index) => ({
+      type: "message",
+      role: message.role,
+      content: [
+        { type: message.role === "user" ? "input_text" : "output_text", text: rendered[index]! },
+      ],
+    })),
+  ];
   return (
     Math.max(
-      Buffer.byteLength(JSON.stringify(historyResponseItems(messages, context))),
-      Buffer.byteLength(JSON.stringify(renderHistory(messages, context))),
+      Buffer.byteLength(JSON.stringify(responseItems)),
+      Buffer.byteLength(JSON.stringify([context, ...rendered].join("\n\n"))),
     ) + 256
   );
 }
@@ -245,9 +256,16 @@ export function selectHistory(input: {
   const tryAdd = (index: number) => {
     const message = messages[index];
     if (message === undefined || selected.has(index)) return;
+    const text = renderHistoricalMessage(message);
     const cost = Math.max(
-      Buffer.byteLength(JSON.stringify(historyResponseItems([message], "")[1])) + 1,
-      Buffer.byteLength(JSON.stringify(renderHistoricalMessage(message))) + 4,
+      Buffer.byteLength(
+        JSON.stringify({
+          type: "message",
+          role: message.role,
+          content: [{ type: message.role === "user" ? "input_text" : "output_text", text }],
+        }),
+      ) + 1,
+      Buffer.byteLength(JSON.stringify(text)) + 4,
     );
     if (cost > remaining) return;
     selected.add(index);

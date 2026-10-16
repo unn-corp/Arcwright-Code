@@ -14,8 +14,9 @@ import {
   XIcon,
 } from "lucide-react";
 import { ChevronDown, ChevronRight } from "lucide";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, useRef, type ReactNode } from "react";
 
+import { useElapsedNow } from "../../hooks/useElapsedNow";
 import { Button } from "~/components/ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { Spinner } from "~/components/ui/spinner";
@@ -40,20 +41,6 @@ function stageElapsedMs(stage: WorktreeSetupStage, nowMs: number): number | null
   const end = stage.endedAt ? Date.parse(stage.endedAt) : nowMs;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
   return Math.max(0, end - start);
-}
-
-/**
- * Ticks once a second while any stage runs so elapsed labels stay live
- * without pushing a React commit through the timeline for every second.
- */
-function useNowWhile(active: boolean): number {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(id);
-  }, [active]);
-  return nowMs;
 }
 
 function StageIcon({ status }: { status: WorktreeSetupStage["status"] }) {
@@ -346,7 +333,8 @@ export function WorktreeSetupCard({
   embedded?: boolean;
 }) {
   const running = snapshot.phase === "running";
-  const nowMs = useNowWhile(running);
+  const elapsedRef = useRef<HTMLElement>(null);
+  const nowMs = useElapsedNow(running, elapsedRef);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const totalElapsed = (() => {
     const start = Date.parse(snapshot.startedAt);
@@ -372,7 +360,11 @@ export function WorktreeSetupCard({
       (setupStage.status === "running" && setupStage.tail.length > 0));
 
   return (
-    <section aria-label="Worktree setup" data-worktree-setup-phase={snapshot.phase}>
+    <section
+      ref={elapsedRef}
+      aria-label="Worktree setup"
+      data-worktree-setup-phase={snapshot.phase}
+    >
       {showHeader ? <SetupHeaderRow snapshot={snapshot} totalElapsed={totalElapsed} /> : null}
       {collapsed ? (
         <CollapsedSummaryRow snapshot={snapshot} totalElapsed={totalElapsed} />

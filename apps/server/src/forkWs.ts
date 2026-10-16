@@ -1,3 +1,4 @@
+import * as OrganizationWorkStatus from "./organizations/OrganizationWorkStatus.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -983,6 +984,8 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
             ),
             { "rpc.aggregate": "organizations" },
           ),
+        [WS_METHODS.organizationsSubscribeWorkStatus]: (input) =>
+          OrganizationWorkStatus.stream(input.organizationId),
         [WS_METHODS.organizationsGetWorkDrainStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.organizationsGetWorkDrainStatus,

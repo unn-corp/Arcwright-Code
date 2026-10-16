@@ -1,28 +1,51 @@
 import type { DesktopEnvironmentBootstrap } from "@t3tools/contracts";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+import { readDesktopSecondaryBootstrapsResult } from "./desktopLocal";
 
-import { readDesktopSecondaryBootstraps } from "./desktopLocal";
-
-const DESKTOP_LOCAL_BOOTSTRAP_POLL_MS = 2_000;
-
-/**
- * Reactively track the desktop's secondary local backends (e.g. a parallel WSL
- * backend). The bridge exposes no change event, so we re-read on an interval;
- * failed reads retain the latest successful snapshot, while a successful empty
- * read clears it. Use this instead of polling the bridge ad hoc so every
- * renderer consumer reads the same topology.
- */
-export function useDesktopLocalBootstraps(): ReadonlyArray<DesktopEnvironmentBootstrap> {
-  const [bootstraps, setBootstraps] = useState<ReadonlyArray<DesktopEnvironmentBootstrap>>(
-    readDesktopSecondaryBootstraps,
-  );
-
-  useEffect(() => {
-    const read = () => setBootstraps(readDesktopSecondaryBootstraps());
-    read();
-    const interval = setInterval(read, DESKTOP_LOCAL_BOOTSTRAP_POLL_MS);
-    return () => clearInterval(interval);
-  }, []);
-
-  return bootstraps;
+const listeners = new Set<() => void>();
+let snapshot: ReadonlyArray<DesktopEnvironmentBootstrap> = [];
+let cleanup: (() => void) | undefined;
+let retry: ReturnType<typeof setTimeout> | undefined;
+function refresh() {
+  clearTimeout(retry);
+  retry = undefined;
+  const result = readDesktopSecondaryBootstrapsResult();
+  if (result._tag === "Failure") {
+    if (listeners.size > 0 && window.desktopBridge?.onLocalEnvironmentBootstrapsChanged) {
+      retry = setTimeout(refresh, 2_000);
+    }
+    return;
+  }
+  const next = result.bootstraps;
+  if (next === snapshot) return;
+  snapshot = next;
+  for (const listener of listeners) listener();
+}
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    const onChange = window.desktopBridge?.onLocalEnvironmentBootstrapsChanged;
+    if (onChange) {
+      cleanup = onChange(refresh);
+    } else if (window.desktopBridge) {
+      // Older bridges have no producer notification. Share one fallback timer.
+      const timer = setInterval(refresh, 2_000);
+      cleanup = () => clearInterval(timer);
+    }
+    // Subscribe first so a change racing the initial read cannot be missed.
+    refresh();
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      clearTimeout(retry);
+      retry = undefined;
+      cleanup?.();
+      cleanup = undefined;
+    }
+  };
+}
+/** Stable shared snapshots; failed bridge reads retain the latest successful topology. */
+export function useDesktopLocalBootstraps() {
+  return useSyncExternalStore(subscribe, () => snapshot);
 }

@@ -11,6 +11,7 @@ import type {
 import { Link2Icon, RefreshCwIcon, UnlinkIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useOrganizationDrainStatus } from "../../state/organizationWorkStatus";
 import { randomUUID } from "../../lib/utils";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { organizationEnvironment } from "../../state/organizations";
@@ -85,14 +86,7 @@ export function OrganizationGovernance({
   readonly onRefresh: () => void;
 }) {
   const environmentId = usePrimaryEnvironmentId();
-  const drain = useEnvironmentQuery(
-    environmentId === null
-      ? null
-      : organizationEnvironment.getWorkDrainStatus({
-          environmentId,
-          input: { organizationId: organization.id },
-        }),
-  );
+  const drain = useOrganizationDrainStatus(organization.id, offline);
   const requestDrain = useAtomCommand(organizationEnvironment.requestWorkDrain, {
     reportFailure: false,
   });
@@ -101,11 +95,6 @@ export function OrganizationGovernance({
   const [drainError, setDrainError] = useState<string | null>(null);
   const [drainNotice, setDrainNotice] = useState<string | null>(null);
   const drainPausedRef = useRef(false);
-  useEffect(() => {
-    if (drain.data?.state !== "draining" || offline) return;
-    const timer = setInterval(drain.refresh, 5_000);
-    return () => clearInterval(timer);
-  }, [drain.data?.state, drain.refresh, offline]);
   useEffect(() => {
     if (drain.data?.state === "paused" && !drainPausedRef.current) {
       drainPausedRef.current = true;

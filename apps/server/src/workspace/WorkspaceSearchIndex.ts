@@ -12,10 +12,14 @@ import type {
   SearchResult,
 } from "@ff-labs/fff-node";
 import * as Context from "effect/Context";
+import * as Cache from "effect/Cache";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
 import * as Schema from "effect/Schema";
+
+import * as DateTime from "effect/DateTime";
+import { ContentSearchProcess } from "./ContentSearchProcess.ts";
 
 import type {
   ProjectEntry,
@@ -32,7 +36,6 @@ import { isProjectFaviconPath } from "@t3tools/shared/projectFavicon";
 // Node single-executable (only built-ins resolve there), so load it through
 // `require`, which reads from the real filesystem in every runtime.
 const requireForFff = NodeModule.createRequire(import.meta.url);
-const { FileFinder } = requireForFff("@ff-labs/fff-node") as typeof import("@ff-labs/fff-node");
 
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;
 const WORKSPACE_INDEX_PAGE_SIZE = WORKSPACE_INDEX_MAX_ENTRIES + 2;
@@ -251,12 +254,20 @@ function mapContentMatchRanges(
   line: string,
   byteRanges: ReadonlyArray<readonly [number, number]>,
 ): Array<{ readonly start: number; readonly end: number }> {
+  const offsets = [...new Set(byteRanges.flatMap(([start, end]) => [start, end]))].sort(
+    (a, b) => a - b,
+  );
+  const indices = new Map<number, number>();
   const lineBytes = Buffer.from(line);
-  const toStringIndex = (byteOffset: number) => lineBytes.subarray(0, byteOffset).toString().length;
-  return byteRanges.map(([startByte, endByte]) => ({
-    start: toStringIndex(startByte),
-    end: toStringIndex(endByte),
-  }));
+  let previousByte = 0,
+    stringIndex = 0;
+  for (const offset of offsets) {
+    // Native match boundaries are UTF-8 code point boundaries.
+    stringIndex += lineBytes.subarray(previousByte, offset).toString().length;
+    indices.set(offset, stringIndex);
+    previousByte = offset;
+  }
+  return byteRanges.map(([start, end]) => ({ start: indices.get(start)!, end: indices.get(end)! }));
 }
 
 /**
@@ -304,19 +315,47 @@ const createFinder = Effect.fn("WorkspaceSearchIndex.createFinder")(function* (
   cwd: string,
   variant: WorkspaceSearchIndexVariant,
 ) {
-  const result = yield* Effect.try({
-    try: () =>
-      FileFinder.create({
-        basePath: cwd,
-        disableMmapCache: true,
-        // Content indexing costs scan CPU and memory, so only the on-demand
-        // content-search index pays for it; path-only consumers (file tree,
-        // composer path search, file picker) keep the lightweight index.
-        disableContentIndexing: variant !== "content",
-        aiMode: false,
-        enableFsRootScanning: true,
-        enableHomeDirScanning: true,
+  const options = {
+    basePath: cwd,
+    disableMmapCache: true,
+    disableContentIndexing: variant !== "content",
+    aiMode: false,
+    enableFsRootScanning: true,
+    enableHomeDirScanning: true,
+  };
+  if (variant === "content") {
+    const worker = yield* Effect.acquireRelease(
+      Effect.try({
+        try: () => new ContentSearchProcess(requireForFff.resolve("@ff-labs/fff-node")),
+        catch: (cause) =>
+          new WorkspaceSearchIndexCreateFailed({
+            cwd,
+            reason: "Content worker creation failed.",
+            cause,
+          }),
       }),
+      (worker) => Effect.promise(() => worker.destroy()),
+    );
+    const result = yield* Effect.tryPromise({
+      try: () => worker.create(options),
+      catch: (cause) =>
+        new WorkspaceSearchIndexCreateFailed({
+          cwd,
+          reason: "FileFinder.create threw unexpectedly.",
+          cause,
+        }),
+    });
+    if (!result.ok)
+      return yield* new WorkspaceSearchIndexCreateFailed({ cwd, reason: result.error });
+    return worker;
+  }
+  const result = yield* Effect.try({
+    try: () => {
+      const { FileFinder } = requireForFff(
+        "@ff-labs/fff-node",
+      ) as typeof import("@ff-labs/fff-node");
+      return FileFinder.create(options);
+    },
     catch: (cause) =>
       new WorkspaceSearchIndexCreateFailed({
         cwd,
@@ -333,7 +372,7 @@ const createFinder = Effect.fn("WorkspaceSearchIndex.createFinder")(function* (
 
 const waitForIndexReady = Effect.fn("WorkspaceSearchIndex.waitForIndexReady")(function* <E>(
   cwd: string,
-  finder: FileFinderType,
+  finder: Pick<FileFinderType, "waitForIndexReady">,
   onFailure: (input: { readonly reason: string; readonly cause?: unknown }) => E,
 ): Effect.fn.Return<void, E | WorkspaceSearchIndexScanTimedOut> {
   const result = yield* Effect.tryPromise({
@@ -360,8 +399,10 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
   variant: WorkspaceSearchIndexVariant = "paths",
 ) {
   const finder = yield* Effect.acquireRelease(createFinder(cwd, variant), (finder) =>
-    Effect.try({
-      try: () => finder.destroy(),
+    Effect.tryPromise({
+      try: async () => {
+        if (!(finder instanceof ContentSearchProcess)) await finder.destroy();
+      },
       catch: (cause) => new WorkspaceSearchIndexDestroyFailed({ cwd, cause }),
     }).pipe(Effect.orDie),
   );
@@ -392,10 +433,10 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
     query: string,
     pageSize: number,
     operation: "directorySearch" | "fileSearch" | "grep" | "mixedSearch",
-    execute: () => Result<A>,
+    execute: () => Result<A> | Promise<Result<A>>,
   ): Effect.fn.Return<A, WorkspaceSearchIndexSearchFailed> {
-    const result = yield* Effect.try({
-      try: execute,
+    const result = yield* Effect.tryPromise({
+      try: async () => execute(),
       catch: (cause) =>
         new WorkspaceSearchIndexSearchFailed({
           cwd,
@@ -416,11 +457,11 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
     return result.value;
   });
 
-  const refresh: WorkspaceSearchIndex["Service"]["refresh"] = Effect.fn(
-    "WorkspaceSearchIndex.refresh",
-  )(function* () {
-    const result = yield* Effect.try({
-      try: () => finder.scanFiles(),
+  const refreshOnce = Effect.fn("WorkspaceSearchIndex.refresh")(function* () {
+    listGeneration += 1;
+    cachedList = undefined;
+    const result = yield* Effect.tryPromise({
+      try: async () => finder.scanFiles(),
       catch: (cause) =>
         new WorkspaceSearchIndexRefreshFailed({
           cwd,
@@ -446,8 +487,46 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
     );
   });
 
+  let refreshGeneration = 0,
+    completedRefresh = 0;
+  const refreshes = yield* Cache.make({
+    capacity: 1,
+    timeToLive: 0,
+    lookup: (_key: "refresh") =>
+      Effect.gen(function* () {
+        yield* Effect.yieldNow;
+        do {
+          const through = refreshGeneration;
+          yield* refreshOnce();
+          cachedList = undefined;
+          completedRefresh = through;
+        } while (completedRefresh < refreshGeneration);
+      }),
+  });
+  const refresh: WorkspaceSearchIndex["Service"]["refresh"] = Effect.fn(
+    "WorkspaceSearchIndex.refresh",
+  )(function* () {
+    const requested = ++refreshGeneration;
+    do {
+      yield* Cache.get(refreshes, "refresh");
+      // oxlint-disable-next-line no-unmodified-loop-condition -- The shared refresh fiber advances completedRefresh before resolving Cache.get.
+    } while (completedRefresh < requested);
+  });
+  let listGeneration = 0;
+  let cachedList: { at: number; value: ProjectListEntriesResult } | undefined;
+  if (!(finder instanceof ContentSearchProcess)) {
+    const watch = finder.watch?.(() => {
+      listGeneration += 1;
+      cachedList = undefined;
+    });
+    if (watch?.ok) yield* Effect.addFinalizer(() => Effect.sync(watch.value));
+  }
   const list: WorkspaceSearchIndex["Service"]["list"] = Effect.fn("WorkspaceSearchIndex.list")(
     function* () {
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      if (cachedList !== undefined && now - cachedList.at < 250 && !finder.isScanning())
+        return cachedList.value;
+      const generation = listGeneration;
       const incompleteBeforeQuery = hasIncompleteInitialScan();
       const result = yield* runSearch("", WORKSPACE_INDEX_PAGE_SIZE, "mixedSearch", () =>
         finder.mixedSearch("", { pageSize: WORKSPACE_INDEX_PAGE_SIZE }),
@@ -457,24 +536,41 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
         left.path.localeCompare(right.path),
       );
       const entries = sortedEntries.slice(0, WORKSPACE_INDEX_MAX_ENTRIES);
-      return {
+      const value = {
         entries,
         truncated:
           incompleteBeforeQuery || mapped.truncated || entries.length < sortedEntries.length,
       };
+      if (!incompleteBeforeQuery && generation === listGeneration) cachedList = { at: now, value };
+      return value;
     },
   );
 
   const search: WorkspaceSearchIndex["Service"]["search"] = Effect.fn(
     "WorkspaceSearchIndex.search",
   )(function* (query, limit, kind, imageOnly) {
-    const pageSize = imageOnly ? WORKSPACE_INDEX_PAGE_SIZE : Math.max(1, limit + 1);
+    const pageSize = imageOnly
+      ? Math.min(WORKSPACE_INDEX_PAGE_SIZE, Math.max(512, limit + 1))
+      : Math.max(1, limit + 1);
     const incompleteBeforeQuery = hasIncompleteInitialScan();
     if (kind === "file" || imageOnly) {
-      const result = yield* runSearch(query, pageSize, "fileSearch", () =>
+      let result = yield* runSearch(query, pageSize, "fileSearch", () =>
         finder.fileSearch(query, { pageSize }),
       );
-      const mapped = mapFileSearchResult(result, limit, imageOnly);
+      let mapped = mapFileSearchResult(result, limit, imageOnly);
+      if (
+        imageOnly &&
+        mapFileSearchResult(result, result.items.length, true).entries.length <= limit &&
+        result.items.length < result.totalMatched &&
+        pageSize < WORKSPACE_INDEX_PAGE_SIZE
+      ) {
+        // One small optimistic batch, then one bounded fallback. Tiny UI limits
+        // must never turn a sparse image query into thousands of FFI searches.
+        result = yield* runSearch(query, WORKSPACE_INDEX_PAGE_SIZE, "fileSearch", () =>
+          finder.fileSearch(query, { pageSize: WORKSPACE_INDEX_PAGE_SIZE }),
+        );
+        mapped = mapFileSearchResult(result, limit, true);
+      }
       return { ...mapped, truncated: incompleteBeforeQuery || mapped.truncated };
     }
     if (kind === "directory") {

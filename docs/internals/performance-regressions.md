@@ -111,3 +111,38 @@ continuous traffic during an outage.
 Focused coverage: `ProjectionSettlement.test.ts`, `ThreadSettlementService.test.ts`,
 `runtimeLayer.test.ts`, `AgentAwarenessRelay.test.ts`, `GitVcsDriverCore.test.ts`,
 `ThreadStatusIndicators.subscriptions.test.tsx`, and `desktopLocal.test.ts`.
+
+## Search and background work optimizations
+
+The October 2026 optimization pass covers these twenty changes. The safety column
+records behavior that must survive subsequent tuning.
+
+| #   | Optimization                                     | Safety invariant                                                                                                                |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Trigram index for conversation substring search  | Keep the original literal `LIKE` filter, ranking, and short/NUL query fallback; index only completed searchable messages.       |
+| 2   | Run native content search in a child process     | Native calls cannot block the server loop; process exit rejects pending requests and scope disposal terminates the owned child. |
+| 3   | Coalesce overlapping workspace refreshes         | A change received during a scan schedules another scan before its refresh receipt completes.                                    |
+| 4   | Build telemetry buckets in one sorted pass       | Preserve bucket boundaries, carry-forward state, process totals, and output ordering.                                           |
+| 5   | Bound image candidate search to two native calls | Preserve the existing candidate limit and final matching behavior, including sparse matches.                                    |
+| 6   | Batch Git ignore checks by input bytes           | Preserve path ordering and Git's NUL-delimited path semantics.                                                                  |
+| 7   | Reuse unchanged transcript metadata              | Revalidate file identity after reading, replace stale entries, and bound cache size.                                            |
+| 8   | Validate distinct project roots concurrently     | Bound concurrency and merge results in the original order.                                                                      |
+| 9   | Share overlapping telemetry history reads        | Share only in-flight work; subsequent reads must see newly written history.                                                     |
+| 10  | Aggregate process summaries in one pass          | Keep process counts and byte/CPU totals identical.                                                                              |
+| 11  | Briefly cache full workspace listings            | Watcher events and explicit refreshes invalidate cached results, including scans already in flight.                             |
+| 12  | Convert UTF-8 match offsets in one pass          | Preserve JavaScript string offsets for Unicode and repeated match boundaries.                                                   |
+| 13  | Briefly cache directory browsing                 | Bound retention and do not cache failures; explicit refresh invalidates results.                                                |
+| 14  | Load the native finder only when needed          | Ordinary server startup must not require loading the native search library.                                                     |
+| 15  | Push desktop topology changes                    | Subscribe before reading; retain legacy reconciliation, token refresh, and failed-read retries.                                 |
+| 16  | Back off permission polling                      | Refresh on focus/visibility and reject stale grants from requests started before hiding.                                        |
+| 17  | Share elapsed-time display clocks                | Stop unnecessary hidden/offscreen updates, clean up subscriptions, and support browserless imports.                             |
+| 18  | Push organization drain/stop status              | Publish committed state, authorize subscriptions, recover on reconnect, and poll older servers.                                 |
+| 19  | Reuse rendered handoff text during budgeting     | Keep the exact rendered output and byte/token budgets.                                                                          |
+| 20  | Read Linux process snapshots asynchronously      | Bound `/proc` concurrency and retain synchronous PID/start-time ownership checks immediately before signaling.                  |
+
+Focused regression suites live beside the affected workspace, telemetry, scanner,
+thread search, migration, desktop topology, permissions, elapsed clock, organization
+status, handoff budget, and ACP process-tree implementations. Content search also
+needs a real native-library smoke check through both the bundled Node entry and the
+standalone server executable; a mocked process test does not establish packaging
+compatibility.

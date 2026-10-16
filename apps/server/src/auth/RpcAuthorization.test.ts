@@ -1,4 +1,5 @@
 import {
+  OrganizationId,
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
@@ -22,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import * as RpcTest from "effect/rpc/RpcTest";
 
@@ -33,6 +35,11 @@ import {
 import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("protects organization status streams with read authorization", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.organizationsSubscribeWorkStatus)).toBe(
+      AuthOrchestrationReadScope,
+    );
+  });
   it("requires conversation read permission for reply-chain history on both clients and hosts", () => {
     expect(requiredScopeForRpcMethod(ORCHESTRATION_V2_WS_METHODS.getMessageReplyChain)).toBe(
       AuthOrchestrationReadScope,
@@ -464,6 +471,41 @@ it.effect("denies manual cleanup before the handler without settings permission"
     );
     expect(yield* client[WS_METHODS.serverRunStorageCleanup]({}).pipe(Effect.flip)).toMatchObject({
       requiredPermission: AuthSettingsWriteScope,
+    });
+    expect(handled).toBe(false);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("denies organization status streams before executing their reader", () =>
+  Effect.gen(function* () {
+    const tag = WS_METHODS.organizationsSubscribeWorkStatus;
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (method): method is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof tag> => method !== tag,
+      ),
+    );
+    let handled = false;
+    const client = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          group.toLayerHandler(tag, () =>
+            Stream.fromEffect(
+              Effect.sync(() => {
+                handled = true;
+              }).pipe(Effect.andThen(Effect.never)),
+            ),
+          ),
+          RpcAuthorization.layer([]),
+        ),
+      ),
+    );
+    const denied = yield* client[tag]({ organizationId: OrganizationId.make("org") }).pipe(
+      Stream.runCollect,
+      Effect.flip,
+    );
+    expect(denied).toMatchObject({
+      _tag: "EnvironmentAuthorizationError",
+      requiredPermission: AuthOrchestrationReadScope,
     });
     expect(handled).toBe(false);
   }).pipe(Effect.scoped),

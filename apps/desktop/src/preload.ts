@@ -102,10 +102,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     const result = ipcRenderer.sendSync(IpcChannels.GET_SYSTEM_LOCALE_CHANNEL);
     return typeof result === "string" ? result : null;
   },
+  onLocalEnvironmentBootstrapsChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(IpcChannels.LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL, handler);
+    return () =>
+      ipcRenderer.removeListener(IpcChannels.LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL, handler);
+  },
   getLocalEnvironmentBootstraps: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
     if (!Array.isArray(result)) {
-      return [];
+      throw new Error("Could not read desktop environment topology.");
     }
     return result as ReturnType<DesktopBridge["getLocalEnvironmentBootstraps"]>;
   },

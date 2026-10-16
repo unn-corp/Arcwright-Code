@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
+import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 import * as Cause from "effect/Cause";
@@ -207,6 +208,7 @@ export interface AcpPosixProcessTreeController {
   readonly childrenOf: (pid: number) => ReadonlyArray<AcpPosixProcessIdentity>;
   readonly identity: (pid: number) => AcpPosixProcessIdentity | undefined;
   readonly snapshot: () => ReadonlyArray<AcpPosixProcessIdentity>;
+  readonly snapshotAsync?: () => Promise<ReadonlyArray<AcpPosixProcessIdentity>>;
   readonly signalProcess: (pid: number, signal: NodeJS.Signals) => void;
 }
 
@@ -586,37 +588,45 @@ export function signalLinuxCgroupRootTerm(input: {
 function readLinuxProcessIdentity(pid: number): AcpPosixProcessIdentity | undefined {
   try {
     const stat = NodeFS.readFileSync(`/proc/${pid}/stat`, "utf8");
-    const commandEnd = stat.lastIndexOf(")");
-    if (commandEnd < 0) return undefined;
-    const fields = stat
-      .slice(commandEnd + 2)
-      .trim()
-      .split(/\s+/);
-    // After comm: state, ppid, pgrp, session, … starttime (field 22 / index 19).
-    const state = fields[0];
-    const ppid = Number(fields[1]);
-    const pgid = Number(fields[2]);
-    const sid = Number(fields[3]);
-    const startTime = fields[19];
-    if (
-      state === undefined ||
-      !Number.isSafeInteger(ppid) ||
-      !Number.isSafeInteger(pgid) ||
-      !Number.isSafeInteger(sid) ||
-      startTime === undefined
-    ) {
-      return undefined;
-    }
-    let executable: string | undefined;
-    try {
-      executable = NodeFS.readlinkSync(`/proc/${pid}/exe`);
-    } catch {
-      executable = undefined;
-    }
-    return { executable, pgid, pid, ppid, sid, startTime, state };
+    return parseLinuxProcessIdentity(pid, stat, () => NodeFS.readlinkSync(`/proc/${pid}/exe`));
   } catch {
     return undefined;
   }
+}
+
+function parseLinuxProcessIdentity(
+  pid: number,
+  stat: string,
+  readExecutable: () => string | undefined,
+): AcpPosixProcessIdentity | undefined {
+  const commandEnd = stat.lastIndexOf(")");
+  if (commandEnd < 0) return undefined;
+  const fields = stat
+    .slice(commandEnd + 2)
+    .trim()
+    .split(/\s+/);
+  // After comm: state, ppid, pgrp, session, … starttime (field 22 / index 19).
+  const state = fields[0];
+  const ppid = Number(fields[1]);
+  const pgid = Number(fields[2]);
+  const sid = Number(fields[3]);
+  const startTime = fields[19];
+  if (
+    state === undefined ||
+    !Number.isSafeInteger(ppid) ||
+    !Number.isSafeInteger(pgid) ||
+    !Number.isSafeInteger(sid) ||
+    startTime === undefined
+  ) {
+    return undefined;
+  }
+  let executable: string | undefined;
+  try {
+    executable = readExecutable();
+  } catch {
+    executable = undefined;
+  }
+  return { executable, pgid, pid, ppid, sid, startTime, state };
 }
 
 /** Linux zombies keep pid/starttime until reaped; they are not live survivors. */
@@ -650,8 +660,35 @@ function readLinuxChildPids(pid: number): ReadonlyArray<number> {
   return [...childPids];
 }
 
+async function readLinuxProcessSnapshot(): Promise<ReadonlyArray<AcpPosixProcessIdentity>> {
+  const entries = (await NodeFSP.readdir("/proc", { withFileTypes: true })).filter(
+    (entry) => entry.isDirectory() && /^[1-9][0-9]*$/.test(entry.name),
+  );
+  const identities: AcpPosixProcessIdentity[] = [];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(16, entries.length) }, async () => {
+      while (next < entries.length) {
+        const pid = Number(entries[next++]!.name);
+        try {
+          const [stat, executable] = await Promise.all([
+            NodeFSP.readFile(`/proc/${pid}/stat`, "utf8"),
+            NodeFSP.readlink(`/proc/${pid}/exe`).catch(() => undefined),
+          ]);
+          const identity = parseLinuxProcessIdentity(pid, stat, () => executable);
+          if (identity !== undefined) identities.push(identity);
+        } catch {
+          /* Processes can exit or become inaccessible during a snapshot. */
+        }
+      }
+    }),
+  );
+  return identities;
+}
+
 function makeLinuxProcessTreeController(): AcpPosixProcessTreeController {
   return {
+    snapshotAsync: readLinuxProcessSnapshot,
     childPidsOf: readLinuxChildPids,
     childrenOf: (pid) =>
       readLinuxChildPids(pid).flatMap((childPid) => {
@@ -935,13 +972,13 @@ export function terminatePosixOwnedProcessTree(input: {
 
   const fail = (detail: string, cause?: unknown) =>
     new AcpProcessGroupTerminationError({ detail, ...(cause === undefined ? {} : { cause }) });
-  const snapshot = () => {
-    try {
-      return input.controller.snapshot();
-    } catch (cause) {
-      throw fail(`Failed to snapshot ACP process tree ${input.rootPid}`, cause);
-    }
-  };
+  const snapshot = Effect.tryPromise({
+    try: async () =>
+      input.controller.snapshotAsync !== undefined
+        ? input.controller.snapshotAsync()
+        : input.controller.snapshot(),
+    catch: (cause) => fail(`Failed to snapshot ACP process tree ${input.rootPid}`, cause),
+  });
   const discover = (table: ReadonlyArray<AcpPosixProcessIdentity>) =>
     capturePosixOwnershipLedger({
       controller: input.controller,
@@ -950,8 +987,11 @@ export function terminatePosixOwnedProcessTree(input: {
       rootPid: input.rootPid,
       table,
     });
-  const signalPhase = (signal: NodeJS.Signals, includeRoot: boolean) => {
-    const table = snapshot();
+  const signalPhase = (
+    signal: NodeJS.Signals,
+    includeRoot: boolean,
+    table: ReadonlyArray<AcpPosixProcessIdentity>,
+  ) => {
     discover(table);
     const byPid = new Map(table.map((entry) => [entry.pid, entry]));
     const current = input.controller.identity(process.pid);
@@ -1028,26 +1068,29 @@ export function terminatePosixOwnedProcessTree(input: {
   return Effect.gen(function* () {
     const passes = Math.max(2, Math.min(input.discoveryPasses ?? 4, 8));
     for (let pass = 0; pass < passes; pass += 1) {
+      const table = yield* snapshot;
       yield* Effect.try({
-        try: () => signalPhase("SIGTERM", false),
+        try: () => signalPhase("SIGTERM", false, table),
         catch: (cause) => cause as AcpProcessGroupTerminationError,
       });
       yield* Effect.sleep("10 millis");
     }
+    const termTable = yield* snapshot;
     yield* Effect.try({
-      try: () => signalPhase("SIGTERM", true),
+      try: () => signalPhase("SIGTERM", true, termTable),
       catch: (cause) => cause as AcpProcessGroupTerminationError,
     });
     const grace = input.grace ?? "1 second";
     if (grace !== 0) yield* Effect.sleep(grace);
     for (let pass = 0; pass < passes; pass += 1) {
+      const table = yield* snapshot;
       yield* Effect.try({
-        try: () => signalPhase("SIGKILL", true),
+        try: () => signalPhase("SIGKILL", true, table),
         catch: (cause) => cause as AcpProcessGroupTerminationError,
       });
       yield* Effect.sleep("10 millis");
     }
-    const finalTable = snapshot();
+    const finalTable = yield* snapshot;
     discover(finalTable);
     const survivors = new Map(finalTable.map((entry) => [entry.pid, entry]));
     const residual = [...ledger.values()].filter((owned) => {

@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off - Durable local process claims use a process epoch and UTC receipts.
+import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import * as NodeCrypto from "node:crypto";
 import {
   OrganizationWorkError,
@@ -117,6 +118,7 @@ const finishDrain = (organizationId: OrganizationId) =>
     const completedAt = new Date().toISOString();
     yield* sql`UPDATE organization_live_work_drains SET completed_at = ${completedAt}
       WHERE organization_id = ${organizationId} AND completed_at IS NULL`;
+    yield* OrganizationWorkStatusChanges.changed(organizationId);
     return { organizationId, state: "paused" as const, requestedAt: row.requested_at };
   });
 
@@ -175,6 +177,7 @@ export const requestOrganizationWorkDrain = (
         yield* sql`INSERT INTO organization_live_work_drains
           (organization_id, request_id, requested_by, requested_at, completed_at)
           VALUES (${input.organizationId}, ${input.requestId}, ${principal.subject}, ${requestedAt}, NULL)`;
+        yield* OrganizationWorkStatusChanges.changed(input.organizationId);
         return yield* finishDrain(input.organizationId);
       }),
     );
@@ -204,6 +207,7 @@ const claimPhase = (workId: OrganizationWorkId, phase: Phase) =>
         yield* sql`INSERT INTO organization_live_work_phase_claims
           (work_id, organization_id, phase, owner_epoch, started_at)
           VALUES (${workId}, ${work.organization_id}, ${phase}, ${processEpoch}, ${startedAt})`;
+        yield* OrganizationWorkStatusChanges.changed(work.organization_id as OrganizationId);
         return { organizationId: work.organization_id as OrganizationId, workId };
       }),
     );
@@ -225,6 +229,7 @@ const releasePhase = (claim: {
     yield* sql`DELETE FROM organization_live_work_phase_claims
       WHERE work_id = ${claim.workId} AND organization_id = ${claim.organizationId}
         AND owner_epoch = ${processEpoch}`;
+    yield* OrganizationWorkStatusChanges.changed(claim.organizationId);
     yield* sql.withTransaction(finishDrain(claim.organizationId)).pipe(
       Effect.catch(() =>
         Effect.logWarning("Organization drain completion needs a retry", {
@@ -303,6 +308,7 @@ export const reconcileOrganizationWorkDrainsAfterRecovery = Effect.gen(function*
   for (const row of stale) {
     yield* sql`DELETE FROM organization_live_work_phase_claims
       WHERE organization_id = ${row.organization_id} AND owner_epoch <> ${processEpoch}`;
+    yield* OrganizationWorkStatusChanges.changed(row.organization_id as OrganizationId);
   }
   const drains = yield* sql<{ organization_id: string }>`SELECT organization_id
     FROM organization_live_work_drains WHERE completed_at IS NULL`;

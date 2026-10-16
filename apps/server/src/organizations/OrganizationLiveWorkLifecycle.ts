@@ -1,3 +1,4 @@
+import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import type {
   OrganizationId,
   OrganizationLifecycleInput,
@@ -131,6 +132,7 @@ export const resumePausedOrganization = (
           );
           yield* sql`DELETE FROM organization_live_work_drains
             WHERE organization_id = ${input.organizationId} AND completed_at IS NOT NULL`;
+          yield* OrganizationWorkStatusChanges.changed(input.organizationId);
           return resumed;
         }),
       )

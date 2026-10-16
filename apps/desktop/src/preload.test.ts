@@ -7,11 +7,18 @@ const mocks = vi.hoisted(() => ({
   expose: vi.fn(),
   invoke: vi.fn(),
   sendSync: vi.fn(),
+  on: vi.fn(),
+  removeListener: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld: mocks.expose },
-  ipcRenderer: { invoke: mocks.invoke, sendSync: mocks.sendSync },
+  ipcRenderer: {
+    invoke: mocks.invoke,
+    sendSync: mocks.sendSync,
+    on: mocks.on,
+    removeListener: mocks.removeListener,
+  },
   webFrame: {},
   webUtils: {},
 }));
@@ -33,6 +40,23 @@ describe("desktop preload local environment controls", () => {
     vi.stubGlobal("window", { addEventListener: vi.fn() });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("removes the exact topology listener and treats invalid sync responses as failed reads", async () => {
+    const bridge = await loadBridge();
+    const listener = vi.fn();
+    const cleanup = bridge.onLocalEnvironmentBootstrapsChanged!(listener);
+    const [channel, handler] = mocks.on.mock.calls[0]!;
+    expect(channel).toBe(IpcChannels.LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL);
+    handler();
+    expect(listener).toHaveBeenCalledOnce();
+    cleanup();
+    expect(mocks.removeListener).toHaveBeenCalledWith(channel, handler);
+    expect(() => bridge.getLocalEnvironmentBootstraps()).toThrow(
+      "Could not read desktop environment topology.",
+    );
+    mocks.sendSync.mockReturnValue([]);
+    expect(bridge.getLocalEnvironmentBootstraps()).toEqual([]);
+  });
 
   it("exposes the persisted local mode before the renderer bootstraps its primary session", async () => {
     mocks.sendSync.mockImplementation((channel) =>

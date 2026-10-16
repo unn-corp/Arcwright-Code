@@ -1,3 +1,4 @@
+import { useElapsedNow } from "../hooks/useElapsedNow";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -335,25 +336,19 @@ function GitActionElapsedTime({
   startedAtMs: number | null;
   className?: string;
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (startedAtMs === null) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1_000);
-    return () => window.clearInterval(intervalId);
-  }, [startedAtMs]);
+  const elapsedRef = useRef<HTMLParagraphElement>(null);
+  const nowMs = useElapsedNow(startedAtMs !== null, elapsedRef);
 
   const elapsed = formatGitActionElapsed(startedAtMs, nowMs);
   if (!elapsed) {
     return null;
   }
 
-  return <p className={className}>{elapsed}</p>;
+  return (
+    <p ref={elapsedRef} className={className}>
+      {elapsed}
+    </p>
+  );
 }
 
 function GitActionProgressButtonContent({

@@ -458,6 +458,7 @@ import {
   OrganizationWorkDrainInput,
   OrganizationWorkDrainStatusInput,
   OrganizationWorkDrainStatus,
+  OrganizationWorkStatusSnapshot,
 } from "./organizationWorkDrain.ts";
 import {
   OrganizationEmergencyStopRequestInput,
@@ -591,6 +592,7 @@ export const WS_METHODS = {
   organizationsActivateWorkIntent: "organizations.workIntents.activate",
   organizationsCancelWork: "organizations.work.cancel",
   organizationsRequestWorkDrain: "organizations.work.drain",
+  organizationsSubscribeWorkStatus: "organizations.work.subscribeStatus",
   organizationsGetWorkDrainStatus: "organizations.work.drainStatus",
   organizationsRequestEmergencyStop: "organizations.work.emergencyStop",
   organizationsGetEmergencyStopStatus: "organizations.work.emergencyStopStatus",
@@ -1132,6 +1134,15 @@ export const WsOrganizationsGetWorkDrainStatusRpc = Rpc.make(
     payload: OrganizationWorkDrainStatusInput,
     success: OrganizationWorkDrainStatus,
     error: Schema.Union([OrganizationWorkError, EnvironmentAuthorizationError]),
+  },
+);
+export const WsOrganizationsSubscribeWorkStatusRpc = Rpc.make(
+  WS_METHODS.organizationsSubscribeWorkStatus,
+  {
+    payload: OrganizationWorkDrainStatusInput,
+    success: OrganizationWorkStatusSnapshot,
+    error: Schema.Union([OrganizationWorkError, EnvironmentAuthorizationError]),
+    stream: true,
   },
 );
 export const WsOrganizationsRequestEmergencyStopRpc = Rpc.make(
@@ -2861,6 +2872,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrganizationsCancelWorkRpc,
   WsOrganizationsRequestWorkDrainRpc,
   WsOrganizationsGetWorkDrainStatusRpc,
+  WsOrganizationsSubscribeWorkStatusRpc,
   WsOrganizationsRequestEmergencyStopRpc,
   WsOrganizationsGetEmergencyStopStatusRpc,
   WsOrganizationsCreateStandingWorkAuthorizationRpc,
@@ -3146,6 +3158,7 @@ export const ForkWsRpcGroup = RpcGroup.make(
   WsOrganizationsCancelWorkRpc,
   WsOrganizationsRequestWorkDrainRpc,
   WsOrganizationsGetWorkDrainStatusRpc,
+  WsOrganizationsSubscribeWorkStatusRpc,
   WsOrganizationsRequestEmergencyStopRpc,
   WsOrganizationsGetEmergencyStopStatusRpc,
   WsOrganizationsCreateStandingWorkAuthorizationRpc,

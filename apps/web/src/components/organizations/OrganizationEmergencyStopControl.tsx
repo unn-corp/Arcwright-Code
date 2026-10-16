@@ -1,11 +1,11 @@
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { Organization } from "@t3tools/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
+import { useOrganizationEmergencyStopStatus } from "../../state/organizationWorkStatus";
 import { randomUUID } from "../../lib/utils";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { organizationEnvironment } from "../../state/organizations";
-import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Card, CardPanel } from "../ui/card";
@@ -20,36 +20,13 @@ export function OrganizationEmergencyStopControl({
   readonly onRefresh: () => void;
 }) {
   const environmentId = usePrimaryEnvironmentId();
-  const status = useEnvironmentQuery(
-    environmentId === null
-      ? null
-      : organizationEnvironment.getEmergencyStopStatus({
-          environmentId,
-          input: { organizationId: organization.id },
-        }),
-  );
+  const status = useOrganizationEmergencyStopStatus(organization.id, offline);
   const request = useAtomCommand(organizationEnvironment.requestEmergencyStop, {
     reportFailure: false,
   });
   const requestId = useRef(randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (
-      offline ||
-      status.data?.state !== "requested" ||
-      (status.data.admittedPhases === 0 && status.data.unverifiedProviderLaunches === 0)
-    )
-      return;
-    const timer = setInterval(status.refresh, 5_000);
-    return () => clearInterval(timer);
-  }, [
-    offline,
-    status.data?.state,
-    status.data?.admittedPhases,
-    status.data?.unverifiedProviderLaunches,
-    status.refresh,
-  ]);
 
   async function stop() {
     if (offline || busy || environmentId === null || status.data?.state !== "none") return;

@@ -1,3 +1,4 @@
+import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import {
   Organization,
   OrganizationAuditEntry,
@@ -862,6 +863,7 @@ const make = Effect.gen(function* () {
           `;
           yield* sql`DELETE FROM organization_live_work_drains
             WHERE organization_id = ${current.id} AND completed_at IS NOT NULL`;
+          yield* OrganizationWorkStatusChanges.changed(current.id);
         }
         return yield* bump({
           current,

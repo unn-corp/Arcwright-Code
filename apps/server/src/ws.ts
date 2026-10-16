@@ -625,6 +625,7 @@ const CoreWsRpcGroup = WsRpcGroup.omit(
   WS_METHODS.organizationsCancelWork,
   WS_METHODS.organizationsRequestWorkDrain,
   WS_METHODS.organizationsGetWorkDrainStatus,
+  WS_METHODS.organizationsSubscribeWorkStatus,
   WS_METHODS.organizationsRequestEmergencyStop,
   WS_METHODS.organizationsGetEmergencyStopStatus,
   WS_METHODS.organizationsReviewWork,

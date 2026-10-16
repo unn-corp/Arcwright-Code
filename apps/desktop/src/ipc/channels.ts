@@ -143,3 +143,6 @@ export const COMPLETE_LEGACY_LOCAL_STORAGE_CHANNEL = "desktop:complete-legacy-lo
 
 export const PREVIEW_CAPTURE_ANNOTATION_SNAPSHOT_CHANNEL =
   "desktop:preview-capture-annotation-snapshot";
+
+export const LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL =
+  "desktop:local-environment-topology-changed";

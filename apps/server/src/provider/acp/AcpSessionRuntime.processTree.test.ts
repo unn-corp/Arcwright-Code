@@ -73,6 +73,37 @@ function processExists(pid: number): boolean {
 }
 
 describe("terminatePosixOwnedProcessTree", () => {
+  it.live("uses asynchronous snapshots while revalidating exact identities before signalling", () =>
+    Effect.gen(function* () {
+      const fixture = makeController({
+        processes: [server(), identity(100, process.pid, 100, 100), identity(110, 100, 110, 110)],
+      });
+      let snapshots = 0;
+      const controller = {
+        ...fixture.controller,
+        snapshot: () => {
+          throw new Error("Synchronous full-table scan must not run");
+        },
+        snapshotAsync: async () => {
+          snapshots += 1;
+          return [...fixture.processes.values()];
+        },
+      };
+      yield* AcpSessionRuntime.terminatePosixOwnedProcessTree({
+        controller,
+        rootPid: 100,
+        grace: 0,
+        discoveryPasses: 2,
+      });
+      expect(snapshots).toBeGreaterThan(0);
+      expect(fixture.signals).toContain("process:110:SIGTERM");
+      expect(fixture.signals).toContain("process:100:SIGTERM");
+      expect(fixture.signals.some((signal) => signal.startsWith(`process:${process.pid}:`))).toBe(
+        false,
+      );
+    }),
+  );
+
   it("parses unified cgroup paths and escaped cgroup2 mountinfo", () => {
     expect(AcpSessionRuntime.parseUnifiedCgroupPath("0::/user.slice/app.scope\n")).toBe(
       "/user.slice/app.scope",

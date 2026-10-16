@@ -10,6 +10,7 @@ import * as Electron from "electron";
 
 import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 
+import { subscribeLocalEnvironmentTopology } from "../backend/topologyEvents.ts";
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
@@ -20,6 +21,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
+  LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
@@ -434,6 +436,12 @@ export const make = Effect.gen(function* () {
       },
     });
 
+    const unsubscribeTopology = subscribeLocalEnvironmentTopology(() => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL);
+      }
+    });
+    window.once("closed", unsubscribeTopology);
     yield* rendererHistory.register(window.webContents, { surface: "main" });
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);

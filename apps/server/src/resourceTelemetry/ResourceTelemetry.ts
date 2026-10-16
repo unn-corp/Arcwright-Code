@@ -9,6 +9,7 @@ import type {
   ResourceTelemetrySnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Cache from "effect/Cache";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -412,7 +413,7 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
   );
   const liveChanges = Stream.unwrap(Effect.map(subscribe, ({ changes }) => changes));
 
-  const readHistory: ResourceTelemetry["Service"]["readHistory"] = (input) =>
+  const readHistoryUncached: ResourceTelemetry["Service"]["readHistory"] = (input) =>
     Effect.gen(function* () {
       const readAt = yield* DateTime.now;
       const normalizedInput = normalizeResourceTelemetryHistoryInput(input);
@@ -445,6 +446,23 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
         }),
       });
     });
+  // Share only in-flight reads. A subsequent request must observe fresh health,
+  // desktop attribution and native samples, even after a sidecar restart.
+  const historyReads = yield* Cache.make({
+    capacity: 32,
+    timeToLive: 0,
+    lookup: (key: string) => {
+      const [windowMs, bucketMs] = key.split(":").map(Number);
+      // Publish the pending cache entry before a native callback can re-enter.
+      return Effect.yieldNow.pipe(
+        Effect.andThen(readHistoryUncached({ windowMs: windowMs!, bucketMs: bucketMs! })),
+      );
+    },
+  });
+  const readHistory: ResourceTelemetry["Service"]["readHistory"] = (input) => {
+    const normalized = normalizeResourceTelemetryHistoryInput(input);
+    return Cache.get(historyReads, `${normalized.windowMs}:${normalized.bucketMs}`);
+  };
   yield* nativeHealthSubscription.changes.pipe(
     Stream.runForEach(() => refreshHealth),
     Effect.forkScoped,

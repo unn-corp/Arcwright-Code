@@ -6,6 +6,7 @@ import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 
+import { subscribeElapsedClock } from "../../lib/elapsedClock";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { Button } from "../ui/button";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -48,8 +49,7 @@ export function ProviderSubagentBar(props: {
     };
     update();
     if (!live) return;
-    const id = setInterval(update, 1_000);
-    return () => clearInterval(id);
+    return subscribeElapsedClock(update, statusRef.current ?? undefined);
   }, [live, status]);
 
   return (

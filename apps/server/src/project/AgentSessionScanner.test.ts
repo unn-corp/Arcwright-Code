@@ -2107,7 +2107,8 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
           workspaceRoot: workspace,
         }).pipe(Effect.provideService(FileSystem.FileSystem, simulatedFileSystem));
 
-        expect(transcriptStatCount).toBe(2);
+        // Discovery, metadata-cache validation, then the import's fresh type check.
+        expect(transcriptStatCount).toBe(3);
         expect(transcriptOpenCount).toBe(1);
         expect(outcomes).toEqual([{ _tag: "Skipped" }]);
       }),
@@ -3200,3 +3201,48 @@ describe("parseAgentSessionTranscript", () => {
     expect(thread?.messages.at(-1)?.text).toBe("Assistant update 249");
   });
 });
+
+it.effect("reuses unchanged transcript metadata and invalidates it after replacement", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const base = yield* fs.makeTempDirectoryScoped({ prefix: "scanner-cache-" });
+      const claudeHomePath = path.join(base, "claude");
+      const codexHomePath = path.join(base, "codex");
+      const first = path.join(base, "first");
+      const second = path.join(base, "second");
+      yield* fs.makeDirectory(first, { recursive: true });
+      yield* fs.makeDirectory(second, { recursive: true });
+      const filePath = path.join(claudeHomePath, "projects", "project", "session.jsonl");
+      yield* writeTranscript({ filePath, contents: claudeSessionLine(first), mtimeMs: 1000 });
+      let opens = 0;
+      const tracked = {
+        ...fs,
+        open: (...args: Parameters<typeof fs.open>) => {
+          if (args[0] === filePath) opens += 1;
+          return fs.open(...args);
+        },
+      };
+      yield* Effect.gen(function* () {
+        const scanner = yield* AgentSessionScanner.AgentSessionScanner;
+        expect((yield* scanner.scan).candidates.map((candidate) => candidate.path)).toEqual([
+          first,
+        ]);
+        expect((yield* scanner.scan).candidates.map((candidate) => candidate.path)).toEqual([
+          first,
+        ]);
+        expect(opens).toBe(1);
+        yield* fs.remove(filePath);
+        yield* writeTranscript({ filePath, contents: claudeSessionLine(second), mtimeMs: 1000 });
+        expect((yield* scanner.scan).candidates.map((candidate) => candidate.path)).toEqual([
+          second,
+        ]);
+        expect(opens).toBe(2);
+      }).pipe(
+        Effect.provide(layerScannerTest({ claudeHomePath, codexHomePath })),
+        Effect.provideService(FileSystem.FileSystem, tracked),
+      );
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);

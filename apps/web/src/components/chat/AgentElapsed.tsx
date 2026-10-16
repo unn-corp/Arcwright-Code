@@ -3,6 +3,7 @@ import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
 import { useEffect, useRef } from "react";
 
+import { subscribeElapsedClock } from "../../lib/elapsedClock";
 function formatElapsedSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(seconds / 60);
@@ -60,8 +61,7 @@ export function AgentElapsed({
     };
     update();
     if (!live) return;
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
+    return subscribeElapsedClock(update, textRef.current ?? undefined);
   }, [live, startedAt, completedAt, agent.status, format]);
 
   const elapsedMs = deriveSubagentElapsedMs(agent, 0);

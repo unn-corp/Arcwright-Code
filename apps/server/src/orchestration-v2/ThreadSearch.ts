@@ -27,7 +27,11 @@ export class ThreadSearchError extends Schema.TaggedError<ThreadSearchError>()(
   }
 }
 
-const SearchRequest = Schema.Struct({ pattern: Schema.String, limit: Schema.Int });
+const SearchRequest = Schema.Struct({
+  pattern: Schema.String,
+  limit: Schema.Int,
+  indexedQuery: Schema.NullOr(Schema.String),
+});
 const SearchRow = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -84,7 +88,7 @@ export const make = Effect.gen(function* () {
   const searchRows = SqlSchema.findAll({
     Request: SearchRequest,
     Result: SearchRow,
-    execute: ({ pattern, limit }) => sql`
+    execute: ({ pattern, limit, indexedQuery }) => sql`
       WITH candidate AS (
         SELECT
           threads.thread_id,
@@ -104,6 +108,14 @@ export const make = Effect.gen(function* () {
           AND projects.deleted_at IS NULL
           AND messages.streaming = 0
           AND messages.role IN ('user', 'assistant')
+          ${
+            indexedQuery === null
+              ? sql``
+              : sql`AND messages.rowid IN (
+            SELECT rowid FROM orchestration_v2_message_search
+            WHERE orchestration_v2_message_search MATCH ${indexedQuery}
+          )`
+          }
           AND json_extract(messages.payload_json, '$.text') LIKE ${pattern} ESCAPE '!'
       ),
       ranked AS (
@@ -139,13 +151,19 @@ export const make = Effect.gen(function* () {
 
   const search: ThreadSearch["Service"]["search"] = Effect.fn("ThreadSearch.search")(
     function* (input) {
-      // The scan reads every message, so run it on the reader worker rather
-      // than the event loop.
+      // Trigrams narrow longer substrings; short queries retain exact LIKE
+      // semantics on the reader worker. Quoting keeps FTS operators literal.
+      const folded = foldAsciiCase(input.query);
+      const indexedQuery =
+        Array.from(folded).length >= 3 && !folded.includes("\0")
+          ? `"${folded.replaceAll('"', '""')}"`
+          : null;
       const rows = yield* sql
         .withTransaction(
           searchRows({
             pattern: `%${escapeLikePattern(input.query)}%`,
             limit: input.limit ?? 50,
+            indexedQuery,
           }),
         )
         .pipe(

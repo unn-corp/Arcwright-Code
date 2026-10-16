@@ -1,3 +1,4 @@
+import { OrganizationEmergencyStopStatus } from "./organizationEmergencyStop.ts";
 import * as Schema from "effect/Schema";
 import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { OrganizationId } from "./organizations.ts";
@@ -17,3 +18,10 @@ export const OrganizationWorkDrainStatus = Schema.Struct({
   requestedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrganizationWorkDrainStatus = typeof OrganizationWorkDrainStatus.Type;
+
+export const OrganizationWorkStatusSnapshot = Schema.Struct({
+  organizationId: OrganizationId,
+  drain: OrganizationWorkDrainStatus,
+  emergencyStop: OrganizationEmergencyStopStatus,
+});
+export type OrganizationWorkStatusSnapshot = typeof OrganizationWorkStatusSnapshot.Type;

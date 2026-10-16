@@ -216,6 +216,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       streams their progress (`projectClone.*`, `subscribeProjectClones`).
       Absent on older servers, where clients must clone with the blocking
       `sourceControl.cloneRepository` call instead. */
+  organizationWorkStatusPush: Schema.optionalKey(Schema.Boolean),
   projectCloneTracking: Schema.optionalKey(Schema.Boolean),
   /** Server detects `platform.machine` and persists the `environmentIcon`
       setting. Older servers drop the key on write, so clients show the

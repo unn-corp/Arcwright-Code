@@ -51,6 +51,7 @@ import {
 } from "@t3tools/contracts";
 import { waitForHttpReady as waitForHttpReadyShared } from "@t3tools/shared/httpReadiness";
 
+import { notifyLocalEnvironmentTopologyChanged } from "./topologyEvents.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import { DesktopMaintenanceBridge } from "../maintenance/DesktopMaintenanceBridge.ts";
@@ -698,13 +699,18 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
   const state = yield* Ref.make(initialState);
+  const updateState = (f: (state: BackendManagerState) => BackendManagerState) =>
+    Ref.update(state, f).pipe(Effect.tap(() => Effect.sync(notifyLocalEnvironmentTopologyChanged)));
+  const modifyState = <A>(f: (state: BackendManagerState) => readonly [A, BackendManagerState]) =>
+    Ref.modify(state, f).pipe(Effect.tap(() => Effect.sync(notifyLocalEnvironmentTopologyChanged)));
+
   const mutex = yield* Semaphore.make(1);
 
   const { logWarning: logInstanceWarning, logError: logInstanceError } =
     DesktopObservability.makeComponentLogger(`desktop-backend-instance:${spec.id}`);
 
   const updateActiveRun = (runId: number, f: (run: ActiveBackendRun) => ActiveBackendRun) =>
-    Ref.update(state, withActiveRun(runId, f));
+    updateState(withActiveRun(runId, f));
 
   const snapshot = Ref.get(state).pipe(
     Effect.map((current): DesktopBackendSnapshot => ({
@@ -718,7 +724,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   const currentConfig = Ref.get(state).pipe(Effect.map((current) => current.config));
 
   const cancelRestart = Effect.gen(function* () {
-    const restartFiber = yield* Ref.modify(state, (current) => [
+    const restartFiber = yield* modifyState((current) => [
       current.restartFiber,
       {
         ...current,
@@ -738,7 +744,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         const current = yield* Ref.get(state);
         if (Option.isSome(current.active)) {
           if (!current.desiredRunning) {
-            yield* Ref.update(state, (latest) => ({
+            yield* updateState((latest) => ({
               ...latest,
               desiredRunning: true,
             }));
@@ -748,9 +754,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
 
         if (current.ready) {
           yield* spec.onShutdown?.() ?? Effect.void;
-          yield* Ref.update(state, (latest) =>
-            latest.ready ? { ...latest, ready: false } : latest,
-          );
+          yield* updateState((latest) => (latest.ready ? { ...latest, ready: false } : latest));
         }
         const config = yield* spec.configResolve.pipe(
           Effect.tapError((error) =>
@@ -773,7 +777,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         const resetFatalPreflightCounter =
           !current.desiredRunning && current.preflightFailureAttempt > 0;
         yield* cancelRestart;
-        yield* Ref.update(state, (latest) => ({
+        yield* updateState((latest) => ({
           ...latest,
           desiredRunning: true,
           ready: false,
@@ -788,7 +792,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
             // Transient (WSL cold-starting, wslpath while the VM boots). Keep
             // retrying so the backend self-heals once WSL is ready. Reset a
             // prior bounded/fatal streak because this is a different failure.
-            yield* Ref.update(state, (latest) =>
+            yield* updateState((latest) =>
               latest.preflightFailureAttempt === 0
                 ? latest
                 : { ...latest, preflightFailureAttempt: 0 },
@@ -797,7 +801,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
             return;
           }
           const attemptLimit = retryLimit ?? MAX_PREFLIGHT_FAILURE_ATTEMPTS;
-          const attempt = yield* Ref.modify(state, (latest) => {
+          const attempt = yield* modifyState((latest) => {
             const next = latest.preflightFailureAttempt + 1;
             return [next, { ...latest, preflightFailureAttempt: next }] as const;
           });
@@ -809,7 +813,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
               reason,
               attempt,
             });
-            yield* Ref.update(state, (latest) => ({
+            yield* updateState((latest) => ({
               ...latest,
               desiredRunning: false,
               ready: false,
@@ -831,7 +835,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
             if (shouldRestart) {
               yield* scheduleRestart(reason);
             } else {
-              yield* Ref.update(state, (latest) => ({
+              yield* updateState((latest) => ({
                 ...latest,
                 desiredRunning: false,
                 ready: false,
@@ -844,7 +848,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         }
         // Clean preflight — reset the fatal counter so a later failure gets a
         // fresh allowance.
-        yield* Ref.update(state, (latest) =>
+        yield* updateState((latest) =>
           latest.preflightFailureAttempt === 0 ? latest : { ...latest, preflightFailureAttempt: 0 },
         );
 
@@ -854,7 +858,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         }
 
         const runScope = yield* Scope.make("sequential");
-        const runId = yield* Ref.modify(state, (latest) => [
+        const runId = yield* modifyState((latest) => [
           latest.nextRunId,
           {
             ...latest,
@@ -878,8 +882,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
           yield* mutex.withPermits(1)(
             Effect.gen(function* () {
               const { isCurrentRun, nextState, pid, exitObserved, stopRequested, wasReady } =
-                yield* Ref.modify(
-                  state,
+                yield* modifyState(
                   (
                     latest,
                   ): readonly [
@@ -945,7 +948,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
 
               if (isCurrentRun && nextState.desiredRunning) {
                 if (stateDirOwned && !stopRequested) {
-                  yield* Ref.update(state, (latest) => ({ ...latest, desiredRunning: false }));
+                  yield* updateState((latest) => ({ ...latest, desiredRunning: false }));
                   yield* (spec.onStateDirOwned?.() ?? Effect.void).pipe(Effect.ignore);
                   return;
                 }
@@ -978,7 +981,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
               exitObserved: true,
             })),
           onReady: Effect.fn("desktop.backendInstance.onReady")(function* () {
-            const isCurrentRun = yield* Ref.modify(state, (latest) => {
+            const isCurrentRun = yield* modifyState((latest) => {
               const activeRun = Option.getOrUndefined(latest.active);
               if (activeRun?.id !== runId) {
                 return [false, latest] as const;
@@ -1046,7 +1049,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   const scheduleRestart = Effect.fn("desktop.backendInstance.scheduleRestart")(function* (
     reason: string,
   ) {
-    const scheduled = yield* Ref.modify(state, (latest) => {
+    const scheduled = yield* modifyState((latest) => {
       if (!latest.desiredRunning || Option.isSome(latest.restartFiber)) {
         return [Option.none<Duration.Duration>(), latest] as const;
       }
@@ -1071,7 +1074,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         const restartFiber = yield* Effect.forkIn(
           Effect.sleep(delay).pipe(
             Effect.andThen(
-              Ref.modify(state, (latest) => {
+              modifyState((latest) => {
                 const shouldRestart = latest.desiredRunning;
                 return [
                   shouldRestart,
@@ -1091,7 +1094,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
           ),
           parentScope,
         );
-        yield* Ref.update(state, (latest) =>
+        yield* updateState((latest) =>
           Option.isNone(latest.restartFiber)
             ? {
                 ...latest,
@@ -1108,7 +1111,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   }) {
     const { active, restartFiber, notifyShutdown } = yield* mutex.withPermits(1)(
       Effect.gen(function* () {
-        const result = yield* Ref.modify(state, (latest) => {
+        const result = yield* modifyState((latest) => {
           const active = Option.map(latest.active, (run) =>
             run.exitObserved ? run : { ...run, stopRequested: true },
           );
@@ -1147,8 +1150,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
             return;
           }
           const cleanup = yield* mutex.withPermits(1)(
-            Ref.modify(
-              state,
+            modifyState(
               (
                 latest,
               ): readonly [

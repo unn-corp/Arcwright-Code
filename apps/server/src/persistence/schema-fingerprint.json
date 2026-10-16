@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "b6e52ef6db8d5c804244e07c14c56134c7e6be685ebd4918c5fdd70409b3c56c",
+  "schemaSha256": "565887ee8261fc45966cdcc39fe9d9ea66f032e90cd761d02667487a4945eba2",
   "objects": [
     {
       "type": "index",
@@ -1024,6 +1024,42 @@
     },
     {
       "type": "table",
+      "name": "orchestration_v2_message_search",
+      "tbl_name": "orchestration_v2_message_search",
+      "sql": "CREATE VIRTUAL TABLE orchestration_v2_message_search USING fts5(text, tokenize='trigram case_sensitive 1')"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_message_search_config",
+      "tbl_name": "orchestration_v2_message_search_config",
+      "sql": "CREATE TABLE 'orchestration_v2_message_search_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_message_search_content",
+      "tbl_name": "orchestration_v2_message_search_content",
+      "sql": "CREATE TABLE 'orchestration_v2_message_search_content'(id INTEGER PRIMARY KEY, c0)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_message_search_data",
+      "tbl_name": "orchestration_v2_message_search_data",
+      "sql": "CREATE TABLE 'orchestration_v2_message_search_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_message_search_docsize",
+      "tbl_name": "orchestration_v2_message_search_docsize",
+      "sql": "CREATE TABLE 'orchestration_v2_message_search_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    },
+    {
+      "type": "table",
+      "name": "orchestration_v2_message_search_idx",
+      "tbl_name": "orchestration_v2_message_search_idx",
+      "sql": "CREATE TABLE 'orchestration_v2_message_search_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    },
+    {
+      "type": "table",
       "name": "orchestration_v2_projection_checkpoint_scopes",
       "tbl_name": "orchestration_v2_projection_checkpoint_scopes",
       "sql": "CREATE TABLE orchestration_v2_projection_checkpoint_scopes (\n      scope_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      node_id TEXT NOT NULL,\n      parent_scope_id TEXT,\n      provider_thread_id TEXT,\n      kind TEXT NOT NULL,\n      ordinal_within_parent INTEGER NOT NULL,\n      advances_app_run_count INTEGER NOT NULL,\n      created_at TEXT NOT NULL,\n      payload_json TEXT NOT NULL\n    )"
@@ -1537,6 +1573,24 @@
       "name": "scheduled_tasks",
       "tbl_name": "scheduled_tasks",
       "sql": "CREATE TABLE scheduled_tasks (\n      task_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      enabled INTEGER NOT NULL,\n      schedule_json TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      thread_id TEXT,\n      workspace_strategy_json TEXT NOT NULL,\n      model_selection_json TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      created_by TEXT NOT NULL,\n      creation_source TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      next_run_at TEXT,\n      last_run_at TEXT,\n      last_run_status TEXT NOT NULL,\n      last_run_error TEXT,\n      run_count INTEGER NOT NULL\n    , webhook_token TEXT, webhook_secret TEXT)"
+    },
+    {
+      "type": "trigger",
+      "name": "orchestration_v2_message_search_delete",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE TRIGGER orchestration_v2_message_search_delete\n    AFTER DELETE ON orchestration_v2_projection_messages BEGIN\n      DELETE FROM orchestration_v2_message_search WHERE rowid = old.rowid;\n    END"
+    },
+    {
+      "type": "trigger",
+      "name": "orchestration_v2_message_search_insert",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE TRIGGER orchestration_v2_message_search_insert\n    AFTER INSERT ON orchestration_v2_projection_messages\n    WHEN new.streaming = 0 AND new.role IN ('user', 'assistant') BEGIN\n      INSERT INTO orchestration_v2_message_search(rowid, text)\n      VALUES (new.rowid, lower(json_extract(new.payload_json, '$.text')));\n    END"
+    },
+    {
+      "type": "trigger",
+      "name": "orchestration_v2_message_search_update",
+      "tbl_name": "orchestration_v2_projection_messages",
+      "sql": "CREATE TRIGGER orchestration_v2_message_search_update\n    AFTER UPDATE ON orchestration_v2_projection_messages\n    WHEN old.streaming = 0 OR new.streaming = 0 BEGIN\n      DELETE FROM orchestration_v2_message_search WHERE rowid = old.rowid;\n      INSERT INTO orchestration_v2_message_search(rowid, text)\n      SELECT new.rowid, lower(json_extract(new.payload_json, '$.text'))\n      WHERE new.streaming = 0 AND new.role IN ('user', 'assistant');\n    END"
     },
     {
       "type": "trigger",
