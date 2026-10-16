@@ -40,7 +40,7 @@ jobs:
           run-install: false
 
       - name: Install diagnostic dependencies
-        run: vp install
+        run: vp install --filter=@t3tools/monorepo --filter=t3... --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=@t3tools/scripts...
 
       # These runs diagnose the exact mandatory suites; they never produce release receipts.
       - name: Run safety suite with retained failure details

@@ -65,8 +65,8 @@ Fork release jobs install only the source workspaces their commands use, plus th
 for Vite+ tooling referenced by the root configuration. The root package has no workspace
 dependencies, so selecting it does not pull in the standalone upstream Expo app in `apps/mobile`.
 The recovery-helper builder bundles `packages/shared` with Vite+, so its source checkout also
-installs `@t3tools/shared` and its workspace dependencies. The release safety suites install the
-server, desktop, web, and scripts workspaces and their dependencies; this includes
+installs `@t3tools/shared` and its workspace dependencies. The release and diagnostic safety
+suites install the server, desktop, web, and scripts workspaces and their dependencies; this includes
 `packages/shared` through those dependencies and the web workspace needed to prepare the fork's
 Android PWA tests. The Expo app's native dependencies add substantial install time without
 supporting these release commands. The release suites and their required test files remain
