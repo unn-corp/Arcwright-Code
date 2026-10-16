@@ -61,6 +61,17 @@ helper skips hardened workers; on writable Ubuntu workers it uses architecture-s
 mirrors without assuming a hosted image's `ubuntu.sources` file. Do not add sudo or make the
 existing pool's root filesystem writable to run these workflows.
 
+Fork release jobs install only the source workspaces their commands use, plus the root workspace
+for Vite+ tooling referenced by the root configuration. The root package has no workspace
+dependencies, so selecting it does not pull in the standalone upstream Expo app in `apps/mobile`.
+The recovery-helper builder bundles `packages/shared` with Vite+, so its source checkout also
+installs `@t3tools/shared` and its workspace dependencies. The release safety suites install the
+server, desktop, web, and scripts workspaces and their dependencies; this includes
+`packages/shared` through those dependencies and the web workspace needed to prepare the fork's
+Android PWA tests. The Expo app's native dependencies add substantial install time without
+supporting these release commands. The release suites and their required test files remain
+unchanged.
+
 Linux workers must set `TMPDIR` to an executable directory under their disposable workspace,
 such as `/_work/_temp`, and create it for the runner user before accepting work. The hardened
 pool's `/tmp` is mounted with `noexec`; compiler fixtures and native helper tests must use the

@@ -814,7 +814,7 @@ jobs:
 
       - name: Install source dependencies
         working-directory: source
-        run: vp install
+        run: vp install --filter=@t3tools/monorepo --filter=@t3tools/shared...
 
       - name: Build recovery helper
         working-directory: tooling
@@ -1135,7 +1135,7 @@ jobs:
 
       - name: Install source dependencies
         working-directory: source
-        run: vp install
+        run: vp install --filter=@t3tools/monorepo --filter=t3... --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=@t3tools/scripts...
 
       - name: Setup JDK 17
         if: matrix.suite == 'native-android'
