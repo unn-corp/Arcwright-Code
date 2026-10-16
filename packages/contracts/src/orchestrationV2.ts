@@ -548,6 +548,7 @@ export const OrchestrationV2Run = Schema.Struct({
   modelSelection: ModelSelection,
   providerThreadId: Schema.NullOr(ProviderThreadId),
   userMessageId: MessageId,
+  /** Explicit target for the next assistant response, consumed atomically when that response is persisted. */
   replyTo: Schema.optional(MessageReplyTarget),
   rootNodeId: Schema.NullOr(NodeId),
   activeAttemptId: Schema.NullOr(RunAttemptId),

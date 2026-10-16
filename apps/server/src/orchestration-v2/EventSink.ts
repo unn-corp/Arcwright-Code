@@ -1,5 +1,7 @@
 import {
   CommandId,
+  EventId,
+  type MessageId,
   type OrchestrationV2Run,
   type MessageReplyTarget,
   OrchestrationV2DomainEvent,
@@ -332,12 +334,8 @@ const layerBase: Layer.Layer<
             : [],
         ),
       );
-      const replies = new Map<RunId, MessageReplyTarget>();
-      const incomingMessages = new Map(
-        events.flatMap((event) =>
-          event.type === "message.updated" ? [[event.payload.id, event.payload] as const] : [],
-        ),
-      );
+      const replies = new Map<MessageId, MessageReplyTarget | null>();
+      const consumedReplies = new Map<RunId, OrchestrationV2DomainEvent>();
       const assistantReply = (event: OrchestrationV2DomainEvent) =>
         Effect.gen(function* () {
           if (
@@ -358,28 +356,42 @@ const layerBase: Layer.Layer<
             if (run) replyRuns.set(run.id, run);
           }
           if (!run) return event;
-          let replyTo = replies.get(run.id) ?? run.replyTo;
-          if (!replyTo) {
-            let target = incomingMessages.get(run.userMessageId);
-            if (!target) {
-              const projection = yield* projectionStore.getThreadRecords(
+          const messageId =
+            event.type === "message.updated"
+              ? event.payload.id
+              : event.type === "turn-item.updated" && event.payload.type === "assistant_message"
+                ? event.payload.messageId
+                : null;
+          let replyTo: MessageReplyTarget | undefined;
+          if (messageId !== null) {
+            if (replies.has(messageId)) replyTo = replies.get(messageId) ?? undefined;
+            else {
+              const existing = yield* projectionStore.getThreadRecords(
                 event.threadId,
                 ["messages"],
-                { messageIds: [run.userMessageId] },
+                {
+                  messageIds: [messageId],
+                },
               );
-              target = projection.messages[0];
+              replyTo = existing.messages[0]?.context?.replyTo;
+              // Only the next new response consumes an explicit selection. Streaming updates
+              // retain that response's link; later progress messages return to normal chat.
+              if (existing.messages.length === 0 && run.replyTo) {
+                replyTo = run.replyTo;
+                const cleared = { ...run, replyTo: undefined };
+                replyRuns.set(run.id, cleared);
+                consumedReplies.set(run.id, {
+                  type: "run.updated",
+                  id: EventId.make(`${event.id}:reply-consumed`),
+                  threadId: event.threadId,
+                  providerInstanceId: run.providerInstanceId,
+                  occurredAt: event.occurredAt,
+                  payload: cleared,
+                });
+              }
+              replies.set(messageId, replyTo ?? null);
             }
-            if (target && target.role !== "system")
-              replyTo = {
-                threadId: event.threadId,
-                messageId: target.id,
-                role: target.role,
-                text: target.text.slice(0, 4000),
-                ...(target.context?.author ? { author: target.context.author } : {}),
-                ...(target.context?.agent ? { agent: target.context.agent } : {}),
-              };
           }
-          if (replyTo) replies.set(run.id, replyTo);
           const context = {
             ...(("context" in message ? message.context : undefined) ?? {
               version: 1 as const,
@@ -417,7 +429,7 @@ const layerBase: Layer.Layer<
                 .pipe(Effect.flatMap((payload) => assistantReply({ ...event, payload })))
             : assistantReply(event),
         { concurrency: 1 },
-      );
+      ).pipe(Effect.map((normalized) => [...normalized, ...consumedReplies.values()]));
     };
 
     const applyStoredEvents = (storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>) =>

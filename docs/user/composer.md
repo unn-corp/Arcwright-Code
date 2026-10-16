@@ -29,9 +29,11 @@ ancestors and replies, using the same chat formatting and attachment previews.
 Unrelated messages stay in the main conversation. Long reply threads offer
 **Load more replies**. You can reply from this view too.
 
-Agent responses link to the user message that started their turn. Agents with the
-Arcwright Code MCP tools can explicitly reply to an earlier user message in their
-own active conversation. These controls are not yet implemented in the upstream
+Agent responses stay in the main conversation by default. When several messages
+or parallel topics make the answer’s target unclear, agents with the Arcwright Code
+MCP tools can explicitly reply to a user message in their own active conversation.
+That choice links one response, including its streaming updates; later progress
+updates remain in the main conversation. These controls are not yet implemented in the upstream
 React Native client.
 
 ## Formatting

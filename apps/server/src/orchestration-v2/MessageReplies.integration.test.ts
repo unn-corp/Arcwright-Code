@@ -238,7 +238,7 @@ it.effect(
 );
 
 it.effect(
-  "links agent message and timeline events to the initiating user, with explicit overrides",
+  "keeps normal output unthreaded and applies an explicit reply to one streamed response",
   () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("thread:agent-reply");
@@ -276,7 +276,7 @@ it.effect(
           },
         ],
       });
-      const emitAssistant = (suffix: string) =>
+      const emitAssistant = (suffix: string, revision = "") =>
         Effect.gen(function* () {
           const id = MessageId.make(`assistant:${suffix}`);
           const message: OrchestrationV2ConversationMessage = {
@@ -297,7 +297,7 @@ it.effect(
             events: [
               {
                 type: "message.updated",
-                id: EventId.make(`answer:${suffix}`),
+                id: EventId.make(`answer:${suffix}:${revision}`),
                 threadId,
                 runId: run.id,
                 occurredAt: now,
@@ -305,7 +305,7 @@ it.effect(
               },
               {
                 type: "turn-item.updated",
-                id: EventId.make(`item:${suffix}`),
+                id: EventId.make(`item:${suffix}:${revision}`),
                 threadId,
                 runId: run.id,
                 occurredAt: now,
@@ -348,8 +348,8 @@ it.effect(
           return records.messages[0]!;
         });
       const answer = yield* emitAssistant("default");
-      assert.equal(answer.context?.replyTo?.messageId, "current-user");
-      assert.equal(answer.context?.replyTo?.author?.photo, "data:image/webp;base64,AA==");
+      assert.equal(answer.context?.replyTo, undefined);
+      assert.equal((yield* emitAssistant("progress")).context?.replyTo, undefined);
       assert.deepEqual(answer.context?.agent, {
         threadId,
         providerInstanceId: run.providerInstanceId,
@@ -363,6 +363,31 @@ it.effect(
         messageId: earlier.id,
       });
       assert.equal((yield* emitAssistant("explicit")).context?.replyTo?.messageId, earlier.id);
+      assert.equal(
+        (yield* emitAssistant("explicit", "stream-update")).context?.replyTo?.messageId,
+        earlier.id,
+      );
+      assert.equal((yield* emitAssistant("after-reply")).context?.replyTo, undefined);
+      assert.equal(
+        (yield* store.getThreadRecords(threadId, ["runs"], { runIds: [run.id] })).runs[0]?.replyTo,
+        undefined,
+      );
+      yield* orchestrator.dispatch({
+        type: "run.reply-target.set",
+        commandId: CommandId.make("agent-select-current"),
+        threadId,
+        runId: run.id,
+        messageId: MessageId.make("current-user"),
+      });
+      // A late delta for an earlier reply keeps its own target and cannot consume the next selection.
+      assert.equal(
+        (yield* emitAssistant("explicit", "late-update")).context?.replyTo?.messageId,
+        earlier.id,
+      );
+      const currentReply = yield* emitAssistant("current-explicit");
+      assert.equal(currentReply.context?.replyTo?.messageId, "current-user");
+      assert.equal(currentReply.context?.replyTo?.author?.photo, "data:image/webp;base64,AA==");
+      assert.equal((yield* emitAssistant("after-current-reply")).context?.replyTo, undefined);
       // A queued follow-up points at the current response. Linking that response back
       // to the queued user message, or the queued message to its own descendant, cycles.
       const queuedId = MessageId.make("queued-reply");

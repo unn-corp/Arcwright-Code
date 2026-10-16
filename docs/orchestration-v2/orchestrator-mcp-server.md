@@ -532,12 +532,15 @@ orchestration_error
 ## Direct chat replies
 
 `t3_message_reply` accepts a user `messageId` from `t3_thread_read` and optional
-`clientRequestId`. It sets the reply target for subsequent assistant output in
+`clientRequestId`. It sets the reply target for the next assistant response in
 the caller's current active run; it does not create a new turn or send another
 message. The caller must be a live provider session in its own conversation.
 Foreign, assistant, missing, terminal-run, and cyclic targets are rejected.
-Provider instructions explain calling the tool before writing the normal answer.
-Without an override, assistant output links to the initiating user message.
+Provider instructions recommend ordinary chat by default and selective replies only
+when several user messages or parallel topics need disambiguation. The event sink
+consumes the selection with the next response, preserves its link while streaming,
+and leaves subsequent progress messages unlinked. Without an explicit selection,
+assistant output has no reply link.
 
 ## Verification
 

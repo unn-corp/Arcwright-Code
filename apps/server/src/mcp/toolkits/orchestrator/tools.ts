@@ -237,7 +237,7 @@ export const ThreadUpdateTool = Tool.make("t3_thread_update", {
 
 const MessageReplyTool = Tool.make("t3_message_reply", {
   description:
-    "Reply directly to a user message in your current chat. Call this with the messageId from t3_thread_read before writing your normal response; subsequent assistant messages in this run receive a clickable reply indicator. No new turn is started. You may only target user messages in your own active conversation.",
+    "Optionally reply directly to a user message in your current chat when multiple messages or parallel topics need disambiguation. Use ordinary chat by default, without this tool for routine progress updates. Call this with the messageId from t3_thread_read before writing your response; only the next assistant response receives a clickable reply indicator. Streaming updates keep that link; later messages are ordinary chat until you select another target. No new turn is started. You may only target user messages in your own active conversation.",
   parameters: OrchestratorMcpMessageReplyInput,
   success: OrchestratorMcpMessageReplyResult,
   failure: OrchestratorMcpFailure,

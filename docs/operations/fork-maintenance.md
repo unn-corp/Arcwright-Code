@@ -387,8 +387,10 @@ messages, reply chains and related-agent lists using the same identity rules. Se
 right-click/touch Reply, a persisted composer quote, and a focused reply-thread
 dialog. [MessageReplies.tsx](../../apps/web/src/components/chat/MessageReplies.tsx)
 and [messageReplies.ts](../../packages/shared/src/messageReplies.ts) own the UI
-and graph traversal. V2 message context holds links; the event sink links assistant
-output, and `t3_message_reply` lets live agents choose earlier user messages.
+and graph traversal. V2 message context holds links; assistant output is unlinked by
+default. `t3_message_reply` lets live agents select a user message when overlapping
+questions need clarification. The event sink consumes that selection for one response
+and preserves the saved link across streaming updates.
 The [composer guide](../user/composer.md#reply-to-a-message) describes use and the
 [internals guide](../internals/composer-context-references.md#direct-message-replies)
 describes persistence and bounded history reads. React Native UI is uncommissioned.

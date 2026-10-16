@@ -214,9 +214,12 @@ and rejects self/descendant cycles. Composer drafts persist the selected target;
 queued edits preserve, change, or remove it alongside other context.
 
 Provider turn-start and steer projections add the quoted target as context data.
-The central V2 event sink attaches the initiating user-message link to assistant
-conversation and timeline events, or uses the active run's explicit `replyTo`.
-This shared boundary applies across provider adapters.
+The central V2 event sink attaches a link only for an explicitly selected run
+`replyTo`. It consumes that selection with the first new assistant response in the
+same transaction and preserves the response’s saved link across streaming updates.
+Later messages stay unlinked unless the agent selects another target. The initiating
+user message is never an implicit reply target. This shared boundary applies across
+provider adapters.
 
 `orchestration.getMessageReplyChain` requires orchestration read scope and returns
 100 connected messages with an offset cursor. SQLite recursively follows parents
