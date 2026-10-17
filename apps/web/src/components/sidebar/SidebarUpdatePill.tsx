@@ -24,7 +24,6 @@ import {
 import { showDesktopUpdateDownloadedToast } from "../desktopUpdate.toast";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { ForkSidebarUpdateStatus } from "./ForkSidebarUpdateStatus";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { SidebarMenuItem } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -177,7 +176,7 @@ async function installLocalUpdate(
 }
 
 export function SidebarUpdatePill() {
-  return isAndroidPwa ? <ForkSidebarUpdateStatus /> : <SidebarUpdateControl />;
+  return isAndroidPwa ? null : <SidebarUpdateControl />;
 }
 
 function SidebarUpdateControl() {

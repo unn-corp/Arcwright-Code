@@ -1,4 +1,3 @@
-import { ForkSidebarUpdateStatus } from "./sidebar/ForkSidebarUpdateStatus";
 import { CollapsedThreadStatusIndicators } from "./sidebar/CollapsedThreadStatusIndicators";
 import { useServerConfigs } from "../state/entities";
 import { useExportThread } from "../hooks/useExportThread";
@@ -3745,7 +3744,6 @@ export default function LegacySidebar() {
         <SidebarThreadDetailPrewarmer key={scopedThreadKey(threadRef)} threadRef={threadRef} />
       ))}
       <SidebarChromeHeader isElectron={isElectron} />
-      {isElectron ? <ForkSidebarUpdateStatus /> : null}
 
       <SidebarProjectsContent
         showArm64IntelBuildWarning={showArm64IntelBuildWarning}

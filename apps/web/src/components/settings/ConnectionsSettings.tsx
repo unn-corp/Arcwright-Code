@@ -1,6 +1,6 @@
 import { LocalConnectCleanup } from "./LocalConnectCleanup";
 import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
-import { SidebarHostMaintenanceStatus } from "../sidebar/SidebarHostMaintenanceStatus";
+import { HostMaintenanceStatus } from "./HostMaintenanceStatus";
 import { HostUpdateSettings } from "./HostUpdateSettings";
 import { RenameEnvironmentDialog } from "./RenameEnvironmentDialog";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
@@ -1662,7 +1662,7 @@ function SavedBackendListRow({
         below={
           <>
             {isConnected ? (
-              <SidebarHostMaintenanceStatus
+              <HostMaintenanceStatus
                 environmentId={environmentId}
                 label={environment.label}
                 supported={supportsForkMaintenanceAdmission(

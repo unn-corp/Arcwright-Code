@@ -1,37 +1,25 @@
-import type { EnvironmentId, ForkUpdateStatus } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 
 import { hostForkUpdateController } from "../../state/hostForkUpdates";
 import { useForkUpdates } from "../../state/forkUpdates";
-import {
-  forkPhaseLabels,
-  forkStatusDescription,
-  sameForkReplacementTarget,
-} from "../forkUpdatePresentation";
+import { forkPhaseLabels, forkStatusDescription } from "../forkUpdatePresentation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
-export function SidebarHostMaintenanceStatus({
+export function HostMaintenanceStatus({
   environmentId,
   label,
   supported,
-  localStatus = null,
 }: {
   environmentId: EnvironmentId;
   label: string;
   supported: boolean;
-  localStatus?: ForkUpdateStatus | null;
 }) {
   const { status } = useForkUpdates(supported ? hostForkUpdateController(environmentId) : null);
-  if (
-    !status ||
-    status.phase === "idle" ||
-    status.phase === "completed" ||
-    sameForkReplacementTarget(status, localStatus)
-  )
-    return null;
+  if (!status || status.phase === "idle" || status.phase === "completed") return null;
   return (
     <div
-      data-sidebar-update-notice="host"
+      data-host-update-status=""
       role={status.phase === "failed" ? "alert" : "status"}
       className="min-w-0 rounded-md border px-2 py-1.5 text-xs"
     >

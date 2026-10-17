@@ -29,6 +29,10 @@ pins and recovery. These controls may wait for work to stop. They are separate
 from the desktop's upstream updater. Existing installed accounts and connections
 remain in their existing application data directories.
 
+Android update controls live in **Settings → General → App updates**, and named-host
+status lives in **Settings → Connections**. Background update checks continue independently
+of these screens. The sidebar keeps upstream desktop and provider update controls.
+
 ## Continue threads after restarts
 
 **Settings → General → Continue threads after restarts** is off by default.
