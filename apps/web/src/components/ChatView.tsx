@@ -420,21 +420,13 @@ import {
   DraftId,
 } from "../composerDraftStore";
 import {
-  appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "../lib/terminalContext";
-import {
-  appendElementContextsToPrompt,
-  type ElementContextDraft,
-  formatElementContextLabel,
-} from "../lib/elementContext";
-import {
-  appendPreviewAnnotationPrompt,
-  resolvePreviewAnnotationDispatchMode,
-} from "../lib/previewAnnotation";
-import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
+import { type ElementContextDraft, formatElementContextLabel } from "../lib/elementContext";
+import { resolvePreviewAnnotationDispatchMode } from "../lib/previewAnnotation";
+import { type ReviewCommentContext } from "../reviewCommentContext";
 import {
   ensureInlineContextReferences,
   removeInlineContextReference,

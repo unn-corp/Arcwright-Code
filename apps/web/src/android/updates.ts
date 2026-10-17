@@ -12,7 +12,7 @@ import { isAndroidPwa } from "../env";
  * origin-restricted messages and reports phone activity that must hold an installation.
  */
 export const ANDROID_UPDATER_COORDINATOR_ID = "android-native-updater";
-export const ANDROID_UPDATER_PARTICIPANT_ID = "android-phone";
+const ANDROID_UPDATER_PARTICIPANT_ID = "android-phone";
 
 export type AndroidUpdateBlockerReason =
   | "unknown-participant"

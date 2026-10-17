@@ -156,6 +156,12 @@ export const PreviewSnapshotTool = safeBrowserTool(
             "Write the screenshot PNG to disk and return its absolute path as screenshotPath. Unless includeImage=true, return only the url and screenshotPath. Defaults to false.",
         }),
       ),
+      saveToConversationEvidence: Schema.optional(
+        Schema.Boolean.annotate({
+          description:
+            "Opt in to the fork's per-conversation screenshot storage and retention. Only applies with save=true. Defaults to false, which uses upstream browser-artifact storage.",
+        }),
+      ),
     }),
     success: PreviewAutomationSnapshot,
     failure: PreviewToolFailure,

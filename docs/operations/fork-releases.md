@@ -33,8 +33,10 @@ separate saved preference in App updates and retains coordinator admission check
 
 ## Default agent delivery
 
-When a user asks any AI agent in this codebase to build, package, install, or update
-**Arcwright Code**, deliver a numbered nightly by default:
+Do not queue builds or publish nightlies unless the user explicitly asks to publish
+a nightly. Coding, cleanup, scans, fixes, commits, pushes, and general app updates
+do not commission a release. This replaces the former automatic nightly delivery
+default. When a nightly is explicitly requested:
 
 1. Check the fork's published releases and active release runs. If the latest eligible,
    verified nightly contains the requested changes and supports the target device,
@@ -62,7 +64,7 @@ An explicit user choice takes precedence: source-only work, a development/test b
 local-only packaging, a stable channel, or a pinned version. Locally built nightlies
 still follow the allocated identity and installation rules. Documentation or review
 work, and building an unrelated application, do not themselves commission an Arcwright
-release. This delivery default does not change workflow input defaults, enable
+release. This procedure does not change workflow input defaults, enable
 scheduled publication, change device update preferences, or bypass maintenance checks.
 Keep the [five-nightly/five-stable retention policy](#github-build-storage-retention)
 in force; avoid duplicate runs and unnecessary retained build copies.

@@ -621,8 +621,10 @@ the client's asset URL and media routing tests.
 
 **Behavior and entry.** Settings → Storage → Conversation evidence controls environment-wide
 cleanup when a conversation is archived or its evidence reaches the chosen age. Both policies
-start disabled. Saved agent browser screenshots and claimed recordings are owned by their
-conversation. Agents receive instructions and the `t3_evidence_directory` tool for other temporary
+start disabled. Claimed recordings are owned by their conversation. `preview_snapshot` retains
+upstream screenshot storage by default; `save=true` with `saveToConversationEvidence=true` opts in
+to conversation-owned storage. Text limits and image defaults remain upstream behavior. Agents
+receive instructions and the `t3_evidence_directory` tool for other temporary
 outputs; arbitrary shell writes are not redirected. Permanent deliverables belong outside this
 storage. Legacy browser captures and desktop-local recording copies retain their separate policy.
 

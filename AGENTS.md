@@ -34,15 +34,16 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
-- **Default app delivery for every AI agent:** when a user asks to build, package,
-  install, or update Arcwright Code, install the latest eligible, verified published
-  nightly that contains the requested changes, or commit and push the required changes
-  and publish a new pipeline-allocated nightly from the tested, pinned commit on `main`.
-  Reuse a suitable release or an existing run for that source. Follow the
+- **Nightly publication requires an explicit user request:** do not queue builds or
+  publish nightlies for coding, cleanup, scans, fixes, commits, pushes, or general
+  app updates. This replaces the former automatic nightly delivery default. When
+  the user explicitly asks to publish a nightly, use a pipeline-allocated nightly
+  from the tested, pinned commit on `main`, reusing a suitable release or existing run.
+  Follow the
   [delivery procedure](docs/operations/fork-releases.md#default-agent-delivery).
   Honor explicit source-only, development/test, local-only, stable, or pinned-version
   requests. Documentation, review, and unrelated app-development work do not themselves
-  commission an Arcwright release. This default does not enable scheduled publishing,
+  commission an Arcwright release. Publication does not enable scheduled publishing,
   change saved update preferences, or bypass native maintenance admission. Verify each
   admitted installation and document its actual nightly name and menu replacement.
 

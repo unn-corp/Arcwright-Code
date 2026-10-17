@@ -389,36 +389,45 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
   }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("rejects non-boolean snapshot image options before selecting a browser host", () =>
-  Effect.gen(function* () {
-    const server = yield* McpServer.McpServer;
-    for (const includeImage of ["false", 0, null]) {
-      const result = yield* server
-        .callTool({
-          name: "preview_snapshot",
-          arguments: { includeImage },
-        })
-        .pipe(
-          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
-          Effect.provideService(McpSchema.McpServerClient, client),
-        );
-      expect(result.isError).toBe(true);
-      expect(result.content).toEqual([{ type: "text", text: "Preview snapshot failed: AiError." }]);
-      expect(result.structuredContent).toEqual({
-        error: { _tag: "AiError", operation: "snapshot", failureCount: 1 },
-      });
-    }
-  }).pipe(Effect.provide(layerTest)),
+it.effect.each(["includeImage", "saveToConversationEvidence"])(
+  "rejects non-boolean snapshot %s before selecting a browser host",
+  (option) =>
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      for (const value of ["false", 0, null]) {
+        const result = yield* server
+          .callTool({
+            name: "preview_snapshot",
+            arguments: { [option]: value },
+          })
+          .pipe(
+            Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+        expect(result.isError).toBe(true);
+        expect(result.content).toEqual([
+          { type: "text", text: "Preview snapshot failed: AiError." },
+        ]);
+        expect(result.structuredContent).toEqual({
+          error: { _tag: "AiError", operation: "snapshot", failureCount: 1 },
+        });
+      }
+    }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("saves the snapshot PNG on request and reports its path", () =>
+it.effect.each([
+  { mode: "upstream by default", options: {}, evidence: false },
+  { mode: "explicit upstream", options: { saveToConversationEvidence: false }, evidence: false },
+  { mode: "conversation evidence", options: { saveToConversationEvidence: true }, evidence: true },
+])("saves the snapshot PNG in $mode storage", ({ options, evidence }) =>
   Effect.scoped(
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
       const inputs = yield* serveSnapshots("mcp-save-client", snapshotResult);
 
-      const snapshot = yield* callSnapshot({ save: true, includeImage: true });
+      const snapshot = yield* callSnapshot({ save: true, includeImage: true, ...options });
 
       expect(snapshot.isError).toBe(false);
       expect(inputs).toEqual([{}]);
@@ -427,8 +436,15 @@ it.effect("saves the snapshot PNG on request and reports its path", () =>
       const screenshotPath = structured.screenshotPath;
       expect(typeof screenshotPath).toBe("string");
       expect(path.dirname(screenshotPath!)).toBe(
-        yield* (yield* ConversationEvidence.ConversationEvidence).directory(threadId),
+        evidence
+          ? yield* (yield* ConversationEvidence.ConversationEvidence).directory(threadId)
+          : config.browserArtifactsDir,
       );
+      if (!evidence) {
+        expect(yield* fileSystem.exists(path.join(config.stateDir, "conversation-evidence"))).toBe(
+          false,
+        );
+      }
       expect(path.basename(screenshotPath!)).toMatch(
         /^browser-screenshot-example-test-[0-9a-z]+-[0-9a-f]{8}\.png$/,
       );
@@ -439,7 +455,7 @@ it.effect("saves the snapshot PNG on request and reports its path", () =>
       const unsaved = yield* callSnapshot({});
       expect(unsaved.structuredContent).not.toHaveProperty("screenshotPath");
 
-      const pathOnly = yield* callSnapshot({ save: true });
+      const pathOnly = yield* callSnapshot({ save: true, ...options });
       const saved = pathOnly.structuredContent as { readonly screenshotPath: string };
       expect(saved).toEqual({ url: snapshotResult.url, screenshotPath: expect.any(String) });
       expect(Buffer.from(yield* fileSystem.readFile(saved.screenshotPath)).toString()).toBe("png");
@@ -450,25 +466,48 @@ it.effect("saves the snapshot PNG on request and reports its path", () =>
   ).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("reports a tagged error when the screenshot cannot be saved", () =>
+it.effect.each([
+  { evidence: false, error: "PreviewScreenshotSaveError" },
+  { evidence: true, error: "ConversationEvidenceError" },
+])("reports $error when screenshot storage fails", ({ evidence, error }) =>
   Effect.scoped(
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       // A regular file where the artifacts directory should be makes every write fail.
-      yield* fileSystem.writeFileString(path.join(config.stateDir, "conversation-evidence"), "");
+      yield* fileSystem.writeFileString(
+        evidence ? path.join(config.stateDir, "conversation-evidence") : config.browserArtifactsDir,
+        "",
+      );
       yield* serveSnapshots("mcp-save-failure-client", snapshotResult);
 
-      const snapshot = yield* callSnapshot({ save: true });
+      const snapshot = yield* callSnapshot({ save: true, saveToConversationEvidence: evidence });
 
       expect(snapshot.isError).toBe(true);
       expect(snapshot.content).toEqual([
-        { type: "text", text: "Preview snapshot failed: ConversationEvidenceError." },
+        { type: "text", text: `Preview snapshot failed: ${error}.` },
       ]);
       expect(snapshot.structuredContent).toEqual({
-        error: { _tag: "ConversationEvidenceError", operation: "snapshot", failureCount: 1 },
+        error: { _tag: error, operation: "snapshot", failureCount: 1 },
       });
+    }),
+  ).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("does not save a snapshot when only conversation-evidence storage is selected", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
+      const inputs = yield* serveSnapshots("mcp-evidence-no-save", snapshotResult);
+      const result = yield* callSnapshot({ saveToConversationEvidence: true });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).not.toHaveProperty("screenshotPath");
+      expect(inputs).toEqual([{}]);
+      expect(yield* fs.exists(config.browserArtifactsDir)).toBe(false);
+      expect(yield* fs.exists(path.join(config.stateDir, "conversation-evidence"))).toBe(false);
     }),
   ).pipe(Effect.provide(layerTest)),
 );

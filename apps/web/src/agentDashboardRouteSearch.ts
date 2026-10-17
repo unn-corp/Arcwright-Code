@@ -79,7 +79,7 @@ export function parseAgentFindingsSearch(raw: Record<string, unknown>): AgentFin
   };
 }
 
-export function parseAgentRunsStatus(value: unknown): AgentRunsStatusFilter | undefined {
+function parseAgentRunsStatus(value: unknown): AgentRunsStatusFilter | undefined {
   switch (value) {
     case "all":
     case "queued":

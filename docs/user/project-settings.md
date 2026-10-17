@@ -210,8 +210,10 @@ age limit with **Delete old conversation evidence**, or use both. On mobile, ope
 Storage** and configure each selected environment. Both rules start disabled and preserve your
 existing storage settings. Enabling archive cleanup also applies to already archived conversations.
 
-Generated agent browser screenshots and recordings use storage owned by their conversation.
-Agents can save other temporary review outputs there too. Keep permanent deliverables in the
+Agent browser recordings use storage owned by their conversation. Browser screenshots use the
+standard browser-artifact folder by default. Ask the agent to save screenshots with the conversation
+to opt in to conversation storage and its cleanup rules. Agents can save other temporary review
+outputs there too. Keep permanent deliverables in the
 project or another destination. Only files in managed conversation storage follow these policies.
 
 Images and videos in this storage can be viewed in chat from a paired Tailscale device with

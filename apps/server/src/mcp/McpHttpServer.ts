@@ -1,3 +1,8 @@
+import * as Clock from "effect/Clock";
+import * as Crypto from "effect/Crypto";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as ServerConfig from "../config.ts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -340,6 +345,50 @@ const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
   return { value: value(), text, omitted };
 };
 
+export class PreviewScreenshotSaveError extends Schema.TaggedError<PreviewScreenshotSaveError>()(
+  "PreviewScreenshotSaveError",
+  { screenshotPath: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `Could not save preview screenshot to ${this.screenshotPath}.`;
+  }
+}
+
+const MAX_SCREENSHOT_SITE_SLUG_LENGTH = 40;
+
+const screenshotSiteSlug = (rawUrl: string): string => {
+  try {
+    const slug = new URL(rawUrl).hostname
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, MAX_SCREENSHOT_SITE_SLUG_LENGTH)
+      .replace(/-+$/g, "");
+    return slug || "site";
+  } catch {
+    return "site";
+  }
+};
+
+const saveScreenshot = Effect.fn("McpHttpServer.saveScreenshot")(function* (
+  pageUrl: string,
+  data: Uint8Array,
+) {
+  const config = yield* ServerConfig.ServerConfig;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const millis = yield* Clock.currentTimeMillis;
+  const crypto = yield* Crypto.Crypto;
+  const unique = (yield* crypto.randomUUIDv4().pipe(Effect.orDie)).slice(0, 8);
+  const fileName = `browser-screenshot-${screenshotSiteSlug(pageUrl)}-${millis.toString(36)}-${unique}.png`;
+  const screenshotPath = path.join(config.browserArtifactsDir, fileName);
+  yield* fileSystem.makeDirectory(config.browserArtifactsDir, { recursive: true }).pipe(
+    Effect.andThen(fileSystem.writeFile(screenshotPath, data)),
+    Effect.mapError((cause) => new PreviewScreenshotSaveError({ screenshotPath, cause })),
+  );
+  return screenshotPath;
+});
+
 const isPreviewAutomationError = Schema.is(PreviewAutomationError);
 
 const previewSnapshotFailure = <E>(cause: Cause.Cause<E>) => {
@@ -383,7 +432,13 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   // The MCP tool runner only supplies the client, so hand the save path its services here.
-  const saveServices = yield* Effect.context<ConversationEvidence.ConversationEvidence>();
+  const saveServices = yield* Effect.context<
+    | ConversationEvidence.ConversationEvidence
+    | ServerConfig.ServerConfig
+    | FileSystem.FileSystem
+    | Path.Path
+    | Crypto.Crypto
+  >();
   const built = yield* PreviewSnapshotToolkit;
   const tool = PreviewSnapshotTool;
   yield* server.addTool({
@@ -433,13 +488,17 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
               const callerThreadId = invocation.thread?.threadId;
               const screenshotPath =
                 payload?.save === true
-                  ? callerThreadId === undefined
-                    ? yield* Effect.die(new Error("Preview snapshots require a thread caller."))
-                    : yield* ConversationEvidence.ConversationEvidence.pipe(
-                        Effect.flatMap((evidence) =>
-                          evidence.saveScreenshot(callerThreadId, snapshot.url, png),
-                        ),
-                      )
+                  ? payload?.saveToConversationEvidence === true
+                    ? callerThreadId === undefined
+                      ? yield* Effect.die(
+                          new Error("Conversation evidence requires a thread caller."),
+                        )
+                      : yield* ConversationEvidence.ConversationEvidence.pipe(
+                          Effect.flatMap((evidence) =>
+                            evidence.saveScreenshot(callerThreadId, snapshot.url, png),
+                          ),
+                        )
+                    : yield* saveScreenshot(snapshot.url, png)
                   : undefined;
               // Images stay out of tool history unless asked for: providers replay them on every
               // later request, and some reject inline images outright.
