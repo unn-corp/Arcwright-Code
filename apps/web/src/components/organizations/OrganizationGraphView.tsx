@@ -458,7 +458,7 @@ export function OrganizationGraphView({
               if (!position) return null;
               const matches =
                 normalizedSearch.length === 0 ||
-                `${role.title} ${role.kind} ${role.mandate}`
+                `${role.title} ${role.kind} ${role.mandate} ${role.personality ?? ""} ${role.focus ?? ""} ${role.skills ?? ""}`
                   .toLowerCase()
                   .includes(normalizedSearch);
               return (

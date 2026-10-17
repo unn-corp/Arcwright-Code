@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Disposable fixtures use Node UUIDs to create unique isolated database and filesystem data.
 import * as NodeCrypto from "node:crypto";
 import { assert, it } from "@effect/vitest";
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { OrganizationRoleId, ProviderInstanceId } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import {
@@ -67,5 +67,26 @@ it.effect("rejects blank tasks, path changes and output digest changes", () =>
         input,
       ).pipe(Effect.flip)).detail.includes("match"),
     );
+  }),
+);
+
+it.effect("uses redacted authored worker guidance without granting authority", () =>
+  Effect.gen(function* () {
+    const prompt = yield* buildOrganizationPatchPrompt({
+      ...input,
+      employeeProfile: {
+        roleId: OrganizationRoleId.make("worker"),
+        personality: "Careful",
+        focus: "Correctness",
+        skills: "TypeScript api_key=profile-secret",
+      },
+    });
+    assert.match(prompt, /Worker profile JSON:/);
+    assert.match(prompt, /Careful/);
+    assert.match(prompt, /Correctness/);
+    assert.match(prompt, /TypeScript/);
+    assert.match(prompt, /grants no tools/);
+    assert.notMatch(prompt, /profile-secret/);
+    assert.notMatch(prompt, /synthetic-model/);
   }),
 );

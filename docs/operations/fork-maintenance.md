@@ -444,6 +444,14 @@ not evidence that equivalent upstream surfaces exist.
 [organizations](../../apps/server/src/organizations) and
 [agentDashboard](../../apps/server/src/agentDashboard).
 
+Employee personality, focus, and authored skill instructions belong to the Organization role
+contracts and [guided editor](../../apps/web/src/components/organizations/OrganizationEmployeeDialog.tsx).
+Preserve omission-versus-clear semantics, older-server capability gating, and explicit review of
+Architect changes. The [single-file coordinator](../../apps/server/src/organizations/OrganizationSingleFileProposalCoordinator.ts)
+resolves guidance from the work item's pinned published revision only when its workflow has one
+unique work role. Multiple distinct work roles retain baseline dispatch without a profile; profiles
+do not expand routing, tools, or authority. The Director remains an evidence summary.
+
 Top-level automatic-work policies in Settings → Automation default off, including scheduled
 repository review, Continuous Improvement, product opportunity discovery, Decision Follow-up,
 pull request rollups, and inactive worktree cleanup. Preserve explicitly saved opt-ins when

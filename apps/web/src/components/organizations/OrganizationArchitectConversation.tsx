@@ -10,7 +10,13 @@ import {
   type OrganizationArchitectProposal,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { RefreshCwIcon, SendIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  RefreshCwIcon,
+  SparklesIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
@@ -24,15 +30,15 @@ import { randomUUID } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { organizationEnvironment } from "../../state/organizations";
 import { useEnvironmentQuery } from "../../state/query";
-import { primaryServerProvidersAtom } from "../../state/server";
+import { primaryServerProvidersAtom, primaryServerConfigAtom } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Card, CardPanel } from "../ui/card";
+import ChatMarkdown from "../ChatMarkdown";
+import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { InputGroup, InputGroupAddon } from "../ui/input-group";
 import { Textarea } from "../ui/textarea";
 
-const SELECT_CLASS =
-  "min-h-11 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-ring";
 const START_SETUP_PROMPT =
   "Walk me through designing and setting up this Organization. Start with one question about the mission and outcomes. Guide me through roles, handoffs, workflows, resources, and authority, then Project work, GitHub sharing, and a final setup review.";
 const CONTINUE_SETUP_PROMPT =
@@ -48,7 +54,12 @@ function proposalPresentation(
     case "add-role":
       return {
         title: `Add ${change.role.title}`,
-        detail: `${change.role.kind} role, pool size ${change.role.poolSize}. ${change.role.mandate || "No mandate proposed."}`,
+        detail: [
+          `${change.role.kind} employee. ${change.role.mandate || "No responsibilities proposed."}`,
+          ...(["personality", "focus", "skills"] as const).flatMap((field) =>
+            change.role[field] ? [`${field}: ${change.role[field]}`] : [],
+          ),
+        ].join("\n\n"),
       };
     case "update-role":
       return {
@@ -58,6 +69,13 @@ function proposalPresentation(
             change.title ? `Name: ${change.title}` : null,
             change.mandate !== undefined ? `Mandate: ${change.mandate || "empty"}` : null,
             change.poolSize !== undefined ? `Pool size: ${change.poolSize}` : null,
+            ...(["personality", "focus", "skills"] as const).flatMap((field) =>
+              change[field] !== undefined
+                ? [
+                    `${field === "focus" ? "Areas of focus" : field === "personality" ? "Personality" : "Skills"}: ${change[field] || "Clear this field"}`,
+                  ]
+                : [],
+            ),
           ]
             .filter(Boolean)
             .join(" · ") || "No field changes were proposed.",
@@ -110,6 +128,9 @@ export function OrganizationArchitectConversation({
   const { networkStatus } = useEnvironments();
   const settings = usePrimarySettings();
   const providers = useAtomValue(primaryServerProvidersAtom);
+  const serverConfig = useAtomValue(primaryServerConfigAtom);
+  const supportsProfiles =
+    serverConfig?.environment.capabilities.organizationEmployeeProfiles === true;
   const entries = applyProviderInstanceSettings(
     deriveProviderInstanceEntries(providers),
     settings,
@@ -154,6 +175,18 @@ export function OrganizationArchitectConversation({
     reportFailure: false,
   });
   const [draft, setDraft] = useState("");
+  const [pendingTurn, setPendingTurn] = useState<{
+    id: OrganizationArchitectMessageId;
+    text: string;
+    createdAt: string;
+  } | null>(null);
+  const [failedTurns, setFailedTurns] = useState<
+    Array<{ id: OrganizationArchitectMessageId; text: string; createdAt: string; failure: string }>
+  >([]);
+  const sendInFlight = useRef(false);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const nearBottom = useRef(true);
   const [sending, setSending] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [appliedIds, setAppliedIds] = useState<ReadonlySet<string>>(new Set());
@@ -182,6 +215,27 @@ export function OrganizationArchitectConversation({
     (list.data?.requests ?? []).map((request) => [request.requestId, request]),
   );
   const appliedMutationIds = new Set(list.data?.appliedProposalIds ?? []);
+  const localTurns = [...failedTurns, ...(pendingTurn ? [pendingTurn] : [])];
+  const visibleMessages = [
+    ...messages,
+    ...localTurns
+      .filter((turn) => !messages.some((message) => message.id === turn.id))
+      .map((turn) => ({ ...turn, role: "user" as const, requestId: turn.id })),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const lastMessageId = visibleMessages.at(-1)?.id;
+  useEffect(() => {
+    if (nearBottom.current && transcriptRef.current)
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+  }, [lastMessageId, sending]);
+  useEffect(() => {
+    if (pendingTurn && messages.some((message) => message.id === pendingTurn.id))
+      setPendingTurn(null);
+  }, [messages, pendingTurn]);
+  function jumpToLatest() {
+    if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    nearBottom.current = true;
+    setAtBottom(true);
+  }
 
   useEffect(() => {
     const currentlyOffline = offline || networkStatus === "offline";
@@ -197,9 +251,32 @@ export function OrganizationArchitectConversation({
     return cause instanceof Error ? cause.message : String(cause);
   }
 
-  async function send() {
-    if (!canSend || !selectedEntry || !selectedModel || environmentId === null) return;
-    const text = draft.trim();
+  async function send(value = draft) {
+    const text = value.trim();
+    if (
+      blocked ||
+      busy ||
+      sending ||
+      sendInFlight.current ||
+      !selectedEntry ||
+      !selectedModel ||
+      environmentId === null ||
+      !text ||
+      text.length > 4_000 ||
+      new TextEncoder().encode(text).length > 4_000
+    )
+      return;
+    sendInFlight.current = true;
+    const messageId = OrganizationArchitectMessageId.make(randomUUID());
+    const turn = { id: messageId, text, createdAt: new Date().toISOString() };
+    setPendingTurn(turn);
+    function retainFailedTurn(failure: string) {
+      setFailedTurns((current) => [...current, { ...turn, failure }]);
+      setPendingTurn(null);
+      setDraft((current) => current || text);
+    }
+    setDraft((current) => (current.trim() === text ? "" : current));
+    nearBottom.current = true;
     setSending(true);
     setError(null);
     setNotice(null);
@@ -208,7 +285,7 @@ export function OrganizationArchitectConversation({
         environmentId,
         input: {
           organizationId: organization.id,
-          messageId: OrganizationArchitectMessageId.make(randomUUID()),
+          messageId,
           baseRevision: organization.draftRevision,
           text,
           modelSelection: createModelSelection(selectedEntry.instanceId, selectedModel.slug),
@@ -217,18 +294,34 @@ export function OrganizationArchitectConversation({
       const failure = resultError(result);
       if (failure) {
         setError(failure);
-      } else {
-        setDraft("");
-        setNotice("Architect reply saved. Review any proposals before applying them.");
+        retainFailedTurn(failure);
       }
       list.refresh();
+    } catch (cause) {
+      const failure =
+        cause instanceof Error
+          ? cause.message
+          : "The message could not be sent. Try again when the connection is ready.";
+      setError(failure);
+      retainFailedTurn(failure);
     } finally {
+      sendInFlight.current = false;
       setSending(false);
     }
   }
 
+  function unsupportedProfile(change: OrganizationArchitectAllowedChange) {
+    if (supportsProfiles) return false;
+    const role =
+      change.type === "add-role" ? change.role : change.type === "update-role" ? change : null;
+    return (
+      role !== null &&
+      [role.personality, role.focus, role.skills].some((value) => value !== undefined)
+    );
+  }
+
   async function applyProposal(proposal: OrganizationArchitectProposal) {
-    if (blocked || busy || applyingId !== null) return;
+    if (blocked || busy || applyingId !== null || unsupportedProfile(proposal.change)) return;
     if (proposal.baseRevision !== organization.draftRevision) {
       setError(
         "This proposal uses an earlier draft revision. Refresh and ask the Architect for an updated suggestion.",
@@ -257,7 +350,14 @@ export function OrganizationArchitectConversation({
   }
 
   async function applyBatch(proposals: ReadonlyArray<OrganizationArchitectProposal>) {
-    if (blocked || busy || applyingId !== null || proposals.length < 2) return;
+    if (
+      blocked ||
+      busy ||
+      applyingId !== null ||
+      proposals.length < 2 ||
+      proposals.some((proposal) => unsupportedProfile(proposal.change))
+    )
+      return;
     if (proposals.some((proposal) => proposal.baseRevision !== organization.draftRevision)) {
       setError(
         "The draft changed since these suggestions. Ask Architect to review the updated canvas.",
@@ -288,148 +388,178 @@ export function OrganizationArchitectConversation({
   }
 
   return (
-    <Card>
-      <CardPanel>
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold">Design with Architect</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Ask for help shaping your team. Review and apply suggestions to update the graph.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setDraft(messages.length === 0 ? START_SETUP_PROMPT : CONTINUE_SETUP_PROMPT)
-                }
-                disabled={blocked || sending}
-              >
-                {messages.length === 0 ? "Start setup walkthrough" : "Continue walkthrough"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => list.refresh()}
-                disabled={environmentId === null}
-              >
-                <RefreshCwIcon /> Refresh
-              </Button>
-            </div>
+    <section
+      aria-label="Chat with Architect"
+      className="flex h-[clamp(32rem,calc(100dvh-20rem),52rem)] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-background"
+    >
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <SparklesIcon className="size-4 text-muted-foreground" />
+          <div>
+            <h2 className="text-sm font-semibold">Architect</h2>
+            <p className="text-xs text-muted-foreground">Build your organization together</p>
           </div>
-
-          {blocked ? (
-            <p role="status" className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
-              {organization.lifecycle === "archived"
-                ? "This Organization is archived. Conversation and proposal edits are unavailable."
-                : "Offline. Saved conversation may be out of date; sending and applying are unavailable."}
-            </p>
-          ) : null}
-          {architectEntries.length === 0 ? (
-            <p role="status" className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
-              Connect an enabled provider in Settings to start designing with Architect.
-            </p>
-          ) : null}
-          {selectedEntry && models.length === 0 ? (
-            <p role="status" className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
-              This provider instance has no configured model available for Architect conversation.
-            </p>
-          ) : null}
-          {list.error ? (
-            <p role="alert" className="text-sm text-destructive-foreground">
-              Could not load Architect conversation: {list.error}
-            </p>
-          ) : null}
-          {error ? (
-            <p role="alert" className="text-sm text-destructive-foreground">
-              {error}
-            </p>
-          ) : null}
-          {notice ? (
+        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Refresh Architect conversation"
+          disabled={environmentId === null || sending}
+          onClick={() => list.refresh()}
+        >
+          <RefreshCwIcon />
+        </Button>
+      </header>
+      {blocked ? (
+        <p
+          role="status"
+          className="shrink-0 border-b border-border px-4 py-2 text-sm text-muted-foreground"
+        >
+          {organization.lifecycle === "archived"
+            ? "This organization is archived. Conversation and draft changes are read only."
+            : "Offline. Reconnect to send messages or apply changes."}
+        </p>
+      ) : null}
+      {list.error ? (
+        <p role="alert" className="px-4 py-2 text-sm text-destructive-foreground">
+          Could not load conversation: {list.error}
+        </p>
+      ) : null}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={transcriptRef}
+          role="log"
+          aria-label="Architect conversation"
+          aria-busy={sending}
+          className="h-full space-y-6 overflow-y-auto overscroll-contain p-4"
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+            nearBottom.current = bottom;
+            setAtBottom(bottom);
+          }}
+        >
+          {list.isPending && !list.data ? (
             <p role="status" className="text-sm text-muted-foreground">
-              {notice}
+              Loading conversation…
             </p>
           ) : null}
-
-          <div
-            className="min-h-48 max-h-[28rem] space-y-3 overflow-y-auto rounded-lg border border-border bg-background p-3"
-            aria-label="Architect transcript"
-          >
-            {list.isPending && !list.data ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                Loading saved conversation…
-              </p>
-            ) : null}
-            {!list.isPending && !list.data && !list.error ? (
-              <p className="text-sm text-muted-foreground">
-                No saved conversation is available yet.
-              </p>
-            ) : null}
-            {list.data && messages.length === 0 ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Start a guided design conversation, or ask for a review of the current canvas.
+          {!list.isPending && visibleMessages.length === 0 ? (
+            <div className="flex min-h-48 flex-col justify-center gap-4 py-4">
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">Let’s shape your team</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Tell Architect what you want to build. Work through responsibilities,
+                  personalities, skills, and how your employees collaborate.
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={blocked || sending}
-                    onClick={() =>
-                      setDraft(
-                        "Review this Organization draft. What responsibilities or relationships are missing or unclear?",
-                      )
-                    }
-                  >
-                    Review draft
-                  </Button>
-                </div>
               </div>
-            ) : null}
-            {messages.map((message) => {
-              const proposals =
-                message.role === "architect"
-                  ? (list.data?.proposals ?? []).filter(
-                      (proposal) => proposal.responseMessageId === message.id,
-                    )
-                  : [];
-              const request =
-                message.role === "user" ? requestsById.get(message.requestId) : undefined;
-              return (
-                <article
-                  key={message.id}
-                  className="min-w-0 space-y-3 rounded-lg border border-border p-3"
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={blocked || busy || sending || !selectedModel}
+                  onClick={() => void send(START_SETUP_PROMPT)}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">
-                      {message.role === "user" ? "You" : "Architect"}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {request?.status === "pending" ? (
-                        <Badge variant="outline">Pending</Badge>
-                      ) : null}
-                      {request?.status === "failed" ? <Badge variant="error">Failed</Badge> : null}
-                      <time className="text-sm text-muted-foreground" dateTime={message.createdAt}>
-                        {new Date(message.createdAt).toLocaleString()}
-                      </time>
-                    </div>
-                  </div>
-                  <p className="whitespace-pre-wrap break-words text-sm">{message.text}</p>
-                  {request?.status === "pending" ? (
-                    <p className="text-sm text-muted-foreground">
-                      The reply is still pending. Refresh to check for a saved result.
-                    </p>
+                  Guide me through setup
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={blocked || busy || sending || !selectedModel}
+                  onClick={() =>
+                    void send(
+                      "Review our organization and suggest what is missing from the employee responsibilities, personalities, focus, skills, and relationships.",
+                    )
+                  }
+                >
+                  Review my team
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {visibleMessages.map((message) => {
+            const proposals =
+              message.role === "architect"
+                ? (list.data?.proposals ?? []).filter(
+                    (proposal) => proposal.responseMessageId === message.id,
+                  )
+                : [];
+            const request =
+              message.role === "user" ? requestsById.get(message.requestId) : undefined;
+            const localFailure = failedTurns.find((turn) => turn.id === message.id)?.failure;
+            const failed = request?.status === "failed" || (!request && !!localFailure);
+            return (
+              <article
+                key={message.id}
+                aria-label={message.role === "user" ? "Your message" : "Architect reply"}
+                className={
+                  message.role === "user" ? "ml-auto max-w-[90%] space-y-2" : "min-w-0 space-y-3"
+                }
+              >
+                <div
+                  className={
+                    message.role === "user"
+                      ? "rounded-2xl bg-message p-3 text-message-foreground"
+                      : settings.assistantMessageBubbles
+                        ? "rounded-2xl rounded-ss-md border border-border/50 bg-muted/40 px-4 py-3"
+                        : "min-w-0 space-y-2"
+                  }
+                >
+                  {message.role === "architect" ? (
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Architect</p>
                   ) : null}
-                  {request?.status === "failed" ? (
+                  {message.role === "architect" ? (
+                    <ChatMarkdown text={message.text} cwd={undefined} parseRawHtml={false} />
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                      {message.text}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <time
+                    dateTime={message.createdAt}
+                    aria-label={new Date(message.createdAt).toLocaleString()}
+                  >
+                    {new Date(message.createdAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                  {failed ? (
+                    <span className="text-destructive-foreground">Couldn’t complete reply</span>
+                  ) : null}
+                </div>
+                {failed ? (
+                  <div className="space-y-2">
                     <p className="text-sm text-destructive-foreground">
-                      {request.failureMessage || "The Architect could not complete this request."}
+                      {request?.failureMessage ||
+                        localFailure ||
+                        "Architect couldn’t complete this reply. Your organization draft is unchanged."}
                     </p>
-                  ) : null}
-                  {proposals.length > 0 ? (
-                    <div className="space-y-2 border-t border-border pt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={blocked || sending}
+                      onClick={() => {
+                        if (!draft.trim()) setDraft(message.text);
+                        else
+                          setError(
+                            "Your current draft is kept. Clear it before restoring an earlier message.",
+                          );
+                      }}
+                    >
+                      Use message again
+                    </Button>
+                  </div>
+                ) : null}
+                {proposals.length > 0 ? (
+                  <details className="min-w-0 rounded-xl border border-border bg-background">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 p-3 text-sm font-medium">
+                      <ChevronDownIcon className="size-4" /> Review {proposals.length} suggested{" "}
+                      {proposals.length === 1 ? "change" : "changes"}
+                    </summary>
+                    <div className="space-y-3 px-3 pb-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-medium">Suggested draft changes</p>
                         {proposals.length > 1 &&
@@ -447,7 +577,9 @@ export function OrganizationArchitectConversation({
                               !list.isSuccess ||
                               applyingId !== null ||
                               proposals.some(
-                                (proposal) => proposal.baseRevision !== organization.draftRevision,
+                                (proposal) =>
+                                  proposal.baseRevision !== organization.draftRevision ||
+                                  unsupportedProfile(proposal.change),
                               )
                             }
                             onClick={() => void applyBatch(proposals)}
@@ -489,12 +621,19 @@ export function OrganizationArchitectConversation({
                                     busy ||
                                     !list.isSuccess ||
                                     applyingId !== null ||
-                                    stale
+                                    stale ||
+                                    unsupportedProfile(proposal.change)
                                   }
                                   onClick={() => void applyProposal(proposal)}
                                 >
                                   {applyingId === proposal.id ? "Applying…" : "Apply to draft"}
                                 </Button>
+                                {unsupportedProfile(proposal.change) ? (
+                                  <p className="text-sm text-muted-foreground">
+                                    Update this environment before applying employee profile
+                                    changes.
+                                  </p>
+                                ) : null}
                                 {stale ? (
                                   <p className="text-sm text-muted-foreground">
                                     The draft changed since this suggestion. Ask Architect to review
@@ -512,89 +651,141 @@ export function OrganizationArchitectConversation({
                         );
                       })}
                     </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-
-          {architectEntries.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5 text-sm font-medium">
-                <span>Provider</span>
-                <select
-                  className={SELECT_CLASS}
-                  value={selectedEntry?.instanceId ?? ""}
-                  onChange={(event) => {
-                    setSelectedInstanceId(event.currentTarget.value);
-                    setSelectedModelSlug(null);
-                  }}
-                  disabled={blocked || sending}
-                >
-                  {architectEntries.map((entry) => (
-                    <option key={entry.instanceId} value={entry.instanceId}>
-                      {entry.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedEntry && models.length > 0 ? (
-                <label className="space-y-1.5 text-sm font-medium">
-                  <span>Model</span>
-                  <select
-                    className={SELECT_CLASS}
-                    value={selectedModel?.slug ?? ""}
-                    onChange={(event) => setSelectedModelSlug(event.currentTarget.value)}
-                    disabled={blocked || sending}
-                  >
-                    {models.map((model) => (
-                      <option key={model.slug} value={model.slug}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </div>
+                  </details>
+                ) : null}
+              </article>
+            );
+          })}
+          {sending || [...requestsById.values()].some((request) => request.status === "pending") ? (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <SparklesIcon className="size-4" /> Architect is thinking…
+            </p>
           ) : null}
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void send();
-            }}
-            className="space-y-3"
-          >
-            <label className="block space-y-1.5 text-sm font-medium">
-              <span>Message</span>
-              <Textarea
-                value={draft}
-                onChange={(event) => setDraft(event.currentTarget.value)}
-                maxLength={4_000}
-                placeholder="Ask how to improve roles, responsibilities, or relationships"
-                disabled={blocked || sending || architectEntries.length === 0}
-              />
-              <span
-                className={
-                  draftBytes > 4_000
-                    ? "text-xs text-destructive-foreground"
-                    : "text-xs text-muted-foreground"
-                }
-              >
-                {draftBytes.toLocaleString()} / 4,000 UTF-8 bytes
-              </span>
-            </label>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                Organization configuration and this conversation are sent to the selected model.
-                Repository files are not supplied. Enter credentials in their settings, not here.
-              </p>
-              <Button type="submit" disabled={!canSend}>
-                <SendIcon /> {sending ? "Waiting for reply…" : "Send to Architect"}
-              </Button>
-            </div>
-          </form>
         </div>
-      </CardPanel>
-    </Card>
+        {!atBottom ? (
+          <div className="absolute inset-x-0 bottom-2 flex justify-center">
+            <Button size="sm" variant="secondary" onClick={jumpToLatest}>
+              <ArrowDownIcon /> Latest messages
+            </Button>
+          </div>
+        ) : null}
+      </div>
+      <div className="shrink-0 space-y-2 border-t border-border p-3">
+        {error ? (
+          <p role="alert" className="text-sm text-destructive-foreground">
+            {error}
+          </p>
+        ) : null}
+        {notice ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            {notice}
+          </p>
+        ) : null}
+        {architectEntries.length === 0 ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Connect an enabled provider in Settings to chat with Architect.
+          </p>
+        ) : null}
+        {selectedEntry && models.length === 0 ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            This provider has no configured model. Choose another provider or update its settings.
+          </p>
+        ) : null}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
+        >
+          <InputGroup>
+            <Textarea
+              unstyled
+              aria-label="Message Architect"
+              value={draft}
+              onChange={(event) => setDraft(event.currentTarget.value)}
+              maxLength={4_000}
+              placeholder="Message Architect…"
+              disabled={blocked || architectEntries.length === 0}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  !event.repeat
+                ) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <InputGroupAddon align="block-end">
+              {selectedEntry ? (
+                <ProviderModelPicker
+                  environmentId={environmentId}
+                  activeInstanceId={selectedEntry.instanceId}
+                  model={selectedModel?.slug ?? ""}
+                  lockedProvider={null}
+                  instanceEntries={architectEntries}
+                  modelOptionsByInstance={
+                    new Map(
+                      architectEntries.map((entry) => [
+                        entry.instanceId,
+                        getAppModelOptionsForInstance(settings, entry),
+                      ]),
+                    )
+                  }
+                  disabled={blocked || sending}
+                  triggerAriaLabel="Choose Architect model"
+                  onInstanceModelChange={(instanceId, model) => {
+                    setSelectedInstanceId(instanceId);
+                    setSelectedModelSlug(model);
+                  }}
+                />
+              ) : null}
+              <div className="ml-auto">
+                <Button
+                  type="submit"
+                  size="icon"
+                  aria-label="Send message to Architect"
+                  disabled={!canSend}
+                >
+                  <ArrowUpIcon />
+                </Button>
+              </div>
+            </InputGroupAddon>
+          </InputGroup>
+        </form>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>
+            {sending
+              ? "You can draft your next message while waiting."
+              : "Enter to send · Shift+Enter for a new line"}
+          </span>
+          {draftBytes > 3200 ? (
+            <span className={draftBytes > 4000 ? "text-destructive-foreground" : ""}>
+              {draftBytes.toLocaleString()} / 4,000 bytes
+            </span>
+          ) : null}
+        </div>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">What Architect can access</summary>
+          <p className="pt-2">
+            Your organization draft and this conversation are sent to the selected model. Repository
+            files and credentials are not included. Suggested changes wait for your review and
+            Apply.
+          </p>
+        </details>
+        {messages.length > 0 ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={blocked || busy || sending || !selectedModel}
+            onClick={() => void send(CONTINUE_SETUP_PROMPT)}
+          >
+            Continue guided setup
+          </Button>
+        ) : null}
+      </div>
+    </section>
   );
 }

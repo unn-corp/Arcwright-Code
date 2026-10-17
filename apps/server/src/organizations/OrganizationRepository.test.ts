@@ -267,6 +267,9 @@ it("removes credential metadata and machine authority while retaining attributed
       roles: [
         {
           id: "engineer",
+          personality: "Measured",
+          focus: "Reliability",
+          skills: "TypeScript api_key=profile-secret",
           modelSelection: {
             instanceId: "local-instance",
             model: "private-model",
@@ -284,6 +287,10 @@ it("removes credential metadata and machine authority while retaining attributed
   const text = JSON.stringify(content);
   assert.match(text, /incident:42/);
   assert.match(text, /issue:42/);
+  assert.match(text, /Measured/);
+  assert.match(text, /Reliability/);
+  assert.match(text, /TypeScript/);
+  assert.notMatch(text, /profile-secret/);
   assert.notMatch(
     text,
     /abc123|Bearer private|\/home\/alice|write-files|sessionId|Cookie|modelSelection|local-instance|private-model|localOption|local-value/,

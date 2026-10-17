@@ -226,3 +226,49 @@ it.effect("Architect prompt summarizes oversized workflow detail within the snap
     expect(prompt).not.toContain("Step 63");
   }),
 );
+
+it.effect("keeps eight full employee profiles usable as bounded redacted JSON context", () =>
+  Effect.gen(function* () {
+    const prompt = yield* buildOrganizationArchitectPrompt({
+      modelSelection: createModelSelection(ProviderInstanceId.make("claudeAgent"), "test-model"),
+      organization: {
+        id: OrganizationId.make("org-profiles"),
+        title: "Studio",
+        mission: "Build",
+        draftRevision: 1,
+        graph: {
+          roles: Array.from({ length: 8 }, (_, index) => ({
+            id: OrganizationRoleId.make(`employee-${index}`),
+            kind: "engineering" as const,
+            title: "Engineer",
+            mandate: "Build".repeat(500),
+            poolSize: 1,
+            personality: "Curious ".repeat(250),
+            focus: "Reliability ".repeat(180),
+            skills: "api_key=profile-secret " + "🛠".repeat(1900),
+            modelSelection: createModelSelection(
+              ProviderInstanceId.make("private-provider"),
+              "private-model",
+            ),
+          })),
+          edges: [],
+        },
+        workflows: [],
+      },
+      transcript: [],
+      userText: "Help improve these employees",
+    });
+    const snapshot = prompt
+      .split("Organization configuration JSON:\n\n")[1]
+      ?.split("\n\nOrganization setup state JSON:")[0];
+    expect(snapshot).toBeDefined();
+    const parsed = JSON.parse(snapshot!);
+    expect(parsed.graph.roles).toHaveLength(8);
+    expect(snapshot).toContain("[truncated]");
+    expect(Buffer.byteLength(snapshot!, "utf8")).toBeLessThanOrEqual(12000);
+    expect(prompt).not.toContain("profile-secret");
+    expect(prompt).not.toContain("private-provider");
+    expect(prompt).not.toContain("private-model");
+    expect(prompt).toContain("explicit human Apply");
+  }),
+);

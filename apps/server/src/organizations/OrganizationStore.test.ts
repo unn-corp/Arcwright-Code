@@ -397,6 +397,9 @@ layer("OrganizationStore", (it) => {
           kind: "engineering" as const,
           title: "Engineer",
           mandate: "Build",
+          personality: "Measured",
+          focus: "Reliability",
+          skills: "TypeScript",
           poolSize: 1,
           modelSelection,
         };
@@ -414,11 +417,11 @@ layer("OrganizationStore", (it) => {
           mutationId: "employee-title",
           baseRevision: 2,
           actor: "user",
-          change: { type: "update-role", roleId, title: "Senior Engineer" },
+          change: { type: "update-role", roleId, title: "Senior Engineer", focus: "" },
         });
         assert.deepStrictEqual(
           updated.graph.roles.find((r) => r.id === roleId),
-          { ...role, title: "Senior Engineer" },
+          { ...role, title: "Senior Engineer", focus: "" },
         );
         const forbidden = yield* Effect.flip(
           store.mutate({
@@ -464,7 +467,7 @@ layer("OrganizationStore", (it) => {
         });
         assert.deepStrictEqual(
           cleared.graph.roles.find((r) => r.id === roleId),
-          { ...role, title: "Senior Engineer", modelSelection: null },
+          { ...role, title: "Senior Engineer", focus: "", modelSelection: null },
         );
         assert.deepStrictEqual(cleared.layout, added.layout);
         assert.equal(

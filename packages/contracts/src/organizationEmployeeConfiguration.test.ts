@@ -71,3 +71,28 @@ it("decodes old and new server capabilities", () => {
     true,
   );
 });
+
+it("bounds authored profiles and preserves clear versus omitted updates", () => {
+  for (const [key, limit] of [
+    ["personality", 2000],
+    ["focus", 2000],
+    ["skills", 4000],
+  ] as const) {
+    expect(
+      decodeGraph({ roles: [{ ...role, [key]: "x".repeat(limit) }], edges: [] }).roles[0],
+    ).toHaveProperty(key);
+    expect(() =>
+      decodeGraph({ roles: [{ ...role, [key]: "x".repeat(limit + 1) }], edges: [] }),
+    ).toThrow();
+    expect(decodeChange({ type: "update-role", roleId: "employee", [key]: "" })).toHaveProperty(
+      key,
+      "",
+    );
+    expect(decodeChange({ type: "update-role", roleId: "employee" })).not.toHaveProperty(key);
+  }
+  expect(decodeCapabilities({})).not.toHaveProperty("organizationEmployeeProfiles");
+  expect(decodeCapabilities({ organizationEmployeeProfiles: true })).toHaveProperty(
+    "organizationEmployeeProfiles",
+    true,
+  );
+});

@@ -319,6 +319,9 @@ const applyChange = (
                   ...role,
                   ...(change.title !== undefined ? { title: change.title } : {}),
                   ...(change.mandate !== undefined ? { mandate: change.mandate } : {}),
+                  ...(change.personality !== undefined ? { personality: change.personality } : {}),
+                  ...(change.focus !== undefined ? { focus: change.focus } : {}),
+                  ...(change.skills !== undefined ? { skills: change.skills } : {}),
                   ...(change.poolSize !== undefined ? { poolSize: change.poolSize } : {}),
                   ...(change.modelSelection !== undefined
                     ? { modelSelection: change.modelSelection }

@@ -3,6 +3,7 @@ import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.t
 import { ModelSelection } from "./orchestration.ts";
 import {
   OrganizationEdge,
+  OrganizationEmployeeProfileFields,
   OrganizationId,
   OrganizationRoleId,
   OrganizationWorkflowDefinition,
@@ -10,6 +11,7 @@ import {
 
 /** Proposals are draft suggestions. They do not mutate configuration or grant authority. */
 const ArchitectWorkerRole = Schema.Struct({
+  ...OrganizationEmployeeProfileFields,
   id: OrganizationRoleId,
   kind: Schema.Literals(["engineering", "qa", "security", "research", "custom"]),
   title: TrimmedNonEmptyString.check(Schema.isMaxLength(120)),
@@ -22,6 +24,7 @@ export const OrganizationArchitectAllowedChange = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("update-role"),
     roleId: OrganizationRoleId,
+    ...OrganizationEmployeeProfileFields,
     title: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
     mandate: Schema.optional(Schema.String.check(Schema.isMaxLength(2_000))),
     poolSize: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(4))),

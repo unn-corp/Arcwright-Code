@@ -1,5 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { OrganizationRoleId, type Organization, type OrganizationRole } from "@t3tools/contracts";
+import {
+  ORGANIZATION_EMPLOYEE_FOCUS_MAX_LENGTH,
+  ORGANIZATION_EMPLOYEE_PERSONALITY_MAX_LENGTH,
+  ORGANIZATION_EMPLOYEE_SKILLS_MAX_LENGTH,
+  OrganizationRoleId,
+  type Organization,
+  type OrganizationRole,
+} from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useId, useRef, useState } from "react";
 
@@ -30,18 +37,49 @@ export interface OrganizationEmployeeDialogProps {
   readonly role?: OrganizationRole;
   readonly busy: boolean;
   readonly supportsEmployeeConfiguration: boolean;
+  readonly supportsEmployeeProfiles: boolean;
   readonly onSave: (role: OrganizationRole) => Promise<boolean>;
   readonly onClose: () => void;
 }
 
 const EMPLOYEE_KINDS = ["engineering", "qa", "security", "research", "custom"] as const;
-const STEPS = ["Identity", "Responsibilities", "AI provider and model", "Review"] as const;
+const STEPS = [
+  "Identity",
+  "Responsibilities",
+  "Profile",
+  "AI provider and model",
+  "Review",
+] as const;
+const PROFILE_FIELDS = [
+  {
+    key: "personality",
+    label: "Personality",
+    limit: ORGANIZATION_EMPLOYEE_PERSONALITY_MAX_LENGTH,
+    help: "Describe writing style, collaboration, and decision habits.",
+    placeholder: "Write concisely, ask early about tradeoffs, and explain decisions.",
+  },
+  {
+    key: "focus",
+    label: "Areas of focus",
+    limit: ORGANIZATION_EMPLOYEE_FOCUS_MAX_LENGTH,
+    help: "Set priorities and the domains this employee should concentrate on.",
+    placeholder: "Prioritize accessible interfaces and reliable account flows.",
+  },
+  {
+    key: "skills",
+    label: "Skills",
+    limit: ORGANIZATION_EMPLOYEE_SKILLS_MAX_LENGTH,
+    help: "Author instructions for how this employee works. These do not install skills or grant tool access.",
+    placeholder: "For reviews, trace failure paths and suggest a focused regression test.",
+  },
+] as const;
 
 export function OrganizationEmployeeDialog({
   organization,
   role,
   busy,
   supportsEmployeeConfiguration,
+  supportsEmployeeProfiles,
   onSave,
   onClose,
 }: OrganizationEmployeeDialogProps) {
@@ -53,9 +91,15 @@ export function OrganizationEmployeeDialog({
     id: role?.id ?? OrganizationRoleId.make(randomUUID()),
   }));
   const [step, setStep] = useState(0);
+  const [furthestStep, setFurthestStep] = useState(0);
   const [title, setTitle] = useState(role?.title ?? "");
   const [kind, setKind] = useState<OrganizationRole["kind"]>(role?.kind ?? "engineering");
   const [mandate, setMandate] = useState(role?.mandate ?? "");
+  const [profile, setProfile] = useState(() => ({
+    personality: role?.personality ?? "",
+    focus: role?.focus ?? "",
+    skills: role?.skills ?? "",
+  }));
   const [poolSize, setPoolSize] = useState(String(role?.poolSize ?? 1));
   const originalSelection = snapshot.role?.modelSelection;
   const [instanceId, setInstanceId] = useState<string>(originalSelection?.instanceId ?? "");
@@ -89,17 +133,44 @@ export function OrganizationEmployeeDialog({
     !selectionChanged ||
     instanceId === "" ||
     (!!selectedEntry && !!selectedModel);
+  const validProfile =
+    !supportsEmployeeProfiles ||
+    PROFILE_FIELDS.every((field) => profile[field.key].length <= field.limit);
+  const validSteps = [validIdentity, validPoolSize, validProfile, validSelection];
+  const canAdvance = validSteps.slice(0, step + 1).every(Boolean);
+
+  function navigate(target: number) {
+    if (locked || savingRef.current || stale) return;
+    if (target > step && !validSteps.slice(0, target).every(Boolean)) return;
+    setStep(target);
+    setFurthestStep((previous) => Math.max(previous, target));
+  }
+
   const providerLabel = selectedEntry?.displayName ?? instanceId;
   const modelLabel = selectedModel?.name ?? model;
 
   async function save() {
-    if (locked || savingRef.current || stale || !validIdentity || !validPoolSize || !validSelection)
+    if (
+      locked ||
+      savingRef.current ||
+      stale ||
+      !validIdentity ||
+      !validPoolSize ||
+      !validProfile ||
+      !validSelection
+    )
       return;
     savingRef.current = true;
     setSaving(true);
     setError(null);
-    // Old servers must receive a role without the unsupported field, even when it was saved before.
-    const { modelSelection: _selection, ...originalRole } = snapshot.role ?? {};
+    // Strip unsupported fields even if this role came from a newer server.
+    const {
+      modelSelection: _selection,
+      personality: _personality,
+      focus: _focus,
+      skills: _skills,
+      ...originalRole
+    } = snapshot.role ?? {};
     const employee: OrganizationRole = {
       ...originalRole,
       id: snapshot.id,
@@ -107,6 +178,7 @@ export function OrganizationEmployeeDialog({
       title: title.trim(),
       mandate,
       poolSize: Number(poolSize),
+      ...(supportsEmployeeProfiles ? profile : {}),
       ...(supportsEmployeeConfiguration
         ? selectionChanged
           ? {
@@ -154,6 +226,26 @@ export function OrganizationEmployeeDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
+          <nav aria-label="Employee setup steps" className="mb-4 flex flex-wrap gap-1.5">
+            {STEPS.map((label, index) => (
+              <Button
+                key={label}
+                size="sm"
+                variant={step === index ? "secondary" : "ghost"}
+                aria-current={step === index ? "step" : undefined}
+                disabled={
+                  locked ||
+                  stale ||
+                  (index > step &&
+                    ((!snapshot.role && index > furthestStep) ||
+                      !validSteps.slice(0, index).every(Boolean)))
+                }
+                onClick={() => navigate(index)}
+              >
+                {label}
+              </Button>
+            ))}
+          </nav>
           {stale ? (
             <p role="alert" className="text-sm text-destructive-foreground">
               The organization draft changed while this dialog was open. Close and reopen it to
@@ -257,6 +349,48 @@ export function OrganizationEmployeeDialog({
             {step === 2 ? (
               <>
                 <p className="text-sm text-muted-foreground">
+                  Shape how this employee approaches work. All profile fields are optional.
+                </p>
+                {!supportsEmployeeProfiles ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    This server does not support employee profiles yet. Profile fields are read-only
+                    and will not be sent. You can save other employee details.
+                  </p>
+                ) : null}
+                {PROFILE_FIELDS.map((field) => (
+                  <div key={field.key} className="min-w-0 space-y-1.5">
+                    <label htmlFor={`${id}-${field.key}`} className="text-sm font-medium">
+                      {field.label}
+                    </label>
+                    <p id={`${id}-${field.key}-help`} className="text-sm text-muted-foreground">
+                      {field.help}
+                    </p>
+                    <Textarea
+                      id={`${id}-${field.key}`}
+                      value={profile[field.key]}
+                      disabled={!supportsEmployeeProfiles}
+                      maxLength={field.limit}
+                      rows={3}
+                      aria-invalid={
+                        supportsEmployeeProfiles && profile[field.key].length > field.limit
+                      }
+                      aria-describedby={`${id}-${field.key}-help ${id}-${field.key}-count`}
+                      placeholder={field.placeholder}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setProfile((previous) => ({ ...previous, [field.key]: value }));
+                      }}
+                    />
+                    <p id={`${id}-${field.key}-count`} className="text-sm text-muted-foreground">
+                      {profile[field.key].length} / {field.limit} characters
+                    </p>
+                  </div>
+                ))}
+              </>
+            ) : null}
+            {step === 3 ? (
+              <>
+                <p className="text-sm text-muted-foreground">
                   Choose this employee’s preferred AI, or set it up later. Project work still uses
                   the model you choose when starting a task.
                 </p>
@@ -350,7 +484,7 @@ export function OrganizationEmployeeDialog({
                 ) : null}
               </>
             ) : null}
-            {step === 3 ? (
+            {step === 4 ? (
               <dl className="space-y-3 text-sm">
                 <div>
                   <dt className="font-medium">Employee</dt>
@@ -364,6 +498,22 @@ export function OrganizationEmployeeDialog({
                     {mandate || "No responsibilities entered"}
                   </dd>
                 </div>
+                {PROFILE_FIELDS.map((field) => (
+                  <div key={field.key} className="min-w-0">
+                    <dt className="font-medium">{field.label}</dt>
+                    <dd className="whitespace-pre-wrap wrap-anywhere">
+                      {profile[field.key] || "Not entered"}
+                    </dd>
+                  </div>
+                ))}
+                {!supportsEmployeeProfiles ? (
+                  <div>
+                    <dd className="text-muted-foreground">
+                      This server does not support employee profiles. Profile fields will not be
+                      sent.
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt className="font-medium">Pool size</dt>
                   <dd>{poolSize}</dd>
@@ -392,26 +542,24 @@ export function OrganizationEmployeeDialog({
             Cancel
           </Button>
           {step > 0 ? (
-            <Button variant="outline" disabled={locked} onClick={() => setStep(step - 1)}>
+            <Button variant="outline" disabled={locked || stale} onClick={() => navigate(step - 1)}>
               Back
             </Button>
           ) : null}
           {step < STEPS.length - 1 ? (
-            <Button
-              disabled={
-                locked ||
-                stale ||
-                (step === 0 && !validIdentity) ||
-                (step === 1 && !validPoolSize) ||
-                (step === 2 && !validSelection)
-              }
-              onClick={() => setStep(step + 1)}
-            >
+            <Button disabled={locked || stale || !canAdvance} onClick={() => navigate(step + 1)}>
               Continue
             </Button>
           ) : (
             <Button
-              disabled={locked || stale || !validIdentity || !validPoolSize || !validSelection}
+              disabled={
+                locked ||
+                stale ||
+                !validIdentity ||
+                !validPoolSize ||
+                !validProfile ||
+                !validSelection
+              }
               onClick={() => void save()}
             >
               {saving ? "Saving…" : "Save employee"}

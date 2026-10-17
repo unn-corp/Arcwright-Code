@@ -157,6 +157,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       `sourceControl.cloneRepository` call instead. */
   organizationWorkStatusPush: Schema.optionalKey(Schema.Boolean),
   /** Employee model configuration and atomic canvas placement on manual creation. */
+  organizationEmployeeProfiles: Schema.optionalKey(Schema.Boolean),
   organizationEmployeeConfiguration: Schema.optionalKey(Schema.Boolean),
   projectCloneTracking: Schema.optionalKey(Schema.Boolean),
   environmentIcon: Schema.optionalKey(Schema.Boolean),

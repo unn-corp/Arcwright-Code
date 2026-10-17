@@ -49,6 +49,9 @@ const output = (baseRevision = 1) => ({
           kind: "engineering" as const,
           title: "Engineering",
           mandate: "Investigate evidence",
+          personality: "Curious",
+          focus: "Evidence",
+          skills: "Investigation",
           poolSize: 1,
         },
       },
@@ -94,13 +97,22 @@ layer("Organization Architect transcript", (it) => {
         mutationId: "employee-select",
         baseRevision: 1,
         actor: "user",
-        change: { type: "update-role", roleId: initial.architectRoleId, modelSelection },
+        change: {
+          type: "update-role",
+          roleId: initial.architectRoleId,
+          modelSelection,
+          personality: "Measured",
+          focus: "Design",
+          skills: "Architecture",
+        },
       });
       // Simulate excess provider fields; complete must decode and discard this assignment.
       const untrustedChange = {
         type: "update-role" as const,
         roleId: initial.architectRoleId,
         mandate: "Clarify responsibilities",
+        focus: "",
+        skills: "Systems thinking",
         modelSelection: null,
       };
       const request = input("employee-proposal", organizationId, selected.draftRevision);
@@ -124,6 +136,14 @@ layer("Organization Architect transcript", (it) => {
       assert.isFalse("modelSelection" in completed.proposals[0]!.change);
       const before = yield* organizations.get({ organizationId });
       assert.equal(before.draftRevision, selected.draftRevision);
+      assert.equal(
+        before.graph.roles.find((r) => r.id === initial.architectRoleId)?.focus,
+        "Design",
+      );
+      assert.equal(
+        before.graph.roles.find((r) => r.id === initial.architectRoleId)?.skills,
+        "Architecture",
+      );
       assert.deepEqual(
         before.graph.roles.find((r) => r.id === initial.architectRoleId)?.modelSelection,
         modelSelection,
@@ -138,6 +158,10 @@ layer("Organization Architect transcript", (it) => {
         applied.graph.roles.find((r) => r.id === initial.architectRoleId)?.modelSelection,
         modelSelection,
       );
+      const employee = applied.graph.roles.find((r) => r.id === initial.architectRoleId);
+      assert.equal(employee?.personality, "Measured");
+      assert.equal(employee?.focus, "");
+      assert.equal(employee?.skills, "Systems thinking");
       assert.equal(
         applied.graph.roles.find((r) => r.id === initial.architectRoleId)?.mandate,
         "Clarify responsibilities",

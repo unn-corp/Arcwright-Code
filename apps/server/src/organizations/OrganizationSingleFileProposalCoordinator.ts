@@ -1,7 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - This Node-only server module uses synchronous host crypto for persistent IDs or hashes; replacing it would add Crypto service requirements through the persistence API.
 // @effect-diagnostics preferSchemaOverJson:off - Snapshots internal policy/model objects before asynchronous boundaries.
 import * as NodeCrypto from "node:crypto";
-import type { ModelSelection, OrganizationWorkId } from "@t3tools/contracts";
+import {
+  OrganizationPublishedConfig,
+  type ModelSelection,
+  type OrganizationWorkId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,6 +41,9 @@ const FLAT_MJS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.mjs$/;
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 const decodeGenerationInput = Schema.decodeUnknownEffect(OrganizationPatchProposalInput);
 const decodeProposal = Schema.decodeUnknownEffect(OrganizationPatchProposalOutput);
+const decodePublishedConfig = Schema.decodeEffect(
+  Schema.fromJsonString(OrganizationPublishedConfig),
+);
 
 export interface OrganizationSingleFileProposalPolicyTarget {
   readonly organizationId: string;
@@ -162,10 +169,38 @@ export const proposeOrganizationSingleFileArtifact = (workId: OrganizationWorkId
       Buffer.byteLength(selection.taskText, "utf8") > 4_000
     )
       return yield* failure("invalid", "Policy must select one flat .mjs file and bounded task.");
+    // Resolve from the work's immutable reviewed revision, never from the editable draft.
+    const configRow = (yield* sql<{ config_json: string }>`SELECT config_json
+      FROM organization_config_versions WHERE organization_id = ${work.organizationId}
+        AND revision = ${work.publishedRevision}`)[0];
+    if (!configRow) return yield* failure("conflict", "Pinned configuration is missing.");
+    const config = yield* decodePublishedConfig(configRow.config_json).pipe(
+      Effect.mapError(() => failure("invalid", "Pinned configuration is invalid.")),
+    );
+    const workflow = config.workflows.find(
+      (entry) => entry.id === work.workflowId && entry.version === work.workflowVersion,
+    );
+    // Work records have no step cursor. Preserve baseline dispatch when attribution is ambiguous.
+    const workRoleIds = new Set(
+      workflow?.steps.filter((step) => step.kind === "work").map((step) => step.roleId),
+    );
+    const employee =
+      workRoleIds.size === 1
+        ? config.graph.roles.find((role) => workRoleIds.has(role.id))
+        : undefined;
+    const employeeProfile = employee
+      ? {
+          roleId: employee.id,
+          ...(employee.personality !== undefined ? { personality: employee.personality } : {}),
+          ...(employee.focus !== undefined ? { focus: employee.focus } : {}),
+          ...(employee.skills !== undefined ? { skills: employee.skills } : {}),
+        }
+      : undefined;
     const source = yield* sourceReader.read(before, selection.fileName);
     const generationInput = yield* decodeGenerationInput({
       modelSelection: selection.modelSelection,
       taskText: selection.taskText,
+      ...(employeeProfile ? { employeeProfile } : {}),
       ...(selection.findingContext ? { findingContext: selection.findingContext } : {}),
       fileName: selection.fileName,
       currentContent: source.content,

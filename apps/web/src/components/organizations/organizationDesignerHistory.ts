@@ -17,6 +17,9 @@ export function inverseOrganizationChange(
             title: role.title,
             mandate: role.mandate,
             poolSize: role.poolSize,
+            ...(change.personality !== undefined ? { personality: role.personality ?? "" } : {}),
+            ...(change.focus !== undefined ? { focus: role.focus ?? "" } : {}),
+            ...(change.skills !== undefined ? { skills: role.skills ?? "" } : {}),
             ...(change.modelSelection !== undefined
               ? { modelSelection: role.modelSelection ?? null }
               : {}),
