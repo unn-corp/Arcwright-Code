@@ -4,12 +4,10 @@ This guide owns the retained behavior of `unn-corp/t3code`. Follow the linked us
 operation and the implementation links when changing a feature. Upstream mobile in `apps/mobile`
 is a separate Expo/store client; it does not build or update our APK.
 
-The initial audit compared the committed fork with its recorded upstream integrations, including
-`87eacfc6c4`, `01a14ef2bc`, and the tested integration at `01b0f9e896`. It also included the local
-Android, browser-sharing, and documentation changes. An upstream merge is not evidence that every
-fork feature shipped upstream. Recheck `git log --first-parent` and compare the fork with the full
-upstream commit recorded in `fork-upstream.json` when revisiting ownership; avoid treating an old
-merge-base file list or a moving remote branch as the current divergence.
+An upstream merge is not evidence that every fork feature shipped upstream. Recheck
+`git log --first-parent` and compare the fork with the full upstream commit recorded in
+`fork-upstream.json` when revisiting ownership; avoid treating an old audit, merge-base file list,
+or a moving remote branch as the current divergence.
 
 ## Integrating upstream
 
@@ -80,8 +78,8 @@ owned separately by [the release retention policy](fork-releases.md#github-build
 New agent starts, restarts, and restart continuations are held under host memory pressure without
 claiming their durable effects. Existing agents, cancellation, interrupts, and cleanup keep their
 normal paths. The guard runs in the server for desktop, standalone, web, mobile, and Android callers;
-each paired environment uses its own host's RAM. Source behavior requires a packaged server update;
-build 82 does not include it.
+each paired environment uses its own host's RAM. The guard runs on the selected environment's
+server, so updating a client alone does not add admission to an older remote server.
 
 Ownership: [AgentStartAdmission](../../apps/server/src/resourceTelemetry/AgentStartAdmission.ts),
 [HostResources](../../apps/server/src/resourceTelemetry/HostResources.ts),
@@ -131,9 +129,14 @@ Keep auth preflight ahead of Worker layer construction and the raw runtime-bindi
 silently select legacy through provider normalization.
 Focused auth/API and DPoP regression fixtures cover these boundaries; public relay commissioning
 and the remaining privacy, abuse, deletion and physical-device gates are not established by them.
-The managed-allocation lifecycle SQL protocol remains unwired; preserve its legacy quarantine,
-retained uncertain owners and immutable target identity. The provider/publication/unlink conversion
-must land together before deployment, with no mixed old and new writers or automatic owner reset.
+The managed-allocation lifecycle SQL protocol is wired through the provider, publication,
+recovery, reconciliation and unlink paths. Unlink commits link and credential revocation with
+cleanup intent before provider cleanup uses the captured allocation identity. Preserve legacy
+quarantine, retained uncertain owners and immutable target identity; do not mix old and new writers
+or reset owners automatically. The allocation-only `requestCleanup` primitive is not an unlink
+entry point: runtime unlink must use `revokeAndRequestCleanup`. See the
+[Connect setup runbook](connect-setup.md) for deployment and migration requirements; source wiring
+does not establish live service readiness.
 The example configuration selects upstream T3 services in legacy mode. Explicit owned builds
 require one complete validated public profile; cloudless builds clear managed aliases across web,
 CLI, standalone Android and Expo. [connectProfile.ts](../../packages/shared/src/connectProfile.ts)
@@ -476,6 +479,10 @@ Top-level automatic-work policies in Settings → Automation default off, includ
 repository review, Continuous Improvement, product opportunity discovery, Decision Follow-up,
 pull request rollups, and inactive worktree cleanup. Preserve explicitly saved opt-ins when
 decoding settings; manual dashboard actions remain available while scheduled automation is off.
+The [automation settings panel](../../apps/web/src/components/settings/AutomationSettings.tsx)
+owns these controls; [background activity settings](../../apps/web/src/components/settings/BackgroundActivitySettings.tsx)
+is shared with General settings. Keep their existing primary/scoped settings destinations when
+moving UI code so a layout refactor cannot write preferences to another environment.
 
 **Verification and coupling.** Domain tests cover durable authorization, budgets, stopped work,
 reconciliation, review/implementation scheduling, and credential redaction. Test new schedulers

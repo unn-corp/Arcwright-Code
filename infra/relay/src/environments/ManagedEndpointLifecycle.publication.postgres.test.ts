@@ -220,7 +220,7 @@ const trigger = (
     );
   });
 
-describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle unused PostgreSQL aggregates", () => {
+describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle PostgreSQL aggregates", () => {
   it.effect(
     "new link publishes canonical authority, credential and readiness after configure without inventing recovery",
     () =>

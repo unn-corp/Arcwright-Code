@@ -165,7 +165,7 @@ export class ManagedEndpointLifecycle extends Context.Service<
     readonly removeClaimed: (
       claim: Claim,
     ) => Effect.Effect<TransitionResult, LifecyclePersistenceError>;
-    /** Unwired seam: runtime use requires integration into the revocation/publication transaction. */
+    /** Allocation-only intent; unlink must use revokeAndRequestCleanup to commit revocation with it. */
     readonly requestCleanup: (
       target: Target,
     ) => Effect.Effect<TransitionResult, LifecyclePersistenceError>;
