@@ -677,8 +677,16 @@ export const OpenWhisprStatus = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("ready"),
     backend: Schema.Literals(["desktop", "whisper"]),
+    provider: Schema.optionalKey(Schema.Literal("custom-cloud")),
   }),
-  Schema.Struct({ status: Schema.Literals(["unavailable", "upgrade_required", "model_required"]) }),
+  Schema.Struct({
+    status: Schema.Literals([
+      "unavailable",
+      "upgrade_required",
+      "model_required",
+      "cloud_configuration_required",
+    ]),
+  }),
 ]);
 export type OpenWhisprStatus = typeof OpenWhisprStatus.Type;
 
@@ -692,6 +700,8 @@ export class OpenWhisprTranscriptionError extends Schema.TaggedError<OpenWhisprT
       "invalid_response",
       "timeout",
       "invalid_audio",
+      "cloud_configuration_required",
+      "cloud_request_failed",
     ]),
   },
   { httpApiStatus: 502 },
@@ -703,11 +713,15 @@ export class OpenWhisprTranscriptionError extends Schema.TaggedError<OpenWhisprT
       case "invalid_audio":
         return "The recording is empty or too large. Try a shorter recording.";
       case "invalid_response":
-        return "OpenWhispr returned an invalid transcription response.";
+        return "The dictation provider returned an invalid transcription response.";
+      case "cloud_configuration_required":
+        return "Check the custom cloud transcription settings in OpenWhispr on the connected Arcwright Code server and unlock its OS keyring, then try again.";
+      case "cloud_request_failed":
+        return "Cloud dictation failed. Check the custom transcription URL, model, and API key saved in OpenWhispr on the connected Arcwright Code server, then try again.";
       case "upgrade_required":
         return "OpenWhispr was detected on the connected Arcwright Code server, but this version has no transcription bridge. Update OpenWhispr, then choose a downloaded local transcription model.";
       case "model_required":
-        return "OpenWhispr was detected on the connected Arcwright Code server. Download and select a local transcription model in OpenWhispr, then try again.";
+        return "OpenWhispr was detected on the connected Arcwright Code server. Select a downloaded local model or configure your custom cloud transcription model in OpenWhispr, then try again.";
       case "unavailable":
         return "OpenWhispr is unavailable on the connected Arcwright Code server. Start OpenWhispr with a downloaded local model, or start your Whisper service, then try again.";
     }

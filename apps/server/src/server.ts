@@ -57,6 +57,7 @@ import { agentDashboardFeedRouteLayer } from "./agentDashboard/AgentDashboardFee
 import { organizationIntakeHttpRouteLayer } from "./organizations/http.ts";
 import { voiceHttpApiLayer } from "./voice/http.ts";
 import * as OpenWhispr from "./voice/OpenWhispr.ts";
+import * as OpenWhisprConfiguration from "./voice/OpenWhisprConfiguration.ts";
 import * as PreviewStreamCoordinator from "./preview/StreamCoordinator.ts";
 import * as PreviewHeadlessBrowserHost from "./preview/HeadlessBrowserHost.ts";
 import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
@@ -821,7 +822,11 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(OrchestrationHttp.layer),
       Layer.provide(PullRequestHttp.layer),
       Layer.provide(ProjectHttp.layer),
-      Layer.provide(voiceHttpApiLayer.pipe(Layer.provide(OpenWhispr.layer))),
+      Layer.provide(
+        voiceHttpApiLayer.pipe(
+          Layer.provide(OpenWhispr.layer.pipe(Layer.provide(OpenWhisprConfiguration.layer))),
+        ),
+      ),
       Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
       Layer.provide(WebhookRoute.layer.pipe(Layer.provide(RelayDeliveryProof.layer))),
       Layer.provide(AuthHttp.layerAuthenticatedAuth),

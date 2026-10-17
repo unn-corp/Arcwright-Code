@@ -19,6 +19,7 @@ import {
   openWhisprDictionaryPrompt,
   type OpenWhisprLibrary,
 } from "./openwhisprLibrary.ts";
+import * as OpenWhisprConfiguration from "./OpenWhisprConfiguration.ts";
 
 const isTranscriptionError = Schema.is(OpenWhisprTranscriptionError);
 interface LibraryBridge {
@@ -41,6 +42,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const home = yield* HomeDirectory;
+  const configuration = yield* OpenWhisprConfiguration.OpenWhisprConfiguration;
   const bridgeFile = path.join(home, ".openwhispr", "cli-bridge.json");
   const bridgeSchema = Schema.fromJsonString(
     Schema.Struct({
@@ -61,13 +63,39 @@ const make = Effect.gen(function* () {
   type Backend =
     | { status: "ready"; backend: "desktop"; port: number; token: string }
     | { status: "ready"; backend: "whisper"; port: number; libraryBridge?: LibraryBridge }
-    | { status: "unavailable" | "upgrade_required" | "model_required" };
+    | ({
+        status: "ready";
+        backend: "cloud";
+        libraryBridge?: LibraryBridge;
+      } & OpenWhisprConfiguration.OpenWhisprCloudConfiguration)
+    | {
+        status:
+          | "unavailable"
+          | "upgrade_required"
+          | "model_required"
+          | "cloud_configuration_required";
+      };
 
   // Discovery sends no audio. Never accept a host/URL from the bridge file or expose its token.
   const discover: Effect.Effect<Backend> = Effect.gen(function* () {
     const bridge = yield* fs
       .readFileString(bridgeFile)
       .pipe(Effect.flatMap(Schema.decodeUnknownEffect(bridgeSchema)), Effect.option);
+    const cloud = yield* configuration.current.pipe(
+      Effect.match({
+        onFailure: (): Backend => ({ status: "cloud_configuration_required" }),
+        onSuccess: (config): Backend | null =>
+          config
+            ? {
+                ...config,
+                status: "ready",
+                backend: "cloud",
+                ...(Option.isSome(bridge) ? { libraryBridge: bridge.value } : {}),
+              }
+            : null,
+      }),
+    );
+    if (cloud) return cloud;
     let unavailable: Backend = { status: "unavailable" };
     if (Option.isSome(bridge)) {
       const { port, token } = bridge.value;
@@ -169,7 +197,10 @@ const make = Effect.gen(function* () {
     status: discover.pipe(
       Effect.map((result): OpenWhisprStatus =>
         result.status === "ready"
-          ? { status: "ready", backend: result.backend }
+          ? result.backend === "cloud"
+            ? // Keep the native OpenWhispr backend discriminator understood by older paired clients.
+              { status: "ready", backend: "desktop", provider: "custom-cloud" }
+            : { status: "ready", backend: result.backend }
           : { status: result.status },
       ),
     ),
@@ -232,18 +263,36 @@ const make = Effect.gen(function* () {
           "t3-voice.wav",
         );
         form.append("response_format", "json");
+        if (backend.backend === "cloud") {
+          form.append("model", backend.model);
+          if (backend.language) form.append("language", backend.language);
+        }
         const prompt = openWhisprDictionaryPrompt(library);
         if (prompt) form.append("prompt", prompt);
         const infer = () =>
           httpClient
             .execute(
-              HttpClientRequest.post(`http://127.0.0.1:${backend.port}/inference`).pipe(
+              HttpClientRequest.post(
+                backend.backend === "cloud"
+                  ? backend.endpoint
+                  : `http://127.0.0.1:${backend.port}/inference`,
+              ).pipe(
+                HttpClientRequest.setHeaders(
+                  backend.backend === "cloud" && backend.apiKey.length > 0
+                    ? { authorization: `Bearer ${backend.apiKey}` }
+                    : {},
+                ),
                 HttpClientRequest.bodyFormData(form),
               ),
             )
             .pipe(
               Effect.flatMap(HttpClientResponse.filterStatusOk),
-              Effect.mapError(() => new OpenWhisprTranscriptionError({ reason: "unavailable" })),
+              Effect.mapError(
+                () =>
+                  new OpenWhisprTranscriptionError({
+                    reason: backend.backend === "cloud" ? "cloud_request_failed" : "unavailable",
+                  }),
+              ),
               Effect.flatMap((response) =>
                 HttpClientResponse.schemaBodyJson(Schema.Struct({ text: Schema.String }))(
                   response,

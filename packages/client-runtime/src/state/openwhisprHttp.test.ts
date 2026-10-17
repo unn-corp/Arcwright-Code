@@ -32,6 +32,30 @@ const prepared: PreparedConnection = {
 const audio = new Uint8Array([1, 2, 3]);
 
 describe("environment transcription", () => {
+  it.effect(
+    "accepts a host's cloud dictation capability without contacting the provider from the client",
+    () =>
+      fetchEnvironmentDictationStatus({ prepared, signer: Option.none() }).pipe(
+        Effect.tap((status) =>
+          Effect.sync(() =>
+            expect(status).toEqual({
+              status: "ready",
+              backend: "desktop",
+              provider: "custom-cloud",
+            }),
+          ),
+        ),
+        Effect.provide(
+          layerRemoteHttpClient((url, init) => {
+            expect(String(url)).toBe("https://host.example/api/voice/openwhispr/status");
+            expect(init?.body).toBeUndefined();
+            return Promise.resolve(
+              Response.json({ status: "ready", backend: "desktop", provider: "custom-cloud" }),
+            );
+          }),
+        ),
+      ),
+  );
   it.effect("checks capability with bearer authorization without uploading audio", () =>
     fetchEnvironmentDictationStatus({
       prepared: { ...prepared, httpAuthorization: { _tag: "Bearer", token: "test-token" } },

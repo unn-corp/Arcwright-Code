@@ -282,14 +282,21 @@ Dictation holds client installation through microphone permission, recording, de
 transcription; cancelling releases that hold only after the pending operation ends.
 Settings microphone detection also holds installation until its permission request settles and
 all acquired microphone tracks are stopped.
-Dictation discovers OpenWhispr's authenticated local desktop bridge and downloaded default model
+Dictation first reuses the saved custom OpenAI-compatible cloud model from OpenWhispr's native
+profile on the selected host. Its profile is read without acquiring the live LevelDB lock; WAL,
+compacted SST, manifest references and tombstones are respected. The current OpenWhispr OS-keyring
+master key decrypts only its custom transcription credential. Settings and credentials are read
+per request without a second saved copy or native-app modification. A configuration/keyring failure
+blocks transcription instead of falling back to another provider. Cloud capability retains the
+legacy native `desktop` backend discriminator with an optional `custom-cloud` provider marker.
+For local mode, dictation discovers OpenWhispr's authenticated local desktop bridge and downloaded default model
 on the selected environment before recording. Older Whisper services are detected on loopback ports
 8178–8199. Bridge credentials stay on the host; scoped private WAV files are removed on completion,
 failure, or cancellation. Older paired Arcwright hosts without the discovery endpoint retain their
 existing transcription path. See [dictation setup](../user/voice-dictation.md).
 The voice service reads OpenWhispr's dictionary and snippets per request through its authenticated
 loopback bridge. [Library processing](../../apps/server/src/voice/openwhisprLibrary.ts) preserves
-saved spelling and applies one pass of snippet expansion. Only direct Whisper services accept
+saved spelling and applies one pass of snippet expansion. Custom cloud models and direct Whisper services accept
 dictionary recognition hints; the desktop bridge currently exposes no prompt option. Optional
 library failures preserve ordinary transcription. Full dictionary echoes retry once without hints.
 

@@ -2,13 +2,14 @@
 
 Arcwright Code records audio on the device you are using, uploads the clip through your authenticated
 connection to the composer's environment, and inserts the returned text into the draft. That
-environment processes the clip with its running OpenWhispr app or local Whisper service, just as it does for a
-recording made on that computer. This applies to both the main and annotation composers.
+environment uses the custom cloud transcription model saved in OpenWhispr, its running local model,
+or a local Whisper service. This applies to both the main and annotation composers.
 
 Your client device does not need OpenWhispr or a local transcription service installed. It needs
 microphone access; transcription must be configured on the environment you are accessing. Arcwright
-checks that environment before asking you to record. It detects OpenWhispr's desktop bridge and
-selected downloaded local model automatically, with a fallback for existing Whisper services.
+checks that environment before asking you to record. It reuses OpenWhispr's selected custom cloud
+endpoint, model, API key, and language automatically. For local transcription, it detects the
+desktop bridge and selected downloaded model, with a fallback for existing Whisper services.
 If OpenWhispr needs an update or a local model, the message explains which step is needed. The desktop build can also
 send configured start and end keybinds to the focused desktop application on Linux.
 
@@ -21,7 +22,7 @@ reports any step that still needs your approval.
 
 The setup agent does not modify T3 source code. It may need your approval for package installation,
 desktop permissions, or other host-level changes. If you are using a remote T3 environment, the
-agent runs on that remote machine. Run OpenWhispr on each T3 server where you want to dictate;
+agent runs on that remote machine. Configure OpenWhispr on each T3 server where you want to dictate;
 the microphone stays on the phone or computer running the client.
 
 ## Requirements
@@ -33,10 +34,12 @@ the profile's site data to choose again. Websites still need a secure browser co
 or a local development address). This permission is separate from T3's composer dictation settings.
 
 - A connected T3 desktop, web, or PWA client with voice dictation enabled.
-- A current OpenWhispr desktop app running as the same user on the connected T3 server, with a
-  downloaded local transcription model selected. Its authenticated desktop bridge is detected
-  automatically. Older OpenWhispr versions without the transcription bridge need an update;
-  cloud-only dictation in OpenWhispr does not supply a local transcription model.
+- OpenWhispr configured as the same user on the connected T3 server. Select your custom
+  OpenAI-compatible cloud transcription provider there; no local model download is needed.
+  Its saved API key must be accessible through that user's unlocked OS keyring.
+- For local transcription instead, run a current OpenWhispr app with a downloaded local model
+  selected. Its authenticated desktop bridge is detected automatically. Older versions without
+  that bridge need an update.
 - Alternatively, an existing whisper.cpp service on loopback ports 8178–8199, with a ready `/health`
   endpoint and multipart WAV transcription at `/inference`.
 - Microphone permission for the T3 desktop app or browser.
@@ -58,11 +61,24 @@ or a local development address). This permission is separate from T3's composer 
 5. Click the microphone while startup or transcription is pending to cancel. A stalled
    transcription stops after about a minute so you can try again.
 
-OpenWhispr must run on the selected conversation's server. Installing it only on the client computer
-does not provide transcription to a conversation on another machine. With a WSL server, run
+OpenWhispr must be configured on the selected conversation's server. Installing it only on the client computer
+does not provide transcription to a conversation on another machine. With a WSL server, configure
 OpenWhispr or a Whisper service inside that WSL environment; a Windows-only OpenWhispr installation
 is not detected across the WSL boundary. Arcwright never copies OpenWhispr's token to the client.
 Temporary desktop-bridge recordings are private files removed when the request finishes or is cancelled.
+
+## Reuse your custom cloud model
+
+In OpenWhispr, select your custom cloud transcription provider and save its URL, model, and API key.
+Arcwright reads that configuration each time you dictate, so edits apply to the next recording.
+The key stays on the server and is used only for the saved transcription endpoint; you do not need
+to enter it again in Arcwright. Arcwright does not rewrite OpenWhispr settings or save another copy
+of the credential. Cloud audio is sent to your configured provider only when you request transcription.
+
+OpenWhispr can be closed for custom cloud transcription. Keep it running to use its dictionary and
+snippets. If the keyring is locked or the saved cloud settings cannot be read, Arcwright reports the
+problem instead of silently choosing a different provider. Select local transcription in OpenWhispr
+to return to its local model.
 
 ## OpenWhispr dictionary and snippets
 
@@ -72,7 +88,7 @@ Arcwright settings change. The dictionary preserves the saved spelling of recogn
 phrases; speaking a snippet trigger inserts its saved replacement text. Longer triggers take
 precedence, and replacement text is inserted literally in one pass.
 
-Direct Whisper services also receive dictionary words and snippet triggers as bounded recognition
+Custom cloud models and direct Whisper services also receive dictionary words and snippet triggers as bounded recognition
 hints. OpenWhispr's desktop file-transcription bridge does not currently accept those hints;
 desktop-bridge transcripts use dictionary spelling and snippet expansion after recognition.
 This does not guess replacements for differently spelled or misheard words. If Whisper returns

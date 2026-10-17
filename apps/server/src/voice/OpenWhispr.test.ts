@@ -10,10 +10,16 @@ import * as Layer from "effect/Layer";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import * as TestClock from "effect/testing/TestClock";
 import * as OpenWhispr from "./OpenWhispr.ts";
+import { OpenWhisprConfiguration } from "./OpenWhisprConfiguration.ts";
+
+const localConfiguration = Layer.succeed(OpenWhisprConfiguration, {
+  current: Effect.succeed(null),
+});
 
 const audio = new Uint8Array(48);
 const testLayer = (fetchFn: typeof fetch) =>
   OpenWhispr.layer.pipe(
+    Layer.provide(localConfiguration),
     Layer.provide(
       FetchHttpClient.layer.pipe(
         Layer.provide(
@@ -126,6 +132,7 @@ describe("OpenWhispr", () => {
       }).pipe(
         Effect.provide(
           OpenWhispr.layer.pipe(
+            Layer.provide(localConfiguration),
             Layer.provide(Layer.succeed(HttpClient.HttpClient, httpClient)),
             Layer.provide(NodeServices.layer),
             Layer.provide(Layer.succeed(HomeDirectory, "/missing/arcwright-dictation-test-home")),

@@ -12,6 +12,10 @@ import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import * as NodeFSP from "node:fs/promises";
 import * as OpenWhispr from "./OpenWhispr.ts";
+import {
+  OpenWhisprConfiguration,
+  type OpenWhisprCloudConfiguration,
+} from "./OpenWhisprConfiguration.ts";
 
 const audio = new Uint8Array(48);
 const models = { data: [{ model: "parakeet-v3", default: true, downloaded: true }] };
@@ -36,6 +40,7 @@ function withBridge<E>(
   run: Effect.Effect<void, E, OpenWhispr.OpenWhispr | FileSystem.FileSystem>,
   manifest: unknown = bridge,
   httpClient?: HttpClient.HttpClient,
+  cloud: OpenWhisprCloudConfiguration | null = null,
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -49,6 +54,7 @@ function withBridge<E>(
     yield* run.pipe(
       Effect.provide(
         OpenWhispr.layer.pipe(
+          Layer.provide(Layer.succeed(OpenWhisprConfiguration, { current: Effect.succeed(cloud) })),
           Layer.provide(
             httpClient
               ? Layer.succeed(HttpClient.HttpClient, httpClient)
@@ -144,6 +150,45 @@ it.effect("uses the current app dictionary and snippets for every desktop dictat
     }),
   );
 });
+
+it.effect(
+  "uses the app library with cloud dictation while keeping bridge and cloud credentials separate",
+  () =>
+    withBridge(
+      async (url, init) => {
+        if (String(url).startsWith("http://127.0.0.1:8207/")) {
+          expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${bridge.token}`);
+          if (String(url).endsWith("/dictionary/list"))
+            return Response.json({ data: ["Arcwright"] });
+          if (String(url).endsWith("/snippets/list"))
+            return Response.json({ data: [{ trigger: "my signature", replacement: "Alex" }] });
+          throw new Error("Cloud dictation must not require a local model");
+        }
+        expect(String(url)).toBe("https://speech.example/v1/audio/transcriptions");
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer cloud-key");
+        expect(init?.body instanceof FormData && init.body.get("prompt")).toBe(
+          "Arcwright, my signature",
+        );
+        return Response.json({ text: "use arcwright my signature" });
+      },
+      Effect.gen(function* () {
+        const voice = yield* OpenWhispr.OpenWhispr;
+        expect(yield* voice.status).toEqual({
+          status: "ready",
+          backend: "desktop",
+          provider: "custom-cloud",
+        });
+        expect(yield* voice.transcribe(audio)).toEqual({ text: "use Arcwright Alex" });
+      }),
+      bridge,
+      undefined,
+      {
+        endpoint: "https://speech.example/v1/audio/transcriptions",
+        model: "saved-model",
+        apiKey: "cloud-key",
+      },
+    ),
+);
 
 it.effect("keeps dictation and snippets working when the optional dictionary endpoint fails", () =>
   withBridge(
