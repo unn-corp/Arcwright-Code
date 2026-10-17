@@ -69,6 +69,39 @@ const messages = (file: string) => {
 };
 
 describe("restore points", () => {
+  it("snapshots an exclusively owned live home without releasing or copying its runtime lock", async () => {
+    const h = await home();
+    const ownerPath = NodePath.join(h.state, "server-owner.sqlite");
+    const owner = new NodeSqlite.DatabaseSync(ownerPath);
+    owner.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE");
+    const original = await NodeFSP.stat(ownerPath);
+    // The same basename below userdata's root can contain real saved state.
+    const nestedPath = NodePath.join(h.state, "attachments", "server-owner.sqlite");
+    const nested = new NodeSqlite.DatabaseSync(nestedPath);
+    nested.exec("CREATE TABLE saved (value TEXT); INSERT INTO saved VALUES ('preserved')");
+    nested.close();
+    try {
+      const id = await createSnapshot(h.root, "live-owner-lock", { restrict: noAcl });
+      const manifest = await verifySnapshot(h.root, id);
+      expect(manifest.files.map((file) => file.path)).not.toContain("server-owner.sqlite");
+      expect(manifest.files.map((file) => file.path)).toContain("attachments/server-owner.sqlite");
+      const current = await NodeFSP.stat(ownerPath);
+      expect({ dev: current.dev, ino: current.ino, size: current.size }).toEqual({
+        dev: original.dev,
+        ino: original.ino,
+        size: original.size,
+      });
+      const contender = new NodeSqlite.DatabaseSync(ownerPath);
+      try {
+        expect(() => contender.exec("PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE")).toThrow();
+      } finally {
+        contender.close();
+      }
+    } finally {
+      owner.close();
+      h.close();
+    }
+  });
   it("reuses unchanged listing metadata, invalidates edits and still fully verifies recovery bytes", async () => {
     const h = await home();
     const id = await createSnapshot(h.root, "listing-cache", { restrict: noAcl });

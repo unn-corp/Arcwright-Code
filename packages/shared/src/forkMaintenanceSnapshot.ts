@@ -20,6 +20,9 @@ const run = NodeUtil.promisify(NodeChildProcess.execFile);
 export const SNAPSHOT_EXCLUDED = new Set([
   "logs",
   "server-runtime.json",
+  // This zero-data SQLite file holds the live runtime's exclusive ownership
+  // transaction. Backing it up cannot succeed while that owner is running.
+  "server-owner.sqlite",
   "antigravity-tmp",
   "model-manifest.json",
 ]);

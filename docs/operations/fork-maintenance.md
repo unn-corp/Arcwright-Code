@@ -60,6 +60,12 @@ The exact journal, native snapshots, worker parent/child identities, fencing, ca
 checks and final health receipts govern the entire operation. Worker ownership survives
 an unexpected parent exit; recovery must not race a recorded storage worker.
 
+Restore points exclude the top-level `userdata/server-owner.sqlite` runtime lock.
+Its exclusive transaction contains no saved data and blocks SQLite's online backup;
+the snapshot must leave that live file and its ownership lock untouched. Ordinary
+databases, including files with that basename inside saved subdirectories, remain
+covered by the verified restore point.
+
 The implementation is owned by [payload storage](../../apps/server/src/persistence/PayloadStorage.ts),
 [the codec](../../packages/shared/src/forkStorageCodec.ts),
 [legacy archives](../../packages/shared/src/forkStorageArchive.ts),
