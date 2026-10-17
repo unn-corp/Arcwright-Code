@@ -5,7 +5,6 @@ declare const __T3CODE_FORK_PROVENANCE__:
   | undefined;
 import {
   ForkMaintenanceError,
-  type DesktopMaintenanceOperation,
   type ForkMaintenanceActionInput,
   type ForkMaintenanceInteraction,
   type ForkRecoveryRequest,
@@ -26,7 +25,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -40,9 +38,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
-import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import { DesktopMaintenanceBridge } from "./DesktopMaintenanceBridge.ts";
-import { startMaintenancePolling } from "./maintenancePolling.ts";
 import {
   createDesktopMaintenance,
   type DesktopMaintenance,
@@ -54,9 +50,6 @@ import { wslCommandFromStartArgs } from "./wslTransport.ts";
 
 const { logInfo, logError } = DesktopObservability.makeComponentLogger("desktop-maintenance");
 
-/** Wake frequently; the controller decides when the release feed is due. */
-const CHECK_INTERVAL = Duration.minutes(4);
-const STARTUP_CHECK_DELAY = Duration.seconds(15);
 const RELEASES_PER_CHECK = 12;
 
 const isMaintenanceError = Schema.is(ForkMaintenanceError);
@@ -104,8 +97,6 @@ export class DesktopForkMaintenance extends Context.Service<
     readonly prepareStartup: Effect.Effect<StartupPlan>;
     /** After the backends started: finish an interrupted transaction while they are health-checked. */
     readonly resumeInBackground: Effect.Effect<void, never, Scope.Scope>;
-    /** Check/stage poller, the automatic-install gate, activity registration and the server relay. */
-    readonly configure: Effect.Effect<void, never, Scope.Scope>;
   }
 >()("@t3tools/desktop/maintenance/DesktopForkMaintenance") {}
 
@@ -145,7 +136,6 @@ export const make = Effect.gen(function* () {
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const settings = yield* DesktopAppSettings.DesktopAppSettings;
   const fileSystem = yield* FileSystem.FileSystem;
-  const publisher = yield* DesktopTelemetryPublisher.DesktopTelemetryPublisher;
   const bridge = yield* DesktopMaintenanceBridge;
   const context = yield* Effect.context<never>();
   const runPromise = Effect.runPromiseWith(context);
@@ -312,7 +302,7 @@ export const make = Effect.gen(function* () {
       yield* logInfo("device maintenance unavailable", { reason: plan.reason });
     if (plan.kind === "blocked")
       yield* logError("device maintenance holds this launch", { reason: plan.reason });
-    // Subscribers (the settings page, the sidebar) hold a placeholder until the coordinator is open.
+    // Settings subscribers hold a placeholder until the coordinator is open.
     yield* Effect.promise(() => core.status().then(emit)).pipe(Effect.ignore);
     return plan;
   });
@@ -324,71 +314,6 @@ export const make = Effect.gen(function* () {
     Effect.forkScoped,
     Effect.asVoid,
   );
-
-  const handleRelayedRequest = Effect.fn("desktop.maintenance.relayedRequest")(function* (request: {
-    readonly requestId: string;
-    readonly operation: DesktopMaintenanceOperation;
-  }) {
-    const operation = request.operation;
-    const run = (): Promise<ForkUpdateStatus> => {
-      switch (operation.op) {
-        case "status":
-          return core.status();
-        case "policy":
-          return core.updatePolicy(operation.patch);
-        case "action":
-          return core.runAction(operation.input);
-        case "recover":
-          return core.recover(operation.request);
-      }
-    };
-    const outcome = yield* Effect.tryPromise({ try: run, catch: toMaintenanceError }).pipe(
-      Effect.result,
-    );
-    if (outcome._tag === "Success") {
-      yield* publisher.publishMaintenanceReport({
-        version: 1,
-        type: "desktopMaintenance",
-        requestId: request.requestId,
-        status: outcome.success,
-      });
-    } else {
-      yield* publisher.publishMaintenanceReport({
-        version: 1,
-        type: "desktopMaintenance",
-        requestId: request.requestId,
-        error: {
-          reason: outcome.failure.reason,
-          ...(outcome.failure.blockers === undefined ? {} : { blockers: outcome.failure.blockers }),
-        },
-      });
-    }
-  });
-
-  const configure = Effect.gen(function* () {
-    const checkAndStage = Effect.promise(() => core.checkIfDue()).pipe(
-      Effect.catchCause(() => Effect.void),
-    );
-    // Four-minute wakeups respect nextCheckAt. Activity has its own loop:
-    // a pending controller action must not prevent acknowledgement of its fence.
-    yield* Effect.sleep(STARTUP_CHECK_DELAY).pipe(
-      Effect.andThen(checkAndStage.pipe(Effect.repeat(Schedule.spaced(CHECK_INTERVAL)))),
-      Effect.forkScoped,
-    );
-    yield* startMaintenancePolling({
-      observe: Effect.promise(() => core.observe()),
-      tick: Effect.promise(() => core.tick()),
-    });
-    // A server on this device relays remote and agent requests here; concurrent identical ones share one outcome.
-    yield* Stream.runForEach(publisher.maintenanceRequests, (request) =>
-      handleRelayedRequest(request).pipe(
-        Effect.catchCause((cause) =>
-          logError("maintenance request failed unexpectedly", { cause: String(cause) }),
-        ),
-        Effect.forkScoped,
-      ),
-    ).pipe(Effect.forkScoped);
-  }).pipe(Effect.withSpan("desktop.maintenance.configure"));
 
   return DesktopForkMaintenance.of({
     status: Effect.promise(() => core.status()),
@@ -410,7 +335,6 @@ export const make = Effect.gen(function* () {
     disabledReason: Effect.sync(() => Option.fromNullishOr(disabledReason)),
     prepareStartup,
     resumeInBackground,
-    configure,
   });
 });
 

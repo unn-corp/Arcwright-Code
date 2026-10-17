@@ -68,8 +68,8 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
   operations, and architecture guides in the same change as behavior, UI routes, build requirements,
   or compatibility. Describe implemented behavior; label uncommissioned delivery explicitly.
 - Desktop app updates follow upstream Electron check/download/confirmed-install behavior and may
-  stop owned backends after explicit confirmation. Do not configure the legacy desktop automatic
-  maintenance installer. Preserve its startup recovery for existing transactions. Native Android
+  stop owned backends after explicit confirmation. Do not reintroduce the retired desktop automatic
+  maintenance poller. Preserve startup recovery for existing transactions. Native Android
   and server installation/recovery retain their maintenance coordinator. Registered
   standalone/development runtimes block installation but are never automatic binary-update targets.
   Unknown activity or missing safety capability blocks installation. Automatic updates never stop

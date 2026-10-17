@@ -72,8 +72,7 @@
       ],
       // The injected runtime resolves Playwright by string; release tooling runs
       // electron-builder from this workspace, outside its package scripts.
-      // Retain the legacy updater dependency while installed package compatibility is supported.
-      "ignoreDependencies": ["playwright-core", "electron-builder", "electron-updater"],
+      "ignoreDependencies": ["playwright-core", "electron-builder"],
     },
     "apps/web": {
       // Vitest loads this through the per-file @vitest-environment directive.
@@ -85,12 +84,7 @@
       // reports an entire component module when nothing imports it.
       "ignoreIssues": {
         "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"],
-        // Already inactive at the pinned fork baseline; retained during upstream integration.
-        "src/components/Agent{Research,Security,Suggestions}.tsx": ["files"],
-        "src/components/ConversationReferenceCopyWorker.tsx": ["files"],
-        "src/components/preview/remoteStreamRegistry.ts": ["files"],
         "src/components/ui/{fieldset,form}.tsx": ["files"],
-        "src/state/codexSessions.ts": ["files"],
       },
     },
     "apps/mobile": {

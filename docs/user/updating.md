@@ -159,7 +159,8 @@ resume and keeps the downloaded build. Wait until that time before checking agai
 Installation still needs a fresh release check, so a downloaded build cannot be
 installed while its release cannot be verified.
 
-All agent work in registered fork runtimes belonging to that local OS user must be stopped,
+For managed-service installation, all agent work in registered fork runtimes belonging
+to that local OS user must be stopped,
 including desktop, background services, standalone, development, and explicitly
 connected WSL runtimes. Work includes child/delegated agents, compaction,
 approval waits, provider background tasks, tools, commands, and cancellation
@@ -170,28 +171,21 @@ An older registered runtime can also block because it lacks the current process
 activity checks. Let its work finish before upgrading it manually. Standalone and
 development servers require that manual step; confirming the installation review
 does not upgrade their safety checks.
-An additional desktop instance using a different data home blocks desktop replacement;
-close that instance after its work stops. Managed services remain activity participants,
-but desktop replacement does not restore their databases.
 
-Automatic installation requires five idle minutes. To choose the timing yourself, turn off
+Automatic service installation requires five idle minutes. To choose the timing yourself, turn off
 **Automatic installation** and select **Update now** after the update finishes downloading
-and verification. On desktop and managed servers, this skips the idle delay and automatic
-countdown. If sessions or their commands are running, a warning offers **Interrupt and update**.
-Confirming shuts down this desktop’s owned backends through normal session recovery, then
-rechecks admission before replacement. Saved conversations remain available; automatic
-continuation follows your existing recovery settings. The warning is skipped when work is idle.
-Uploads, unknown activity, unrelated runtimes, and all other safety checks still block
-installation. Interrupting WSL sessions and managed-service sessions is not yet supported;
-those runtimes must become idle. Android retains its native background and activity requirements.
+and verification. For managed servers, this skips the idle delay and automatic countdown;
+running sessions, commands, uploads, unknown activity, and unrelated registered runtimes
+still block installation. Let their work finish normally. Android retains its own two-minute
+background window and phone-local activity requirements.
 
 Automatically tidying completed conversations does not restart the idle timer.
 Background file cleanup still counts as work until it finishes.
 
-The coordinator acquires its interprocess admission
-lock, fences new work, and checks every participant again. Desktop automatic
-installation also waits for input inactivity and unfinished uploads, then shows
-a cancellable 15-second countdown. Drafts and queued messages remain saved.
+The service coordinator acquires its interprocess admission
+lock, fences new work, and checks every participant again. Automatic service
+installation shows a cancellable 15-second countdown after its idle window.
+Drafts and queued messages remain saved.
 A fresh release eligibility check and enough space for recovery are required.
 
 Android runs no coding-agent server. APK replacement waits until the phone has

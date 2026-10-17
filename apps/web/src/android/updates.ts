@@ -209,9 +209,6 @@ export const configureAndroidUpdates = (change: {
   channel?: ForkUpdateChannel;
   automaticInstallation?: boolean;
 }) => androidUpdateRequest("configure", change);
-/** Holds the installed build: nothing installs until `resumeAndroidUpdates`. */
-export const pinAndroidBuild = () => androidUpdateRequest("pin");
-export const resumeAndroidUpdates = () => androidUpdateRequest("resume");
 /**
  * Records a request to install the exact build the person reviewed. Native rejects a digest that is
  * no longer the verified target, and returns a waiting status: the install itself starts only after

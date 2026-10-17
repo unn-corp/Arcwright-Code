@@ -13,8 +13,8 @@ import * as IpcChannels from "../channels.ts";
 import { makeIpcMethod } from "../DesktopIpc.ts";
 
 /**
- * The renderer's whole view of device maintenance. Every method is a thin call into the one controller, so a
- * menu click, the settings page, a remote client and an agent all pass the same admission and recovery checks.
+ * Compatibility bridge for recorded desktop maintenance and recovery. New desktop app updates use
+ * DesktopUpdates; these retained methods still pass through the maintenance controller's admission checks.
  */
 export const getMaintenanceStatus = makeIpcMethod({
   channel: IpcChannels.MAINTENANCE_GET_STATUS_CHANNEL,

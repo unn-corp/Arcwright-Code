@@ -636,8 +636,9 @@ Desktop app delivery uses upstream `DesktopUpdates` / `ElectronUpdater` and the
 upstream renderer controls. `forkDesktopFeed` only selects an eligible owned release
 and maps the numbered fork tag to an immutable GenericProvider directory. Native
 Android and service maintenance keep their coordinator. Legacy desktop maintenance
-is retained for startup recovery, with its poller disabled. Explicit desktop install
-stops backends without an idle wait; auto-download and auto-install-on-quit remain off.
+is retained for startup recovery; its unused polling/configuration path has been removed.
+Explicit desktop install stops backends without an idle wait; auto-download and
+auto-install-on-quit remain off.
 The older coordinator details below describe Android/services and legacy transactions.
 
 Automatic thread settlement is passive bookkeeping for maintenance admission. It must
@@ -649,12 +650,11 @@ Keep the real coordinator/orchestrator regression in `IdleBookkeeping.integratio
 Explicit installation skips the automatic idle window and countdown through a durable
 transaction journal flag; automatic delivery keeps both. Preserve fresh process and activity
 checks, admission leases, all runtime fence acknowledgements, snapshots and recovery capacity.
-Turning off automatic installation leaves manual installation available. Desktop controllers
-without WSL members advertise interruption support. The UI warns only when work is running,
-then sends an exact-artifact `interruptActiveWork` confirmation. Normal backend shutdown
-preserves session recovery; the affected cohort remains pinned until handoff or a safe abort.
-An abort restarts old backends after admission is released. Surviving work and unrelated
-runtimes still block installation. Android retains its native installation guard.
+Turning off automatic service installation leaves manual installation available. Running work
+still blocks service replacement. Legacy desktop transactions may retain a recorded
+exact-artifact `interruptActiveWork` confirmation; preserve their normal shutdown, session
+recovery, pinned affected cohort, and safe-abort behavior. New desktop app updates use the
+upstream confirmation flow above. Android retains its native installation guard.
 
 Maintenance uses the `active-runtime` projection selector; restart recovery keeps
 `runtime`, which also reconciles ready provider sessions. A ready session alone is
@@ -669,8 +669,8 @@ observations still hold installation. A completed turn does not prove those
 children have exited; never stop sessions or clear their records to obtain admission.
 
 GitHub feed rate limits are different from ordinary network failures. Respect the
-controller's `nextCheckAt` for desktop automatic checks; four-minute wakeups do not
-override the normal four-hour feed cadence or failure backoff. Explicit checks can
+controller's `nextCheckAt` for automatic service checks; polling wakeups do not
+override its normal feed cadence or failure backoff. Explicit checks can
 run sooner unless GitHub's enforced cooldown is still active. Respect the
 advertised reset time and `Retry-After` delay, keep the staged artifact, and report
 an offline blocker while the cooldown is active. Repeated manual checks and install
@@ -742,13 +742,14 @@ before enabling automatic publishing. Existing installations need the known-good
 and explicit device bootstrap before participating. A successful source test is not a hardware
 installation receipt.
 
-Desktop activity reporting is owned by
-[maintenancePolling.ts](../../apps/desktop/src/maintenance/maintenancePolling.ts), started by
-`DesktopForkMaintenance`. Its observation loop must remain independent of serialized updater
-actions: installation waits for a fresh post-fence observation from the desktop itself. The
-[polling regression tests](../../apps/desktop/src/maintenance/maintenancePolling.test.ts) hold
-the controller busy beyond the stale threshold and verify both acknowledgement and detection of
-new work. Include this scenario when changing updater scheduling or admission.
+Desktop startup recovery remains owned by
+[DesktopForkMaintenance.ts](../../apps/desktop/src/maintenance/DesktopForkMaintenance.ts)
+and `maintenanceCore`: `prepareStartup` resolves recorded transactions before a backend opens
+data, and `resumeInBackground` completes trial health checks. The
+[maintenance regression tests](../../apps/desktop/src/maintenance/DesktopForkMaintenance.test.ts)
+retain recovery, fencing, and activity checks. The retired desktop polling loop is removed;
+service scheduling remains in
+[MaintenanceService.ts](../../apps/server/src/maintenance/MaintenanceService.ts).
 
 `maintenanceCore` also records both committed updates and verified recoveries in the installed-build
 identity. Recovery must adopt the journal's predecessor digest and increment the installation sequence;

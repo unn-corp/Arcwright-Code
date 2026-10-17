@@ -741,8 +741,10 @@ Do these in order. Each is outside the repository.
 6. **Hardware pass.** Manually run `nightly` with both `publish=true` and `commission=true` to
    publish a complete, validated candidate to the trusted GitHub feed. A rehearsal artifact or draft
    cannot be installed through the in-product updater. Keep `FORK_RELEASES_ENABLED` unset or false.
-   On real Windows/Linux desktops, verify that active registered agents defer installation; let work
-   finish normally before updating. On the phone, follow the
+   On real Windows/Linux desktops, verify upstream check/download/confirmed installation and
+   normal shutdown of owned backends after confirmation. Desktop installation does not wait
+   for idle chats. Managed services must defer installation while registered work is active.
+   On the phone, follow the
    [paired-phone commissioning checklist](./android-pwa.md#paired-phone-commissioning) to capture
    current device policy, verify foreground/local-operation guards, and preserve saved connections.
    Notification-service changes also require the
@@ -757,7 +759,8 @@ Do these in order. Each is outside the repository.
    Disable [fixture automation](./development.md#fixture-automation) before launching a packaged
    desktop against isolated data. Pruned database schedules do not disable default repository
    reviews; unintended test work can consume provider usage and block maintenance admission.
-   Exercise the packaged desktop's automatic installation as well as a requested installation.
+   Exercise the packaged desktop's confirmed installation and the native Android/service
+   automatic installation policies separately.
    Its activity observation must continue while the controller waits for post-fence acknowledgements;
    an older build with a coupled polling loop can refuse an idle installation. Use a baseline with
    independent activity polling before relying on unattended delivery.

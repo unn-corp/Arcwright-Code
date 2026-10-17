@@ -1,11 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodePath from "node:path";
+import * as NodePath from "@effect/platform-node/NodePath";
 import type { DesktopUpdateState } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as PlatformError from "effect/PlatformError";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
@@ -210,7 +211,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   let previousInstallRecord = options.installRecord;
   const isInstallRecord = (path: string) =>
     path.endsWith(DesktopUpdates.DESKTOP_UPDATE_INSTALL_RECORD_FILE);
-  const packageTypePath = NodePath.join("/missing/resources", "package-type");
+  const nativePath = Effect.runSync(Path.Path.pipe(Effect.provide(NodePath.layer)));
+  const packageTypePath = nativePath.join("/missing/resources", "package-type");
   const layerFileSystem = FileSystem.layerNoop({
     readFileString: (path) => {
       const installRecord = isInstallRecord(path)
