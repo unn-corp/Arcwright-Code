@@ -6,6 +6,8 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import {
   Link2Icon,
+  Maximize2Icon,
+  Minimize2Icon,
   PencilIcon,
   PlusIcon,
   Redo2Icon,
@@ -70,6 +72,9 @@ export function OrganizationDesigner({
   );
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [chatFocused, setChatFocused] = useState(false);
+  const supportsEmployeeProfiles =
+    config?.environment.capabilities.organizationEmployeeProfiles === true;
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -99,7 +104,9 @@ export function OrganizationDesigner({
   const selectedRole = organization.graph.roles.find((role) => role.id === selectedRoleId) ?? null;
   const normalizedSearch = search.trim().toLowerCase();
   const matchingRoles = organization.graph.roles.filter((role) =>
-    `${role.title} ${role.kind} ${role.mandate}`.toLowerCase().includes(normalizedSearch),
+    `${role.title} ${role.kind} ${role.mandate} ${role.personality ?? ""} ${role.focus ?? ""} ${role.skills ?? ""}`
+      .toLowerCase()
+      .includes(normalizedSearch),
   );
   const historyIsCurrent = history.revision === organization.draftRevision;
   const editingRole = employee?.id
@@ -218,12 +225,16 @@ export function OrganizationDesigner({
       </div>
       <div
         className={
-          assistantOpen
-            ? "grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]"
+          assistantOpen && !chatFocused
+            ? "grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_28rem]"
             : "min-w-0"
         }
       >
-        <section className="min-w-0 space-y-3" aria-label="Team designer">
+        <section
+          hidden={assistantOpen && chatFocused}
+          className="min-w-0 space-y-3"
+          aria-label="Team designer"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <Input
               className="min-w-0 flex-1 sm:max-w-xs"
@@ -303,7 +314,9 @@ export function OrganizationDesigner({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{selectedRole.title}</p>
                 <p className="truncate text-sm text-muted-foreground">
-                  {selectedRole.mandate || "Define what this employee is responsible for."}
+                  {selectedRole.focus ||
+                    selectedRole.mandate ||
+                    "Define what this employee is responsible for."}
                 </p>
               </div>
               <Button
@@ -369,7 +382,16 @@ export function OrganizationDesigner({
             className="min-w-0 space-y-2"
             aria-label="Architect assistant"
           >
-            <div className="flex justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={chatFocused}
+                onClick={() => setChatFocused(!chatFocused)}
+              >
+                {chatFocused ? <Minimize2Icon /> : <Maximize2Icon />}
+                {chatFocused ? "Show graph" : "Focus chat"}
+              </Button>
               <Button size="sm" variant="ghost" onClick={() => setAssistantOpen(false)}>
                 <XIcon /> Close Architect
               </Button>
@@ -384,6 +406,7 @@ export function OrganizationDesigner({
           {...(editingRole ? { role: editingRole } : {})}
           busy={busy}
           supportsEmployeeConfiguration={supportsEmployeeConfiguration}
+          supportsEmployeeProfiles={supportsEmployeeProfiles}
           onClose={() => setEmployee(null)}
           onSave={async (role) => {
             if (savingRef.current) return false;
@@ -399,6 +422,13 @@ export function OrganizationDesigner({
                       title: role.title,
                       mandate: role.mandate,
                       poolSize: role.poolSize,
+                      ...(supportsEmployeeProfiles
+                        ? {
+                            personality: role.personality ?? "",
+                            focus: role.focus ?? "",
+                            skills: role.skills ?? "",
+                          }
+                        : {}),
                       ...(supportsEmployeeConfiguration
                         ? { modelSelection: role.modelSelection ?? null }
                         : {}),

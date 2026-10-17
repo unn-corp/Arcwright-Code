@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import {
   OrganizationBindingId,
   OrganizationId,
+  OrganizationPublishedConfig,
   OrganizationRoleId,
   OrganizationWorkflowId,
   OrganizationWorkflowStepId,
@@ -20,6 +21,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
 import { OrganizationTentativeFindingId } from "../../../../packages/contracts/src/organizationIntake.ts";
@@ -52,6 +54,10 @@ import {
   OrganizationSingleFileProposalPolicyDisabled,
   proposeOrganizationSingleFileArtifact,
 } from "./OrganizationSingleFileProposalCoordinator.ts";
+
+const decodePublishedConfig = Schema.decodeEffect(
+  Schema.fromJsonString(OrganizationPublishedConfig),
+);
 
 const organizationId = OrganizationId.make("proposal-coordinator-org");
 const projectId = ProjectId.make("proposal-coordinator-project");
@@ -238,7 +244,16 @@ const seed = (root: string, commit: string) =>
         actor: "user",
         change: {
           type: "add-role",
-          role: { id: roleId, kind, title: kind, mandate: kind, poolSize: 1 },
+          role: {
+            id: roleId,
+            kind,
+            title: kind,
+            mandate: kind,
+            poolSize: 1,
+            personality: `Published ${kind}`,
+            focus: "Correctness",
+            skills: "TypeScript",
+          },
         },
       });
     }
@@ -334,6 +349,19 @@ it.effect("returns exact canonical bytes without changing Git refs or dirty chec
       yield* Effect.promise(() =>
         NodeFSP.writeFile(NodePath.join(root, "answer.mjs"), "dirty checkout\n"),
       );
+      const orgs = yield* OrganizationStore;
+      const draft = yield* orgs.get({ organizationId });
+      yield* orgs.mutate({
+        organizationId,
+        mutationId: "edit-draft-profile",
+        baseRevision: draft.draftRevision,
+        actor: "user",
+        change: {
+          type: "update-role",
+          roleId: OrganizationRoleId.make("proposal-worker"),
+          personality: "Unpublished draft",
+        },
+      });
       const result = yield* proposeOrganizationSingleFileArtifact(workId);
       const decoded = decodeOrganizationSingleFileArtifact(result.artifactBytes);
       assert.equal(decoded.baseCommit, commit);
@@ -353,6 +381,12 @@ it.effect("returns exact canonical bytes without changing Git refs or dirty chec
     }).pipe(
       Effect.provide(
         layer(policyLayer(), (input) => {
+          assert.deepStrictEqual(input.employeeProfile, {
+            roleId: OrganizationRoleId.make("proposal-worker"),
+            personality: "Published engineering",
+            focus: "Correctness",
+            skills: "TypeScript",
+          });
           assert.match(input.taskText, /Incorrect doubling/);
           assert.match(input.taskText, /Expected twice the input/);
           assert.equal(
@@ -507,3 +541,48 @@ it.effect("snapshots mutable policy and provider outputs before later reads", ()
     }).pipe(Effect.provide(layer(mutablePolicy, generate))),
   );
 });
+
+it.effect.each([false, true])(
+  "preserves multi-work-step dispatch (ambiguous roles: %s)",
+  (ambiguous) =>
+    withRepo((root, commit) =>
+      Effect.gen(function* () {
+        yield* seed(root, commit);
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{
+          config_json: string;
+        }>`SELECT config_json FROM organization_config_versions WHERE organization_id = ${organizationId}`;
+        const config = yield* decodePublishedConfig(rows[0]!.config_json);
+        const workflow = config.workflows[0]!;
+        const worker = workflow.steps.find((step) => step.kind === "work")!;
+        // Alter only isolated fixture data to exercise legacy multi-step dispatch attribution.
+        const fixtureConfig = {
+          ...config,
+          workflows: [
+            {
+              ...workflow,
+              steps: [
+                ...workflow.steps,
+                {
+                  ...worker,
+                  id: OrganizationWorkflowStepId.make("second-work"),
+                  roleId: ambiguous ? OrganizationRoleId.make("proposal-qa") : worker.roleId,
+                },
+              ],
+            },
+          ],
+        };
+        yield* sql`UPDATE organization_config_versions SET config_json = ${JSON.stringify(fixtureConfig)} WHERE organization_id = ${organizationId}`;
+        const result = yield* proposeOrganizationSingleFileArtifact(workId);
+        assert.equal(result.proposal.fileName, "answer.mjs");
+      }).pipe(
+        Effect.provide(
+          layer(policyLayer(), (input) => {
+            if (ambiguous) assert.equal(input.employeeProfile, undefined);
+            else assert.equal(input.employeeProfile?.personality, "Published engineering");
+            return Effect.succeed(generated(input));
+          }),
+        ),
+      ),
+    ),
+);

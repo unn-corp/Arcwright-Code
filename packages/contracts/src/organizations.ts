@@ -51,7 +51,25 @@ export const OrganizationCapability = Schema.Literals([
 ]);
 export type OrganizationCapability = typeof OrganizationCapability.Type;
 
+export const ORGANIZATION_EMPLOYEE_PERSONALITY_MAX_LENGTH = 2_000;
+export const ORGANIZATION_EMPLOYEE_FOCUS_MAX_LENGTH = 2_000;
+export const ORGANIZATION_EMPLOYEE_SKILLS_MAX_LENGTH = 4_000;
+
+/** Authored guidance only; these fields never grant tools, permissions, or model routing. */
+export const OrganizationEmployeeProfileFields = {
+  personality: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(ORGANIZATION_EMPLOYEE_PERSONALITY_MAX_LENGTH)),
+  ),
+  focus: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(ORGANIZATION_EMPLOYEE_FOCUS_MAX_LENGTH)),
+  ),
+  skills: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(ORGANIZATION_EMPLOYEE_SKILLS_MAX_LENGTH)),
+  ),
+};
+
 export const OrganizationRole = Schema.Struct({
+  ...OrganizationEmployeeProfileFields,
   id: OrganizationRoleId,
   kind: OrganizationRoleKind,
   title: TrimmedNonEmptyString,
@@ -223,6 +241,7 @@ export const OrganizationChange = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("update-role"),
     roleId: OrganizationRoleId,
+    ...OrganizationEmployeeProfileFields,
     title: Schema.optional(TrimmedNonEmptyString),
     mandate: Schema.optional(Schema.String),
     poolSize: Schema.optional(PositiveInt),

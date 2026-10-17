@@ -5,13 +5,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { OrganizationDesigner } from "./OrganizationDesigner";
 
-const server = vi.hoisted(() => ({ employeeConfiguration: true }));
+const server = vi.hoisted(() => ({ employeeConfiguration: true, employeeProfiles: true }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: string) =>
     atom === "config"
       ? {
           environment: {
-            capabilities: { organizationEmployeeConfiguration: server.employeeConfiguration },
+            capabilities: {
+              organizationEmployeeConfiguration: server.employeeConfiguration,
+              organizationEmployeeProfiles: server.employeeProfiles,
+            },
           },
         }
       : [],
@@ -67,6 +70,7 @@ let container: HTMLDivElement;
 let props: ComponentProps<typeof OrganizationDesigner>;
 beforeEach(() => {
   server.employeeConfiguration = true;
+  server.employeeProfiles = true;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
@@ -188,6 +192,13 @@ it("starts with the graph and keeps an Architect draft and model selection acros
   await click("Architect");
   await input(element<HTMLTextAreaElement>('[aria-label="Architect draft"]'), "Unsent design idea");
   await click("Choose assistant model");
+  await click("Focus chat");
+  expect(element('[aria-label="Organization role graph"]').closest("section")?.hidden).toBe(true);
+  expect(element<HTMLTextAreaElement>('[aria-label="Architect draft"]').value).toBe(
+    "Unsent design idea",
+  );
+  await click("Show graph");
+  expect(element('[aria-label="Organization role graph"]').closest("section")?.hidden).toBe(false);
   await click("Close Architect");
   expect(element<HTMLElement>('aside[aria-label="Architect assistant"]').hidden).toBe(true);
   await click("Architect");
@@ -204,6 +215,7 @@ it("adds the first employee with provider/model and graph position in a single c
   expect(document.querySelector("aside")).toBeNull();
   await addHere();
   await input(element<HTMLInputElement>('[role="dialog"] input'), "First engineer");
+  await click("Continue");
   await click("Continue");
   await click("Continue");
   await choose("Provider", "Codex");
@@ -228,6 +240,7 @@ it("omits position and optional model configuration when adding on an old server
   await render();
   await addHere();
   await input(element<HTMLInputElement>('[role="dialog"] input'), "Legacy engineer");
+  await click("Continue");
   await click("Continue");
   await click("Continue");
   await click("Continue");
@@ -347,4 +360,76 @@ it("prevents repeated relationship submissions and closing while a save is pendi
   await click("Add relationship");
   expect(props.onChange).toHaveBeenCalledTimes(2);
   await act(async () => settle(true));
+});
+
+it("omits existing profile fields from legacy-server edits without altering the current role", async () => {
+  server.employeeProfiles = false;
+  const role = {
+    ...organization.graph.roles[0]!,
+    personality: "Calm",
+    focus: "Reliability",
+    skills: "Review failures",
+  };
+  props = {
+    ...props,
+    organization: { ...organization, graph: { ...organization.graph, roles: [role] } },
+  };
+  await render();
+  await click("Edit employee");
+  await input(element<HTMLInputElement>('[role="dialog"] input'), "Renamed director");
+  await click("Continue");
+  await click("Continue");
+  for (const field of Array.from(
+    document.querySelectorAll<HTMLTextAreaElement>('[role="dialog"] textarea'),
+  ))
+    expect(field.disabled).toBe(true);
+  await click("Continue");
+  await click("Continue");
+  await click("Save employee");
+  const change = vi.mocked(props.onChange).mock.calls[0]?.[0];
+  expect(change).toMatchObject({
+    type: "update-role",
+    roleId: director,
+    title: "Renamed director",
+  });
+  expect(change).not.toHaveProperty("personality");
+  expect(change).not.toHaveProperty("focus");
+  expect(change).not.toHaveProperty("skills");
+  expect(props.organization.graph.roles[0]).toMatchObject({
+    personality: "Calm",
+    focus: "Reliability",
+    skills: "Review failures",
+  });
+});
+
+it("sends all edited profile fields, including an explicit clear, in one employee update", async () => {
+  const role = {
+    ...organization.graph.roles[0]!,
+    personality: "Calm",
+    focus: "Reliability",
+    skills: "Review failures",
+  };
+  props = {
+    ...props,
+    organization: { ...organization, graph: { ...organization.graph, roles: [role] } },
+  };
+  await render();
+  await click("Edit employee");
+  await click("Continue");
+  await click("Continue");
+  await input(element<HTMLTextAreaElement>('textarea[id$="-personality"]'), "Direct and curious");
+  await input(element<HTMLTextAreaElement>('textarea[id$="-focus"]'), "");
+  await input(element<HTMLTextAreaElement>('textarea[id$="-skills"]'), "Trace failure paths");
+  await click("Continue");
+  await click("Continue");
+  await click("Save employee");
+  expect(props.onChange).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      type: "update-role",
+      roleId: director,
+      personality: "Direct and curious",
+      focus: "",
+      skills: "Trace failure paths",
+    }),
+  );
 });

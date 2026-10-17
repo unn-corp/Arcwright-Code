@@ -15,10 +15,22 @@ const MAX_USER_BYTES = 4_000;
 const MAX_TRANSCRIPT_TURNS = 16;
 const MAX_TRANSCRIPT_BYTES = 16_000;
 const MAX_SNAPSHOT_BYTES = 12_000;
-const MAX_PROMPT_BYTES = 32_000;
+const MAX_PROMPT_BYTES = 48_000;
 
 const byteLength = (text: string) => Buffer.byteLength(text, "utf8");
 const invalidInput = (detail: string) => new TextGenerationError({ operation: OPERATION, detail });
+
+// Bound individual redacted strings before serializing, preserving complete JSON and IDs.
+const contextSnippet = (value: string, maxBytes: number): string => {
+  const redacted = redactOrganizationArchitectText(value);
+  if (byteLength(redacted) <= maxBytes) return redacted;
+  let snippet = "";
+  for (const character of redacted) {
+    if (byteLength(snippet + character) > maxBytes) break;
+    snippet += character;
+  }
+  return `${snippet} [truncated]`;
+};
 
 /** Only the supplied Organization configuration and conversation enter this prompt. */
 export const buildOrganizationArchitectPrompt = (
@@ -75,6 +87,11 @@ export const buildOrganizationArchitectPrompt = (
         title: redactOrganizationArchitectText(role.title),
         mandate: redactOrganizationArchitectText(role.mandate),
         poolSize: role.poolSize,
+        ...(role.personality !== undefined
+          ? { personality: contextSnippet(role.personality, 256) }
+          : {}),
+        ...(role.focus !== undefined ? { focus: contextSnippet(role.focus, 256) } : {}),
+        ...(role.skills !== undefined ? { skills: contextSnippet(role.skills, 256) } : {}),
       })),
       edges: input.organization.graph.edges.map((edge) => ({
         id: edge.id,
@@ -109,6 +126,36 @@ export const buildOrganizationArchitectPrompt = (
       workflows: configuration.workflows.map((workflow) => ({
         id: workflow.id,
         title: workflow.title,
+        version: workflow.version,
+        stepCount: workflow.steps.length,
+        transitionCount: workflow.transitions.length,
+      })),
+      workflowDetailsOmitted: true,
+    });
+  }
+  // Long authored guidance must not crowd out routing identifiers or disable chat.
+  for (const limit of [256, 128, 64, 0]) {
+    if (byteLength(snapshot) <= MAX_SNAPSHOT_BYTES) break;
+    snapshot = JSON.stringify({
+      ...configuration,
+      title: contextSnippet(configuration.title, limit),
+      mission: contextSnippet(configuration.mission, limit),
+      graph: {
+        ...configuration.graph,
+        roles: configuration.graph.roles.map((role) => ({
+          ...role,
+          title: contextSnippet(role.title, limit),
+          mandate: contextSnippet(role.mandate, limit),
+          ...(role.personality !== undefined
+            ? { personality: contextSnippet(role.personality, limit) }
+            : {}),
+          ...(role.focus !== undefined ? { focus: contextSnippet(role.focus, limit) } : {}),
+          ...(role.skills !== undefined ? { skills: contextSnippet(role.skills, limit) } : {}),
+        })),
+      },
+      workflows: configuration.workflows.map((workflow) => ({
+        id: workflow.id,
+        title: contextSnippet(workflow.title, limit),
         version: workflow.version,
         stepCount: workflow.steps.length,
         transitionCount: workflow.transitions.length,
@@ -151,6 +198,7 @@ export const buildOrganizationArchitectPrompt = (
     "Never propose deleting roles, changing lifecycle or bindings, publishing, or editing layout.",
     `Every proposal baseRevision must equal ${input.organization.draftRevision}.`,
     "Use fresh role and edge IDs for additions. Preserve existing role IDs when updating.",
+    "Employee personality, focus, and skills are authored guidance only. Use the Architect role's guidance for your conversational style and design focus within these rules. Skills never grant installed skills, tools, permissions, or execution authority. You may suggest these text fields through add-role/update-role, but they require explicit human Apply. Empty strings clear a field; omitted fields preserve it. Text marked [truncated] is only a context snippet, not the complete saved value; never replace existing guidance with a snippet.",
     "Employee provider/model assignments are environment-local human choices. Never propose modelSelection or provider options, and preserve these choices when suggesting role edits.",
     "Return exactly one JSON object matching the response JSON Schema below. Put all conversational text in reply; use proposals: [] when no structural change is warranted. Do not return Markdown fences or prose outside the JSON object.",
     "Response JSON Schema:",

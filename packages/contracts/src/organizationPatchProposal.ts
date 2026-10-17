@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { OrganizationEmployeeProfileFields, OrganizationRoleId } from "./organizations.ts";
 import { ModelSelection } from "./orchestration.ts";
 
 export const ORGANIZATION_PATCH_TASK_MAX_BYTES = 4_000;
@@ -26,6 +27,12 @@ export const OrganizationPatchBaseDigest = Schema.String.check(Schema.isPattern(
 export const OrganizationPatchProposalInput = Schema.Struct({
   modelSelection: ModelSelection,
   taskText: Schema.String.check(textWithin(ORGANIZATION_PATCH_TASK_MAX_BYTES)),
+  employeeProfile: Schema.optional(
+    Schema.Struct({
+      roleId: OrganizationRoleId,
+      ...OrganizationEmployeeProfileFields,
+    }),
+  ),
   findingContext: Schema.optional(
     Schema.Struct({
       title: Schema.String.check(textWithin(512)),

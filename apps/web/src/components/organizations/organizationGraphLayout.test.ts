@@ -94,3 +94,32 @@ it("undo restores or clears employee AI selection only when that selection was e
     }),
   ).toMatchObject({ modelSelection: null });
 });
+
+it("undo restores edited profile fields, clears newly added fields, and preserves unedited fields", () => {
+  const profiled: Organization = {
+    ...organization,
+    graph: {
+      ...organization.graph,
+      roles: organization.graph.roles.map((role) =>
+        role.id === directorId ? { ...role, personality: "Calm", skills: "Review failures" } : role,
+      ),
+    },
+  };
+  expect(
+    inverseOrganizationChange(profiled, {
+      type: "update-role",
+      roleId: directorId,
+      personality: "Direct",
+      focus: "Delivery",
+      skills: "",
+    }),
+  ).toMatchObject({ personality: "Calm", focus: "", skills: "Review failures" });
+  const rename = inverseOrganizationChange(profiled, {
+    type: "update-role",
+    roleId: directorId,
+    title: "Lead",
+  });
+  expect(rename).not.toHaveProperty("personality");
+  expect(rename).not.toHaveProperty("focus");
+  expect(rename).not.toHaveProperty("skills");
+});

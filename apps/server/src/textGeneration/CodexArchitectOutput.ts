@@ -19,7 +19,9 @@ export const normalizeCodexArchitectOutputJson = (raw: string): string => {
     if (!isRecord(proposal) || !isRecord(proposal.change)) continue;
     const change = proposal.change;
     if (change.type === "update-role") {
-      omitNulls(change, ["title", "mandate", "poolSize"]);
+      omitNulls(change, ["title", "mandate", "poolSize", "personality", "focus", "skills"]);
+    } else if (change.type === "add-role" && isRecord(change.role)) {
+      omitNulls(change.role, ["personality", "focus", "skills"]);
     }
   }
   return JSON.stringify(output);
