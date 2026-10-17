@@ -13,8 +13,18 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import {
+  applyOpenWhisprLibrary,
+  isOpenWhisprDictionaryEcho,
+  openWhisprDictionaryPrompt,
+  type OpenWhisprLibrary,
+} from "./openwhisprLibrary.ts";
 
 const isTranscriptionError = Schema.is(OpenWhisprTranscriptionError);
+interface LibraryBridge {
+  readonly port: number;
+  readonly token: string;
+}
 
 export class OpenWhispr extends Context.Service<
   OpenWhispr,
@@ -50,7 +60,7 @@ const make = Effect.gen(function* () {
   });
   type Backend =
     | { status: "ready"; backend: "desktop"; port: number; token: string }
-    | { status: "ready"; backend: "whisper"; port: number }
+    | { status: "ready"; backend: "whisper"; port: number; libraryBridge?: LibraryBridge }
     | { status: "unavailable" | "upgrade_required" | "model_required" };
 
   // Discovery sends no audio. Never accept a host/URL from the bridge file or expose its token.
@@ -105,9 +115,55 @@ const make = Effect.gen(function* () {
     );
     const port = ports.find(Option.isSome);
     return port
-      ? ({ status: "ready", backend: "whisper", port: port.value } as const)
+      ? ({
+          status: "ready",
+          backend: "whisper",
+          port: port.value,
+          ...(Option.isSome(bridge) ? { libraryBridge: bridge.value } : {}),
+        } as const)
       : unavailable;
   });
+
+  const dictionarySchema = Schema.Struct({ data: Schema.Array(Schema.String) });
+  const snippetsSchema = Schema.Struct({
+    data: Schema.Array(
+      Schema.Struct({
+        trigger: Schema.String,
+        replacement: Schema.String,
+      }),
+    ),
+  });
+  const readLibrary = (bridge: LibraryBridge | undefined): Effect.Effect<OpenWhisprLibrary> => {
+    if (!bridge) return Effect.succeed({ words: [], snippets: [] });
+    const get = (route: string) =>
+      httpClient
+        .execute(
+          HttpClientRequest.get(`http://127.0.0.1:${bridge.port}/v1/${route}/list`).pipe(
+            HttpClientRequest.setHeader("authorization", `Bearer ${bridge.token}`),
+          ),
+        )
+        .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk));
+    // Read current app data each time. Missing/older optional routes must not break recording.
+    return Effect.all(
+      {
+        words: get("dictionary").pipe(
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(dictionarySchema)),
+          Effect.map((value) => value.data),
+          Effect.timeoutOption(1_500),
+          Effect.map(Option.getOrElse(() => [])),
+          Effect.orElseSucceed(() => []),
+        ),
+        snippets: get("snippets").pipe(
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(snippetsSchema)),
+          Effect.map((value) => value.data),
+          Effect.timeoutOption(1_500),
+          Effect.map(Option.getOrElse(() => [])),
+          Effect.orElseSucceed(() => []),
+        ),
+      },
+      { concurrency: 2 },
+    );
+  };
 
   return OpenWhispr.of({
     status: discover.pipe(
@@ -126,6 +182,12 @@ const make = Effect.gen(function* () {
         if (backend.status !== "ready") {
           return yield* new OpenWhisprTranscriptionError({ reason: backend.status });
         }
+        const library = yield* readLibrary(
+          backend.backend === "desktop" ? backend : backend.libraryBridge,
+        );
+        const finish = (text: string) => ({
+          text: text.trim() === "[BLANK_AUDIO]" ? "" : applyOpenWhisprLibrary(text.trim(), library),
+        });
         if (backend.backend === "desktop") {
           // The public desktop bridge accepts a local file path, not uploaded audio.
           return yield* Effect.scoped(
@@ -153,9 +215,7 @@ const make = Effect.gen(function* () {
                   () => new OpenWhisprTranscriptionError({ reason: "invalid_response" }),
                 ),
               );
-              return {
-                text: result.data.text.trim() === "[BLANK_AUDIO]" ? "" : result.data.text.trim(),
-              };
+              return finish(result.data.text);
             }),
           ).pipe(
             Effect.mapError((error) =>
@@ -172,23 +232,34 @@ const make = Effect.gen(function* () {
           "t3-voice.wav",
         );
         form.append("response_format", "json");
-        const response = yield* httpClient
-          .execute(
-            HttpClientRequest.post(`http://127.0.0.1:${backend.port}/inference`).pipe(
-              HttpClientRequest.bodyFormData(form),
-            ),
-          )
-          .pipe(
-            Effect.flatMap(HttpClientResponse.filterStatusOk),
-            Effect.mapError(() => new OpenWhisprTranscriptionError({ reason: "unavailable" })),
-          );
-        const result = yield* HttpClientResponse.schemaBodyJson(
-          Schema.Struct({ text: Schema.String }),
-        )(response).pipe(
-          Effect.mapError(() => new OpenWhisprTranscriptionError({ reason: "invalid_response" })),
-        );
-        const text = result.text.trim();
-        return { text: text === "[BLANK_AUDIO]" ? "" : text };
+        const prompt = openWhisprDictionaryPrompt(library);
+        if (prompt) form.append("prompt", prompt);
+        const infer = () =>
+          httpClient
+            .execute(
+              HttpClientRequest.post(`http://127.0.0.1:${backend.port}/inference`).pipe(
+                HttpClientRequest.bodyFormData(form),
+              ),
+            )
+            .pipe(
+              Effect.flatMap(HttpClientResponse.filterStatusOk),
+              Effect.mapError(() => new OpenWhisprTranscriptionError({ reason: "unavailable" })),
+              Effect.flatMap((response) =>
+                HttpClientResponse.schemaBodyJson(Schema.Struct({ text: Schema.String }))(
+                  response,
+                ).pipe(
+                  Effect.mapError(
+                    () => new OpenWhisprTranscriptionError({ reason: "invalid_response" }),
+                  ),
+                ),
+              ),
+            );
+        let result = yield* infer();
+        if (prompt && isOpenWhisprDictionaryEcho(result.text, prompt)) {
+          form.delete("prompt");
+          result = yield* infer();
+        }
+        return finish(result.text);
       },
       Effect.timeoutOrElse({
         duration: OPENWHISPR_TIMEOUT_MS,

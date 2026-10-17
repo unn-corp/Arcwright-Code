@@ -278,6 +278,11 @@ on the selected environment before recording. Older Whisper services are detecte
 8178–8199. Bridge credentials stay on the host; scoped private WAV files are removed on completion,
 failure, or cancellation. Older paired Arcwright hosts without the discovery endpoint retain their
 existing transcription path. See [dictation setup](../user/voice-dictation.md).
+The voice service reads OpenWhispr's dictionary and snippets per request through its authenticated
+loopback bridge. [Library processing](../../apps/server/src/voice/openwhisprLibrary.ts) preserves
+saved spelling and applies one pass of snippet expansion. Only direct Whisper services accept
+dictionary recognition hints; the desktop bridge currently exposes no prompt option. Optional
+library failures preserve ordinary transcription. Full dictionary echoes retry once without hints.
 
 **Ownership and entry.** The conversation composer is
 [ChatComposer.tsx](../../apps/web/src/components/chat/ChatComposer.tsx) with

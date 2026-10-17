@@ -75,6 +75,7 @@ it.effect(
           expect(String(url).startsWith("http://127.0.0.1:8207/")).toBe(true);
           expect(new Headers(options?.headers).get("authorization")).toBe(`Bearer ${bridge.token}`);
           if (String(url).endsWith("/models")) return Response.json(models);
+          if (String(url).endsWith("/list")) return Response.json({ data: [] });
           expect(String(url)).toBe("http://127.0.0.1:8207/v1/transcribe");
           audioPath = audioPathFromBody(options?.body);
           expect(new Uint8Array(await NodeFSP.readFile(audioPath))).toEqual(audio);
@@ -99,6 +100,7 @@ it.effect("cleans up temporary audio after a failed desktop transcription", () =
   return withBridge(
     async (url, options) => {
       if (String(url).endsWith("/models")) return Response.json(models);
+      if (String(url).endsWith("/list")) return Response.json({ data: [] });
       audioPath = audioPathFromBody(options?.body);
       return new Response(null, { status: 500 });
     },
@@ -113,6 +115,164 @@ it.effect("cleans up temporary audio after a failed desktop transcription", () =
   );
 });
 
+it.effect("uses the current app dictionary and snippets for every desktop dictation", () => {
+  let read = 0;
+  let snippetsRead = 0;
+  const dictionaries = [["Arcwright"], ["ArcWright"], []];
+  const replacements = ["$&\nThanks, Alex", "New signature", undefined];
+  return withBridge(
+    async (url, options) => {
+      expect(new Headers(options?.headers).get("authorization")).toBe(`Bearer ${bridge.token}`);
+      if (String(url).endsWith("/models")) return Response.json(models);
+      if (String(url).endsWith("/dictionary/list"))
+        return Response.json({ data: dictionaries[read++] });
+      if (String(url).endsWith("/snippets/list")) {
+        const replacement = replacements[snippetsRead++];
+        return Response.json({
+          data: replacement ? [{ trigger: "my signature", replacement }] : [],
+        });
+      }
+      return Response.json({ data: { text: "arcwright my signature" } });
+    },
+    Effect.gen(function* () {
+      const service = yield* OpenWhispr.OpenWhispr;
+      expect(yield* service.transcribe(audio)).toEqual({ text: "Arcwright $&\nThanks, Alex" });
+      expect(yield* service.transcribe(audio)).toEqual({ text: "ArcWright New signature" });
+      expect(yield* service.transcribe(audio)).toEqual({ text: "arcwright my signature" });
+      expect(read).toBe(3);
+      expect(snippetsRead).toBe(3);
+    }),
+  );
+});
+
+it.effect("keeps dictation and snippets working when the optional dictionary endpoint fails", () =>
+  withBridge(
+    async (url) => {
+      if (String(url).endsWith("/models")) return Response.json(models);
+      if (String(url).endsWith("/dictionary/list")) return new Response(null, { status: 503 });
+      if (String(url).endsWith("/snippets/list"))
+        return Response.json({ data: [{ trigger: "my signature", replacement: "Alex" }] });
+      return Response.json({ data: { text: "hello my signature" } });
+    },
+    Effect.gen(function* () {
+      const service = yield* OpenWhispr.OpenWhispr;
+      expect(yield* service.transcribe(audio)).toEqual({ text: "hello Alex" });
+    }),
+  ),
+);
+
+it.effect("cancels both library reads before sending any audio", () =>
+  Effect.gen(function* () {
+    const wordsStarted = yield* Deferred.make<void>();
+    const snippetsStarted = yield* Deferred.make<void>();
+    const signals: AbortSignal[] = [];
+    let sentAudio = false;
+    const client = HttpClient.make((request, _url, signal) =>
+      Effect.gen(function* () {
+        if (request.url.endsWith("/models"))
+          return HttpClientResponse.fromWeb(request, Response.json(models));
+        if (request.method === "POST") {
+          sentAudio = true;
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json({ data: { text: "unexpected" } }),
+          );
+        }
+        signals.push(signal);
+        yield* Deferred.succeed(
+          request.url.includes("/dictionary/") ? wordsStarted : snippetsStarted,
+          undefined,
+        );
+        return yield* Effect.never;
+      }),
+    );
+    yield* withBridge(
+      async () => {
+        throw new Error("Unexpected fetch outside the HTTP fixture layer");
+      },
+      Effect.gen(function* () {
+        const service = yield* OpenWhispr.OpenWhispr;
+        const request = yield* service.transcribe(audio).pipe(Effect.forkChild);
+        yield* Deferred.await(wordsStarted);
+        yield* Deferred.await(snippetsStarted);
+        yield* Fiber.interrupt(request);
+        expect(sentAudio).toBe(false);
+        expect(signals).toHaveLength(2);
+        expect(signals.every((signal) => signal.aborted)).toBe(true);
+      }),
+      bridge,
+      client,
+    );
+  }),
+);
+
+it.effect("treats missing or malformed optional library routes as empty", () =>
+  withBridge(
+    async (url) => {
+      if (String(url).endsWith("/models")) return Response.json(models);
+      if (String(url).endsWith("/dictionary/list"))
+        return Response.json({ data: [{ wrong: "type" }] });
+      if (String(url).endsWith("/snippets/list")) return noRoute();
+      return Response.json({ data: { text: "original transcript" } });
+    },
+    Effect.gen(function* () {
+      const service = yield* OpenWhispr.OpenWhispr;
+      expect(yield* service.transcribe(audio)).toEqual({ text: "original transcript" });
+    }),
+  ),
+);
+
+it.effect("passes vocabulary hints to direct Whisper without forwarding bridge credentials", () =>
+  withBridge(
+    async (url, options) => {
+      if (String(url).startsWith("http://127.0.0.1:8207/")) {
+        expect(new Headers(options?.headers).get("authorization")).toBe(`Bearer ${bridge.token}`);
+        if (String(url).endsWith("/dictionary/list")) return Response.json({ data: ["Arcwright"] });
+        if (String(url).endsWith("/snippets/list"))
+          return Response.json({ data: [{ trigger: "my signature", replacement: "Alex" }] });
+        return noRoute();
+      }
+      expect(new Headers(options?.headers).has("authorization")).toBe(false);
+      if (String(url) === "http://127.0.0.1:8184/health") return Response.json({ status: "ok" });
+      if (String(url) === "http://127.0.0.1:8184/inference") {
+        expect(options?.body).toBeInstanceOf(FormData);
+        if (options?.body instanceof FormData)
+          expect(options.body.get("prompt")).toBe("Arcwright, my signature");
+        return Response.json({ text: "use arcwright my signature" });
+      }
+      return noRoute();
+    },
+    Effect.gen(function* () {
+      const service = yield* OpenWhispr.OpenWhispr;
+      expect(yield* service.transcribe(audio)).toEqual({ text: "use Arcwright Alex" });
+    }),
+  ),
+);
+
+it.effect("retries a full dictionary echo without hints before inserting text", () => {
+  let attempts = 0;
+  return withBridge(
+    async (url, options) => {
+      if (String(url).endsWith("/dictionary/list"))
+        return Response.json({ data: ["Arcwright", "Tailscale"] });
+      if (String(url) === "http://127.0.0.1:8178/health") return Response.json({ status: "ok" });
+      if (String(url).endsWith("/inference")) {
+        attempts++;
+        expect(options?.body).toBeInstanceOf(FormData);
+        if (options?.body instanceof FormData)
+          expect(options.body.get("prompt")).toBe(attempts === 1 ? "Arcwright, Tailscale" : null);
+        return Response.json({ text: attempts === 1 ? "Arcwright, Tailscale" : "use arcwright" });
+      }
+      return noRoute();
+    },
+    Effect.gen(function* () {
+      const service = yield* OpenWhispr.OpenWhispr;
+      expect(yield* service.transcribe(audio)).toEqual({ text: "use Arcwright" });
+      expect(attempts).toBe(2);
+    }),
+  );
+});
+
 it.effect("aborts the desktop request and removes its temporary WAV when cancelled", () =>
   Effect.gen(function* () {
     const started = yield* Deferred.make<string>();
@@ -120,7 +280,10 @@ it.effect("aborts the desktop request and removes its temporary WAV when cancell
     const client = HttpClient.make((request, _url, requestSignal) =>
       Effect.gen(function* () {
         if (request.method === "GET")
-          return HttpClientResponse.fromWeb(request, Response.json(models));
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json(request.url.endsWith("/models") ? models : { data: [] }),
+          );
         const file = audioPathFromBody(
           request.body._tag === "Uint8Array" ? request.body.body : undefined,
         );

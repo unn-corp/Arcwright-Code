@@ -64,6 +64,26 @@ OpenWhispr or a Whisper service inside that WSL environment; a Windows-only Open
 is not detected across the WSL boundary. Arcwright never copies OpenWhispr's token to the client.
 Temporary desktop-bridge recordings are private files removed when the request finishes or is cancelled.
 
+## OpenWhispr dictionary and snippets
+
+Arcwright automatically reads saved dictionary words and text snippets from the detected OpenWhispr
+app for each transcription. Edits in OpenWhispr apply to the next dictation without an import or an
+Arcwright settings change. The dictionary preserves the saved spelling of recognized words and
+phrases; speaking a snippet trigger inserts its saved replacement text. Longer triggers take
+precedence, and replacement text is inserted literally in one pass.
+
+Direct Whisper services also receive dictionary words and snippet triggers as bounded recognition
+hints. OpenWhispr's desktop file-transcription bridge does not currently accept those hints;
+desktop-bridge transcripts use dictionary spelling and snippet expansion after recognition.
+This does not guess replacements for differently spelled or misheard words. If Whisper returns
+the entire hint list, Arcwright retries once without hints.
+
+The library belongs to OpenWhispr on the conversation's server. Its dictionary and snippet APIs
+must be available there; unavailable optional APIs leave ordinary dictation working. Reads are
+local and authenticated. Arcwright does not modify the OpenWhispr library or store a separate copy.
+
+## Preview annotations
+
 You can also dictate a preview annotation in the desktop app. Click **Annotate** to capture the
 current page into a saved modal, then use its microphone to add your comment. It uses the same
 microphone and transcription settings as the main composer. Finish or cancel transcription
