@@ -8,7 +8,6 @@ import {
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadProjection,
-  type OrchestrationV2TurnItem,
   type OrchestrationThreadActivity,
   type ProjectId,
   type ThreadId,
@@ -38,20 +37,26 @@ function iso(value: DateTime.Utc | null | undefined): string | null {
   return value == null ? null : DateTime.formatIso(value);
 }
 
+const decodeThreadShell = Schema.decodeSync(OrchestrationThreadShell);
+const decodeThread = Schema.decodeSync(OrchestrationThread);
+
+function automationTurnState(status: OrchestrationV2ThreadShell["status"]) {
+  return status === "failed"
+    ? "error"
+    : status === "interrupted" || status === "cancelled"
+      ? "interrupted"
+      : ["preparing", "queued", "starting", "running", "waiting"].includes(status)
+        ? "running"
+        : "completed";
+}
+
 export function automationThreadShell(
   thread: OrchestrationV2ThreadShell,
 ): OrchestrationThreadShell {
-  const active = ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status);
+  const state = automationTurnState(thread.status);
+  const active = state === "running";
   const turnId = thread.latestRunId === null ? null : TurnId.make(thread.latestRunId);
-  const state =
-    thread.status === "failed"
-      ? "error"
-      : thread.status === "interrupted" || thread.status === "cancelled"
-        ? "interrupted"
-        : active
-          ? "running"
-          : "completed";
-  return Schema.decodeSync(OrchestrationThreadShell)({
+  return decodeThreadShell({
     ...thread,
     createdAt: iso(thread.createdAt),
     updatedAt: iso(thread.updatedAt),
@@ -175,7 +180,7 @@ export function automationThreadDetail(
   shell: OrchestrationV2ThreadShell,
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationThread {
-  return Schema.decodeSync(OrchestrationThread)({
+  return decodeThread({
     ...automationThreadShell(shell),
     deletedAt: iso(shell.deletedAt),
     messages: projection.messages.map((message) => ({
@@ -294,9 +299,9 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.mapError(mapError)),
     getRecentActivitySummaries: (limit: number) =>
       Effect.gen(function* () {
-        const snapshot = yield* getShellSnapshot();
         const count = Math.max(0, Math.min(500, Math.floor(limit)));
         if (count === 0) return [];
+        const snapshot = yield* threads.getShellSnapshot();
         // Bound the event window instead of loading every conversation's transcript.
         const sequence = yield* events.latestApplicationSequence;
         const recent = yield* events
@@ -322,15 +327,15 @@ export const make = Effect.gen(function* () {
           }
         }
         const runs = snapshot.threads
-          .filter((thread) => thread.latestTurn !== null)
+          .filter((thread) => thread.latestRunId !== null)
           .map((thread) => ({
-            id: EventId.make(`${thread.id}:${thread.latestTurn!.turnId}`),
+            id: EventId.make(`${thread.id}:${thread.latestRunId}`),
             threadId: thread.id,
-            turnId: thread.latestTurn!.turnId,
-            tone: thread.latestTurn!.state === "error" ? ("error" as const) : ("info" as const),
+            turnId: TurnId.make(thread.latestRunId!),
+            tone: thread.status === "failed" ? ("error" as const) : ("info" as const),
             kind: "run.status",
-            summary: `${thread.title}: ${thread.latestTurn!.state}`,
-            createdAt: thread.updatedAt,
+            summary: `${thread.title}: ${automationTurnState(thread.status)}`,
+            createdAt: iso(thread.updatedAt),
           }));
         return [...byId.values(), ...runs]
           .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt))

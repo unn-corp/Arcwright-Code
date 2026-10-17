@@ -66,12 +66,12 @@ async function readHeadLines(path: string, maxBytes = 256 * 1024): Promise<strin
  * name is the cwd with path separators replaced by dashes. The file name is the
  * session id, which is what `--resume` takes.
  */
-export function claudeProjectDirName(cwd: string): string {
+function claudeProjectDirName(cwd: string): string {
   return cwd.replace(/[/\\.]/g, "-");
 }
 
 /** First human turn in a Claude transcript. */
-export function extractClaudePreview(lines: readonly string[]): string | undefined {
+function extractClaudePreview(lines: readonly string[]): string | undefined {
   for (const line of lines) {
     let parsed: unknown;
     try {
@@ -104,7 +104,7 @@ export function extractClaudePreview(lines: readonly string[]): string | undefin
 }
 
 /** Resumable Claude sessions under a config dir (i.e. the selected account). */
-export async function discoverClaudeSessions(options: {
+async function discoverClaudeSessions(options: {
   readonly configDir: string;
   readonly cwd?: string | undefined;
   readonly limit?: number | undefined;
@@ -151,12 +151,12 @@ export async function discoverClaudeSessions(options: {
 }
 
 /** Grok names its session group directories with a url-encoded cwd. */
-export function grokEncodeCwd(cwd: string): string {
+function grokEncodeCwd(cwd: string): string {
   return cwd.replace(/\//g, "%2F");
 }
 
 /** First human turn in a Grok chat history. */
-export function extractGrokPreview(lines: readonly string[]): string | undefined {
+function extractGrokPreview(lines: readonly string[]): string | undefined {
   for (const line of lines) {
     let parsed: unknown;
     try {
@@ -197,7 +197,7 @@ export function extractGrokPreview(lines: readonly string[]): string | undefined
 }
 
 /** Resumable Grok sessions under a Grok home. */
-export async function discoverGrokSessions(options: {
+async function discoverGrokSessions(options: {
   readonly grokHome: string;
   readonly cwd?: string | undefined;
   readonly limit?: number | undefined;
@@ -218,8 +218,12 @@ export async function discoverGrokSessions(options: {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const dir = NodePath.join(group, entry.name);
-      const stat = await NodeFSP.stat(dir).catch(() => undefined);
-      candidates.push({ dir, sessionId: entry.name, mtimeMs: stat?.mtimeMs ?? 0 });
+      // Appending messages updates the transcript, not its containing directory.
+      const stat = await NodeFSP.stat(NodePath.join(dir, "chat_history.jsonl")).catch(
+        () => undefined,
+      );
+      if (!stat?.isFile()) continue;
+      candidates.push({ dir, sessionId: entry.name, mtimeMs: stat.mtimeMs });
     }
   }
   candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
@@ -228,8 +232,9 @@ export async function discoverGrokSessions(options: {
   for (const candidate of candidates) {
     if (sessions.length >= limit) break;
     const head = await readHeadLines(NodePath.join(candidate.dir, "chat_history.jsonl")).catch(
-      () => [],
+      () => undefined,
     );
+    if (head === undefined) continue;
     sessions.push({
       sessionId: candidate.sessionId,
       cwd: options.cwd,

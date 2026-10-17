@@ -34,7 +34,7 @@ export interface TranscriptTurn {
 }
 
 /** Default cap on imported turns; the most recent ones are kept. */
-export const DEFAULT_MAX_TURNS = 50;
+const DEFAULT_MAX_TURNS = 50;
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
@@ -156,7 +156,7 @@ function safeParse(line: string): unknown {
 }
 
 /** Line parser for a driver, or undefined when the driver has no transcript. */
-export function transcriptLineParser(
+function transcriptLineParser(
   driver: string,
 ): ((line: string) => TranscriptTurn | undefined) | undefined {
   switch (driver) {

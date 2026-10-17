@@ -240,7 +240,7 @@ it.effect(
                 archivedThreads: [],
               }),
           }),
-          Layer.mock(ProjectStoreV2)({ listShells: () => Effect.succeed([]) }),
+          Layer.mock(ProjectStoreV2)({}),
           Layer.mock(EventStoreV2)({
             latestApplicationSequence: Effect.succeed(6000),
             read: (input) => {
@@ -272,3 +272,73 @@ it.effect(
     }).pipe(Effect.provide(testLayer));
   },
 );
+
+it.effect("does not read any snapshots or events when no activity is requested", () => {
+  const testLayer = SnapshotQuery.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ThreadManagementService)({}),
+        Layer.mock(ProjectStoreV2)({}),
+        Layer.mock(EventStoreV2)({}),
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const query = yield* SnapshotQuery.ProjectionSnapshotQuery;
+    expect(yield* query.getRecentActivitySummaries!(0)).toEqual([]);
+  }).pipe(Effect.provide(testLayer));
+});
+
+it.effect("keeps the current run state in recent activity summaries", () => {
+  const states = [
+    ["preparing", "running"],
+    ["queued", "running"],
+    ["starting", "running"],
+    ["running", "running"],
+    ["waiting", "running"],
+    ["failed", "error"],
+    ["interrupted", "interrupted"],
+    ["cancelled", "interrupted"],
+    ["idle", "completed"],
+  ] as const;
+  const testLayer = SnapshotQuery.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ThreadManagementService)({
+          getShellSnapshot: () =>
+            Effect.succeed({
+              schemaVersion: 2,
+              snapshotSequence: 1,
+              threads: states.map(([status]) => ({
+                ...shell,
+                id: ThreadId.make(status),
+                latestRunId: RunId.make(`${status}-run`),
+                status,
+              })),
+              archivedThreads: [],
+            }),
+        }),
+        Layer.mock(ProjectStoreV2)({}),
+        Layer.mock(EventStoreV2)({
+          latestApplicationSequence: Effect.succeed(1),
+          read: () => Stream.empty,
+        }),
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const query = yield* SnapshotQuery.ProjectionSnapshotQuery;
+    const recent = yield* query.getRecentActivitySummaries!(20);
+    expect(recent).toEqual(
+      states.map(([status, state]) => ({
+        id: `${status}:${status}-run`,
+        threadId: status,
+        turnId: `${status}-run`,
+        tone: status === "failed" ? "error" : "info",
+        kind: "run.status",
+        summary: `Review: ${state}`,
+        createdAt: DateTime.formatIso(now),
+      })),
+    );
+  }).pipe(Effect.provide(testLayer));
+});

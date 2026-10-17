@@ -480,6 +480,14 @@ not evidence that equivalent upstream surfaces exist.
 [organizations](../../apps/server/src/organizations) and
 [agentDashboard](../../apps/server/src/agentDashboard).
 
+The recent-activity feed uses native thread shells and a bounded 2,000-event window in
+[AutomationSnapshotQuery.ts](../../apps/server/src/agentDashboard/AutomationSnapshotQuery.ts).
+Keep this path independent of project listing, full transcript reads, and legacy thread-shell
+decoding. A zero-size request performs no reads. Preserve run-state labels and payload-free
+summaries, and compile the full-shell/detail schema decoders once per module rather than once
+per thread. [AutomationV2.test.ts](../../apps/server/src/agentDashboard/AutomationV2.test.ts)
+covers these boundaries.
+
 Employee personality, focus, and authored skill instructions belong to the Organization role
 contracts and [guided editor](../../apps/web/src/components/organizations/OrganizationEmployeeDialog.tsx).
 Preserve omission-versus-clear semantics, older-server capability gating, and explicit review of
@@ -610,6 +618,14 @@ state; [provider](../../apps/server/src/provider) and
 Run the relevant checkpoint/provider regression tests when syncing upstream. Model availability
 comes from the live provider catalog, not a documentation snapshot. Confirm whether upstream has
 incorporated equivalent behavior before retaining compatibility patches.
+
+Native session discovery stays scoped to the selected provider account and project in
+[agentSessionDiscovery.ts](../../apps/server/src/provider/agentSessionDiscovery.ts).
+Grok recency follows `chat_history.jsonl` modification time, and missing or unreadable histories
+must not consume the result limit. Keep the directory path as its resume handle.
+[agentSessionDiscovery.test.ts](../../apps/server/src/provider/agentSessionDiscovery.test.ts)
+and the transcript/native-resume tests cover discovery, previews, and account boundaries.
+
 `ClaudeAdapterV2` continuation turns drain the wake buffer before the turn becomes active and stop
 replaying once a live result has closed the turn; otherwise a race leaves an agent-created run
 `running` forever and every follow-up message stays queued. Keep the wake-race regression test.
