@@ -79,7 +79,6 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import { storePayload } from "../persistence/PayloadStorage.ts";
 import type * as Statement from "effect/sql/Statement";
 
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
@@ -2472,7 +2471,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ${event.payload.type},
                 ${event.payload.status},
                 ${stringField(payload, "updatedAt")},
-                ${yield* storePayload(sql, payloadJson)}
+                ${payloadJson}
               )
               ON CONFLICT(turn_item_id)
               DO UPDATE SET

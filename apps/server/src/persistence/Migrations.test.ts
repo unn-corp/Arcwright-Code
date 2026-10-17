@@ -5,6 +5,7 @@ import * as Exit from "effect/Exit";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { migrationManifest, runMigrations } from "./Migrations.ts";
+import historical from "./historical-migration-identities.json" with { type: "json" };
 
 const v2Migrations = migrationManifest.filter(([id]) => id >= 95);
 const newerMigrationId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
@@ -26,6 +27,11 @@ const v2TableCount = Effect.gen(function* () {
 });
 
 describe("runMigrations", () => {
+  it("preserves every published migration identity in the runtime manifest", () => {
+    const recorded = new Map<number, string>(migrationManifest);
+    assert.equal(recorded.size, migrationManifest.length);
+    for (const [id, name] of historical) assert.equal(recorded.get(Number(id)), name);
+  });
   it.effect("migrates a fresh database through the whole manifest", () =>
     Effect.gen(function* () {
       yield* runMigrations();

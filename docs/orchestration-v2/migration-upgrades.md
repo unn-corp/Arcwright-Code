@@ -1,6 +1,6 @@
 # Migration upgrades
 
-The fork keeps its published migration IDs through 107. The upstream release
+The fork keeps its published migration IDs through 109. The upstream release
 uses IDs 36–62 for a different sequence, so a database upgraded from upstream
 cannot be migrated by comparing only the highest ID. On startup, the server
 recognizes the pinned upstream ledger, matches those completed migrations by
@@ -16,3 +16,29 @@ they are changed. Keep this compatibility logic covered by
 upstream/fork manifest relationship.
 
 Before invoking the migrator, the reconciled V2 ledger must contain every required name through its highest recorded ID. Missing or renamed entries fail closed, even if a later migration is already recorded. Matching schema and ledger fingerprints still skip migration execution on later opens.
+
+## Keeping upstream changes separate
+
+`UpstreamMigrations.ts` records each upstream ID alongside its immutable deployed fork ID.
+`ForkMigrations.ts` contains only fork-owned entries. `Migrations.ts` combines them in deployed
+order; the reconciler derives its identity maps from the upstream registry. Moving source
+ownership never changes the database ledger or skips a migration. Migration 109 is the fork's
+message search index; it remains independent of upstream's current migration sequence.
+
+After changing the upstream pin or either registry, run:
+
+```bash
+node scripts/check-upstream-database.ts
+```
+
+The pinned Git object must exist locally. The check uses Git objects and source files only;
+it never opens a database. It checks all upstream migration bodies and V2 helpers, the 109
+published identities in `historical-migration-identities.json`, and the exact source hashes
+of intentional patches in `scripts/upstream-database-patches.json`. Update an exception only
+after reviewing both versions and exercising the affected upgrade path. The fork documentation
+workflow runs this gate on Windows and Linux, with a shallow fetch in its disposable checkout.
+Do not fetch a moving upstream branch or change the integrated pin just to make the check pass.
+
+Migration 005 now matches upstream exactly; fork migration 47 still introduces the nullable
+GitHub-account field. The project-event migration accepts upstream projects without that field
+and preserves it when present. Final schema and historical migration identities are unchanged.

@@ -27,6 +27,8 @@
         "build-owned-connect-web.ts",
         "fork-release-package-diagnostic.ts",
         "generate-notification-sounds.ts",
+        "check-upstream-database.ts",
+        "create-upstream-storage-copy.ts",
       ],
       // The `t3` npm package's files: copied into the package, never imported.
       "ignore": ["npm-launcher/**"],

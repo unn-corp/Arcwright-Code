@@ -304,20 +304,17 @@ to enable that channel. Native recovery offers the same route when the bundled i
 
 ## Storage maintenance
 
-Large output bodies are stored once in compressed form while chats and their original
-replay history stay available. Upgrading a populated database from an older build queues
-a one-time shrink. It waits for idle maintenance admission and a cancellable countdown,
-then verifies a restore point and repacks the database in a background worker. Running
-chats continue and hold cleanup until they finish. Later launches use a small schema fingerprint check and do not repeat completed cleanup.
+Storage cleanup is optional and requires an explicit request. Existing history remains readable;
+app startup, idle polling, and ordinary binary updates do not automatically rewrite your history.
 
-Newer storage upgrades can reduce old history further even if an earlier cleanup completed.
-They preserve every historical record and use the same idle maintenance and recovery checks.
-Each storage upgrade runs once; ordinary launches do not repeatedly repack your database.
+Explicit storage optimization retains verified restore points, native maintenance admission,
+capacity checks and recovery. Running chats continue and block replacement. Legacy optimization
+can compress data again; it is a separate choice from creating an upstream-compatible database
+copy. See the [storage runbook](../operations/database-storage.md#create-an-upstream-compatible-copy).
 
-This data upgrade keeps your installed version and pin, independently of the automatic
-binary-update setting. If a managed server reports an older service launcher, refresh it
-with `t3 service install` during its maintenance window so the queued cleanup can run.
-An installation needing operating-system authorization waits for a manual request.
+Your installed version and pin remain unchanged by a same-build storage operation. If a managed
+server needs a newer service launcher, refresh it during an authorized maintenance window before
+requesting storage work. Operating-system authorization is never requested automatically.
 
 For a manual retry on a supported numbered nightly, use `t3 maintenance optimize-storage
 --digest <installed-artifact-sha256>`. An update can also request `--optimize-storage`

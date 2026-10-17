@@ -3,6 +3,7 @@ import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlError from "effect/sql/SqlError";
 import * as Schema from "effect/Schema";
+import { upstreamMigrationEntries } from "./UpstreamMigrations.ts";
 
 type MigrationRow = {
   readonly migration_id: number;
@@ -13,35 +14,9 @@ type MigrationRow = {
 // after 35. Move upstream ledger entries by migration identity before running
 // the fork's retained migration sequence. The schema changes themselves are already
 // present, so this prevents both rerunning V2 and skipping fork migrations.
-const upstreamMigrationTargets = new Map<string, number>([
-  ["ProjectionThreadsPinned", 38],
-  ["ProjectionTurnsKeysetIndex", 40],
-  ["ProjectionThreadsPinOrderKey", 41],
-  ["ProjectionProjectsDefaultThreadEnvMode", 42],
-  ["ProjectionProjectFaviconPath", 43],
-  ["AuthSessionClientConnection", 44],
-  ["ProjectionThreadLinkedPullRequest", 45],
-  ["ProjectionThreadsUnsettledAt", 46],
-  ["ClearAutomaticProjectModelDefaults", 48],
-  ["ProjectionProjectsAutoPull", 49],
-  ["RepairAutomaticSettlementTimestamps", 50],
-  ["ProjectionProjectIcon", 51],
-  ["ProjectionThreadBranchPullRequest", 52],
-  ["ProjectionThreadsActiveOrderKey", 53],
-  ["ProjectionThreadPullRequests", 54],
-  ["ProjectionThreadMessageContext", 55],
-  ["ProjectionThreadTitleState", 56],
-  ["PullRequestFilesViewed", 57],
-  ["ProjectionThreadsAutoSettleDisabledAt", 94],
-  ["OrchestrationV2", 95],
-  ["RemoveRedundantProjectionIndexes", 96],
-  ["ScheduledTaskWebhooks", 97],
-  ["WebhookRelayDeliveries", 98],
-  ["McpAppModelContext", 104],
-  ["ThreadSnapshotWindowIndexes", 105],
-  ["PullRequestReviewGuides", 106],
-  ["ThreadFailureLookupIndex", 108],
-]);
+const upstreamMigrationTargets = new Map<string, number>(
+  upstreamMigrationEntries.map(([, forkId, name]) => [name, forkId]),
+);
 
 const previewMigrationTargets = new Map<string, number>([
   ["PullRequestFilesViewed", 57],
@@ -91,13 +66,9 @@ export const reconcileV2PreviewMigration = Effect.fn("reconcileV2PreviewMigratio
           });
         }
         const upstreamRows = history.filter((row) => row.migration_id >= 36);
-        const valid = upstreamRows.every((row) => {
-          if (row.migration_id <= 62) {
-            const expectedName = upstreamMigrationNames.get(row.migration_id);
-            return expectedName === row.name;
-          }
-          return false;
-        });
+        const valid = upstreamRows.every(
+          (row) => upstreamMigrationNames.get(row.migration_id) === row.name,
+        );
         if (!valid) {
           return yield* new Migrator.MigrationError({
             kind: "BadState",
@@ -224,32 +195,6 @@ const migrateForkGap = (
     return executed;
   });
 
-const upstreamMigrationNames = new Map<number, string>([
-  [36, "ProjectionThreadsPinned"],
-  [37, "ProjectionTurnsKeysetIndex"],
-  [38, "ProjectionThreadsPinOrderKey"],
-  [39, "ProjectionProjectsDefaultThreadEnvMode"],
-  [40, "ProjectionProjectFaviconPath"],
-  [41, "AuthSessionClientConnection"],
-  [42, "ProjectionThreadLinkedPullRequest"],
-  [43, "ProjectionThreadsUnsettledAt"],
-  [44, "ClearAutomaticProjectModelDefaults"],
-  [45, "ProjectionProjectsAutoPull"],
-  [46, "RepairAutomaticSettlementTimestamps"],
-  [47, "ProjectionProjectIcon"],
-  [48, "ProjectionThreadBranchPullRequest"],
-  [49, "ProjectionThreadsActiveOrderKey"],
-  [50, "ProjectionThreadPullRequests"],
-  [51, "ProjectionThreadMessageContext"],
-  [52, "ProjectionThreadTitleState"],
-  [53, "PullRequestFilesViewed"],
-  [54, "ProjectionThreadsAutoSettleDisabledAt"],
-  [55, "OrchestrationV2"],
-  [56, "RemoveRedundantProjectionIndexes"],
-  [57, "ScheduledTaskWebhooks"],
-  [58, "WebhookRelayDeliveries"],
-  [59, "McpAppModelContext"],
-  [60, "ThreadSnapshotWindowIndexes"],
-  [61, "PullRequestReviewGuides"],
-  [62, "ThreadFailureLookupIndex"],
-]);
+const upstreamMigrationNames = new Map<number, string>(
+  upstreamMigrationEntries.map(([upstreamId, , name]) => [upstreamId, name]),
+);

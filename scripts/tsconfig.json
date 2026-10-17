@@ -12,6 +12,8 @@
     "../infra/relay/scripts/owned-connect-web-artifact.ts",
     "../packages/shared/src/nodeSqliteClient.ts",
     "../packages/shared/src/nodeSqliteDiagnostics.ts",
-    "../packages/shared/src/forkStorageCodec.ts"
+    "../packages/shared/src/forkStorageCodec.ts",
+    "../packages/shared/src/forkStorageArchive.ts",
+    "../packages/shared/src/upstreamStorageCopy.ts"
   ]
 }

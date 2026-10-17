@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "patches": [
+    {
+      "upstreamPath": "apps/server/src/persistence/Migrations/OrchestrationV2/ApplicationEventSource.ts",
+      "localPath": "apps/server/src/persistence/Migrations/OrchestrationV2/ApplicationEventSource.ts",
+      "upstreamSha256": "dfe597889b0e45c9efd11f4c61361c660abf4982f6689691782b9cd8ad4e0e86",
+      "forkSha256": "9c4a2a0c296ba1a6007eda9d4ae34349f7dd58969d6d8dd0c9a5a117bd5dcf08",
+      "reason": "Preserve project GitHub account, icon, favicon, environment mode, and auto-pull preferences when migrating historical project events. Review both versions when either source changes."
+    }
+  ]
+}

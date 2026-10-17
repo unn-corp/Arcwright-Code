@@ -43,22 +43,18 @@ relay/runtime and device gates.
 
 ## Lossless data storage
 
-Migration 101 adds content-addressed compressed event/tool bodies, checksummed cold
-legacy history and durable legacy stream baselines. The server expands references
-before its existing contracts and JSON projection queries, preserving paired-client
-compatibility and original replay byte budgets. Normal startup performs light schema
-work; migration 102 queues one-time historical shrink for populated older databases.
-Supported desktop, WSL and managed-service launchers perform it during native maintenance;
-older service launchers hold it pending until refreshed. Migration 103 binds a fast schema
-and ledger SHA check to the compiled schema contract; matching future loads skip migration
-execution. Completed bulk cleanup is tracked separately and is not rerun.
-Migration 107 upgrades both original and previously optimized homes to storage migration 2:
-cold rows share bounded, checksummed Brotli blocks, with indexed access and exact record
-verification. Mixed gzip/block readers preserve command tombstones and archived exports.
-Packing is resumable and stays in the admitted worker; no historical row is discarded.
-The exact journal, native snapshots, worker parent/child identities, fencing, capacity
-checks and final health receipts govern the entire operation. Worker ownership survives
-an unexpected parent exit; recovery must not race a recorded storage worker.
+Normal event and tool-projection writes use upstream-compatible inline JSON. Each subagent
+progress event stores its full prompt; no new compressed payload or prompt-anchor references are
+created by normal writes. Readers retain support for existing compressed bodies, prompt anchors,
+cold rows and compact blocks, preserving paired clients, replay budgets and historical receipts.
+The fork's storage migrations and fingerprint tables remain compatibility identities. They are
+not renumbered, dropped or automatically converted during startup.
+
+Legacy compression and archival are manual maintenance operations. Pending storage markers
+remain visible, but controller ticks and ordinary binary updates never automatically shrink or
+recompress a database. Explicit maintenance retains exact-artifact admission, verified restore
+points, process ownership, fencing, capacity checks and health receipts. Worker ownership
+survives an unexpected parent exit; recovery must not race a recorded storage worker.
 
 Restore points exclude the top-level `userdata/server-owner.sqlite` runtime lock.
 Its exclusive transaction contains no saved data and blocks SQLite's online backup;
@@ -66,14 +62,14 @@ the snapshot must leave that live file and its ownership lock untouched. Ordinar
 databases, including files with that basename inside saved subdirectories, remain
 covered by the verified restore point.
 
-The implementation is owned by [payload storage](../../apps/server/src/persistence/PayloadStorage.ts),
+The implementation is owned by [event storage](../../apps/server/src/persistence/OrchestrationEventStore.ts),
 [the codec](../../packages/shared/src/forkStorageCodec.ts),
 [legacy archives](../../packages/shared/src/forkStorageArchive.ts),
 [compact history blocks](../../packages/shared/src/forkStorageBlocks.ts),
 [maintenance admission](../../packages/shared/src/forkStorageMaintenance.ts), and
 [the CLI worker](../../apps/server/src/maintenance/storageWorker.ts). Preserve the
-storage compatibility and maintenance regression suites when merging upstream. Populated databases from older builds queue a durable one-time shrink; it uses the same
-coordinator snapshots and receipts, preserves version pins, and waits for launcher support.
+storage compatibility and maintenance regression suites when merging upstream. Explicit shrink
+requests use the coordinator snapshots and receipts, preserve version pins, and require launcher support.
 Read
 [the storage runbook](database-storage.md) for retention boundaries, old-history access,
 supported installation paths and production verification. GitHub build retention is

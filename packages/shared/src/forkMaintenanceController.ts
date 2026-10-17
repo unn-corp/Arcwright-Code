@@ -201,8 +201,6 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   let feedRateLimit: ForkFeedRateLimitError | null = null;
   let nextCheckAt: number | null = null;
   let countdown: ForkUpdateCountdown | null = null;
-  let storageCountdown: ForkUpdateCountdown | null = null;
-  let nextStorageAttemptAt = 0;
   /** Why automatic installation is waiting (input, uploads, review). Distinct from device blockers: manual installs ignore these. */
   let waitingBlockers: ReadonlyArray<ForkActivityBlocker> = [];
   let activeTransactionId: string | null = null;
@@ -401,7 +399,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       transactionId: activeTransactionId,
       automationReviewRequired: policy.automationReviewRequired,
       nextCheckAt,
-      countdown: storageCountdown ?? countdown,
+      countdown,
       lastError,
       affectedHomes,
       installable:
@@ -750,7 +748,6 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     activeTransactionId = transactionId;
     phase = "installing";
     countdown = null;
-    storageCountdown = null;
     let journal: MaintenanceJournal;
     try {
       await publish();
@@ -802,7 +799,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       runInstall(expectedSha256, false, optimizeStorage, false, interruptActiveWork),
     );
 
-  const runStorageOptimization = async (expectedSha256: string, automatic = false) => {
+  const runStorageOptimization = async (expectedSha256: string) => {
     await loadPolicy();
     if ((await status()).storageOptimization !== true)
       throw fail("The launcher cannot safely run the database storage upgrade yet.");
@@ -830,7 +827,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     target = selection;
     stagedSha256 = staged.artifactSha256;
     try {
-      return await runInstall(staged.artifactSha256, automatic, true, true);
+      return await runInstall(staged.artifactSha256, false, true, true);
     } finally {
       target = savedTarget;
       stagedSha256 = savedStaged;
@@ -842,73 +839,9 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   const tick = () =>
     serialized(async () => {
       await loadPolicy();
-      const storagePending =
-        (await installer.storageMigrationNeeded?.().catch(() => false)) ?? false;
-      const storageUnavailable = storagePending
-        ? ((await installer.storageOptimizationUnavailable?.()) ?? null)
-        : null;
       const authorization = installer.authorizationRequired?.() ?? null;
-      const newerAutomaticUpdate =
-        target !== null &&
-        stagedSha256 !== null &&
-        policy.automaticInstallation &&
-        policy.pinnedBuild === null;
-      if (
-        activeTransactionId === null &&
-        ports.now() >= nextStorageAttemptAt &&
-        storagePending &&
-        storageUnavailable === null &&
-        !newerAutomaticUpdate
-      ) {
-        const gate = evaluateAutomaticInstall({
-          now: ports.now(),
-          blockers: await coordinatorBlockers(),
-          automaticInstallation: !policy.failedArtifactSha256.includes(
-            installer.currentBuild.artifactSha256,
-          ),
-          targetArtifactSha256: installer.currentBuild.artifactSha256,
-          interaction: ports.interaction(),
-          countdown: storageCountdown,
-          automationReviewRequired: policy.automationReviewRequired,
-          cancelledTargetSha256: policy.cancelledTargetSha256,
-        });
-        if (authorization !== null && (gate.state === "countdown" || gate.state === "install")) {
-          storageCountdown = null;
-          waitingBlockers = [
-            { participantId: "storage-migration", reason: "authorization", label: authorization },
-          ];
-          return publish();
-        }
-        storageCountdown = gate.state === "countdown" ? gate.countdown : null;
-        if (gate.state === "install") {
-          try {
-            const result = await runStorageOptimization(
-              installer.currentBuild.artifactSha256,
-              true,
-            );
-            if (result.phase !== "completed") nextStorageAttemptAt = ports.now() + 4 * 60 * 60_000;
-            return result;
-          } catch (cause) {
-            lastError = messageOf(cause);
-            nextStorageAttemptAt = ports.now() + 4 * 60 * 60_000;
-          }
-        }
-        waitingBlockers = gate.state === "waiting" ? gate.blockers : [];
-        return publish();
-      }
-      storageCountdown = null;
-      const storageBlockers: ForkActivityBlocker[] =
-        storageUnavailable === null
-          ? []
-          : [
-              {
-                participantId: "storage-migration",
-                reason: "launcher",
-                label: storageUnavailable,
-              },
-            ];
       if (activeTransactionId !== null || target === null || stagedSha256 === null) {
-        waitingBlockers = storageBlockers;
+        waitingBlockers = [];
         return publish();
       }
       const gate = evaluateAutomaticInstall({
@@ -929,18 +862,12 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
         countdown = null;
         return publish();
       }
-      waitingBlockers = [...(gate.state === "waiting" ? gate.blockers : []), ...storageBlockers];
+      waitingBlockers = gate.state === "waiting" ? gate.blockers : [];
       if (gate.state === "countdown") countdown = gate.countdown;
       else countdown = null;
       if (gate.state === "install") {
         try {
-          return await runInstall(
-            stagedSha256,
-            true,
-            storagePending &&
-              storageUnavailable === null &&
-              target.manifest.storageOptimizationProtocol === 1,
-          );
+          return await runInstall(stagedSha256, true);
         } catch (cause) {
           lastError = messageOf(cause);
           countdown = null;
@@ -952,13 +879,12 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   const cancelCountdown = () =>
     serialized(async () => {
       await loadPolicy();
-      if (countdown !== null || storageCountdown !== null) {
+      if (countdown !== null) {
         await savePolicy({
           ...policy,
-          cancelledTargetSha256: (storageCountdown ?? countdown)!.targetArtifactSha256,
+          cancelledTargetSha256: countdown.targetArtifactSha256,
         });
         countdown = null;
-        storageCountdown = null;
       }
       return publish();
     });

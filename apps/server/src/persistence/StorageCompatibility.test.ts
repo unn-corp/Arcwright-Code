@@ -19,6 +19,7 @@ import {
   compressText,
   compressHistoryBlock,
   historyBlockReference,
+  payloadReference,
   PAYLOAD_PREFIX,
 } from "@t3tools/shared/forkStorageCodec";
 import * as SqlitePersistence from "./Sqlite.ts";
@@ -32,7 +33,7 @@ const testLayer = Layer.mergeAll(Events.layer, Receipts.layer, Projections.layer
 const layer = it.layer(testLayer);
 layer("lossless storage compatibility", (it) => {
   it.effect(
-    "replays identical large outputs from one blob and keeps original Unicode replay budgets",
+    "writes upstream JSON while retaining old compressed output and Unicode replay budgets",
     () =>
       Effect.gen(function* () {
         const store = yield* Events.OrchestrationEventStore;
@@ -103,12 +104,13 @@ layer("lossless storage compatibility", (it) => {
           payload_json: string;
           payload_bytes: number;
         }>`SELECT payload_json,payload_bytes FROM orchestration_events WHERE stream_id=${threadId}`;
-        assert.isTrue(raw[0]!.payload_json.startsWith(PAYLOAD_PREFIX));
+        assert.isFalse(raw[0]!.payload_json.startsWith(PAYLOAD_PREFIX));
+        assert.deepEqual(JSON.parse(raw[0]!.payload_json), JSON.parse(raw[1]!.payload_json));
         assert.equal(raw[0]!.payload_json, raw[1]!.payload_json);
         const blobs = yield* sql<{
           count: number;
         }>`SELECT COUNT(*) AS count FROM arcwright_payload_blobs`;
-        assert.equal(blobs[0]!.count, 1);
+        assert.equal(blobs[0]!.count, 0);
         assert.deepEqual(
           yield* projections.getTurnItem({ threadId, itemId: event.payload.id }),
           event.payload,
@@ -127,8 +129,16 @@ layer("lossless storage compatibility", (it) => {
           throughSequence: stored[1]!.sequence,
           maxEvents: 10,
         });
-        assert.equal(stats.rawPayloadBytes, raw[0]!.payload_bytes * 2);
+        assert.equal(stats.rawPayloadBytes, Buffer.byteLength(raw[0]!.payload_json) * 2);
         assert.isAbove(stats.rawPayloadBytes, input.length * 2);
+        const blob = compressText(raw[0]!.payload_json);
+        yield* sql`INSERT INTO arcwright_payload_blobs VALUES (${blob.digest},${blob.rawBytes},${blob.compressed})`;
+        yield* sql`UPDATE orchestration_events SET payload_json=${payloadReference(blob)},payload_bytes=${blob.rawBytes}
+          WHERE event_id=${event.id}`;
+        assert.deepEqual(
+          yield* store.readAgentEvents({ threadId }).pipe(Stream.runCollect),
+          stored,
+        );
         yield* sql`UPDATE arcwright_payload_blobs SET compressed=x'00'`;
         const damaged = yield* store
           .readAgentEvents({ threadId })
@@ -139,11 +149,11 @@ layer("lossless storage compatibility", (it) => {
             events: [{ ...event, id: EventId.make("storage-corrupt-append") }],
           })
           .pipe(Effect.exit);
-        assert.isTrue(Exit.isFailure(corruptAppend));
+        assert.isTrue(Exit.isSuccess(corruptAppend));
         const unchanged = yield* sql<{
           count: number;
         }>`SELECT COUNT(*) AS count FROM orchestration_events WHERE stream_id=${threadId}`;
-        assert.equal(unchanged[0]!.count, 2);
+        assert.equal(unchanged[0]!.count, 3);
       }),
   );
 

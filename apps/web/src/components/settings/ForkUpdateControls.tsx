@@ -249,8 +249,8 @@ export function ForkUpdateControls({
       />
       {status.storageMigrationPending ? (
         <SettingsRow
-          title="Database cleanup queued"
-          description="Your older database will be compressed and repacked once this device is idle. Chats and history are preserved. This runs once and keeps your installed build."
+          title="Optional database cleanup"
+          description="Storage optimization requires a manual request and preserves chats and history. It does not run automatically."
         />
       ) : null}
       {status.countdown ? (

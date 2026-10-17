@@ -72,7 +72,7 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
     storageOptimizationUnavailable: async () =>
       input.launcher.supportsStorageOptimization === true
         ? null
-        : "The service launcher must be upgraded before the automatic database storage migration can run safely. Run `t3 service install` to refresh it; the database upgrade remains queued.",
+        : "The service launcher must be upgraded before manual database storage optimization can run safely. Run `t3 service install` to refresh it.",
     unavailableReason: async () => {
       if (input.platform === null) return "Fork builds are not published for this platform.";
       if (!input.launcher.supportsMaintenanceTrial) {

@@ -4,6 +4,7 @@ on:
     paths:
       [
         "AGENTS.md",
+        "fork-upstream.json",
         "docs/**",
         "apps/**",
         "packages/**",
@@ -15,6 +16,7 @@ on:
     paths:
       [
         "AGENTS.md",
+        "fork-upstream.json",
         "docs/**",
         "apps/**",
         "packages/**",
@@ -36,6 +38,18 @@ jobs:
           node-version: "26"
       - run: node scripts/check-fork-docs.ts
         shell: bash
+      - name: Check upstream database ownership and published migration identities
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const pin = JSON.parse(readFileSync('fork-upstream.json', 'utf8'));
+          if (!/^[a-f0-9]{40}$/.test(pin.upstreamCommit)) throw new Error('Invalid upstream commit');
+          if (!/^[\w.-]+\/[\w.-]+$/.test(pin.upstreamRepository)) throw new Error('Invalid upstream repository');
+          execFileSync('git', ['fetch', '--quiet', '--no-tags', '--depth=1', `https://github.com/${pin.upstreamRepository}.git`, pin.upstreamCommit], { stdio: 'inherit' });
+          NODE
+          node scripts/check-upstream-database.ts
       - name: Parse Windows installer without executing it
         if: runner.os == 'Windows'
         shell: pwsh

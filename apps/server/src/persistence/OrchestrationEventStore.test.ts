@@ -105,7 +105,7 @@ layer("OrchestrationEventStore", (it) => {
     ),
   );
 
-  it.effect("stores an unchanged subagent prompt once and replays it on every update", () =>
+  it.effect("stores standalone upstream JSON for every subagent progress update", () =>
     Effect.gen(function* () {
       const store = yield* OrchestrationEventStore.OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
@@ -195,7 +195,7 @@ layer("OrchestrationEventStore", (it) => {
       `;
       assert.deepEqual(
         stored.map((row) => row.payload_json.includes(prompt)),
-        [true, true, false, false, false, false, false, false],
+        [true, true, true, true, true, true, false, false],
       );
       const replayed = yield* store
         .readAgentEvents({ threadId, afterSequence })
@@ -283,8 +283,12 @@ layer("OrchestrationEventStore", (it) => {
       `;
       assert.deepEqual(stored, [
         { prompt: event.payload.prompt, prompt_sequence: null },
-        { prompt: "", prompt_sequence: appended[0]!.sequence },
+        { prompt: event.payload.prompt, prompt_sequence: null },
       ]);
+      // Older builds stored a prompt once and referred to that event in later ticks.
+      yield* sql`UPDATE orchestration_events
+        SET payload_json=json_set(payload_json,'$.prompt','','$.promptSequence',CAST(${appended[0]!.sequence} AS INTEGER))
+        WHERE sequence=${appended[1]!.sequence}`;
       const replayed = yield* store.readAgentEvents({ threadId }).pipe(Stream.runCollect);
       assert.deepEqual(replayed, appended);
       const applicationEvents = yield* store

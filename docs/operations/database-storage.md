@@ -87,17 +87,16 @@ schemas. Admitted maintenance removes the unused correlation-id and receipt
 aggregate/sequence indexes; the command-ID uniqueness and event stream/sequence
 indexes remain. Removing large index trees can take tens of seconds on old databases,
 so it happens in the maintenance worker, not the startup schema migration. Startup does not scan or
-rewrite historical bodies. New compressible payloads of 4 KiB through 64 MiB use SHA-256
-addressed gzip storage. Larger or incompressible bodies stay inline. Events and current tool
-projections share identical bodies, and every application reader expands and verifies them
-before decoding or sending ordinary JSON to clients. Replay budgets count original UTF-8
-bytes without inflating bodies. Existing web, desktop, mobile and Android wire payloads remain
-compatible.
+rewrite historical bodies. Normal new event and tool-projection writes now store ordinary JSON,
+including the full prompt on each subagent update. Historical compressed bodies and prompt-anchor
+references remain readable through the compatibility layer, and replay budgets still count original
+UTF-8 bytes. Existing web, desktop, mobile and Android wire payloads remain compatible.
 
-Migration 102 records a one-time shrink request for populated databases from earlier builds.
-Fresh empty homes start complete because their new writes already use the storage format.
-The request stays pending until native maintenance succeeds; normal startup does only
-small indexed lookups. Completed migrations are not repeated on subsequent launches.
+Migration 102's historical pending/complete records remain intact. Pending markers are informational:
+normal controller ticks and binary updates no longer automatically compress or archive history.
+Explicit admitted legacy storage optimization still supports the prior compressed format. It can
+reduce space, but reintroduces fork-specific on-disk references; use the copy-only path below when
+upstream-compatible JSON is the goal.
 
 Migration 107 adds compact history blocks and storage migration version 2. Both earlier
 populated databases and homes that already completed the original shrink can upgrade.
@@ -194,21 +193,15 @@ exact staged digest, then request:
 t3 maintenance install --digest <reviewed-artifact-sha256> --optimize-storage
 ```
 
-Older database formats are handled by the same one-time upgrade on supported desktop
-and managed-service installations, including registered WSL homes. The controller waits
-for real device admission, quiet input/uploads, restored-automation review and a cancellable
-15-second countdown. This data migration is independent of binary automatic-update choices
-and keeps the installed version pin. A newer staged automatic update can include cleanup
-in the same trial when its manifest advertises `storageOptimizationProtocol: 1`.
+Storage rewriting requires an explicit request on supported desktop and managed-service
+installations, including WSL homes. Running chats and other activity still block native admission.
+Ordinary binary updates do not implicitly request storage optimization, even if an old migration
+marker remains pending. The explicit operation preserves the installed version pin and retains
+its verified snapshot, capacity, fencing, authorization and recovery requirements.
 
-Older controllers upgrade normally first. The new build records pending work and its native
-controller schedules cleanup; opening the app does not synchronously scan or vacuum history.
-Managed services must advertise the extended `storage-migration` launcher capability.
-If their long-lived launcher predates it, refresh it with `t3 service install` during the
-normal admitted maintenance window. Cleanup stays queued with that explanation until
-the launcher is supported; a normal newer binary update remains possible. Standalone/development
-runtimes are not automatic replacement targets and keep cleanup pending until operated through
-a supported native installer. Operating-system authorization is never requested automatically.
+Older service launchers may need `t3 service install` during an authorized maintenance window
+before explicit storage work is available. No launcher refresh or operating-system authorization
+is requested automatically.
 
 For a manually admitted retry, use the reviewed **installed** digest:
 
@@ -262,3 +255,34 @@ show them. These private exports may contain conversation data; retain normal ho
 - [Current projections](../../apps/server/src/orchestration-v2/ProjectionStore.ts),
   [command receipts](../../apps/server/src/orchestration-v2/CommandReceiptStore.ts),
   and [conversation evidence](../../apps/server/src/assets/ConversationEvidence.ts).
+
+## Create an upstream-compatible copy
+
+This source-only operator tool opens its source read-only and creates a new private directory.
+It never installs the copy, changes a running home, resets a migration ledger, or drops feature
+state. The destination must not exist and must have enough free space for the copy plus an
+8 GiB working reserve.
+
+```bash
+node scripts/create-upstream-storage-copy.ts \
+  --source /absolute/source/statev2.sqlite \
+  --destination /absolute/new-copy-directory
+```
+
+The default uses SQLite's online backup API with a pinned read snapshot. For an already frozen,
+read-only rollback-journal snapshot with no sidecars, `--immutable-snapshot` requires a filesystem
+CoW copy instead. Never use that flag on a running database. Snapshot creation can hold an old
+WAL read mark; allow space for the running application's continued writes while it completes.
+
+The copy restores archived rows without removing their retained copies, verifies and expands
+payload blobs, and materializes prompt anchors. Missing/corrupt data, cross-thread/recursive
+anchors, conflicting archive rows, schema/ledger changes, unexpected row-count changes, or
+integrity/foreign-key failures leave `conversion.json` marked `incomplete`. Such a copy must not
+be admitted for use. A complete receipt reports preserved schema/ledger, per-table counts,
+expanded payload/prompt counts and SQLite verification. Every decoded body is checked against
+its saved bytes; feature tables, credentials, queues, receipts and migration IDs remain present.
+
+The copy remains an Arcwright-compatible database with ordinary JSON. Historical ledger mapping
+and fork extensions are intentionally retained, so it is not an unmodified-upstream downgrade.
+A later live cutover still requires separately authorized native maintenance and app/recovery
+validation on the exact artifact. See [migration ownership](../orchestration-v2/migration-upgrades.md).

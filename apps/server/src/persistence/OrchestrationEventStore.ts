@@ -16,7 +16,6 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SqlClient from "effect/sql/SqlClient";
-import { storePayload } from "./PayloadStorage.ts";
 import * as SqlSchema from "effect/sql/SqlSchema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -292,7 +291,6 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 const makeEventStore = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const committedEvents = yield* PubSub.unbounded<ApplicationStoredEvent>();
-  const promptHints = new Map<string, number>();
   const restoredPayloadJson = sql`CASE
     WHEN orchestration_events.event_type IN ('subagent.updated', 'turn-item.updated')
       AND json_type(arcwright_payload_json(orchestration_events.payload_json), '$.promptSequence') = 'integer'
@@ -449,39 +447,9 @@ const makeEventStore = Effect.gen(function* () {
       (event) =>
         Effect.gen(function* () {
           const encoded = yield* encodeV2EventJson(event);
-          const subagent =
-            encoded.type === "subagent.updated"
-              ? encoded.payload
-              : encoded.type === "turn-item.updated" && encoded.payload.type === "subagent"
-                ? encoded.payload
-                : undefined;
-          const promptKey = subagent === undefined ? undefined : `${event.type}:${subagent.id}`;
-          const hint = promptKey === undefined ? undefined : promptHints.get(promptKey);
           const payloadJson = yield* encodeJson(encoded.payload);
-          // Progress ticks repeat an unchanged prompt, so store it once and point
-          // later rows at it. Keep an empty prompt so older servers still decode
-          // the row. ProjectionMaintenance never deletes these anchor rows. The
-          // hint is re-checked here because its transaction may have rolled back.
-          const candidatePayload =
-            hint !== undefined && subagent !== undefined
-              ? sql`CASE WHEN EXISTS (
-                  SELECT 1 FROM orchestration_events
-                  WHERE sequence = ${hint}
-                    AND json_type(arcwright_payload_json(payload_json), '$.promptSequence') IS NULL
-                    AND json_extract(arcwright_payload_json(payload_json), '$.prompt') = ${subagent.prompt}
-                ) THEN json_set(${payloadJson}, '$.prompt', '', '$.promptSequence', CAST(${hint} AS INTEGER))
-                ELSE ${payloadJson} END`
-              : sql`${payloadJson}`;
-          const storedPayloadJson =
-            hint === undefined
-              ? payloadJson
-              : (yield* sql<{
-                  readonly payload_json: string;
-                }>`SELECT ${candidatePayload} AS payload_json`)[0]!.payload_json;
-          const storedPayload = yield* storePayload(sql, storedPayloadJson);
           const rows = yield* sql<{
             readonly sequence: number;
-            readonly stores_full_prompt?: number;
           }>`
             INSERT INTO orchestration_events (
               event_id,
@@ -496,8 +464,7 @@ const makeEventStore = Effect.gen(function* () {
               actor_kind,
               payload_json,
               metadata_json,
-              application_event_version,
-              payload_bytes
+              application_event_version
             )
             VALUES (
               ${event.id},
@@ -521,29 +488,12 @@ const makeEventStore = Effect.gen(function* () {
               NULL,
               ${input.commandId ?? null},
               ${event.rawEventId === undefined ? "server" : "provider"},
-              ${storedPayload},
+              ${payloadJson},
               ${yield* encodeJson(metadataForV2Event(event))},
-              2,
-              ${Buffer.byteLength(payloadJson)}
+              2
             )
-            RETURNING sequence${
-              hint === undefined
-                ? sql``
-                : sql`, json_type(arcwright_payload_json(payload_json), '$.promptSequence') IS NULL AS stores_full_prompt`
-            }
+            RETURNING sequence
           `;
-          const row = rows[0];
-          if (promptKey !== undefined && row !== undefined) {
-            promptHints.delete(promptKey);
-            promptHints.set(
-              promptKey,
-              hint === undefined || row.stores_full_prompt === 1 ? row.sequence : hint,
-            );
-            if (promptHints.size > 4096) {
-              const oldest = promptHints.keys().next().value;
-              if (oldest !== undefined) promptHints.delete(oldest);
-            }
-          }
           return yield* decodeV2StoredEvent({
             sequence: rows[0]?.sequence,
             commandId: input.commandId ?? null,
