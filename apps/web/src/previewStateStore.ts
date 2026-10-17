@@ -478,42 +478,10 @@ export function rememberPreviewUrl(ref: ScopedThreadRef, url: string): void {
   }));
 }
 
-export function removePreviewThread(ref: ScopedThreadRef): void {
-  const threadKey = scopedThreadKey(ref);
-  appAtomRegistry.set(previewStateAtom(threadKey), EMPTY_THREAD_PREVIEW_STATE);
-  syncActivePreviewThread(threadKey, EMPTY_THREAD_PREVIEW_STATE);
-  changedPreviewThreadKeys.delete(threadKey);
-}
-
-/**
- * Whether this client can show a preview at all.
- *
- * A local bridge means we render the page ourselves. Without one we can still
- * show it, by attaching to frames a host publishes, so the panel stays
- * reachable on web and mobile. Whether a host is actually connected is answered
- * on the frame stream itself rather than guessed at here: the answer changes
- * when a desktop app opens or closes, and a gate computed once would go stale.
- */
-/**
- * Whether this client should offer the browser surface at all.
- *
- * A client with no webview of its own cannot render a page; it watches JPEG
- * frames streamed from whichever host is rendering, and sends synthetic input
- * back. On a phone that is markedly slower than the browser already on the
- * device, so the installed PWA does not offer it rather than offering
- * something that disappoints. Desktop renders locally and is unaffected; a
- * normal browser tab keeps it, since that is usually a machine on the same
- * network rather than a phone.
- */
+// The Android wrapper owns a browser bridge; plain installed PWAs do not.
 export function isPreviewSupportedInRuntime(): boolean {
   if (typeof window === "undefined") return false;
   return isAndroidPwa || !isInstalledPwa();
-}
-
-/** True only when this client owns the webview, which some controls require. */
-export function isPreviewRenderedLocally(): boolean {
-  if (typeof window === "undefined") return false;
-  return Boolean(window.desktopBridge?.preview);
 }
 
 /**

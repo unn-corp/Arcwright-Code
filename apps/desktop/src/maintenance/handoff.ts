@@ -161,7 +161,7 @@ export function helperEnvironment(
 }
 
 /** Starts the helper detached, so it survives this process, and resolves once the OS has accepted the launch. */
-export const spawnDetached: SpawnDetached = (command, args) =>
+const spawnDetached: SpawnDetached = (command, args) =>
   new Promise((resolve, reject) => {
     const child = NodeChildProcess.spawn(command, [...args], {
       detached: true,

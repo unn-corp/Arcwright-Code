@@ -34,7 +34,7 @@ export interface RemoteSurfacePoint {
  * How far a finger may travel and still count as a tap. Below this a touch is
  * a click; above it the gesture becomes a scroll and never produces one.
  */
-export const TOUCH_SCROLL_THRESHOLD_PX = 8;
+const TOUCH_SCROLL_THRESHOLD_PX = 8;
 
 export interface TouchGesture {
   readonly pointerId: number;

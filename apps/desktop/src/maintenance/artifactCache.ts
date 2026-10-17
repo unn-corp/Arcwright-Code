@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema";
  * unverified byte is never reachable. The newest verified builds are retained so a failed or unwanted
  * update can be reversed; pruning is by count and by what a transaction still references, never by free space.
  */
-export const RETAINED_PRIOR_BUILDS = 2;
+const RETAINED_PRIOR_BUILDS = 2;
 
 const Record = Schema.Struct({
   version: Schema.String,
@@ -184,9 +184,3 @@ export async function pruneArtifacts(
   }
   return removed;
 }
-
-/** Bytes the cache would add for a payload not yet present, so capacity can be checked before downloading. */
-export const artifactBytesNeeded = async (
-  root: string,
-  asset: { readonly sha256: string; readonly bytes: number },
-) => ((await readVerifiedArtifact(root, asset.sha256)) === null ? asset.bytes : 0);

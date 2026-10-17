@@ -15,7 +15,7 @@ function parseLimit(value: string, maximum: number): number | null {
   return parsed;
 }
 
-export function RunLimitsForm({
+function RunLimitsForm({
   value,
   onSave,
 }: {

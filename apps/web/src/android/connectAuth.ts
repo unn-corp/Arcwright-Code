@@ -82,7 +82,7 @@ const phases = new Set([
   "error",
   "unavailable",
 ]);
-export function isAndroidAuthStatus(value: unknown): value is AndroidAuthStatus {
+function isAndroidAuthStatus(value: unknown): value is AndroidAuthStatus {
   if (typeof value !== "object" || value === null) return false;
   const data = value as Record<string, unknown>;
   if (

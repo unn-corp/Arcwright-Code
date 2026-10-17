@@ -1,7 +1,7 @@
 import { isElectron } from "./env";
 
-export const LAST_WORKSPACE_ROUTE_STORAGE_KEY = "t3code:last-workspace-route:v1";
-export const PERSISTED_WORKSPACE_ROUTE = "/agent-dashboard" as const;
+const LAST_WORKSPACE_ROUTE_STORAGE_KEY = "t3code:last-workspace-route:v1";
+const PERSISTED_WORKSPACE_ROUTE = "/agent-dashboard" as const;
 
 function isPersistedWorkspaceRoute(value: string | null): value is string {
   return (
@@ -12,7 +12,7 @@ function isPersistedWorkspaceRoute(value: string | null): value is string {
   );
 }
 
-export function readPersistedWorkspaceRoute(): string | null {
+function readPersistedWorkspaceRoute(): string | null {
   if (!isElectron || typeof window === "undefined") {
     return null;
   }

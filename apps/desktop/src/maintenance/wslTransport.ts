@@ -62,8 +62,8 @@ const execFileAsync = (command: string, args: ReadonlyArray<string>, timeout: nu
 
 /** Copying databases is slow; status and fence verbs must not be. */
 const SLOW_VERBS = new Set(["snapshot", "rescue", "restore", "verify", "prune"]);
-export const DEFAULT_DISTRO_TIMEOUT_MS = 2 * 60_000;
-export const LONG_DISTRO_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_DISTRO_TIMEOUT_MS = 2 * 60_000;
+const LONG_DISTRO_TIMEOUT_MS = 20 * 60_000;
 
 /** A failed or timed-out command is a result with a non-zero code, never a throw: the protocol turns it into a failure of the whole cohort. */
 export const wslExec: Exec = (command, args) =>

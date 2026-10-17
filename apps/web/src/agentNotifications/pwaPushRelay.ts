@@ -152,7 +152,7 @@ export class PwaPushRemovalPendingError extends Error {
     this.name = "PwaPushRemovalPendingError";
   }
 }
-export class PwaPushBindingError extends Error {
+class PwaPushBindingError extends Error {
   constructor() {
     super(
       "Reset this browser's push subscription, then explicitly enable notifications again. Previous service cleanup may still be pending.",
@@ -349,7 +349,7 @@ export function pwaPushInstallation(input?: { readonly explicitEnable: boolean }
 }
 
 /** Compare bytes, allowing equivalent padded/base64url public keys. Unknown keys fail closed. */
-export function pwaSubscriptionUsesKey(subscription: PushSubscription, key: string): boolean {
+function pwaSubscriptionUsesKey(subscription: PushSubscription, key: string): boolean {
   try {
     const actual = subscription.options?.applicationServerKey;
     if (!actual) return false;

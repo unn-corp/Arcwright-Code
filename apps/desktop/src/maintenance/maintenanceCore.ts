@@ -72,7 +72,6 @@ import { createStoreGate, type StoreGate } from "./storeGate.ts";
 
 /** The capability variable the server's MaintenanceHost reads. Kept in step with apps/server/src/maintenance/MaintenanceHost.ts. */
 export const MAINTENANCE_TRIAL_ENV = "T3CODE_MAINTENANCE_TRIAL";
-export const OBSERVE_INTERVAL_MS = 5_000;
 /** Transactions whose installers and handoff plans are kept for recovery. */
 const RETAINED_TRANSACTIONS = 3;
 export { FORK_CHECK_INTERVAL_MS };
