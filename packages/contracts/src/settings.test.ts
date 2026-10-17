@@ -1411,6 +1411,24 @@ describe("ServerSettings.removeAgentCreditsOnMerge", () => {
   });
 });
 
+describe("ClientSettings standard thread feed", () => {
+  it("defaults standard threads without a saved preference to the upstream feed", () => {
+    expect(decodeClientSettings({}).standardThreadFeed).toBe("upstream");
+  });
+  it.each(["arcwright", "upstream"] as const)(
+    "round-trips the %s feed preference",
+    (standardThreadFeed) => {
+      expect(encodeClientSettings(decodeClientSettings({ standardThreadFeed }))).toMatchObject({
+        standardThreadFeed,
+      });
+      expect(decodeClientSettingsPatch({ standardThreadFeed })).toEqual({ standardThreadFeed });
+    },
+  );
+  it("rejects unknown feed choices", () => {
+    expect(() => decodeClientSettingsPatch({ standardThreadFeed: "unknown" })).toThrow();
+  });
+});
+
 describe("ClientSettings AI message bubbles", () => {
   it("defaults clients without a saved preference to chat bubbles", () => {
     expect(decodeClientSettings({}).assistantMessageBubbles).toBe(true);

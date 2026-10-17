@@ -45,6 +45,11 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("finds the standard-thread feed choice in Appearance", () => {
+    expect(searchSettings("upstream chat feed")).toContainEqual(
+      expect.objectContaining({ id: "standard-thread-feed", to: "/settings/appearance" }),
+    );
+  });
   it.each([
     ["automatic git status", "automatic-git-status"],
     ["automatic checkpoints", "automatic-checkpoints"],

@@ -313,6 +313,9 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
   alwaysCompactComposer: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  standardThreadFeed: Schema.Literals(["arcwright", "upstream"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("upstream" as const)),
+  ),
   assistantMessageBubbles: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -2309,6 +2312,7 @@ export const ClientSettingsPatch = Schema.Struct({
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   alwaysCompactComposer: Schema.optionalKey(Schema.Boolean),
+  standardThreadFeed: Schema.optionalKey(Schema.Literals(["arcwright", "upstream"])),
   assistantMessageBubbles: Schema.optionalKey(Schema.Boolean),
   chatWidth: Schema.optionalKey(ChatWidth),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),

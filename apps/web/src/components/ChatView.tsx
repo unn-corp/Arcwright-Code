@@ -11033,6 +11033,7 @@ export default function ChatView(props: ChatViewProps) {
             </div>
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
               <MessagesTimeline
+                feedStyle={settings.standardThreadFeed}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 {...(!paintOnlyDisplayedTimeline
@@ -11240,10 +11241,12 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell
                       contextStrip={showComposerContextStrip || showComposerModelStrip}
                     >
-                      <ActiveSubagentChips
-                        members={subagentMembers}
-                        onOpenThread={onOpenRelatedThread}
-                      />
+                      {settings.standardThreadFeed === "arcwright" ? (
+                        <ActiveSubagentChips
+                          members={subagentMembers}
+                          onOpenThread={onOpenRelatedThread}
+                        />
+                      ) : null}
                       {composerReplyTo && (
                         <ComposerMessageReply
                           target={composerReplyTo}

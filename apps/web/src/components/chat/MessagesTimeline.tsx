@@ -292,7 +292,7 @@ import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type ClientSettings, type TimestampFormat } from "@t3tools/contracts/settings";
 import {
   formatChatTimestampTooltip,
   formatDayAwareTimestamp,
@@ -323,6 +323,7 @@ import {
 } from "../../reviewCommentContext";
 
 interface TimelineRowSharedState {
+  enhancedFeed: boolean;
   participantGroupStarts: ReadonlySet<string>;
   onOpenReplyChain: (id: MessageId) => void;
   citationRequest: AssistantCitationTarget | null;
@@ -439,6 +440,7 @@ export interface MessagesTimelineHistoryControls {
 }
 
 interface MessagesTimelineProps {
+  feedStyle?: ClientSettings["standardThreadFeed"];
   citationRequest?: AssistantCitationRequest | null;
   citationHistoryLoading?: boolean;
   onCiteAssistantText?: (
@@ -546,6 +548,7 @@ export function MessagesTimeline(props: MessagesTimelineProps) {
 }
 
 const ConversationTimeline = memo(function ConversationTimeline({
+  feedStyle = "upstream",
   citationRequest = null,
   citationHistoryLoading = false,
   onCiteAssistantText,
@@ -616,6 +619,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   historyControls,
   loadEarlier = null,
 }: MessagesTimelineProps) {
+  const enhancedFeed = feedStyle === "arcwright";
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
     () => readTimelinePosition(listIdentityKey),
@@ -897,13 +901,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
         : null,
     );
     rowsProjectionRef.current = { threadKey: listIdentityKey, workspaceRoot, projection };
-    return withSubagentMilestones(projection.rows, subagentMembers ?? []);
+    return enhancedFeed
+      ? withSubagentMilestones(projection.rows, subagentMembers ?? [])
+      : projection.rows;
   }, [
     rowsProjectionRef,
     listIdentityKey,
     workspaceRoot,
     timelineEntries,
     subagentMembers,
+    enhancedFeed,
     latestRun,
     runningRunId,
     visibleExpandedRunIds,
@@ -926,13 +933,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   const participantGroups = useMemo(
     () =>
-      timelineParticipantGroups(
-        rows,
-        citationThreadRef?.threadId ?? routeThreadKey,
-        runs,
-        providerStatuses,
-        { participantProfiles, activeParticipantProfile },
-      ),
+      enhancedFeed
+        ? timelineParticipantGroups(
+            rows,
+            citationThreadRef?.threadId ?? routeThreadKey,
+            runs,
+            providerStatuses,
+            { participantProfiles, activeParticipantProfile },
+          )
+        : [],
     [
       rows,
       citationThreadRef,
@@ -941,6 +950,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       providerStatuses,
       participantProfiles,
       activeParticipantProfile,
+      enhancedFeed,
     ],
   );
   const participantGroupStartsRef = useRef<ReadonlySet<string>>(new Set());
@@ -1356,6 +1366,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      enhancedFeed,
       participantGroupStarts,
       onReplyToMessage,
       onOpenReplyChain: openReplyChain,
@@ -1398,6 +1409,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     }),
     [
       participantGroupStarts,
+      enhancedFeed,
       onReplyToMessage,
       openReplyChain,
       readyCitationRequest,
@@ -1632,15 +1644,17 @@ const ConversationTimeline = memo(function ConversationTimeline({
     <MarkdownFindContext value={findActive}>
       <TimelineRowCtx value={sharedState}>
         <TimelineRowActivityCtx value={activityState}>
-          <MessageReplyThreadDialog
-            key={`${routeThreadKey}:${replyChainMessageId}`}
-            messages={replyMessages}
-            selectedId={replyChainMessageId}
-            loadChain={loadReplyChain}
-            onClose={() => setReplyChainSelection(null)}
-            onReply={onReplyToMessage}
-            renderMessage={renderReplyThreadMessage}
-          />
+          {enhancedFeed ? (
+            <MessageReplyThreadDialog
+              key={`${routeThreadKey}:${replyChainMessageId}`}
+              messages={replyMessages}
+              selectedId={replyChainMessageId}
+              loadChain={loadReplyChain}
+              onClose={() => setReplyChainSelection(null)}
+              onReply={onReplyToMessage}
+              renderMessage={renderReplyThreadMessage}
+            />
+          ) : null}
 
           <TooltipScrollDismissArea
             ref={setTimelineViewportElement}
@@ -1700,12 +1714,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
               ListHeaderComponent={listHeader}
               ListFooterComponent={timelineListFooter}
             />
-            <PinnedTimelineParticipant
-              key={listIdentityKey}
-              groups={participantGroups}
-              listRef={listRef}
-              refreshRef={participantHeaderRefresh}
-            />
+            {enhancedFeed ? (
+              <PinnedTimelineParticipant
+                key={listIdentityKey}
+                groups={participantGroups}
+                listRef={listRef}
+                refreshRef={participantHeaderRefresh}
+              />
+            ) : null}
             <TimelineMinimap
               items={minimapItems}
               hasPersistentGutter={minimapHasPersistentGutter}
@@ -2159,7 +2175,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           : null,
       )}
       onContextMenu={
-        row.kind === "message" && replyContext.onReplyToMessage
+        replyContext.enhancedFeed && row.kind === "message" && replyContext.onReplyToMessage
           ? (event) => {
               void openMessageReplyMenu(event, row.message, replyContext.onReplyToMessage!).catch(
                 (error) => console.error("Message reply menu failed", error),
@@ -2180,7 +2196,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           showChip={replyContext.participantGroupStarts.has(row.id)}
         />
       )}
-      {row.kind === "message" && (
+      {replyContext.enhancedFeed && row.kind === "message" && (
         <MessageReplyActions message={row.message} onOpenChain={replyContext.onOpenReplyChain} />
       )}
       {isWorkLogRow ? (
@@ -2367,6 +2383,22 @@ function MessageAuthorHeading({
   showChip?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
+  if (!ctx.enhancedFeed) {
+    return (
+      <h3 className="sr-only select-none">{message.role === "user" ? "You" : "Arcwright Code"}</h3>
+    );
+  }
+  return <ParticipantMessageAuthorHeading message={message} showChip={showChip} />;
+}
+
+function ParticipantMessageAuthorHeading({
+  message,
+  showChip,
+}: {
+  message: ChatMessage;
+  showChip: boolean;
+}) {
+  const ctx = use(TimelineRowCtx);
   const profileSettings = useClientSettings((settings) => settings);
   const participant = resolveMessageParticipant(
     message,
@@ -2390,7 +2422,7 @@ function MessageAuthorHeading({
 
 function MessageBubbleReply({ message }: { message: ChatMessage }) {
   const ctx = use(TimelineRowCtx);
-  if (!ctx.onReplyToMessage) return null;
+  if (!ctx.enhancedFeed || !ctx.onReplyToMessage) return null;
   return (
     <div
       data-bubble-reply-side={isUserMessageRightAligned(message) ? "left" : "right"}
@@ -2578,7 +2610,7 @@ function UserTimelineRow({
     <div
       className={cn(
         "group flex flex-col gap-1",
-        isUserMessageRightAligned(row.message) ? "items-end" : "items-start",
+        !ctx.enhancedFeed || isUserMessageRightAligned(row.message) ? "items-end" : "items-start",
       )}
     >
       {userMessage.attribution === "automation" ? (
@@ -2752,7 +2784,9 @@ function UserTimelineRow({
       <div
         className={cn(
           "flex w-full max-w-[80%] items-center pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
-          isUserMessageRightAligned(row.message) ? "justify-end" : "justify-start",
+          !ctx.enhancedFeed || isUserMessageRightAligned(row.message)
+            ? "justify-end"
+            : "justify-start",
         )}
       >
         <div className="flex shrink-0 items-center gap-2">
@@ -2977,7 +3011,8 @@ function AssistantTimelineRow({
   showReplyButton?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
-  const bubbles = useClientSettings((settings) => settings.assistantMessageBubbles);
+  const bubblePreference = useClientSettings((settings) => settings.assistantMessageBubbles);
+  const bubbles = ctx.enhancedFeed && bubblePreference;
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
 
   return (
@@ -2988,7 +3023,7 @@ function AssistantTimelineRow({
           "relative min-w-0",
           bubbles
             ? "w-fit max-w-[calc(100%-2rem)] rounded-2xl rounded-ss-md border border-border/50 bg-muted/40 px-4 py-3 sm:max-w-[90%]"
-            : "me-8 px-1 py-0.5",
+            : cn("px-1 py-0.5", ctx.enhancedFeed && "me-8"),
         )}
       >
         {showReplyButton && <MessageBubbleReply message={row.message} />}
@@ -3340,6 +3375,7 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
   if (isV2LifecycleItem(item)) {
     return (
       <V2LifecycleRow
+        enhancedFeed={ctx.enhancedFeed}
         environmentId={ctx.activeThreadEnvironmentId}
         item={item}
         resourceSummary={row.resourceSummary}
@@ -3596,6 +3632,7 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
           <span className="flex shrink-0 items-center -space-x-1.5">
             {agents.slice(0, 3).map(({ item, status, model }) => (
               <SubagentAvatar
+                enhancedIdentity={ctx.enhancedFeed}
                 key={item.id}
                 instanceId={agentInstanceId(
                   item.childThreadId ?? `${ctx.threadRef?.threadId}:${item.subagentId}`,
@@ -3644,6 +3681,7 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
             <div className="mt-1 mb-1 rounded-lg border border-border/60 bg-card/30 p-1">
               {members.map((item) => (
                 <V2LifecycleRow
+                  enhancedFeed={ctx.enhancedFeed}
                   environmentId={ctx.activeThreadEnvironmentId}
                   key={item.id}
                   item={item}

@@ -91,7 +91,7 @@ describe("runMigrations", () => {
 
       const before = yield* history;
       const error = yield* runMigrations().pipe(Effect.flip);
-      assert.equal(error.kind, "BadState");
+      assert.propertyVal(error, "kind", "BadState");
       assert.include(error.message, `${id}_SiteLocalMigration`);
       assert.deepStrictEqual(yield* history, before);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
@@ -130,7 +130,7 @@ describe("runMigrations", () => {
 
       const before = yield* history;
       const error = yield* runMigrations().pipe(Effect.flip);
-      assert.equal(error.kind, "BadState");
+      assert.propertyVal(error, "kind", "BadState");
       assert.include(error.message, `${newerMigrationId}_NewerV2Migration`);
       assert.deepStrictEqual(yield* history, before);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

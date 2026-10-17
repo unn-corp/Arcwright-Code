@@ -21,11 +21,20 @@ Android uses **Material You Layout** by default unless you have turned it off in
 It changes shapes, spacing, and controls independently
 of the selected theme.
 
+## Standard thread feed
+
+Standard threads use the original T3 chat layout by default. **Upstream chat feed** in
+**Settings → Appearance** hides Arcwright participant chips, AI bubbles, reply controls,
+and added subagent activity rows. Organization conversations keep their Arcwright layout.
+The choice is saved on each web, desktop, or fork Android client. Existing messages and
+reply metadata are preserved; turn the option off to use the Arcwright feed in standard threads.
+
 ## AI message bubbles
 
 Turn on **AI message bubbles** in **Settings → Appearance** to display AI replies as rounded
 chat messages. Turn it off to return to the standard layout. This preference is saved on each
-web, desktop, or fork Android client and also applies while replies stream.
+web, desktop, or fork Android client and also applies while replies stream. It is available
+with the Arcwright feed; choosing the upstream feed retains your bubble preference for later.
 
 ## Chat participants and your profile
 

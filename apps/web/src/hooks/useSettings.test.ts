@@ -39,6 +39,17 @@ afterEach(() => {
 });
 
 describe("client settings hydration", () => {
+  it("retains the standard-thread feed choice after saving and hydrating again", async () => {
+    await persistClientSettingsPatch({ standardThreadFeed: "arcwright" });
+    const saved = persistenceMocks.setClientSettings.mock.calls.at(-1)![0];
+    expect(saved.standardThreadFeed).toBe("arcwright");
+    expect(saved.assistantMessageBubbles).toBe(DEFAULT_CLIENT_SETTINGS.assistantMessageBubbles);
+    __resetClientSettingsPersistenceForTests();
+    persistenceMocks.getClientSettings.mockResolvedValueOnce(saved);
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings().standardThreadFeed).toBe("arcwright");
+  });
+
   const savedSettings = {
     ...DEFAULT_CLIENT_SETTINGS,
     timestampFormat: "12-hour" as const,

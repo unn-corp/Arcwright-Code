@@ -347,6 +347,14 @@ devices. Regression coverage lives in `UsagePage.refresh.test.tsx`,
 
 ## Chat participant identity
 
+`ClientSettings.standardThreadFeed` selects `upstream` (the default) or `arcwright`
+for standard ChatView threads. Appearance exposes the saved client preference. Upstream mode
+uses the shared upstream timeline without the fork's participant chips/pinning, AI bubbles,
+reply controls, added subagent milestones, or composer activity chips, and restores upstream
+user-message alignment and subagent icons. Message data, streaming, history, tool disclosures,
+and stored reply/author metadata remain intact. Organization conversations use their separate
+Arcwright renderers and do not read this setting. Keep both feed modes covered by timeline tests.
+
 The shared participant contracts and client-runtime resolver retain message-time author photos
 and model attribution. Web, desktop and fork Android use the same chip and profile settings;
 upstream native mobile renders the shared attribution with its own chip. Preserve first personal

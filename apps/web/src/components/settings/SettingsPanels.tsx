@@ -1331,8 +1331,34 @@ export function AppearanceSettingsPanel() {
         />
 
         <SettingsRow
+          {...searchableSetting("standard-thread-feed")}
+          description="Use the original T3 chat feed for standard threads. Organization conversations keep their current layout. Saved on this device."
+          resetAction={
+            settings.standardThreadFeed !== DEFAULT_UNIFIED_SETTINGS.standardThreadFeed ? (
+              <SettingResetButton
+                label="Upstream chat feed"
+                onClick={() =>
+                  updateSettings({
+                    standardThreadFeed: DEFAULT_UNIFIED_SETTINGS.standardThreadFeed,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              aria-label="Upstream chat feed"
+              checked={settings.standardThreadFeed === "upstream"}
+              onCheckedChange={(enabled) =>
+                updateSettings({ standardThreadFeed: enabled ? "upstream" : "arcwright" })
+              }
+            />
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("assistant-message-bubbles")}
-          description="Display AI replies in rounded chat bubbles."
+          description="Display AI replies in rounded chat bubbles when using the Arcwright feed."
           resetAction={
             settings.assistantMessageBubbles !==
             DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles ? (
@@ -1349,6 +1375,7 @@ export function AppearanceSettingsPanel() {
           control={
             <Switch
               aria-label="AI message bubbles"
+              disabled={settings.standardThreadFeed === "upstream"}
               checked={settings.assistantMessageBubbles}
               onCheckedChange={(assistantMessageBubbles) =>
                 updateSettings({ assistantMessageBubbles })

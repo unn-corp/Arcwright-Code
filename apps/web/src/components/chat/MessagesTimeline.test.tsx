@@ -25,6 +25,7 @@ import { shouldUseRestingComposerLayout } from "../composerFooterLayout";
 import { useComposerFocusState } from "./useComposerFocusState";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
+import type { SubagentActivityMember } from "./SubagentActivity";
 
 const activityTestState = vi.hoisted(() => ({
   expanded: false,
@@ -397,6 +398,7 @@ describe("timeline tooltip scroll dismissal", () => {
 
 function buildProps() {
   return {
+    feedStyle: "arcwright" as const,
     isWorking: false,
     activeTurnInProgress: false,
     listRef: createRef<LegendListRef | null>(),
@@ -2898,6 +2900,116 @@ describe("MessagesTimeline", () => {
       await act(() => renderer?.unmount());
     }
   });
+});
+
+describe("standard-thread feed styles", () => {
+  it.each([true, false])(
+    "switches streaming=%s messages to the upstream layout without losing content",
+    async (streaming) => {
+      vi.unstubAllGlobals();
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const { DEFAULT_CLIENT_SETTINGS } = await import("@t3tools/contracts/settings");
+      const { __setClientSettingsForTests } = await import("~/hooks/useSettings");
+      __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, assistantMessageBubbles: true });
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const entries = [
+        buildUserTimelineEntry("Human prompt"),
+        buildAssistantTimelineEntry("**Preserved** agent response"),
+        {
+          ...buildUserTimelineEntry("Agent delivery"),
+          message: {
+            ...buildUserTimelineEntry("Agent delivery").message,
+            createdBy: "agent" as const,
+            creationSource: "provider" as const,
+            senderThreadId: ThreadId.make("other-agent"),
+          },
+        },
+      ].map((entry, index) => ({
+        ...entry,
+        id: `entry-${index}`,
+        message: {
+          ...entry.message,
+          id: MessageId.make(`feed-message-${index}`),
+          streaming: entry.message.role === "assistant" && streaming,
+          runId: entry.message.role === "assistant" ? RunId.make("feed-run") : null,
+        },
+      }));
+      const members: SubagentActivityMember[] = [
+        {
+          id: "feed-child",
+          participant: { kind: "agent", id: "feed-child", name: "Review agent" },
+          childThreadId: null,
+          status: "completed",
+          startedAt: MESSAGE_CREATED_AT,
+          completedAt: "2026-03-17T19:14:28.000Z",
+        },
+      ];
+      const renderFeed = async (feedStyle: "arcwright" | "upstream") => {
+        await act(async () =>
+          root.render(
+            <MessagesTimeline
+              {...buildProps()}
+              feedStyle={feedStyle}
+              timelineEntries={entries}
+              subagentMembers={members}
+              onReplyToMessage={() => {}}
+            />,
+          ),
+        );
+      };
+      try {
+        const { feedStyle: _feedStyle, ...standardProps } = buildProps();
+        await act(async () =>
+          root.render(
+            <MessagesTimeline
+              {...standardProps}
+              timelineEntries={entries}
+              subagentMembers={members}
+              onReplyToMessage={() => {}}
+            />,
+          ),
+        );
+        expect(container.querySelector("[data-participant-id]")).toBeNull();
+        expect(container.querySelector('[data-assistant-message-style="bubble"]')).toBeNull();
+        expect(container.textContent).toContain("Preserved agent response");
+
+        await renderFeed("arcwright");
+        expect(container.querySelector("[data-participant-id]")).not.toBeNull();
+        expect(container.querySelector('[data-assistant-message-style="bubble"]')).not.toBeNull();
+        expect(container.querySelector('[aria-label="Reply to message"]')).not.toBeNull();
+        expect(
+          container.querySelector('[data-timeline-row-kind="subagent-milestone"]'),
+        ).not.toBeNull();
+
+        await renderFeed("upstream");
+        expect(container.textContent).toContain("Human prompt");
+        expect(container.textContent).toContain("Preserved agent response");
+        expect(container.textContent).toContain("Agent delivery");
+        expect(container.querySelector("strong")?.textContent).toBe("Preserved");
+        expect(container.querySelector("[data-participant-id]")).toBeNull();
+        expect(container.querySelector('[data-assistant-message-style="bubble"]')).toBeNull();
+        expect(container.querySelector('[aria-label="Reply to message"]')).toBeNull();
+        expect(container.querySelector('[data-timeline-row-kind="subagent-milestone"]')).toBeNull();
+        const assistant = container.querySelector('[data-assistant-message-style="plain"]')!;
+        expect(assistant.classList.contains("me-8")).toBe(false);
+        const delivery = container.querySelector('[data-message-id="feed-message-2"] .bg-message')!;
+        expect(delivery.parentElement?.classList.contains("items-end")).toBe(true);
+        expect(
+          Array.from(container.querySelectorAll("h3"), (heading) => heading.textContent),
+        ).toContain("You");
+
+        await renderFeed("arcwright");
+        expect(container.querySelector("[data-participant-id]")).not.toBeNull();
+        expect(container.querySelector('[data-assistant-message-style="bubble"]')).not.toBeNull();
+      } finally {
+        await act(async () => root.unmount());
+        container.remove();
+        __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+      }
+    },
+  );
 });
 
 describe("AI message bubble preference", () => {

@@ -32,6 +32,7 @@ import {
 } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
+  BotIcon,
   ChevronRightIcon,
   ArrowRightLeftIcon,
   ArrowRightIcon,
@@ -68,6 +69,7 @@ export function isV2LifecycleItem(item: OrchestrationV2TurnItem): boolean {
 export type { HandoffTimelineRun } from "@t3tools/client-runtime/handoff";
 
 export function V2LifecycleRow(props: {
+  readonly enhancedFeed?: boolean;
   readonly item: OrchestrationV2TurnItem;
   readonly environmentId: EnvironmentId;
   readonly resourceSummary?: boolean | undefined;
@@ -204,11 +206,16 @@ export function V2LifecycleRow(props: {
         completedAt={item.completedAt}
         threadId={item.childThreadId}
         onOpenThread={props.onOpenThread}
-        event={{
-          status: null,
-          label: "Started",
-          timestamp: formatShortTimestamp(props.createdAt, props.timestampFormat),
-        }}
+        enhancedFeed={props.enhancedFeed ?? true}
+        {...(props.enhancedFeed !== false
+          ? {
+              event: {
+                status: null,
+                label: "Started",
+                timestamp: formatShortTimestamp(props.createdAt, props.timestampFormat),
+              },
+            }
+          : {})}
       />
     );
   }
@@ -260,6 +267,7 @@ export function SubagentElapsed({ agent }: { agent: Parameters<typeof AgentElaps
 }
 
 export function SubagentAvatar({
+  enhancedIdentity = true,
   instanceId,
   name,
   model,
@@ -268,6 +276,7 @@ export function SubagentAvatar({
   status,
   className,
 }: {
+  enhancedIdentity?: boolean;
   instanceId: string;
   name?: string | undefined;
   model?: string | undefined;
@@ -278,22 +287,36 @@ export function SubagentAvatar({
 }) {
   return (
     <span
+      aria-hidden={!enhancedIdentity || undefined}
       className={cn(
         "relative inline-flex size-6 shrink-0 items-center justify-center rounded-full ring-2 ring-background",
+        !enhancedIdentity && "border border-border/70 bg-muted",
         className,
       )}
     >
-      <ParticipantChip
-        variant="avatar"
-        participant={{
-          kind: "agent",
-          id: instanceId,
-          name: name ?? provider?.displayName ?? "Agent",
-          model,
-          driver,
-          iconUrl: provider?.iconUrl,
-        }}
-      />
+      {enhancedIdentity ? (
+        <ParticipantChip
+          variant="avatar"
+          participant={{
+            kind: "agent",
+            id: instanceId,
+            name: name ?? provider?.displayName ?? "Agent",
+            model,
+            driver,
+            iconUrl: provider?.iconUrl,
+          }}
+        />
+      ) : driver ? (
+        <ProviderInstanceIcon
+          driverKind={driver}
+          displayName={provider?.displayName ?? driver}
+          acpRegistryIconUrl={provider?.iconUrl}
+          className="z-auto"
+          iconClassName="size-3.5"
+        />
+      ) : (
+        <BotIcon className="size-3.5 text-muted-foreground" />
+      )}
       {status ? (
         <span
           className={cn(
@@ -371,6 +394,7 @@ export function SubagentNotificationLink(props: {
 }
 
 function SubagentTimelineLink(props: {
+  readonly enhancedFeed?: boolean;
   readonly parentRef: ScopedThreadRef;
   readonly subagentId: NodeId;
   readonly providerInstanceId: ProviderInstanceId;
@@ -415,6 +439,7 @@ function SubagentTimelineLink(props: {
   const content = (
     <>
       <SubagentAvatar
+        enhancedIdentity={props.enhancedFeed ?? true}
         instanceId={agentInstanceId(
           props.threadId ?? `${props.parentRef.threadId}:${props.subagentId}`,
           props.providerInstanceId,

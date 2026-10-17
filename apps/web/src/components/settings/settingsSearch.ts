@@ -255,6 +255,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["small input resting collapsed message draft chat composer layout"],
   },
   {
+    id: "standard-thread-feed",
+    title: "Upstream chat feed",
+    to: "/settings/appearance",
+    searchTerms: [
+      "standard threads original T3 Arcwright conversation feed layout participants replies bubbles",
+    ],
+  },
+  {
     id: "assistant-message-bubbles",
     title: "AI message bubbles",
     to: "/settings/appearance",
