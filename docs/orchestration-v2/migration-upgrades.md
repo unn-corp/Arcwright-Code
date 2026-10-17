@@ -37,6 +37,8 @@ published identities in `historical-migration-identities.json`, and the exact so
 of intentional patches in `scripts/upstream-database-patches.json`. Update an exception only
 after reviewing both versions and exercising the affected upgrade path. The fork documentation
 workflow runs this gate on Windows and Linux, with a shallow fetch in its disposable checkout.
+All three registries use the same static parser. Unrecognized entries or missing default imports
+fail the check rather than silently reducing its coverage; migration modules are never executed.
 Do not fetch a moving upstream branch or change the integrated pin just to make the check pass.
 
 Migration 005 now matches upstream exactly; fork migration 47 still introduces the nullable

@@ -6,7 +6,11 @@ import * as NodeURL from "node:url";
 import * as NodeChildProcess from "node:child_process";
 import historical from "../apps/server/src/persistence/historical-migration-identities.json" with { type: "json" };
 import patches from "./upstream-database-patches.json" with { type: "json" };
-import { auditUpstreamDatabase, type MigrationSource } from "./upstreamDatabaseAudit.ts";
+import {
+  auditUpstreamDatabase,
+  readMigrationManifest,
+  type MigrationSource,
+} from "./upstreamDatabaseAudit.ts";
 
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const pin: unknown = JSON.parse(
@@ -30,27 +34,21 @@ const git = (...args: string[]) =>
   });
 const readUpstream = (filename: string) => git("show", `${ref}:${filename}`);
 const manifest = readUpstream(prefix + "Migrations.ts");
-const imports = (text: string) =>
-  new Map([...text.matchAll(/import (Migration\d+) from "([^"]+)";/g)].map((m) => [m[1]!, m[2]!]));
-const upstreamImports = imports(manifest);
 const localText = NodeFS.readFileSync(NodePath.join(root, prefix, "UpstreamMigrations.ts"), "utf8");
-const localImports = imports(localText);
-const registered = [...localText.matchAll(/\[(\d+),\s*(\d+),\s*"([^"]+)",\s*(Migration\d+)\]/g)];
-const localPaths = new Map(registered.map((m) => [m[3]!, localImports.get(m[4]!)!]));
+const registered = readMigrationManifest(localText, "upstreamMigrationEntries", 2);
+const localPaths = new Map(registered.map(([, , name, source]) => [name, source]));
 const forkText = NodeFS.readFileSync(NodePath.join(root, prefix, "ForkMigrations.ts"), "utf8");
 const deployed = [
-  ...registered.map((m) => [Number(m[2]), m[3]!] as const),
-  ...[...forkText.matchAll(/\[(\d+),\s*"([^"]+)",\s*Migration\d+\]/g)].map(
-    (m) => [Number(m[1]), m[2]!] as const,
+  ...registered.map(([, forkId, name]) => [forkId, name] as const),
+  ...readMigrationManifest(forkText, "forkMigrationEntries").map(
+    ([id, , name]) => [id, name] as const,
   ),
 ];
-const upstream = [...manifest.matchAll(/\[(\d+),\s*"([^"]+)",\s*(Migration\d+)\]/g)];
-if (upstream.length === 0)
-  throw new Error("Could not read the pinned upstream migration manifest; review its format.");
+const upstream = readMigrationManifest(manifest, "migrationEntries");
 const sources: MigrationSource[] = [];
-for (const match of upstream) {
-  const upstreamPath = NodePath.posix.join(prefix, upstreamImports.get(match[3]!)!);
-  const local = localPaths.get(match[2]!);
+for (const [, , name, source] of upstream) {
+  const upstreamPath = NodePath.posix.join(prefix, source);
+  const local = localPaths.get(name);
   if (local === undefined) continue;
   const localPath = NodePath.posix.join(prefix, local);
   sources.push({
@@ -84,11 +82,11 @@ const historicalEntries: Array<readonly [number, string]> = historical.map((row)
   return [row[0], row[1]];
 });
 const issues = auditUpstreamDatabase({
-  upstream: upstream.map((m) => [Number(m[1]), m[2]!] as const),
-  registered: registered.map((m) => ({
-    upstreamId: Number(m[1]),
-    forkId: Number(m[2]),
-    name: m[3]!,
+  upstream: upstream.map(([id, , name]) => [id, name] as const),
+  registered: registered.map(([upstreamId, forkId, name]) => ({
+    upstreamId,
+    forkId,
+    name,
   })),
   deployed,
   historical: historicalEntries,

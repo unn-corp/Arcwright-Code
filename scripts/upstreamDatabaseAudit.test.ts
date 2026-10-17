@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - verify exact source SHA-256 in the Node-only merge checker.
 import { describe, expect, it } from "vite-plus/test";
 import * as NodeCrypto from "node:crypto";
-import { auditUpstreamDatabase } from "./upstreamDatabaseAudit.ts";
+import { auditUpstreamDatabase, readMigrationManifest } from "./upstreamDatabaseAudit.ts";
 
 const input = {
   upstream: [
@@ -29,6 +29,35 @@ const input = {
 };
 
 describe("upstream database merge audit", () => {
+  it("reads mapped IDs, comments, multiline tuples and imported aliases", () => {
+    const manifest = `import Incoming from './incoming.ts';
+      export const upstreamMigrationEntries = [
+        // Ignore this fake terminator: ] as const;
+        [
+          36, 38, 'Incoming', Incoming,
+        ], /* compatibility mapping */
+      ] as const;`;
+    expect(readMigrationManifest(manifest, "upstreamMigrationEntries", 2)).toEqual([
+      [36, 38, "Incoming", "./incoming.ts"],
+    ]);
+  });
+  it("rejects a newly wrapped migration instead of silently omitting it", () => {
+    const manifest = `import Migration0001 from "./first.ts";
+      import Migration0002 from "./second.ts";
+      const migrationEntries = [
+        [1, "First", Migration0001],
+        [2, "Incoming", Migration0002.pipe(transform)],
+      ] as const;`;
+    expect(() => readMigrationManifest(manifest, "migrationEntries")).toThrow(/Unsupported/);
+  });
+  it("rejects migration bindings without a static default import", () => {
+    expect(() =>
+      readMigrationManifest(
+        'const forkMigrationEntries = [[110, "Missing", Missing]] as const;',
+        "forkMigrationEntries",
+      ),
+    ).toThrow(/no static default import/);
+  });
   it("accepts preserved fork IDs even when their upstream numbers differ", () => {
     expect(auditUpstreamDatabase(input)).toEqual([]);
   });

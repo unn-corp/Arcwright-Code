@@ -24,6 +24,42 @@ const normalize = (text: string) => text.replaceAll("\r\n", "\n");
 const digest = (text: string) =>
   NodeCrypto.createHash("sha256").update(normalize(text)).digest("hex");
 
+/** Read identities and source paths without executing a migration module. */
+export function readMigrationManifest(
+  text: string,
+  registry: "migrationEntries" | "upstreamMigrationEntries" | "forkMigrationEntries",
+  idCount: 1 | 2 = 1,
+): ReadonlyArray<readonly [id: number, deployedId: number, name: string, source: string]> {
+  const content = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, "");
+  const body = new RegExp(String.raw`const ${registry}\s*=\s*\[([\s\S]*?)\]\s+as\s+const\s*;`).exec(
+    content,
+  )?.[1];
+  if (body === undefined) throw new Error(`Unsupported migration registry: ${registry}.`);
+  const imports = new Map(
+    [...content.matchAll(/import\s+([A-Za-z_$][\w$]*)\s+from\s+(["'])([^"'\r\n]+)\2\s*;/g)].map(
+      (match) => [match[1]!, match[3]!],
+    ),
+  );
+  const identity = String.raw`(\d+)\s*,\s*`;
+  const entry = new RegExp(
+    String.raw`\[\s*${identity.repeat(idCount)}(?<quote>["'])(?<name>[^"'\\\r\n]+)\k<quote>\s*,\s*(?<binding>[A-Za-z_$][\w$]*)\s*,?\s*\]`,
+    "g",
+  );
+  const matches = [...body.matchAll(entry)];
+  if (matches.length === 0 || body.replace(entry, "").replace(/[\s,]/g, "") !== "")
+    throw new Error(`Unsupported entries in migration registry: ${registry}. Review its format.`);
+  return matches.map((match) => {
+    const id = Number(match[1]);
+    const deployedId = Number(match[idCount]);
+    const source = imports.get(match.groups!.binding!);
+    if (!Number.isSafeInteger(id) || id < 1 || !Number.isSafeInteger(deployedId) || deployedId < 1)
+      throw new Error(`Invalid migration identity in ${registry}.`);
+    if (source === undefined)
+      throw new Error(`Migration ${id} in ${registry} has no static default import.`);
+    return [id, deployedId, match.groups!.name!, source] as const;
+  });
+}
+
 /** Verify migration identity and reviewed source divergence without running SQL. */
 export function auditUpstreamDatabase(input: {
   readonly upstream: ReadonlyArray<readonly [number, string]>;
