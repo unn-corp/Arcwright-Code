@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- OpenWhispr encrypts its API key with the OS keyring and Node AES-GCM.
 import * as NodeCrypto from "node:crypto";
+import * as NodeModule from "node:module";
 import { Environment, HomeDirectory, Platform } from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -49,6 +50,19 @@ const keys = new Set([
 ]);
 const MAX_STORAGE_BYTES = 64 * 1024 * 1024;
 const decodeLegacyQuotedKey = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.String));
+const requireForKeyring = NodeModule.createRequire(import.meta.url);
+
+/** Lazy native boundary: a packaged CLI resolves this beside its executable. */
+export const OpenWhisprMasterKey = Context.Reference<
+  (signal: AbortSignal) => Promise<string | null>
+>("t3/voice/OpenWhisprMasterKey", {
+  defaultValue: () => async (signal) => {
+    const { AsyncEntry } = requireForKeyring(
+      "@napi-rs/keyring",
+    ) as typeof import("@napi-rs/keyring");
+    return (await new AsyncEntry("OpenWhispr", "secrets-master-key").getPassword(signal)) ?? null;
+  },
+});
 
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem,
@@ -56,6 +70,7 @@ const make = Effect.gen(function* () {
   const home = yield* HomeDirectory,
     platform = yield* Platform,
     env = yield* Environment;
+  const readMasterKey = yield* OpenWhisprMasterKey;
   const root =
     platform === "darwin"
       ? path.join(home, "Library", "Application Support")
@@ -109,10 +124,7 @@ const make = Effect.gen(function* () {
       if (yield* fs.exists(encryptedFile)) {
         const encrypted = yield* read(encryptedFile);
         return yield* Effect.tryPromise(async (signal) => {
-          const { AsyncEntry } = await import("@napi-rs/keyring");
-          const stored = await new AsyncEntry("OpenWhispr", "secrets-master-key").getPassword(
-            signal,
-          );
+          const stored = await readMasterKey(signal);
           if (!stored || encrypted.length <= 28) throw new Error("Cloud credential unavailable");
           const key = Buffer.from(stored, "base64");
           if (key.length !== 32) throw new Error("Invalid master key");

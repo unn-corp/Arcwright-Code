@@ -149,6 +149,11 @@ Every release carries exactly these, all listed with `sha256` and `bytes` in `fo
 
 Windows signing is optional (Azure Trusted Signing secrets); Android signing is mandatory.
 
+The server CLI loads native keyring packages lazily through `createRequire`, including
+OpenWhispr's existing OS-keyring credential reader. Single-executable bundles cannot
+resolve file-backed ESM imports. The CLI build rejects those imports before any archive
+is assembled; the keyring package and its platform binding remain external runtime files.
+
 ### Trust boundary
 
 There is no separate signed index. A device trusts the GitHub HTTPS release origin, the platform

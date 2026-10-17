@@ -2,7 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { beforeEach, vi } from "vite-plus/test";
+import { beforeEach } from "vite-plus/test";
 import { Environment, HomeDirectory, Platform } from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -11,15 +11,7 @@ import * as Path from "effect/Path";
 import * as Configuration from "./OpenWhisprConfiguration.ts";
 import { storageLog, storageManifest, storageTable } from "./testFixtures/chromiumStorage.ts";
 
-const keyring = vi.hoisted(() => ({ password: "", reads: 0 }));
-vi.mock("@napi-rs/keyring", () => ({
-  AsyncEntry: class {
-    async getPassword() {
-      keyring.reads++;
-      return keyring.password || null;
-    }
-  },
-}));
+const keyring = { password: "", reads: 0 };
 beforeEach(() => {
   keyring.password = Buffer.alloc(32, 7).toString("base64");
   keyring.reads = 0;
@@ -65,6 +57,12 @@ function withProfile<E>(
           Layer.provide(Layer.succeed(HomeDirectory, home)),
           Layer.provide(Layer.succeed(Platform, platform)),
           Layer.provide(Layer.succeed(Environment, {})),
+          Layer.provide(
+            Layer.succeed(Configuration.OpenWhisprMasterKey, async () => {
+              keyring.reads++;
+              return keyring.password || null;
+            }),
+          ),
         ),
       ),
     );
