@@ -2,6 +2,7 @@
 /** The normal packaged CLI performs maintenance in a separate process before this backend opens its database. */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
+import * as NodeSea from "node:sea";
 import type { MaintenanceHost } from "./MaintenanceHost.ts";
 
 export function runStorageWorker(
@@ -21,7 +22,7 @@ export function runStorageWorker(
       executable,
       [
         ...prefix,
-        entry,
+        ...(NodeSea.isSea() ? [] : [entry]),
         "maintenance",
         "home",
         "optimize-storage",

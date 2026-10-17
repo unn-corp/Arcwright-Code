@@ -56,6 +56,11 @@ recompress a database. Explicit maintenance retains exact-artifact admission, ve
 points, process ownership, fencing, capacity checks and health receipts. Worker ownership
 survives an unexpected parent exit; recovery must not race a recorded storage worker.
 
+The worker invokes a packaged SEA executable directly, without repeating its
+executable path as a script argument. Source and JavaScript-bundle runs retain
+their entry file. Both forms keep the same native parent/child handshake, fenced
+trial and snapshot checks, and Linux CPU/I/O priorities.
+
 Restore points exclude the top-level `userdata/server-owner.sqlite` runtime lock.
 Its exclusive transaction contains no saved data and blocks SQLite's online backup;
 the snapshot must leave that live file and its ownership lock untouched. Ordinary
