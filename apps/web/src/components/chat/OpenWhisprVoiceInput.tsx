@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { beginClientUpdateUpload } from "../../state/updateInteraction";
 import { requestDictationMicrophone } from "~/lib/dictationMicrophone";
-import { convertRecordedAudioToWav, transcribeWithOpenWhispr } from "~/lib/openwhisprTranscription";
+import {
+  checkOpenWhispr,
+  convertRecordedAudioToWav,
+  transcribeWithOpenWhispr,
+} from "~/lib/openwhisprTranscription";
 import { toastManager } from "../ui/toast";
-import { ComposerControl } from "./ComposerControl";
+import { Button } from "../ui/button";
 import type { VoiceInputAudioSource } from "./VoiceInputWaveform";
 import { OPENWHISPR_TIMEOUT_MS, type EnvironmentId } from "@t3tools/contracts";
 import type { ClientSettings } from "@t3tools/contracts/settings";
@@ -232,6 +236,11 @@ export function OpenWhisprVoiceInput({
         closeAudioContext(requestedAudioContext);
         return;
       }
+      const discovery = new AbortController();
+      abortControllerRef.current = discovery;
+      await checkOpenWhispr(environmentId, discovery.signal);
+      if (!current()) return;
+      abortControllerRef.current = null;
       const microphone = await requestDictationMicrophone(
         navigator.mediaDevices,
         dictationMicrophoneDeviceId,
@@ -388,10 +397,11 @@ export function OpenWhisprVoiceInput({
               : "Dictate with OpenWhispr";
 
   return (
-    <ComposerControl
+    <Button
       type="button"
-      size="sm"
-      className="size-14 overflow-visible rounded-full"
+      variant="ghost"
+      size="icon-sm"
+      className="overflow-visible"
       disabled={
         !isRecording &&
         !isTranscribing &&
@@ -440,6 +450,6 @@ export function OpenWhisprVoiceInput({
         <path d="M34 34 54 54" />
         <path d="M54 34 34 54" />
       </svg>
-    </ComposerControl>
+    </Button>
   );
 }

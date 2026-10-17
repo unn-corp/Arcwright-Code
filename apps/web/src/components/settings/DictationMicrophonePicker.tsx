@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
+import { beginClientUpdateUpload } from "../../state/updateInteraction";
 
 const SYSTEM_DEFAULT_MICROPHONE = "__t3_system_default_microphone__";
 
@@ -72,7 +73,9 @@ export function DictationMicrophonePicker({
     setIsDetecting(true);
     setErrorMessage(null);
     let stream: MediaStream | null = null;
+    let releaseUpdateHold: (() => void) | undefined;
     try {
+      releaseUpdateHold = await beginClientUpdateUpload();
       stream = await available.getUserMedia({ audio: true });
       setDevices(await enumerateMicrophones(available));
     } catch (error: unknown) {
@@ -90,6 +93,7 @@ export function DictationMicrophonePicker({
       });
     } finally {
       for (const track of stream?.getTracks() ?? []) track.stop();
+      releaseUpdateHold?.();
       setIsDetecting(false);
     }
   }, []);
@@ -142,7 +146,7 @@ export function DictationMicrophonePicker({
           type="button"
           size="xs"
           variant="outline"
-          className="shrink-0 gap-1.5"
+          className="shrink-0"
           disabled={isDetecting || !mediaDevices?.getUserMedia}
           onClick={() => void detectMicrophones()}
         >

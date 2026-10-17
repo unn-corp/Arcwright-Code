@@ -271,6 +271,13 @@ scrolling strip, including images, videos, files, and attachments of queued mess
 The glance rail adds project scope, usage, and quick access without replacing thread controls.
 Dictation holds client installation through microphone permission, recording, decoding, and
 transcription; cancelling releases that hold only after the pending operation ends.
+Settings microphone detection also holds installation until its permission request settles and
+all acquired microphone tracks are stopped.
+Dictation discovers OpenWhispr's authenticated local desktop bridge and downloaded default model
+on the selected environment before recording. Older Whisper services are detected on loopback ports
+8178–8199. Bridge credentials stay on the host; scoped private WAV files are removed on completion,
+failure, or cancellation. Older paired Arcwright hosts without the discovery endpoint retain their
+existing transcription path. See [dictation setup](../user/voice-dictation.md).
 
 **Ownership and entry.** The conversation composer is
 [ChatComposer.tsx](../../apps/web/src/components/chat/ChatComposer.tsx) with

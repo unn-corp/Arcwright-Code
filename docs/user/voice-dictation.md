@@ -2,12 +2,14 @@
 
 Arcwright Code records audio on the device you are using, uploads the clip through your authenticated
 connection to the composer's environment, and inserts the returned text into the draft. That
-environment processes the clip with its own OpenWhispr Whisper service, just as it does for a
+environment processes the clip with its running OpenWhispr app or local Whisper service, just as it does for a
 recording made on that computer. This applies to both the main and annotation composers.
 
 Your client device does not need OpenWhispr or a local transcription service installed. It needs
-microphone access; transcription must be configured on the environment you are accessing. If that
-environment's service is unavailable, dictation reports the problem. The desktop build can also
+microphone access; transcription must be configured on the environment you are accessing. Arcwright
+checks that environment before asking you to record. It detects OpenWhispr's desktop bridge and
+selected downloaded local model automatically, with a fallback for existing Whisper services.
+If OpenWhispr needs an update or a local model, the message explains which step is needed. The desktop build can also
 send configured start and end keybinds to the focused desktop application on Linux.
 
 ## One-click setup
@@ -31,8 +33,12 @@ the profile's site data to choose again. Websites still need a secure browser co
 or a local development address). This permission is separate from T3's composer dictation settings.
 
 - A connected T3 desktop, web, or PWA client with voice dictation enabled.
-- An OpenWhispr Whisper service on the connected T3 server, listening at `http://127.0.0.1:8178/inference`. The endpoint
-  accepts a multipart audio file and returns JSON with a `text` field.
+- A current OpenWhispr desktop app running as the same user on the connected T3 server, with a
+  downloaded local transcription model selected. Its authenticated desktop bridge is detected
+  automatically. Older OpenWhispr versions without the transcription bridge need an update;
+  cloud-only dictation in OpenWhispr does not supply a local transcription model.
+- Alternatively, an existing whisper.cpp service on loopback ports 8178–8199, with a ready `/health`
+  endpoint and multipart WAV transcription at `/inference`.
 - Microphone permission for the T3 desktop app or browser.
 - On Linux, `ydotool` plus the user permissions needed to inject the configured start/end keybinds.
   Key injection is unavailable in browser-only or non-Linux clients, but microphone transcription
@@ -46,10 +52,17 @@ or a local development address). This permission is separate from T3's composer 
 3. Under **Dictation keybinds**, click **Record shortcut** for Start or End and press the complete
    chord. The recorder captures modifier-only chords such as `Ctrl+Shift`; release the keys to
    save, or press Escape to cancel.
-4. Return to the composer and click the microphone button. Recording starts after permission is
-   granted. Click again to stop and transcribe on the connected server.
+4. Return to the composer and click the microphone button immediately left of attachments. Arcwright
+   detects transcription support, then starts recording after permission is granted. Click again
+   to stop and transcribe on the connected server. No start/end keybind is needed for transcription.
 5. Click the microphone while startup or transcription is pending to cancel. A stalled
    transcription stops after about a minute so you can try again.
+
+OpenWhispr must run on the selected conversation's server. Installing it only on the client computer
+does not provide transcription to a conversation on another machine. With a WSL server, run
+OpenWhispr or a Whisper service inside that WSL environment; a Windows-only OpenWhispr installation
+is not detected across the WSL boundary. Arcwright never copies OpenWhispr's token to the client.
+Temporary desktop-bridge recordings are private files removed when the request finishes or is cancelled.
 
 You can also dictate a preview annotation in the desktop app. Click **Annotate** to capture the
 current page into a saved modal, then use its microphone to add your comment. It uses the same

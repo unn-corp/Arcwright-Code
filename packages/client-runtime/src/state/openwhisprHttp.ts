@@ -1,4 +1,4 @@
-import { OPENWHISPR_TIMEOUT_MS } from "@t3tools/contracts";
+import { OPENWHISPR_TIMEOUT_MS, type OpenWhisprStatus } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -10,6 +10,24 @@ import type { PreparedConnection } from "../connection/model.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import { type RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
+
+export const fetchEnvironmentDictationStatus = (
+  input: Omit<Parameters<typeof fetchEnvironmentTranscription>[0], "audio">,
+) =>
+  executeAuthenticatedEnvironmentHttpRequest({
+    ...input,
+    group: "voice",
+    method: "GET",
+    url: (urls) => urls.status(),
+    timeoutMs: 10_000,
+    request: ({ client, headers }) => client.status({ headers }),
+  }).pipe(
+    Effect.catchTags({
+      RemoteEnvironmentAuthUndeclaredStatusError: (error) =>
+        // Paired hosts predating discovery still support the existing transcription route.
+        error.status === 404 ? Effect.succeed(null) : Effect.fail(error),
+    }),
+  );
 
 export const fetchEnvironmentTranscription = Effect.fn("clientRuntime.voice.transcribe")(
   function* (input: {
@@ -34,6 +52,9 @@ export const fetchEnvironmentTranscription = Effect.fn("clientRuntime.voice.tran
 export class OpenWhisprLoader extends Context.Service<
   OpenWhisprLoader,
   {
+    readonly status: (
+      prepared: PreparedConnection,
+    ) => Effect.Effect<OpenWhisprStatus | null, RemoteEnvironmentRequestError>;
     readonly transcribe: (
       prepared: PreparedConnection,
       audio: Uint8Array,
@@ -50,6 +71,10 @@ export const layer = Layer.effect(
       RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
     );
     return OpenWhisprLoader.of({
+      status: (prepared) =>
+        fetchEnvironmentDictationStatus({ prepared, signer, remoteAuthorization }).pipe(
+          Effect.provideService(HttpClient.HttpClient, httpClient),
+        ),
       transcribe: (prepared, audio) =>
         fetchEnvironmentTranscription({ prepared, audio, signer, remoteAuthorization }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),

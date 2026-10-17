@@ -33,7 +33,12 @@ const makeHandler = (
           Layer.provideMerge(Etag.layerWeak),
         ),
       ),
-      Layer.provide(Layer.succeed(OpenWhispr.OpenWhispr, { transcribe })),
+      Layer.provide(
+        Layer.succeed(OpenWhispr.OpenWhispr, {
+          transcribe,
+          status: Effect.succeed({ status: "ready", backend: "desktop" } as const),
+        }),
+      ),
       Layer.provide(
         Layer.succeed(EnvironmentAuthenticatedAuth)((effect) =>
           Effect.provideService(effect, EnvironmentAuthenticatedPrincipal, {
@@ -53,6 +58,27 @@ const request = () =>
     headers: { "content-type": "audio/wav" },
     body: new Uint8Array(48),
   });
+
+it.effect("authorizes discovery using the same operate scope as transcription", () =>
+  Effect.gen(function* () {
+    for (const [scopes, expectedStatus] of [
+      [[AuthOrchestrationOperateScope], 200],
+      [[AuthOrchestrationReadScope], 403],
+    ] as const) {
+      const app = makeHandler(scopes, () => Effect.die("Discovery must not transcribe"));
+      yield* Effect.addFinalizer(() => Effect.promise(app.dispose));
+      const response = yield* Effect.promise(() =>
+        app.handler(new Request("https://host.example/api/voice/openwhispr/status")),
+      );
+      expect(response.status).toBe(expectedStatus);
+      if (expectedStatus === 200)
+        expect(yield* Effect.promise(() => response.json())).toEqual({
+          status: "ready",
+          backend: "desktop",
+        });
+    }
+  }),
+);
 
 it.effect("decodes WAV bytes and transcribes for an authorized client", () =>
   Effect.gen(function* () {

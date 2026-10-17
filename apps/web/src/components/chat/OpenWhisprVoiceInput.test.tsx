@@ -4,9 +4,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, OPENWHISPR_TIMEOUT_MS } from "@t3tools/contracts";
 import { OpenWhisprVoiceInput, type VoiceInputPhase } from "./OpenWhisprVoiceInput";
 
-const { microphone, convert, transcribe, toast, updateHold, releaseUpdateHold } = vi.hoisted(
+const { check, microphone, convert, transcribe, toast, updateHold, releaseUpdateHold } = vi.hoisted(
   () => ({
     microphone: vi.fn(),
+    check: vi.fn(),
     convert: vi.fn(),
     transcribe: vi.fn(),
     toast: vi.fn(),
@@ -17,12 +18,13 @@ const { microphone, convert, transcribe, toast, updateHold, releaseUpdateHold } 
 vi.mock("../../state/updateInteraction", () => ({ beginClientUpdateUpload: updateHold }));
 vi.mock("~/lib/dictationMicrophone", () => ({ requestDictationMicrophone: microphone }));
 vi.mock("~/lib/openwhisprTranscription", () => ({
+  checkOpenWhispr: check,
   convertRecordedAudioToWav: convert,
   transcribeWithOpenWhispr: transcribe,
 }));
 vi.mock("../ui/toast", () => ({ toastManager: { add: toast } }));
-vi.mock("./ComposerControl", () => ({
-  ComposerControl: (props: React.ComponentProps<"button">) => <button {...props} />,
+vi.mock("../ui/button", () => ({
+  Button: (props: React.ComponentProps<"button">) => <button {...props} />,
 }));
 
 class Recorder extends EventTarget {
@@ -117,6 +119,7 @@ beforeEach(async () => {
   });
   releaseUpdateHold.mockReset();
   microphone.mockReset().mockResolvedValue({ stream, usedSystemDefaultFallback: false });
+  check.mockReset().mockResolvedValue(undefined);
   convert.mockReset().mockResolvedValue(new Blob(["wav"]));
   transcribe.mockReset().mockResolvedValue("hello");
   toast.mockReset();
@@ -157,6 +160,30 @@ it("allows only one microphone request for repeated taps before render", async (
   await act(async () => pending.resolve({ stream, usedSystemDefaultFallback: false }));
   expect(Recorder.instances).toHaveLength(1);
   expect(Recorder.instances[0]?.state).toBe("recording");
+});
+it("reports an unavailable transcription backend before requesting microphone access", async () => {
+  check.mockRejectedValueOnce(new Error("Update OpenWhispr to enable its transcription bridge."));
+  await click();
+  expect(microphone).not.toHaveBeenCalled();
+  expect(Recorder.instances).toHaveLength(0);
+  expect(releaseUpdateHold).toHaveBeenCalledOnce();
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      description: "Update OpenWhispr to enable its transcription bridge.",
+    }),
+  );
+});
+it("cancels discovery and does not request a microphone after its late result", async () => {
+  const pending = deferred<void>();
+  check.mockReturnValueOnce(pending.promise);
+  await click();
+  const signal = check.mock.calls[0]![1] as AbortSignal;
+  await click();
+  expect(signal.aborted).toBe(true);
+  expect(releaseUpdateHold).not.toHaveBeenCalled();
+  await act(async () => pending.resolve(undefined));
+  expect(releaseUpdateHold).toHaveBeenCalledOnce();
+  expect(microphone).not.toHaveBeenCalled();
 });
 it("stops a microphone granted after unmount without recording", async () => {
   const pending = deferred<{ stream: MediaStream; usedSystemDefaultFallback: boolean }>();

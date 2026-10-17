@@ -673,9 +673,27 @@ class EnvironmentProjectsHttpApi extends HttpApiGroup.make("projects")
 export const OPENWHISPR_MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 export const OPENWHISPR_TIMEOUT_MS = 60_000;
 
+export const OpenWhisprStatus = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("ready"),
+    backend: Schema.Literals(["desktop", "whisper"]),
+  }),
+  Schema.Struct({ status: Schema.Literals(["unavailable", "upgrade_required", "model_required"]) }),
+]);
+export type OpenWhisprStatus = typeof OpenWhisprStatus.Type;
+
 export class OpenWhisprTranscriptionError extends Schema.TaggedError<OpenWhisprTranscriptionError>()(
   "OpenWhisprTranscriptionError",
-  { reason: Schema.Literals(["unavailable", "invalid_response", "timeout", "invalid_audio"]) },
+  {
+    reason: Schema.Literals([
+      "unavailable",
+      "upgrade_required",
+      "model_required",
+      "invalid_response",
+      "timeout",
+      "invalid_audio",
+    ]),
+  },
   { httpApiStatus: 502 },
 ) {
   override get message(): string {
@@ -686,13 +704,22 @@ export class OpenWhisprTranscriptionError extends Schema.TaggedError<OpenWhisprT
         return "The recording is empty or too large. Try a shorter recording.";
       case "invalid_response":
         return "OpenWhispr returned an invalid transcription response.";
+      case "upgrade_required":
+        return "OpenWhispr was detected on the connected Arcwright Code server, but this version has no transcription bridge. Update OpenWhispr, then choose a downloaded local transcription model.";
+      case "model_required":
+        return "OpenWhispr was detected on the connected Arcwright Code server. Download and select a local transcription model in OpenWhispr, then try again.";
       case "unavailable":
-        return "OpenWhispr is unavailable on the connected Arcwright Code server. Start its transcription service and try again.";
+        return "OpenWhispr is unavailable on the connected Arcwright Code server. Start OpenWhispr with a downloaded local model, or start your Whisper service, then try again.";
     }
   }
 }
 
 class EnvironmentVoiceHttpApi extends HttpApiGroup.make("voice").add(
+  HttpApiEndpoint.get("status", "/api/voice/openwhispr/status", {
+    headers: OptionalBearerHeaders,
+    success: OpenWhisprStatus,
+    error: [EnvironmentAuthInvalidError, EnvironmentScopeRequiredError, EnvironmentInternalError],
+  }).middleware(EnvironmentAuthenticatedAuth),
   HttpApiEndpoint.post("transcribe", "/api/voice/openwhispr", {
     headers: OptionalBearerHeaders,
     payload: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array({ contentType: "audio/wav" })),

@@ -10,7 +10,10 @@ import {
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import { layerRemoteHttpClient } from "../rpc/http.ts";
-import { fetchEnvironmentTranscription } from "./openwhisprHttp.ts";
+import {
+  fetchEnvironmentDictationStatus,
+  fetchEnvironmentTranscription,
+} from "./openwhisprHttp.ts";
 
 const target = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("server-1"),
@@ -29,6 +32,42 @@ const prepared: PreparedConnection = {
 const audio = new Uint8Array([1, 2, 3]);
 
 describe("environment transcription", () => {
+  it.effect("checks capability with bearer authorization without uploading audio", () =>
+    fetchEnvironmentDictationStatus({
+      prepared: { ...prepared, httpAuthorization: { _tag: "Bearer", token: "test-token" } },
+      signer: Option.none(),
+    }).pipe(
+      Effect.tap((value) =>
+        Effect.sync(() => expect(value).toEqual({ status: "upgrade_required" })),
+      ),
+      Effect.provide(
+        layerRemoteHttpClient((url, init) => {
+          expect(String(url)).toBe("https://host.example/api/voice/openwhispr/status");
+          expect(init?.method).toBe("GET");
+          expect(init?.body).toBeUndefined();
+          expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+          return Promise.resolve(Response.json({ status: "upgrade_required" }));
+        }),
+      ),
+    ),
+  );
+  it.effect("allows older paired hosts without the capability route", () =>
+    fetchEnvironmentDictationStatus({ prepared, signer: Option.none() }).pipe(
+      Effect.tap((value) => Effect.sync(() => expect(value).toBeNull())),
+      Effect.provide(
+        layerRemoteHttpClient(() => Promise.resolve(new Response(null, { status: 404 }))),
+      ),
+    ),
+  );
+  it.effect("does not treat denied capability access as an older host", () =>
+    fetchEnvironmentDictationStatus({ prepared, signer: Option.none() }).pipe(
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => expect(error).toMatchObject({ status: 403 }))),
+      Effect.provide(
+        layerRemoteHttpClient(() => Promise.resolve(new Response(null, { status: 403 }))),
+      ),
+    ),
+  );
   it.effect("uploads binary audio to the selected host with cookie credentials", () =>
     fetchEnvironmentTranscription({ prepared, audio, signer: Option.none() }).pipe(
       Effect.tap((value) => Effect.sync(() => expect(value.text).toBe("hello"))),

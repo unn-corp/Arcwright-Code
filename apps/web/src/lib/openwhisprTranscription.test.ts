@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId } from "@t3tools/contracts";
-import { transcribeWithOpenWhispr } from "./openwhisprTranscription";
+import { checkOpenWhispr, transcribeWithOpenWhispr } from "./openwhisprTranscription";
 
 const { prepared, execute, runtimeAtom } = vi.hoisted(() => ({
   prepared: vi.fn(),
@@ -21,6 +21,19 @@ beforeEach(() => {
   runtimeAtom.mockClear();
 });
 describe("transcribeWithOpenWhispr", () => {
+  it("detects an unsupported desktop version before recording", async () => {
+    execute.mockResolvedValue({ _tag: "Success", value: { status: "upgrade_required" } });
+    await expect(checkOpenWhispr(environmentId)).rejects.toThrow("Update OpenWhispr");
+  });
+  it("accepts a ready backend and older hosts without discovery", async () => {
+    execute.mockResolvedValueOnce({
+      _tag: "Success",
+      value: { status: "ready", backend: "desktop" },
+    });
+    await expect(checkOpenWhispr(environmentId)).resolves.toBeUndefined();
+    execute.mockResolvedValueOnce({ _tag: "Success", value: null });
+    await expect(checkOpenWhispr(environmentId)).resolves.toBeUndefined();
+  });
   it("requires the selected environment to be connected", async () => {
     prepared.mockReturnValue(null);
     await expect(transcribeWithOpenWhispr(environmentId, new Blob(["audio"]))).rejects.toThrow(

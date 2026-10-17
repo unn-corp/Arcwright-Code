@@ -9,13 +9,22 @@ export const voiceHttpApiLayer = HttpApiBuilder.group(
   "voice",
   Effect.fnUntraced(function* (handlers) {
     const voice = yield* OpenWhispr.OpenWhispr;
-    return handlers.handle(
-      "transcribe",
-      Effect.fn("environment.voice.transcribe")(function* (args) {
-        yield* annotateEnvironmentRequest(args.endpoint.name);
-        yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
-        return yield* voice.transcribe(args.payload);
-      }),
-    );
+    return handlers
+      .handle(
+        "status",
+        Effect.fn("environment.voice.status")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          return yield* voice.status;
+        }),
+      )
+      .handle(
+        "transcribe",
+        Effect.fn("environment.voice.transcribe")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          return yield* voice.transcribe(args.payload);
+        }),
+      );
   }),
 );

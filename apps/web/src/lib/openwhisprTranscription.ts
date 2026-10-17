@@ -1,10 +1,30 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { OpenWhisprTranscriptionError, type EnvironmentId } from "@t3tools/contracts";
 import { OpenWhisprLoader } from "@t3tools/client-runtime/state/openwhispr-http";
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readPreparedConnection } from "../state/session";
+
+/** Detect capability before asking the user to record a clip that cannot be transcribed. */
+export async function checkOpenWhispr(
+  environmentId: EnvironmentId | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  const prepared = environmentId === null ? null : readPreparedConnection(environmentId);
+  if (!prepared) throw new Error("Connect to the Arcwright Code server before dictating.");
+  const atom = connectionAtomRuntime.atom(
+    Effect.flatMap(OpenWhisprLoader, (loader) => loader.status(prepared)),
+  );
+  const result = await executeAtomQuery(appAtomRegistry, atom, {
+    ...(signal ? { signal } : {}),
+    reportFailure: false,
+  });
+  if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+  if (result.value !== null && result.value.status !== "ready")
+    throw new OpenWhisprTranscriptionError({ reason: result.value.status });
+}
 
 /** Transcribe on the selected environment, using its cookie, bearer, or relay authorization. */
 export async function transcribeWithOpenWhispr(
