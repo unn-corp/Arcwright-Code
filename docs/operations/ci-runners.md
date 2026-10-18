@@ -23,7 +23,7 @@ fork's two deliberately skipped mobile native jobs; every enabled prerequisite m
 Android APK builds and emulator checks remain enabled on Linux x64. This hardware policy does
 not remove ARM64 APK support: Android target ABIs and the runner's CPU architecture are separate.
 
-Use the dedicated `T3 Code` organization runner group, restricted to `unn-corp/t3code`. The
+Use the dedicated `T3 Code` organization runner group, restricted to the explicitly selected `unn-corp/t3code` and `unn-corp/Arcwright-AI` repositories. The
 `t3-ci` label prevents these jobs from landing on the existing three Mothership organization
 workers. Those workers use a hardened Ubuntu 20.04 image, UID 1001, a read-only root filesystem,
 and no sudo; keep their image, storage, and workloads unchanged. Provision dedicated T3 workers
@@ -50,7 +50,7 @@ rendering, network controls, and cleanup. Windows uses a separate `t3-ci-windows
 and fresh 8-CPU, 16-GiB overlays; see the
 [Windows provisioning and admission procedure](../../infra/ci/windows/README.md).
 
-The `T3 Code` group admits only this fork. The shared `Default` group retains its original
+The `T3 Code` group admits only these two selected repositories. The shared `Default` group retains its original
 all-private-repository access and does not admit this public fork.
 
 Use a current GitHub Actions runner compatible with the workflows' Node-based action versions.

@@ -4,7 +4,7 @@ This pool uses a clean Windows Server 2022 x64 base and creates a new VM,
 qcow2 overlay, network, home, and workspace for each GitHub Actions job. It
 does not reuse the shared `win2022` VM or its registered Squidhub/FCM runners.
 The manager belongs to Dokploy's **T3 Code CI** project. Workers register in
-the **T3 Code** organization runner group, restricted to `unn-corp/t3code`,
+the **T3 Code** organization runner group, restricted to `unn-corp/t3code` and `unn-corp/Arcwright-AI`,
 with `self-hosted, Windows, X64, unn, unn-isolated, t3-ci`.
 
 ## Build the clean base

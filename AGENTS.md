@@ -34,6 +34,13 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
+### Self-hosted CI
+
+Every GitHub Actions job uses isolated organization self-hosted runners. Require
+`self-hosted`, `unn`, `unn-isolated`, and `t3-ci`, plus its native OS and architecture.
+Never substitute GitHub-hosted or Blacksmith runners. Preserve unsupported-platform
+guards and follow [runner capacity and access](docs/operations/ci-runners.md).
+
 ### Arcwright Code app delivery — scheduled releases and explicit manual builds
 
 The user authorized scheduled nightly and stable publication in `unn-corp/t3code`
