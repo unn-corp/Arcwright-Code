@@ -13,11 +13,12 @@ announcement targets and is guarded off in this fork. The fork pipeline publishe
 releases in this repository. Device behavior (what an installation does with a release) is in the
 [maintenance guide](./fork-maintenance.md) and the user [updating guide](../user/updating.md).
 
-**Status.** The workflow, scripts, and tests are implemented. Scheduled publication waits for
-`FORK_RELEASES_ENABLED=true`, the [baseline](#baseline), and the [commissioning checklist](#commissioning).
-An explicit manual nightly with both `publish=true` and `commission=true` can publish a candidate for
-hardware verification while schedules stay disabled. Required coordinator, updater, retained-runtime,
-and recovery-helper checks still must all pass; missing or failed safety evidence blocks every release.
+**Status.** Scheduled nightly and stable publication is enabled with
+`FORK_RELEASES_ENABLED=true`. The [schedule](#what-a-release-is) skips duplicate nightly
+sources and stable runs without an eligible unpromoted nightly. Required coordinator,
+updater, retained-runtime, and recovery-helper checks still must all pass; missing or
+failed safety evidence blocks every release. To re-enable publication after disabling
+it, follow the [commissioning checklist](#commissioning).
 
 All GitHub Actions jobs require [dedicated isolated organization self-hosted runners](./ci-runners.md).
 The fork supports Linux x64, Windows x64, and Android builds and validation on Linux x64. macOS
@@ -33,10 +34,11 @@ separate saved preference in App updates and retains coordinator admission check
 
 ## Default agent delivery
 
-Do not queue builds or publish nightlies unless the user explicitly asks to publish
-a nightly. Coding, cleanup, scans, fixes, commits, pushes, and general app updates
-do not commission a release. This replaces the former automatic nightly delivery
-default. When a nightly is explicitly requested:
+Scheduled nightly and stable publication is authorized. Preserve the configured
+schedules and `FORK_RELEASES_ENABLED=true`. Do not dispatch extra builds or publish
+manual nightlies unless explicitly requested. Coding, cleanup, scans, fixes, commits,
+pushes, and general app updates do not commission extra releases. When a manual
+nightly is explicitly requested:
 
 1. Check the fork's published releases and active release runs. If the latest eligible,
    verified nightly contains the requested changes and supports the target device,

@@ -34,17 +34,18 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
-- **Nightly publication requires an explicit user request:** do not queue builds or
-  publish nightlies for coding, cleanup, scans, fixes, commits, pushes, or general
-  app updates. This replaces the former automatic nightly delivery default. When
-  the user explicitly asks to publish a nightly, use a pipeline-allocated nightly
+- **Scheduled releases are authorized:** the user enabled nightly and stable
+  schedules on 2026-10-18. Preserve `FORK_RELEASES_ENABLED=true` and the configured
+  schedules. Additional manual builds or nightlies require an explicit user request;
+  coding, cleanup, scans, fixes, commits, pushes, and general app updates do not
+  commission extra releases. When manual publication is requested, use a pipeline-allocated nightly
   from the tested, pinned commit on `main`, reusing a suitable release or existing run.
   Follow the
   [delivery procedure](docs/operations/fork-releases.md#default-agent-delivery).
   Honor explicit source-only, development/test, local-only, stable, or pinned-version
   requests. Documentation, review, and unrelated app-development work do not themselves
-  commission an Arcwright release. Publication does not enable scheduled publishing,
-  change saved update preferences, or bypass native maintenance admission. Verify each
+  commission an extra Arcwright release. Publication does not change saved update
+  preferences or bypass native maintenance admission. Verify each
   admitted installation and document its actual nightly name and menu replacement.
 
 - **Hard GitHub storage rule:** retain only the newest five published Arcwright nightlies
