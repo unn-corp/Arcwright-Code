@@ -49,8 +49,10 @@ Honor explicit user choices such as source-only work, development/test builds,
 local-only packaging, a stable release, or a pinned version. Documentation, review,
 and unrelated app-development requests do not themselves commission an Arcwright
 release. Publication does not change saved device update preferences.
-Installation still requires native maintenance admission; protect running chats,
-verify the installed app, and document the canonical menu replacement below.
+Follow the platform-specific [update and confirmation rules](docs/user/updating.md#choose-the-device).
+Protect running work, verify the installed app, and document the canonical menu
+replacement below. Desktop interruption requires the exact-artifact confirmation;
+managed servers and Android retain native maintenance admission.
 
 ### Arcwright Code nightly naming — hard rule
 
@@ -66,7 +68,7 @@ After every installation, replace obsolete Start Menu entries with one canonical
 entry bearing the actual nightly name and record the version, counter, source,
 artifact digest, launcher path, retired entries, and verification. Document the
 replacement each time. Keep running chats and the current build intact until the
-maintenance coordinator admits an authorized replacement.
+platform's required confirmation and admission checks allow replacement.
 
 ### Arcwright fork build retention — hard rule
 
@@ -152,10 +154,11 @@ below. An upstream merge must preserve our fork's working behavior across all su
   on every affected client and connection mode and updating its ownership documentation and tests.
   If a feature cannot be preserved, report the specific loss and obtain a user decision before
   removing it or publishing the regression. Routine compatible adapters need no extra approval.
-- Every desktop/server install/recovery entry point must retain coordinator admission, activity checks, launch/write
-  fencing, affected-home snapshots, health receipts, rescue copies, and explicit restored-automation
-  review. Missing capability or unknown activity must block; never restore legacy unsafe fallbacks
-  or stop working agents to make an update possible. Preserve Windows/WSL recovery runtime retention.
+- Preserve the platform-specific desktop confirmation and native server/Android maintenance paths.
+  Native install/recovery retains coordinator admission, activity checks, launch/write fencing,
+  affected-home snapshots, health receipts, rescue copies, and explicit restored-automation review.
+  Missing capability or unknown activity must block. Never bypass a check or stop agents merely
+  to obtain an automatic update window. Preserve Windows/WSL recovery runtime retention.
 - APK installation and recovery must retain the native phone guard: two backgrounded minutes and
   completed phone-local browser automation, uploads, and native operations. Remote host agents may
   continue. Preserve saved connections, Android installation confirmation, and exact artifact/recovery
@@ -276,11 +279,15 @@ For authorized mobile verification, a missing or outdated native client is a bui
 
 - Never make a PR unless the developer explicitly asks you to do so.
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
-- Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
+- Body: the problem in a sentence or two, then how you fixed it and relevant validation.
+  Do not add model/harness credits, generated-by notices, or coauthor trailers.
 - UI changes need before/after images. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One request is one PR. Split it only when the maintainer asks. Outside contributions follow the stricter [one problem per PR](CONTRIBUTING.md#one-problem) rule.
-- When babysitting: poll checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
+- When babysitting: verify findings against the current source, fix real ones, and dismiss false
+  positives with a written reason. In Arcwright Code/T3 Code, use `watch_pull_request` and end
+  the turn while waiting; resume on the host event. If no native watcher is available, use
+  bounded polling. Reconcile the current head before declaring checks/reviews complete.
 
 ## Documentation
 
