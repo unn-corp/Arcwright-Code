@@ -34,35 +34,69 @@ T3 Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ## Fork maintenance invariants
 
-- **Scheduled releases are authorized:** the user enabled nightly and stable
-  schedules on 2026-10-18. Preserve `FORK_RELEASES_ENABLED=true` and the configured
-  schedules. Additional manual builds or nightlies require an explicit user request;
-  coding, cleanup, scans, fixes, commits, pushes, and general app updates do not
-  commission extra releases. When manual publication is requested, use a pipeline-allocated nightly
-  from the tested, pinned commit on `main`, reusing a suitable release or existing run.
-  Follow the
-  [delivery procedure](docs/operations/fork-releases.md#default-agent-delivery).
-  Honor explicit source-only, development/test, local-only, stable, or pinned-version
-  requests. Documentation, review, and unrelated app-development work do not themselves
-  commission an extra Arcwright release. Publication does not change saved update
-  preferences or bypass native maintenance admission. Verify each
-  admitted installation and document its actual nightly name and menu replacement.
+### Arcwright Code app delivery — scheduled releases and explicit manual builds
 
-- **Hard GitHub storage rule:** retain only the newest five published Arcwright nightlies
-  and newest five stable/main releases. Completed Actions artifact copies are temporary
-  intermediates and must be removed. Protect active release transactions while cleanup waits;
-  preserve immutable Git tags, Android counter reservations and local recovery assets.
-  Follow [build retention](docs/operations/fork-releases.md#github-build-storage-retention).
+The user authorized scheduled nightly and stable publication in `unn-corp/t3code`
+on 2026-10-18. Preserve `FORK_RELEASES_ENABLED=true` and the configured schedules.
+Do not dispatch extra builds or publish manual nightlies unless explicitly requested.
+Coding, cleanup, scans, fixes, commits, pushes, and general app updates do not
+commission an extra build. When manual publication is requested, use the fork
+release pipeline from the tested, pinned commit on `main` and reuse a suitable
+release or existing run instead of commissioning duplicate builds.
+Follow the [delivery procedure](docs/operations/fork-releases.md#default-agent-delivery).
 
-- **Hard rule for nightly installations:** use the release pipeline's allocated
-  `<version>-nightly.<YYYYMMDD>.<N>` identity and **Arcwright Code — Nightly N**
-  everywhere it is named, including local builds, the sidebar, application title,
-  and Start Menu. Do not install `preview` artifacts or introduce a **Local Nightly**
-  counter. Existing preview identities remain truthful historical/recovery records;
-  do not relabel their binaries as published nightlies or reuse a release counter.
-  After every admitted installation, replace obsolete menu entries with one canonical
-  entry and record its name, version, source, digest, launcher, retired entries, and
-  verification. Protect running chats while waiting for coordinator admission.
+Honor explicit user choices such as source-only work, development/test builds,
+local-only packaging, a stable release, or a pinned version. Documentation, review,
+and unrelated app-development requests do not themselves commission an Arcwright
+release. Publication does not change saved device update preferences.
+Installation still requires native maintenance admission; protect running chats,
+verify the installed app, and document the canonical menu replacement below.
+
+### Arcwright Code nightly naming — hard rule
+
+For the `t3code` application, every new nightly installed on this PC must use the
+release pipeline's allocated `<version>-nightly.<YYYYMMDD>.<N>` identity and the
+display name **Arcwright Code — Nightly N**. This applies to locally built copies
+as well as downloaded releases. Do not install a `preview` build or invent a
+separate **Local Nightly** name/counter. Never rename an existing preview binary
+to impersonate a published nightly, reuse an allocated counter, or rewrite its
+digest/source identity. Use the verified published nightly when it already exists.
+
+After every installation, replace obsolete Start Menu entries with one canonical
+entry bearing the actual nightly name and record the version, counter, source,
+artifact digest, launcher path, retired entries, and verification. Document the
+replacement each time. Keep running chats and the current build intact until the
+maintenance coordinator admits an authorized replacement.
+
+### Arcwright fork build retention — hard rule
+
+On GitHub, `unn-corp/t3code` retains only the newest five published nightly builds
+and the newest five stable/main releases. Remove completed Actions build-artifact
+copies and older fork release payloads. Cleanup must wait for active release
+transactions, preserve immutable source/counter tags, and retain local recovery
+assets needed by installed builds. Keep this policy automated and documented in
+`docs/operations/fork-releases.md`.
+
+### Arcwright Code installation details
+
+Read these app instructions before app work. Align package versions in an
+isolated candidate checkout: `T3CODE_DESKTOP_VERSION` / `--build-version` must match
+that checkout's `apps/desktop/package.json`. Never rewrite a live installation's
+identity; preserve recovery assets and saved installation preferences.
+
+Keep one visible Linux launcher, `com.t3tools.T3Code.desktop`, named for the actual
+nightly. Retire obsolete duplicate entries only after maintenance admission and
+record the replacement and verification as required above. AppImages set
+`X-AppImage-Integrate=false`; development URL entries stay hidden.
+
+Additional fork requirements:
+
+- Preserve saved update preferences and explicit delivery choices.
+- Retention also protects Android counter reservations.
+- The allocated nightly name applies everywhere, including the sidebar and
+  application title. Existing preview identities remain truthful historical and
+  recovery records.
+
 - Keep `fork-upstream.json` tied to the upstream commit actually included whenever integrating
   upstream. Show the T3 base and separate **Arcwright build** counter; retain exact installer
   identities for ordering/recovery. See [version provenance](docs/operations/fork-releases.md#version-provenance-and-history).
