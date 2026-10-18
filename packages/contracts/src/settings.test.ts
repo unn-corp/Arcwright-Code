@@ -23,6 +23,16 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("ServerSettings restart continuation", () => {
+  it("defaults on while preserving an explicit opt-out", () => {
+    expect(DEFAULT_SERVER_SETTINGS.continueThreadsAfterServerUpdate).toBe(true);
+    expect(decodeServerSettings({}).continueThreadsAfterServerUpdate).toBe(true);
+    const disabled = { continueThreadsAfterServerUpdate: false };
+    expect(encodeServerSettings(decodeServerSettings(disabled))).toMatchObject(disabled);
+    expect(decodeServerSettingsPatch(disabled)).toEqual(disabled);
+  });
+});
+
 describe("automatic repository activity settings", () => {
   it("preserves existing defaults and round-trips environment and project choices", () => {
     expect(decodeServerSettings({})).toMatchObject({

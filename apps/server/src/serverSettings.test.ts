@@ -100,6 +100,23 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect("preserves a saved restart continuation opt-out through unrelated settings edits", () =>
+    Effect.gen(function* () {
+      const settings = yield* ServerSettingsModule.ServerSettingsService;
+      const fs = yield* FileSystem.FileSystem;
+      const config = yield* ServerConfig.ServerConfig;
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ continueThreadsAfterServerUpdate: false }),
+      );
+      assert.isFalse((yield* settings.getSettings).continueThreadsAfterServerUpdate);
+      yield* settings.updateSettings({ enableProviderUpdateChecks: false });
+      const persisted = yield* decodeSettingsJson(yield* fs.readFileString(config.settingsPath));
+      assert.isFalse(persisted.continueThreadsAfterServerUpdate);
+      assert.isFalse((yield* settings.getSettings).continueThreadsAfterServerUpdate);
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("persists the global copy-on-write preference and can disable it again", () =>
     Effect.gen(function* () {
       const settings = yield* ServerSettingsModule.ServerSettingsService;

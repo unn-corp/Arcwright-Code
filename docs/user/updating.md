@@ -35,7 +35,8 @@ of these screens. The sidebar keeps upstream desktop and provider update control
 
 ## Continue threads after restarts
 
-**Settings → General → Continue threads after restarts** is off by default.
+**Settings → General → Continue threads after restarts** is on by default for new
+or unset preferences. Existing saved choices are kept, including an explicit off choice.
 It resumes supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
 update older servers first. If a supported environment was offline or has a
@@ -260,9 +261,10 @@ it does not acquire this fork's native APK updater. See the
 
 ## Crash recovery and providers
 
-**Continue threads after restarts** applies to supported crash/machine-restart
-recovery, not an update safety bypass. Native Android and managed-service maintenance wait for stopped work; explicit
-desktop installation follows upstream and restarts the backends.
+**Continue threads after restarts** resumes supported interrupted threads after
+updates, crashes, and machine restarts. Native Android and managed-service maintenance
+wait for stopped work; explicit desktop installation follows upstream and restarts
+the backends.
 Starting the application again is still required; terminal processes and
 provider sessions have their own restart limits.
 

@@ -2512,7 +2512,7 @@ export function GeneralSettingsPanel() {
           {...searchableSetting("continue-threads-after-server-update")}
           serverScoped
           settingKeys={["continueThreadsAfterServerUpdate"]}
-          description="Recover supported interrupted threads after a crash or machine restart. Fork updates wait for stopped work and never interrupt agents to create an installation window."
+          description="Resume supported interrupted threads after an update, crash, or machine restart. Approval and input waits stay paused."
           status={
             !supportsRestartContinuation
               ? "All selected connected environments must support restart continuation."
