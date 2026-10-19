@@ -6,6 +6,7 @@ import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import { compressText, payloadReference } from "@t3tools/shared/forkStorageCodec";
 
 import * as EventStore from "../../orchestration-v2/EventStore.ts";
 import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
@@ -60,6 +61,41 @@ const layer = it.layer(
       ),
     ),
   ),
+);
+
+it.effect("upgrades compressed thread events and refreshes their replay byte counts", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations({ toMigrationInclusive: 110 });
+    const payload = JSON.stringify({
+      ...thread("compressed"),
+      title: "Saved 🧰 thread",
+      linkedPullRequest: linked,
+    });
+    const untouchedPayload = JSON.stringify({ title: "Unrelated compressed event" });
+    const blobs = [compressText(payload), compressText(untouchedPayload)];
+    for (const [index, blob] of blobs.entries()) {
+      yield* sql`INSERT INTO arcwright_payload_blobs VALUES (${blob.digest}, ${blob.rawBytes}, ${blob.compressed})`;
+      yield* sql`INSERT INTO orchestration_events (
+        event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at,
+        actor_kind, payload_json, metadata_json, application_event_version, payload_bytes
+      ) VALUES (${`compressed:${index}`}, 'thread', ${`compressed:${index}`}, 0,
+        'thread.created', ${updatedAt}, 'user', ${payloadReference(blob)}, '{}', 2, ${blob.rawBytes})`;
+    }
+    const before = yield* sql`SELECT * FROM arcwright_payload_blobs ORDER BY digest`;
+    assert.deepEqual(yield* runMigrations(), [[111, "CanonicalizeThreadPullRequestLinks"]]);
+    const rows = yield* sql<{ payload_json: string; payload_bytes: number }>`
+      SELECT payload_json, payload_bytes FROM orchestration_events ORDER BY event_id`;
+    assert.deepEqual(JSON.parse(rows[0]!.payload_json), {
+      ...JSON.parse(payload),
+      pullRequests: [{ ...currentLink, number: 42, url: linked.url, source: "manual" }],
+    });
+    assert.equal(rows[0]!.payload_bytes, new TextEncoder().encode(rows[0]!.payload_json).length);
+    assert.equal(rows[1]!.payload_json, payloadReference(blobs[1]!));
+    assert.equal(rows[1]!.payload_bytes, blobs[1]!.rawBytes);
+    assert.deepEqual(yield* sql`SELECT * FROM arcwright_payload_blobs ORDER BY digest`, before);
+    assert.deepEqual(yield* runMigrations(), []);
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
 layer("064_CanonicalizeThreadPullRequestLinks", (it) => {

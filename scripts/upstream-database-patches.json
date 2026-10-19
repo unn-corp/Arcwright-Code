@@ -14,6 +14,13 @@
       "upstreamSha256": "7b07c04d2c3d370f18242f741530799015fe6a72f6ca0e813d4fb03355444ff8",
       "forkSha256": "bd626fca549b10472c46afb2bbbad6d54ca5c057aedb43833cd1f99d28ed194f",
       "reason": "Preserve V1 activity archives and checkpoint recovery data still read by the fork; upstream cleanup cannot discard installed history."
+    },
+    {
+      "upstreamPath": "apps/server/src/persistence/Migrations/064_CanonicalizeThreadPullRequestLinks.ts",
+      "localPath": "apps/server/src/persistence/Migrations/064_CanonicalizeThreadPullRequestLinks.ts",
+      "upstreamSha256": "f58eb0eaafc1b225129baefba5bb2bf62d37d58a20f9b1d4cd353419ad3b7345",
+      "forkSha256": "1bf8a94d30835fa7e9f02848e65e7cf8d7b6796cce41158a2af1a12014e96701",
+      "reason": "Decode retained compressed event payloads before pull request canonicalization and refresh replay byte counts; preserve unrelated archived events and their blobs during upgrade."
     }
   ]
 }

@@ -12,6 +12,8 @@ const legacyTable =
 const legacyReaders = ["orchestration-v2/legacy/", "persistence/Migrations/"] as const;
 const legacyReaderFiles: Record<string, string> = {
   "serverSettings.ts": "one-time provider history for settings migration",
+  "persistence/reconcileV2PreviewMigration.ts":
+    "one-time upstream and preview archive-schema reconciliation",
 };
 const retiredPaths = [
   "orchestration",

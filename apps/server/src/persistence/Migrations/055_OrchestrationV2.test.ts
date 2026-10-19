@@ -60,6 +60,8 @@ layer("055_OrchestrationV2", (it) => {
         [107, "CompactHistoryBlocks"],
         [108, "ThreadFailureLookupIndex"],
         [109, "ThreadSearchIndex"],
+        [110, "DropUnusedV1Projections"],
+        [111, "CanonicalizeThreadPullRequestLinks"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id <= 103 ORDER BY migration_id`,

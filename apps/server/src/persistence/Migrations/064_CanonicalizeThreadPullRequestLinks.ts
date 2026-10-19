@@ -59,14 +59,14 @@ export default Effect.gen(function* () {
       readonly linked_pull_request_json: string;
       readonly updated_at: string;
     }>`
-      SELECT sequence, json_extract(payload_json, '$.linkedPullRequest') AS linked_pull_request_json,
-        json_extract(payload_json, '$.updatedAt') AS updated_at
+      SELECT sequence, json_extract(arcwright_payload_json(payload_json), '$.linkedPullRequest') AS linked_pull_request_json,
+        json_extract(arcwright_payload_json(payload_json), '$.updatedAt') AS updated_at
       FROM orchestration_events
       WHERE sequence > ${afterSequence}
         AND application_event_version = 2 AND aggregate_kind = 'thread'
         AND event_type LIKE 'thread.%'
-        AND json_type(payload_json, '$.pullRequests') IS NULL
-        AND json_type(payload_json, '$.linkedPullRequest') = 'object'
+        AND json_type(arcwright_payload_json(payload_json), '$.pullRequests') IS NULL
+        AND json_type(arcwright_payload_json(payload_json), '$.linkedPullRequest') = 'object'
       ORDER BY sequence
       LIMIT ${pageSize}
     `;
@@ -74,7 +74,8 @@ export default Effect.gen(function* () {
       const pullRequests = yield* linksJson(row.linked_pull_request_json, row.updated_at);
       yield* sql`
         UPDATE orchestration_events
-        SET payload_json = json_set(payload_json, '$.pullRequests', json(${pullRequests}))
+        SET payload_json = json_set(arcwright_payload_json(payload_json), '$.pullRequests', json(${pullRequests})),
+          payload_bytes = length(CAST(json_set(arcwright_payload_json(payload_json), '$.pullRequests', json(${pullRequests})) AS BLOB))
         WHERE sequence = ${row.sequence}
       `;
     }
