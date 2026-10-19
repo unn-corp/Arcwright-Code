@@ -55,8 +55,11 @@ Then add a second Codex instance in **Settings > Providers**:
 Both instances must use the same **CODEX_HOME path**. Arcwright Code prepares the shared
 state in the shadow directory; do not populate it by copying your whole Codex
 home. Shared Codex entries are linked into the shadow home, while the shadow
-home keeps its own `auth.json` and local runtime directories (`log`, `memories`,
-and `tmp`).
+home keeps its own `auth.json`, its own Codex background server state
+(`app-server-daemon` and `app-server-control`), and local runtime directories
+(`log`, `memories`, and `tmp`). Arcwright Code removes a background server link
+left by an older version, so the Codex CLI can run with the shadow home as
+`CODEX_HOME` under its own account.
 
 If an older Arcwright Code version or a manual copy left a real file or directory where
 a shared link belongs, Arcwright Code moves that entry into a recoverable

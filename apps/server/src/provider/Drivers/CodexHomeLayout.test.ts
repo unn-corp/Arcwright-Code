@@ -323,6 +323,45 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
         }),
     );
 
+    it.effect.skipIf(!symlinksSupported)(
+      "keeps each account's Codex app-server daemon state out of the shared home",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "shadow");
+          const sharedDaemonPid = path.join(sharedHome, "app-server-daemon", "daemon.pid");
+          const shadowDaemon = path.join(shadowHome, "app-server-daemon");
+          const shadowControlLock = path.join(
+            shadowHome,
+            "app-server-control",
+            "app-server-startup.lock",
+          );
+
+          yield* writeTextFile(sharedDaemonPid, "shared account daemon");
+          yield* writeTextFile(
+            path.join(sharedHome, "app-server-control", "app-server-startup.lock"),
+            "shared account lock",
+          );
+          yield* writeTextFile(shadowControlLock, "shadow account lock");
+          yield* writeTextFile(path.join(shadowHome, "auth.json"), '{"shadow":true}\n');
+          // Shadow homes created by earlier builds link the shared daemon directory.
+          yield* fileSystem.symlink(path.join(sharedHome, "app-server-daemon"), shadowDaemon);
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({ homePath: sharedHome, shadowHomePath: shadowHome }),
+          );
+
+          yield* materializeCodexShadowHome(layout);
+
+          expect(yield* fileSystem.exists(shadowDaemon)).toBe(false);
+          expect(yield* fileSystem.readFileString(shadowControlLock)).toBe("shadow account lock");
+          expect(yield* fileSystem.readFileString(sharedDaemonPid)).toBe("shared account daemon");
+        }),
+    );
+
     it.effect("rejects shadow homes that point at the shared home", () =>
       Effect.gen(function* () {
         const sharedHome = yield* makeTempDir("t3code-codex-shared-");

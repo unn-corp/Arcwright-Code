@@ -32,7 +32,14 @@ const KNOWN_SHARED_DIRECTORIES = [
   "mcp-oauth-locks",
 ] as const;
 
-const PRIVATE_ENTRY_NAMES = new Set(["auth.json", "models_cache.json"]);
+// Each account runs its own Codex app-server daemon. Codex refuses a symlinked daemon
+// directory, and a shared one would attach this home to another account's server.
+const PRIVATE_ENTRY_NAMES = new Set([
+  "auth.json",
+  "models_cache.json",
+  "app-server-daemon",
+  "app-server-control",
+]);
 // Finder maintains metadata separately for each directory, including shadow homes.
 const SHADOW_LOCAL_ENTRY_NAMES = new Set(["log", "memories", "tmp", ".DS_Store"]);
 // Codex creates these runtime locks itself when it starts in a shadow home before the shared
