@@ -1,4 +1,5 @@
 import {
+  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
@@ -82,13 +83,15 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
       : query.data;
   const isArchived = organization?.lifecycle === "archived";
 
+  const queryRefresh = query.refresh;
+  const listRefresh = list.refresh;
   useEffect(() => {
     if (wasOffline.current && !isOffline) {
-      query.refresh();
-      list.refresh();
+      queryRefresh();
+      listRefresh();
     }
     wasOffline.current = isOffline;
-  }, [isOffline, query.refresh, list.refresh]);
+  }, [isOffline, queryRefresh, listRefresh]);
 
   function refresh() {
     if (isOffline || environmentId === null) return;
@@ -121,7 +124,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
       return false;
     }
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       return await acceptResult(
         await mutate({
           environmentId,
@@ -134,9 +137,10 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           },
         }),
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function applyProposalBatch(proposals: ReadonlyArray<OrganizationArchitectProposal>) {
@@ -160,7 +164,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
       return false;
     }
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       return await acceptResult(
         await applyArchitectBatch({
           environmentId,
@@ -172,15 +176,16 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           },
         }),
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function bind(projectId: ProjectId, access: OrganizationBindingAccess) {
     if (!organization || environmentId === null || busy || isOffline || isArchived) return false;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       return await acceptResult(
         await bindProject({
           environmentId,
@@ -202,15 +207,16 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           },
         }),
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function detach(binding: OrganizationProjectBinding) {
     if (!organization || environmentId === null || busy || isOffline || isArchived) return false;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       return await acceptResult(
         await detachProject({
           environmentId,
@@ -223,15 +229,16 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           },
         }),
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function publishDraft() {
     if (!organization || environmentId === null || busy || isOffline || isArchived) return false;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       return await acceptResult(
         await publish({
           environmentId,
@@ -243,15 +250,16 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           },
         }),
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function changeLifecycle(lifecycle: Organization["lifecycle"]) {
     if (!organization || environmentId === null || busy || isOffline || isArchived) return false;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       return await acceptResult(
         await setLifecycle({
           environmentId,
@@ -264,9 +272,10 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
           },
         }),
       );
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (

@@ -18,7 +18,7 @@ and choose **Rescan**.
 
 ### GitHub
 
-T3 Code talks to GitHub's API directly and only needs a token. Any of these works, in this
+Arcwright Code talks to GitHub's API directly and only needs a token. Any of these works, in this
 order of precedence:
 
 1. A token saved in **Settings → Source Control → GitHub**. It is kept in the server's secret
@@ -31,7 +31,7 @@ If `gh` is signed in to several accounts or hosts, expand **GitHub** in the same
 the account each host uses or turn a host off. A saved token or `GH_TOKEN` takes precedence
 over that choice; a host turned off stays off either way.
 
-For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. T3 Code treats a
+For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. Arcwright Code treats a
 custom server name as GitHub once it has a credential for that host.
 
 ### Forgejo and Gitea

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useStableCallback } from "../../hooks/useStableCallback";
+import { useEffect, useRef, useState } from "react";
 import { beginClientUpdateUpload } from "../../state/updateInteraction";
 import { requestDictationMicrophone } from "~/lib/dictationMicrophone";
 import {
@@ -100,7 +101,7 @@ export function OpenWhisprVoiceInput({
   const transcriptionTimerRef = useRef<number | null>(null);
   const phaseResetTimerRef = useRef<number | null>(null);
   const available = mediaRecordingIsAvailable();
-  const releaseRecordingAudioSource = useCallback(() => {
+  const releaseRecordingAudioSource = () => {
     const audioContext = recordingAudioContextRef.current;
     recordingAudioContextRef.current = null;
     recordingAudioInputRef.current?.disconnect();
@@ -109,16 +110,16 @@ export function OpenWhisprVoiceInput({
     recordingAudioAnalyserRef.current = null;
     onRecordingAudioSourceChange(null);
     if (audioContext) closeAudioContext(audioContext);
-  }, [onRecordingAudioSourceChange]);
+  };
 
-  const clearPhaseTimer = useCallback(() => {
+  const clearPhaseTimer = () => {
     if (phaseResetTimerRef.current !== null) {
       window.clearTimeout(phaseResetTimerRef.current);
       phaseResetTimerRef.current = null;
     }
-  }, []);
+  };
 
-  const cancel = useCallback(() => {
+  const cancel = useStableCallback(() => {
     operationRef.current += 1;
     busyRef.current = false;
     abortControllerRef.current?.abort();
@@ -149,7 +150,7 @@ export function OpenWhisprVoiceInput({
       setState({ status: "idle" });
       onPhaseChange("idle");
     }
-  }, [clearPhaseTimer, dictationEndKeybinds, onPhaseChange, releaseRecordingAudioSource]);
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -160,23 +161,20 @@ export function OpenWhisprVoiceInput({
     };
   }, [cancel, onPhaseChange]);
 
-  const finish = useCallback(
-    (result: "success" | "no-audio") => {
-      busyRef.current = false;
-      setState({ status: "idle" });
-      onPhaseChange(result);
-      phaseResetTimerRef.current = window.setTimeout(
-        () => {
-          phaseResetTimerRef.current = null;
-          if (mountedRef.current) onPhaseChange("idle");
-        },
-        result === "success" ? 1200 : 2200,
-      );
-    },
-    [onPhaseChange],
-  );
+  const finish = (result: "success" | "no-audio") => {
+    busyRef.current = false;
+    setState({ status: "idle" });
+    onPhaseChange(result);
+    phaseResetTimerRef.current = window.setTimeout(
+      () => {
+        phaseResetTimerRef.current = null;
+        if (mountedRef.current) onPhaseChange("idle");
+      },
+      result === "success" ? 1200 : 2200,
+    );
+  };
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = () => {
     if (simulatedRecordingRef.current) {
       simulatedRecordingRef.current = false;
       playDictationTone("end");
@@ -190,9 +188,9 @@ export function OpenWhisprVoiceInput({
     }
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") recorder.stop();
-  }, [finish, onPhaseChange]);
+  };
 
-  const startRecording = useCallback(async () => {
+  const startRecording = async () => {
     // A ref closes the same-render double-tap window before React updates the button.
     if (busyRef.current || !mountedRef.current) return;
     busyRef.current = true;
@@ -221,7 +219,7 @@ export function OpenWhisprVoiceInput({
     let requestedStream: MediaStream | null = null;
     let requestedAudioContext: AudioContext | null = null;
     const hold = { release: () => {}, starting: true, transcribing: false };
-    try {
+    return await (async () => {
       // Dictation is an upload pipeline too: protect acquisition, recording, decoding and transfer.
       hold.release = await beginClientUpdateUpload();
       if (!current()) {
@@ -342,42 +340,31 @@ export function OpenWhisprVoiceInput({
       onPhaseChange("recording");
       playDictationTone("start");
       fireDictationKeybinds(dictationStartKeybinds);
-    } catch (error: unknown) {
-      for (const track of requestedStream?.getTracks() ?? []) track.stop();
-      if (recordingAudioContextRef.current === requestedAudioContext) releaseRecordingAudioSource();
-      else if (requestedAudioContext) closeAudioContext(requestedAudioContext);
-      if (!current()) return;
-      cancel();
-      toastManager.add({
-        type: "error",
-        title:
-          error instanceof DOMException && error.name === "NotAllowedError"
-            ? "Microphone permission was denied"
-            : "Could not start microphone recording",
-        description: error instanceof Error ? error.message : "Try again.",
+    })()
+      .catch((error: unknown) => {
+        for (const track of requestedStream?.getTracks() ?? []) track.stop();
+        if (recordingAudioContextRef.current === requestedAudioContext)
+          releaseRecordingAudioSource();
+        else if (requestedAudioContext) closeAudioContext(requestedAudioContext);
+        if (!current()) return;
+        cancel();
+        toastManager.add({
+          type: "error",
+          title:
+            error instanceof DOMException && error.name === "NotAllowedError"
+              ? "Microphone permission was denied"
+              : "Could not start microphone recording",
+          description: error instanceof Error ? error.message : "Try again.",
+        });
+      })
+      .finally(() => {
+        hold.starting = false;
+        if (!current()) {
+          hold.release();
+          if (updateHoldRef.current === hold) updateHoldRef.current = null;
+        }
       });
-    } finally {
-      hold.starting = false;
-      if (!current()) {
-        hold.release();
-        if (updateHoldRef.current === hold) updateHoldRef.current = null;
-      }
-    }
-  }, [
-    available,
-    cancel,
-    clearPhaseTimer,
-    dictationEndKeybinds,
-    dictationMicrophoneDeviceId,
-    dictationStartKeybinds,
-    environmentId,
-    finish,
-    onPhaseChange,
-    onRecordingAudioSourceChange,
-    onTranscript,
-    releaseRecordingAudioSource,
-    simulateInputLevel,
-  ]);
+  };
 
   const isRecording = state.status === "recording";
   const isTranscribing = state.status === "transcribing";

@@ -239,10 +239,11 @@ export function ReplyThreadContents({
     : localChain;
   const loadMore = async () => {
     if (!loadChain || page?.nextOffset == null || loading) return;
+    const nextOffset = page.nextOffset;
     setLoading(true);
     setError(null);
-    try {
-      const result = await loadChain(selectedId, page.nextOffset);
+    return await (async () => {
+      const result = await loadChain(selectedId, nextOffset);
       if (mounted.current)
         setPage((current) => ({
           messages: [
@@ -253,11 +254,13 @@ export function ReplyThreadContents({
           ],
           nextOffset: result.nextOffset,
         }));
-    } catch {
-      if (mounted.current) setError("Could not load more replies.");
-    } finally {
-      if (mounted.current) setLoading(false);
-    }
+    })()
+      .catch(() => {
+        if (mounted.current) setError("Could not load more replies.");
+      })
+      .finally(() => {
+        if (mounted.current) setLoading(false);
+      });
   };
   return (
     <div className="space-y-4">

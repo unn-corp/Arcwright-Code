@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { Organization, OrganizationProviderBudgetScope, ProjectId } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -83,7 +83,7 @@ export function OrganizationProviderBudgetEditor({
     setBusy(true);
     setError(null);
     setNotice(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await update({
         environmentId,
         input: {
@@ -108,9 +108,10 @@ export function OrganizationProviderBudgetEditor({
         budget.refresh();
         onUpdated();
       }
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (

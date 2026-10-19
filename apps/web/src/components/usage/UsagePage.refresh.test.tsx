@@ -21,14 +21,18 @@ vi.mock("../../state/entities", () => ({
 }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: unknown) =>
-    atom === "keybindings" ? DEFAULT_RESOLVED_KEYBINDINGS : state.presentations,
+    atom === "keybindings"
+      ? DEFAULT_RESOLVED_KEYBINDINGS
+      : atom === "providers"
+        ? new Map()
+        : state.presentations,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
   useCanGoBack: () => false,
 }));
 vi.mock("../../state/presentation", () => ({
-  environmentPresentations: { presentationsAtom: null },
+  environmentPresentations: { presentationsAtom: null, providersByEnvironmentAtom: "providers" },
 }));
 vi.mock("../../state/server", () => ({
   serverEnvironment: { refreshProviders: null },

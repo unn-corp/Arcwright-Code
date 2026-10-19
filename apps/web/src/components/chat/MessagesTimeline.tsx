@@ -1,5 +1,5 @@
 import type { ServerProvider } from "@t3tools/contracts";
-import { useMemo, useCallback } from "react";
+
 import {
   SubagentMilestone,
   withSubagentMilestones,
@@ -907,43 +907,27 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const activeParticipantProfile = useClientSettings(
     (settings) => settings.activeParticipantProfile,
   );
-  const participantGroups = useMemo(
-    () =>
-      enhancedFeed
-        ? timelineParticipantGroups(
-            rows,
-            citationThreadRef?.threadId ?? routeThreadKey,
-            runs,
-            providerStatuses,
-            { participantProfiles, activeParticipantProfile },
-          )
-        : [],
-    [
-      rows,
-      citationThreadRef,
-      routeThreadKey,
-      runs,
-      providerStatuses,
-      participantProfiles,
-      activeParticipantProfile,
-      enhancedFeed,
-    ],
+  const participantGroups = enhancedFeed
+    ? timelineParticipantGroups(
+        rows,
+        citationThreadRef?.threadId ?? routeThreadKey,
+        runs,
+        providerStatuses,
+        { participantProfiles, activeParticipantProfile },
+      )
+    : [];
+  const [participantGroupStarts, setParticipantGroupStarts] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
-  const participantGroupStartsRef = useRef<ReadonlySet<string>>(new Set());
-  const participantGroupStarts = useMemo(() => {
-    const previous = participantGroupStartsRef.current;
-    if (
-      previous.size === participantGroups.length &&
-      participantGroups.every((group) => previous.has(group.rowId))
-    ) {
-      return previous;
-    }
-    return (participantGroupStartsRef.current = new Set(
-      participantGroups.map((group) => group.rowId),
-    ));
-  }, [participantGroups]);
+  const nextParticipantGroupStarts = new Set(participantGroups.map((group) => group.rowId));
+  if (
+    participantGroupStarts.size !== nextParticipantGroupStarts.size ||
+    [...nextParticipantGroupStarts].some((rowId) => !participantGroupStarts.has(rowId))
+  ) {
+    setParticipantGroupStarts(nextParticipantGroupStarts);
+  }
   const participantHeaderRefresh = useRef<() => void>(() => {});
-  const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+  const minimapItems = deriveTimelineMinimapItems(rows);
   // Preserve initialScrollAtEnd's measured target until the list is reused
   // for another thread; scrollToEnd would replace it with an estimated offset.
   const listOpenedOnRef = useRef<{
@@ -1339,13 +1323,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
   } | null>(null);
   const replyChainMessageId =
     replyChainSelection?.threadKey === routeThreadKey ? replyChainSelection.messageId : null;
-  const openReplyChain = useCallback(
-    (messageId: MessageId) => setReplyChainSelection({ threadKey: routeThreadKey, messageId }),
-    [routeThreadKey],
-  );
-  const replyMessages = useMemo(
-    () => timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
-    [timelineEntries],
+  const openReplyChain = (messageId: MessageId) =>
+    setReplyChainSelection({ threadKey: routeThreadKey, messageId });
+  const replyMessages = timelineEntries.flatMap((entry) =>
+    entry.kind === "message" ? [entry.message] : [],
   );
   const sharedState: TimelineRowSharedState = {
     enhancedFeed,
@@ -5082,7 +5063,10 @@ function useStableRows(rows: MessagesTimelineRow[], identity: string): MessagesT
     rows,
     state.identity === identity ? state.stable : { byId: new Map(), result: [] },
   );
-  setState({ identity, source: rows, stable });
+  // Milestone rows can rebuild during render without changing the visible rows.
+  if (state.identity !== identity || state.stable !== stable) {
+    setState({ identity, source: rows, stable });
+  }
   return stable.result;
 }
 

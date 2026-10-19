@@ -325,7 +325,7 @@ set `T3CODE_SERVER_BROWSER_SANDBOX=0` for the environment to run without it.
 
 ## Connect an outside agent
 
-Claude Code, Codex, ChatGPT and other agents T3 Code did not start can drive
+Claude Code, Codex, ChatGPT and other agents Arcwright Code did not start can drive
 threads on an environment through its MCP server. See
 [outside agents](./outside-agents.md) for setup.
 
@@ -372,7 +372,7 @@ npx t3 pair --scope orchestration:read --scope relay:read
 The selected scopes replace the default permissions. The same option works with
 `npx t3 auth pairing create` and `npx t3 auth session issue`; each command's
 `--help` lists the available scopes. Without `--scope`, pairing tokens and issued
-bearer sessions get every permission, including managing access and T3 Connect.
+bearer sessions get every permission, including managing access and Arcwright Connect.
 A terminal or a full-access agent on the host can reach those as well, so a
 client that should not manage access also needs to go without `terminal:operate`
 and `orchestration:operate`.
@@ -395,7 +395,7 @@ worktree still creates that branch and worktree with `orchestration:operate`,
 and the agent it runs can use Git however the environment allows.
 
 Settings changes, provider management, environment maintenance, access
-management, and T3 Connect management can each be granted separately. New
+management, and Arcwright Connect management can each be granted separately. New
 pairings without `--scope` include all of them. Existing clients keep the
 permissions they paired with and can stay connected after an update, but newly
 separated features may require pairing again with the permissions they need.
@@ -409,10 +409,10 @@ the workspace. These scopes control direct file access from the client.
 To remove an environment from Arcwright Connect, open your account menu's **Arcwright Connect**
 page, or **Settings → Arcwright Connect** on mobile, and choose **Deregister**. This
 revokes its cloud access and frees its host space even when the environment is
-offline or has been wiped. When T3 Connect rejects a host's link, the host
-shows that it was removed from T3 Connect. To link it again, turn on
-**T3 Connect** in **Settings → Connections** on a desktop host, or run
-`t3 connect link` on a command-line host and then restart T3 Code there. A
+offline or has been wiped. When Arcwright Connect rejects a host's link, the host
+shows that it was removed from Arcwright Connect. To link it again, turn on
+**Arcwright Connect** in **Settings → Connections** on a desktop host, or run
+`t3 connect link` on a command-line host and then restart Arcwright Code there. A
 command-line host that released its tunnel when it last stopped may link itself
 again on its next start; run `t3 connect unlink` on that host to keep it off.
 Removing an environment from a device's connection settings only forgets it on
@@ -425,7 +425,7 @@ creates a replacement tunnel on its own. You do not need to pair again. Cleanup
 usually runs five to ten minutes after the tunnel goes down.
 
 Arcwright Connect also removes the tunnel of an environment running an older version of
-T3 Code once it has been offline for seven days. That environment shows a message
+Arcwright Code once it has been offline for seven days. That environment shows a message
 asking you to update. Start Arcwright Code on that computer and update it to the latest
 version; it reconnects at the same address without pairing again.
 

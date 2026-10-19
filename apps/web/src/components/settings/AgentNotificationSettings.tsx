@@ -1,3 +1,4 @@
+import { useStableCallback } from "../../hooks/useStableCallback";
 import {
   AGENT_NOTIFICATION_SOUND_IDS,
   type AgentNotificationKind,
@@ -5,7 +6,7 @@ import {
   type AgentNotificationSounds,
 } from "@t3tools/contracts";
 import { PlayIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import { usePrimaryEnvironment } from "../../state/environments";
 import {
@@ -85,9 +86,9 @@ export function PwaNotificationSettings() {
     isPwaPushAuthorityResetRequired() ||
     remoteCleanupState === "uncertain";
 
-  const refreshStatus = useCallback(() => {
+  const refreshStatus = useStableCallback(() => {
     setStatus(getBrowserNotificationStatus());
-  }, []);
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -102,42 +103,35 @@ export function PwaNotificationSettings() {
     };
   }, [refreshStatus]);
 
-  const updatePreferences = useCallback(
-    (patch: Partial<typeof notificationPreferences>) => {
-      updateClientSettings({
-        agentNotifications: { ...notificationPreferences, ...patch },
+  const updatePreferences = (patch: Partial<typeof notificationPreferences>) => {
+    updateClientSettings({
+      agentNotifications: { ...notificationPreferences, ...patch },
+    });
+  };
+
+  const persistRemoteSubscription = async (
+    subscription: PushSubscription,
+    preferences: typeof notificationPreferences,
+    explicitEnable = false,
+    signal?: AbortSignal,
+  ) => {
+    if (!primaryEnvironment) throw new Error("Connect this PWA to an Arcwright Code server first.");
+    if (!vapidPublicKey) throw new Error("Remote notifications are unavailable.");
+    return await (async () => {
+      await registerPwaPushSubscription({
+        environmentId: primaryEnvironment.environmentId,
+        subscription,
+        preferences,
+        applicationServerKey: vapidPublicKey,
+        explicitEnable,
+        signal,
       });
-    },
-    [notificationPreferences, updateClientSettings],
-  );
+    })().finally(() => {
+      if (mountedRef.current) setRemoteCleanupState(getPwaPushRemovalState());
+    });
+  };
 
-  const persistRemoteSubscription = useCallback(
-    async (
-      subscription: PushSubscription,
-      preferences: typeof notificationPreferences,
-      explicitEnable = false,
-      signal?: AbortSignal,
-    ) => {
-      if (!primaryEnvironment)
-        throw new Error("Connect this PWA to an Arcwright Code server first.");
-      if (!vapidPublicKey) throw new Error("Remote notifications are unavailable.");
-      try {
-        await registerPwaPushSubscription({
-          environmentId: primaryEnvironment.environmentId,
-          subscription,
-          preferences,
-          applicationServerKey: vapidPublicKey,
-          explicitEnable,
-          signal,
-        });
-      } finally {
-        if (mountedRef.current) setRemoteCleanupState(getPwaPushRemovalState());
-      }
-    },
-    [primaryEnvironment, vapidPublicKey],
-  );
-
-  const enableNotifications = useCallback(async () => {
+  const enableNotifications = async () => {
     if (isPwaPushRemovalPending()) {
       toastManager.add(
         stackedThreadToast({
@@ -179,7 +173,7 @@ export function PwaNotificationSettings() {
     const controller = new AbortController();
     enableControllerRef.current = controller;
     setIsSaving(true);
-    try {
+    return await (async () => {
       // This is intentionally the first awaited browser operation in the click handler:
       // iOS only permits PushManager.subscribe while the direct user gesture is still valid.
       const result = await subscribeBrowserPush({ applicationServerKey: vapidPublicKey });
@@ -207,41 +201,31 @@ export function PwaNotificationSettings() {
       toastManager.add(
         stackedThreadToast({ type: "success", title: "Remote notifications enabled" }),
       );
-    } catch (error) {
-      if (action !== actionRef.current) return;
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not enable notifications",
-          description:
-            error instanceof Error ? error.message : "Try again after reloading the PWA.",
-        }),
-      );
-    } finally {
-      if (action === actionRef.current) setIsSaving(false);
-    }
-  }, [
-    isConfigLoading,
-    needsReset,
-    setupState,
-    retryNotificationSetup,
-    notificationPreferences,
-    persistRemoteSubscription,
-    updateClientSettings,
-    vapidPublicKey,
-  ]);
+    })()
+      .catch((error: unknown) => {
+        if (action !== actionRef.current) return;
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not enable notifications",
+            description:
+              error instanceof Error ? error.message : "Try again after reloading the PWA.",
+          }),
+        );
+      })
+      .finally(() => {
+        if (action === actionRef.current) setIsSaving(false);
+      });
+  };
 
-  const synchronizeSubscription = useCallback(
-    (subscription: PushSubscription, signal: AbortSignal) =>
-      persistRemoteSubscription(subscription, notificationPreferences, false, signal),
-    [notificationPreferences, persistRemoteSubscription],
-  );
-  const repairMissingSubscription = useCallback(() => {
+  const synchronizeSubscription = (subscription: PushSubscription, signal: AbortSignal) =>
+    persistRemoteSubscription(subscription, notificationPreferences, false, signal);
+  const repairMissingSubscription = () => {
     updatePreferences({ enabled: false });
     markPendingPwaPushCleanup();
     setCleanupPending(true);
-  }, [updatePreferences]);
-  const reportBindingMismatch = useCallback(() => setBindingMismatch(true), []);
+  };
+  const reportBindingMismatch = () => setBindingMismatch(true);
   usePwaPushSubscriptionSync({
     enabled: notificationPreferences.enabled && setupState === "ready" && !bindingMismatch,
     applicationServerKey: vapidPublicKey,
@@ -285,7 +269,7 @@ export function PwaNotificationSettings() {
     );
     if (action !== actionRef.current) return;
     setLocalCleanupRequired(localResult.status === "rejected");
-    try {
+    return await (async () => {
       if (localResult.status === "rejected")
         throw new Error(
           "Your notification preference is off, but browser push cleanup is incomplete. Retry Disable or Reset browser push.",
@@ -295,24 +279,26 @@ export function PwaNotificationSettings() {
       if (intent === "reset") resetPwaPushAuthority(profile);
       setRemoteCleanupState(getPwaPushRemovalState());
       setBindingMismatch(false);
-    } catch (error) {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not reset browser push",
-          description:
-            error instanceof Error
-              ? error.message
-              : "Retry Reset browser push when the browser and local storage are ready.",
-        }),
-      );
-    } finally {
-      retryNotificationSetup();
-      setIsSaving(false);
-    }
+    })()
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not reset browser push",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Retry Reset browser push when the browser and local storage are ready.",
+          }),
+        );
+      })
+      .finally(() => {
+        retryNotificationSetup();
+        setIsSaving(false);
+      });
   };
 
-  const remoteTest = useCallback(() => {
+  const remoteTest = () => {
     if (!subscriptionId) return;
     void (async () => {
       try {
@@ -329,9 +315,9 @@ export function PwaNotificationSettings() {
         );
       }
     })();
-  }, [subscriptionId]);
+  };
 
-  const previewNotification = useCallback(() => {
+  const previewNotification = () => {
     // A local preview may request permission even when this profile has no remote relay.
     void requestBrowserNotificationPermission()
       .then((permission) => {
@@ -363,7 +349,7 @@ export function PwaNotificationSettings() {
           }),
         );
       });
-  }, []);
+  };
 
   const statusDescription: Record<BrowserNotificationStatus, string> = {
     unsupported: "Notifications are not supported by this browser or device.",

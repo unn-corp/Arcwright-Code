@@ -1,5 +1,6 @@
 import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
+import type { ComposerPathSearchTarget } from "@t3tools/client-runtime/state/threads";
 import {
   resolveProviderSkillSourceKind,
   type ProviderSkillSourceKind,
@@ -22,7 +23,7 @@ import {
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
@@ -44,6 +45,7 @@ export type ComposerCommandItem =
       type: "path";
       path: string;
       pathKind: ProjectEntry["kind"];
+      searchTarget: ComposerPathSearchTarget;
       label: string;
       description: string;
     }
@@ -149,7 +151,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const groups = useMemo(() => {
+  const groups = (() => {
     const grouped = groupCommandItems(
       props.items,
       props.triggerKind,
@@ -157,7 +159,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
     );
     const onlyGroup = grouped.length === 1 ? grouped[0] : undefined;
     return onlyGroup === undefined ? grouped : [{ ...onlyGroup, label: null }];
-  }, [props.groupSlashCommandSections, props.items, props.triggerKind]);
+  })();
 
   useLayoutEffect(() => {
     if (!props.activeItemId || !listRef.current) return;

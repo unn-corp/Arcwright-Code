@@ -42,7 +42,7 @@ vi.mock("../../hooks/useSettings", async () => {
       );
       return select(settings);
     },
-    useUpdateClientSettings: () => fixture.update,
+    updateClientSettings: fixture.update,
   };
 });
 vi.mock("../../state/environments", () => ({ usePrimaryEnvironment: () => fixture.environment }));

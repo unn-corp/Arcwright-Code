@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { Organization } from "@t3tools/contracts";
 import { useRef, useState } from "react";
 
@@ -32,7 +32,7 @@ export function OrganizationEmergencyStopControl({
     if (offline || busy || environmentId === null || status.data?.state !== "none") return;
     setBusy(true);
     setError(null);
-    try {
+    const operation = await settlePromise(async () => {
       const result = await request({
         environmentId,
         input: { organizationId: organization.id, requestId: requestId.current },
@@ -44,9 +44,9 @@ export function OrganizationEmergencyStopControl({
         status.refresh();
         onRefresh();
       }
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   return (

@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
@@ -224,26 +225,26 @@ export function OrganizationArchitectConversation({
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const lastMessageId = visibleMessages.at(-1)?.id;
   useEffect(() => {
-    if (nearBottom.current && transcriptRef.current)
+    if ((lastMessageId || sending) && nearBottom.current && transcriptRef.current)
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [lastMessageId, sending]);
-  useEffect(() => {
-    if (pendingTurn && messages.some((message) => message.id === pendingTurn.id))
-      setPendingTurn(null);
-  }, [messages, pendingTurn]);
+  if (pendingTurn && messages.some((message) => message.id === pendingTurn.id)) {
+    setPendingTurn(null);
+  }
   function jumpToLatest() {
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     nearBottom.current = true;
     setAtBottom(true);
   }
 
+  const listRefresh = list.refresh;
   useEffect(() => {
     const currentlyOffline = offline || networkStatus === "offline";
     if (wasOffline.current && !currentlyOffline) {
-      list.refresh();
+      listRefresh();
     }
     wasOffline.current = currentlyOffline;
-  }, [offline, networkStatus, list.refresh]);
+  }, [offline, networkStatus, listRefresh]);
 
   function resultError<A, E>(result: AtomCommandResult<A, E>): string | null {
     if (result._tag !== "Failure") return null;
@@ -280,34 +281,36 @@ export function OrganizationArchitectConversation({
     setSending(true);
     setError(null);
     setNotice(null);
-    try {
-      const result = await sendCommand({
-        environmentId,
-        input: {
-          organizationId: organization.id,
-          messageId,
-          baseRevision: organization.draftRevision,
-          text,
-          modelSelection: createModelSelection(selectedEntry.instanceId, selectedModel.slug),
-        },
-      });
-      const failure = resultError(result);
-      if (failure) {
+    const operation = await settlePromise(async () => {
+      try {
+        const result = await sendCommand({
+          environmentId,
+          input: {
+            organizationId: organization.id,
+            messageId,
+            baseRevision: organization.draftRevision,
+            text,
+            modelSelection: createModelSelection(selectedEntry.instanceId, selectedModel.slug),
+          },
+        });
+        const failure = resultError(result);
+        if (failure) {
+          setError(failure);
+          retainFailedTurn(failure);
+        }
+        list.refresh();
+      } catch (cause) {
+        const failure =
+          cause instanceof Error
+            ? cause.message
+            : "The message could not be sent. Try again when the connection is ready.";
         setError(failure);
         retainFailedTurn(failure);
       }
-      list.refresh();
-    } catch (cause) {
-      const failure =
-        cause instanceof Error
-          ? cause.message
-          : "The message could not be sent. Try again when the connection is ready.";
-      setError(failure);
-      retainFailedTurn(failure);
-    } finally {
-      sendInFlight.current = false;
-      setSending(false);
-    }
+    });
+    sendInFlight.current = false;
+    setSending(false);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   function unsupportedProfile(change: OrganizationArchitectAllowedChange) {
@@ -331,7 +334,7 @@ export function OrganizationArchitectConversation({
     setApplyingId(proposal.id);
     setError(null);
     setNotice(null);
-    try {
+    const operation = await settlePromise(async () => {
       const saved = await onApplyBatch([proposal]);
       if (saved) {
         setAppliedIds((current) => new Set([...current, proposal.id]));
@@ -344,9 +347,9 @@ export function OrganizationArchitectConversation({
           "The proposal was not applied. Refresh the Organization and review its current revision.",
         );
       }
-    } finally {
-      setApplyingId(null);
-    }
+    });
+    setApplyingId(null);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   async function applyBatch(proposals: ReadonlyArray<OrganizationArchitectProposal>) {
@@ -367,7 +370,7 @@ export function OrganizationArchitectConversation({
     setApplyingId(`batch:${proposals[0]!.responseMessageId}`);
     setError(null);
     setNotice(null);
-    try {
+    const operation = await settlePromise(async () => {
       const saved = await onApplyBatch(proposals);
       if (saved) {
         setAppliedIds(
@@ -382,9 +385,9 @@ export function OrganizationArchitectConversation({
           "The suggestions were not applied. Refresh the Organization and review its current revision.",
         );
       }
-    } finally {
-      setApplyingId(null);
-    }
+    });
+    setApplyingId(null);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   return (

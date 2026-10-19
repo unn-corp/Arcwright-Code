@@ -69,7 +69,7 @@ export type ServerUpdateOutcome =
   | { readonly status: "updated" | "skipped" | "waiting" }
   | { readonly status: "failed"; readonly message: string };
 
-export function useServerUpdate() {
+export function createServerUpdate() {
   return async (
     target: ServerUpdateTarget,
     options: string | { readonly quiet?: boolean } = "Server update failed",
@@ -226,7 +226,7 @@ export function ServerUpdateAction({
   const isDesktopAppUpdate = selfUpdate === "desktop-managed";
   const sessionStateAtom = environmentSession.sessionStateAtom(environmentId);
   const canUpdate = canUpdateServer(useAtomValue(sessionStateAtom));
-  const update = useServerUpdate();
+  const update = createServerUpdate();
   if (
     !supportsForkMaintenanceAdmission(forkMaintenance) ||
     selfUpdate === null ||

@@ -125,7 +125,7 @@ export function PinnedTimelineParticipant({
     };
   }, [groups, listRef, refreshRef]);
   useLayoutEffect(() => {
-    if (!headerRef.current) return;
+    if (!pinned?.group || !headerRef.current) return;
     refreshRef.current();
     return observeResize(headerRef.current, () => refreshRef.current());
   }, [pinned?.group, refreshRef]);

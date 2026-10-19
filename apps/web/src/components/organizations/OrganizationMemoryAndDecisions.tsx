@@ -1,4 +1,6 @@
+import { useNowMinute } from "../../hooks/useNowMinute";
 import {
+  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
@@ -150,19 +152,21 @@ export function OrganizationMemoryAndDecisions({
     (scopeProjectId !== null &&
       !activeBindings.some((binding) => binding.projectId === scopeProjectId));
   const records = list.data?.records ?? [];
-  const now = Date.now();
+  const now = Date.parse(useNowMinute());
   const valid =
     title.trim().length > 0 &&
     body.trim().length > 0 &&
     (provenanceKind !== "explicit-reference" || reference.trim().length > 0);
 
+  const listRefresh = list.refresh;
+  const historyRefresh = history.refresh;
   useEffect(() => {
     if (wasOffline.current && !offline) {
-      list.refresh();
-      history.refresh();
+      listRefresh();
+      historyRefresh();
     }
     wasOffline.current = offline;
-  }, [offline, list.refresh, history.refresh]);
+  }, [offline, listRefresh, historyRefresh]);
 
   function resetEditor() {
     setEditing(null);
@@ -231,7 +235,7 @@ export function OrganizationMemoryAndDecisions({
     }
     setBusy(true);
     setError(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = editing
         ? await correctRecord({
             environmentId,
@@ -257,15 +261,16 @@ export function OrganizationMemoryAndDecisions({
       if (!saved) return;
       setNotice(editing ? "Correction saved as a new revision." : "Memory record created.");
       resetEditor();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function archive(record: OrganizationMemoryRecord) {
     if (disabled || environmentId === null || record.projectId !== scopeProjectId) return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const saved = checkResult(
         await archiveRecord({
           environmentId,
@@ -279,9 +284,10 @@ export function OrganizationMemoryAndDecisions({
       );
       if (saved) setNotice("Record archived. Its revision history remains available.");
       setArchiveTargetId(null);
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function supersede(record: OrganizationMemoryRecord) {
@@ -297,7 +303,7 @@ export function OrganizationMemoryAndDecisions({
     )
       return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const saved = checkResult(
         await supersedeRecord({
           environmentId,
@@ -313,9 +319,10 @@ export function OrganizationMemoryAndDecisions({
       if (saved) setNotice(`Record superseded by ${replacement.content.title}.`);
       setSupersedeTargetId(null);
       setReplacementId("");
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (

@@ -112,13 +112,15 @@ export function ParticipantProfileSettings() {
   const updatePhoto = async (photo: string | null) => {
     setUploading(true);
     setError(null);
-    try {
+    return await (async () => {
       await savePhoto(photo);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setUploading(false);
-    }
+    })()
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        setUploading(false);
+      });
   };
   return (
     <SettingsSection id="profile" title="Profile">
@@ -166,13 +168,15 @@ export function ParticipantProfileSettings() {
                 if (!file) return;
                 setUploading(true);
                 setError(null);
-                try {
+                return await (async () => {
                   await savePhoto(await profileThumbnail(file));
-                } catch (cause) {
-                  setError(cause instanceof Error ? cause.message : String(cause));
-                } finally {
-                  setUploading(false);
-                }
+                })()
+                  .catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  })
+                  .finally(() => {
+                    setUploading(false);
+                  });
               }}
             />
           </label>

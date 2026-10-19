@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { Organization, OrganizationWorkId, ProjectId } from "@t3tools/contracts";
 import { RefreshCwIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -157,30 +157,39 @@ export function OrganizationLiveOperations({
         }),
   );
   const wasOffline = useRef(offline);
+  const observationsRefresh = observations.refresh;
+  const jobsRefresh = jobs.refresh;
+  const findingsRefresh = findings.refresh;
+  const workRefresh = work.refresh;
+  const workIntentsRefresh = workIntents.refresh;
+  const workFailuresRefresh = workFailures.refresh;
+  const runtimeStatusRefresh = runtimeStatus.refresh;
+  const observationModeRefresh = observationMode.refresh;
+  const proposalsRefresh = proposals.refresh;
   useEffect(() => {
     if (wasOffline.current && !offline) {
-      observations.refresh();
-      jobs.refresh();
-      findings.refresh();
-      work.refresh();
-      workIntents.refresh();
-      workFailures.refresh();
-      runtimeStatus.refresh();
-      observationMode.refresh();
-      proposals.refresh();
+      observationsRefresh();
+      jobsRefresh();
+      findingsRefresh();
+      workRefresh();
+      workIntentsRefresh();
+      workFailuresRefresh();
+      runtimeStatusRefresh();
+      observationModeRefresh();
+      proposalsRefresh();
     }
     wasOffline.current = offline;
   }, [
     offline,
-    observations.refresh,
-    jobs.refresh,
-    findings.refresh,
-    work.refresh,
-    workIntents.refresh,
-    workFailures.refresh,
-    runtimeStatus.refresh,
-    observationMode.refresh,
-    proposals.refresh,
+    observationsRefresh,
+    jobsRefresh,
+    findingsRefresh,
+    workRefresh,
+    workIntentsRefresh,
+    workFailuresRefresh,
+    runtimeStatusRefresh,
+    observationModeRefresh,
+    proposalsRefresh,
   ]);
 
   function refresh() {
@@ -202,7 +211,7 @@ export function OrganizationLiveOperations({
     setCancelingWorkId(item.id);
     setCancelError(null);
     setCancelNotice(null);
-    try {
+    const operation = await settlePromise(async () => {
       const result = await cancelWork({
         environmentId,
         input: { organizationId: organization.id, workId: item.id, transitionId },
@@ -215,9 +224,9 @@ export function OrganizationLiveOperations({
         work.refresh();
         workFailures.refresh();
       }
-    } finally {
-      setCancelingWorkId(null);
-    }
+    });
+    setCancelingWorkId(null);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   const activeBindings = organization.bindings.filter((binding) => binding.detachedAt === null);

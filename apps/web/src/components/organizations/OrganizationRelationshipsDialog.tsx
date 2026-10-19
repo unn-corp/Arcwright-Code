@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   OrganizationEdgeId,
   OrganizationRoleId,
@@ -77,17 +78,20 @@ export function OrganizationRelationshipsDialog({
     savingRef.current = true;
     setSaving(true);
     setError(null);
-    try {
-      if (!(await onChange(change)))
-        setError("The relationship could not be saved. Review the current draft and try again.");
-    } catch {
-      setError(
-        "The relationship could not be saved. Your choices are still here. Try again when the connection is ready.",
-      );
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
+    const outcome = await settlePromise(async () => {
+      try {
+        if (!(await onChange(change)))
+          setError("The relationship could not be saved. Review the current draft and try again.");
+      } catch {
+        setError(
+          "The relationship could not be saved. Your choices are still here. Try again when the connection is ready.",
+        );
+      }
+    });
+    savingRef.current = false;
+    setSaving(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
   function employeePicker(label: string, value: string, onValueChange: (value: string) => void) {
     return (

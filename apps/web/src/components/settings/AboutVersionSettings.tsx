@@ -8,7 +8,7 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../desktopUpdate.logic";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   APP_BUILD_IDENTITY,
   APP_VERSION,
@@ -58,37 +58,34 @@ export function AboutVersionSection() {
   const selectedUpdateChannel = updateState?.channel ?? "latest";
   const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
 
-  const handleUpdateChannelChange = useCallback(
-    (channel: DesktopUpdateChannel) => {
-      const bridge = window.desktopBridge;
-      if (
-        !bridge ||
-        typeof bridge.setUpdateChannel !== "function" ||
-        channel === selectedUpdateChannel
-      ) {
-        return;
-      }
+  const handleUpdateChannelChange = (channel: DesktopUpdateChannel) => {
+    const bridge = window.desktopBridge;
+    if (
+      !bridge ||
+      typeof bridge.setUpdateChannel !== "function" ||
+      channel === selectedUpdateChannel
+    ) {
+      return;
+    }
 
-      setIsChangingUpdateChannel(true);
-      void bridge
-        .setUpdateChannel(channel)
-        .catch((error: unknown) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not change update track",
-              description: error instanceof Error ? error.message : "Update track change failed.",
-            }),
-          );
-        })
-        .finally(() => {
-          setIsChangingUpdateChannel(false);
-        });
-    },
-    [selectedUpdateChannel],
-  );
+    setIsChangingUpdateChannel(true);
+    void bridge
+      .setUpdateChannel(channel)
+      .catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not change update track",
+            description: error instanceof Error ? error.message : "Update track change failed.",
+          }),
+        );
+      })
+      .finally(() => {
+        setIsChangingUpdateChannel(false);
+      });
+  };
 
-  const handleButtonClick = useCallback(async () => {
+  const handleButtonClick = async () => {
     const bridge = window.desktopBridge;
     if (!bridge) return;
 
@@ -171,7 +168,7 @@ export function AboutVersionSection() {
           }),
         );
       });
-  }, [isUpdateActionPending, updateState]);
+  };
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;

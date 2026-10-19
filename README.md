@@ -128,6 +128,6 @@ vp i
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
 
-Have a feature request? Start an [Ideas discussion](https://github.com/unn-corp/Arcwright-Code/discussions/categories/ideas).
+For upstream feature ideas, see the [T3 Code Ideas discussions](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+The upstream T3 Code community is on [Discord](https://discord.gg/jn4EGJjrvv).

@@ -33,7 +33,7 @@ export function AndroidDirectNotificationChoice({
     if (current === null) return;
     setBusy(true);
     setMessage(null);
-    try {
+    return await (async () => {
       await androidNotificationRequest("selectDirect", {
         environmentId,
         ...notificationRegistration(current),
@@ -41,13 +41,15 @@ export function AndroidDirectNotificationChoice({
         token,
       });
       setMessage("Phone alerts use this paired route.");
-    } catch {
-      setMessage(
-        "Could not select this route for phone alerts. Check that the environment and alerts are enabled.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch(() => {
+        setMessage(
+          "Could not select this route for phone alerts. Check that the environment and alerts are enabled.",
+        );
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   return (
     <div>

@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
   Organization,
   OrganizationObservation,
@@ -206,10 +206,11 @@ export function ReviewEvidence({
         }),
   );
   const wasOffline = useRef(offline);
+  const reviewRefresh = review.refresh;
   useEffect(() => {
-    if (wasOffline.current && !offline) review.refresh();
+    if (wasOffline.current && !offline) reviewRefresh();
     wasOffline.current = offline;
-  }, [offline, review]);
+  }, [offline, reviewRefresh]);
 
   async function decideApproval(approved: boolean) {
     const evidence = review.data;
@@ -238,17 +239,18 @@ export function ReviewEvidence({
       work.bindingVersion,
     ].join(":");
     if (request.current?.key !== key) request.current = { key, id: randomUUID() };
+    const requestId = request.current.id;
     setDecisionPending(true);
     setDecisionError(null);
     setDecisionNotice(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await decide({
         environmentId,
         input: {
           organizationId: work.organizationId,
           workId: work.id,
           attemptId: attempt.id,
-          requestId: request.current.id,
+          requestId,
           approved,
           reason: normalizedReason,
           artifactDigest: evidence.artifact.digest,
@@ -266,9 +268,10 @@ export function ReviewEvidence({
         onDecision();
         review.refresh();
       }
-    } finally {
-      setDecisionPending(false);
-    }
+    });
+    setDecisionPending(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   const canDecide =
@@ -632,14 +635,17 @@ export function OrganizationWorkAndFindings({
     environmentId === null ? null : organizationEnvironment.listWork({ environmentId, input }),
   );
   const wasOffline = useRef(offline);
+  const observationsRefresh = observations.refresh;
+  const findingsRefresh = findings.refresh;
+  const workRefresh = work.refresh;
   useEffect(() => {
     if (wasOffline.current && !offline) {
-      observations.refresh();
-      findings.refresh();
-      work.refresh();
+      observationsRefresh();
+      findingsRefresh();
+      workRefresh();
     }
     wasOffline.current = offline;
-  }, [offline, observations.refresh, findings.refresh, work.refresh]);
+  }, [offline, observationsRefresh, findingsRefresh, workRefresh]);
 
   function refresh() {
     observations.refresh();

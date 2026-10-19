@@ -1,5 +1,4 @@
 import { isBrowserPreviewAttachment } from "../types";
-import { useMemo, useCallback } from "react";
 import { ServerUpdateAction } from "./ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import {
@@ -41,7 +40,6 @@ import {
 } from "./ChatView.logic";
 import * as DateTime from "effect/DateTime";
 import { restorePlanFollowUpComposer } from "./ChatView.logic";
-import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import {
   isPaintOnlyThreadTimeline,
@@ -112,6 +110,7 @@ import {
   RuntimeMode,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import {
   wasBootstrapThreadDeleted,
   wasBootstrapThreadNotCreated,
@@ -358,7 +357,7 @@ import {
   clearBackgroundDraftSubmissionByRef,
   finalizePromotedDraftThreadByRef,
   markPromotedDraftThreadByRef,
-  restoreFailedBackgroundDraftThread,
+  restoreFailedDraftThread,
   composerDraftHasUserContent,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
@@ -377,7 +376,6 @@ import { type ReviewCommentContext } from "../reviewCommentContext";
 import {
   ensureInlineContextReferences,
   removeInlineContextReference,
-  stripInlineContextReferences,
 } from "../lib/composerContextReferences";
 import { encodeComposerMessageContext } from "../lib/composerMessageContext";
 import {
@@ -1254,39 +1252,33 @@ export default function ChatView(props: ChatViewProps) {
   );
   const setComposerReplyTo = useComposerDraftStore((store) => store.setReplyTo);
   const humanParticipant = useClientSettings(currentHuman);
-  const buildReplyMessageContext = useCallback(
-    (input: Parameters<typeof buildMessageContext>[0]) =>
-      authorContext(replyContext(buildMessageContext(input), composerReplyTo), humanParticipant),
-    [composerReplyTo, humanParticipant],
-  );
-  const loadMessageReplyChain = useCallback(
-    async (messageId: MessageId, offset: number) => {
-      const result = await getMessageReplyChain({
-        environmentId,
-        input: { threadId, messageId, offset },
-      });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-      return {
-        messages: result.value.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          text: message.text,
-          context: message.context,
-          attachments: message.attachments,
-          runId: message.runId,
-          streaming: message.streaming,
-          createdBy: message.createdBy,
-          creationSource: message.creationSource,
-          ...(message.scheduledTaskId ? { scheduledTaskId: message.scheduledTaskId } : {}),
-          ...(message.senderThreadId ? { senderThreadId: message.senderThreadId } : {}),
-          createdAt: DateTime.formatIso(message.createdAt),
-          updatedAt: DateTime.formatIso(message.updatedAt),
-        })),
-        nextOffset: result.value.nextOffset,
-      };
-    },
-    [getMessageReplyChain, environmentId, threadId],
-  );
+  const buildReplyMessageContext = (input: Parameters<typeof buildMessageContext>[0]) =>
+    authorContext(replyContext(buildMessageContext(input), composerReplyTo), humanParticipant);
+  const loadMessageReplyChain = async (messageId: MessageId, offset: number) => {
+    const result = await getMessageReplyChain({
+      environmentId,
+      input: { threadId, messageId, offset },
+    });
+    if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    return {
+      messages: result.value.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.text,
+        context: message.context,
+        attachments: message.attachments,
+        runId: message.runId,
+        streaming: message.streaming,
+        createdBy: message.createdBy,
+        creationSource: message.creationSource,
+        ...(message.scheduledTaskId ? { scheduledTaskId: message.scheduledTaskId } : {}),
+        ...(message.senderThreadId ? { senderThreadId: message.senderThreadId } : {}),
+        createdAt: DateTime.formatIso(message.createdAt),
+        updatedAt: DateTime.formatIso(message.updatedAt),
+      })),
+      nextOffset: result.value.nextOffset,
+    };
+  };
 
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
@@ -1297,17 +1289,14 @@ export default function ChatView(props: ChatViewProps) {
   const setComposerDraftPreviewAnnotations = useComposerDraftStore(
     (store) => store.setPreviewAnnotations,
   );
-  const setComposerDraftElementContexts = useCallback(
-    (
-      target: Parameters<typeof setComposerDraftPreviewAnnotations>[0],
-      contexts: ElementContextDraft[],
-    ) =>
-      setComposerDraftPreviewAnnotations(
-        target,
-        contexts.map((entry) => elementContextToPreviewAnnotation(entry, entry.id, entry.pickedAt)),
-      ),
-    [setComposerDraftPreviewAnnotations],
-  );
+  const setComposerDraftElementContexts = (
+    target: Parameters<typeof setComposerDraftPreviewAnnotations>[0],
+    contexts: ElementContextDraft[],
+  ) =>
+    setComposerDraftPreviewAnnotations(
+      target,
+      contexts.map((entry) => elementContextToPreviewAnnotation(entry, entry.id, entry.pickedAt)),
+    );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftThreadContexts = useComposerDraftStore((store) => store.setThreadContexts);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
@@ -3398,10 +3387,7 @@ export default function ChatView(props: ChatViewProps) {
   const focusComposerStable = useStableCallback(focusComposer);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
-  const confirmedStopState = useMemo(
-    () => deriveThreadStopState(serverProjection),
-    [serverProjection],
-  );
+  const confirmedStopState = deriveThreadStopState(serverProjection);
   const [interruptRequestKey, setInterruptRequestKey] = useState<string | null>(null);
   const isStoppingThread = confirmedStopState !== null || interruptRequestKey === routeThreadKey;
   const onInterrupt = async () => {
@@ -3476,21 +3462,18 @@ export default function ChatView(props: ChatViewProps) {
   };
   const sendAppMessageStable = useStableCallback(sendAppMessage);
   const queuedRunsControlRef = useRef<QueuedRunsControlHandle>(null);
-  const replyToChatMessage = useCallback(
-    (message: ChatMessage) => {
-      if (message.role === "system" || !canOperateThread) return;
-      setComposerReplyTo(composerDraftTarget, {
-        threadId,
-        messageId: message.id,
-        role: message.role,
-        text: message.text.slice(0, 4000),
-        ...(message.context?.author ? { author: message.context.author } : {}),
-        ...(message.context?.agent ? { agent: message.context.agent } : {}),
-      });
-      scheduleComposerFocus();
-    },
-    [canOperateThread, composerDraftTarget, threadId, setComposerReplyTo, scheduleComposerFocus],
-  );
+  const replyToChatMessage = (message: ChatMessage) => {
+    if (message.role === "system" || !canOperateThread) return;
+    setComposerReplyTo(composerDraftTarget, {
+      threadId,
+      messageId: message.id,
+      role: message.role,
+      text: message.text.slice(0, 4000),
+      ...(message.context?.author ? { author: message.context.author } : {}),
+      ...(message.context?.agent ? { agent: message.context.agent } : {}),
+    });
+    scheduleComposerFocus();
+  };
   const addTerminalContextToDraft = (selection: TerminalContextSelection) => {
     composerRef.current?.addTerminalContext(selection);
   };
@@ -4639,8 +4622,6 @@ export default function ChatView(props: ChatViewProps) {
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
   }, [timelineThreadReset]);
-
-  useEffect(() => {}, [activeThread?.id]);
 
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
@@ -6706,11 +6687,10 @@ export default function ChatView(props: ChatViewProps) {
               : composerAttachmentsSnapshot[index]!.id,
           ),
         );
-        const title = truncate(
-          assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
-            composerAttachmentsSnapshot[0]?.name ||
-            "New thread",
-        );
+        const title = deriveThreadTitleSeed({
+          text: messageTextForSend,
+          attachments: composerAttachmentsSnapshot,
+        });
         promptRef.current = "";
         clearComposerDraftContent(composerDraftTarget);
         composerRef.current?.resetCursorState();
@@ -6952,32 +6932,33 @@ export default function ChatView(props: ChatViewProps) {
         }),
       );
     }
+    const sentDraftThreadRef = isLocalDraftThread
+      ? scopeThreadRef(environmentId, threadIdForSend)
+      : null;
+    // Keep new-thread flows from reusing this draft while attachments and worktree setup settle.
+    if (sentDraftThreadRef) markPromotedDraftThreadByRef(sentDraftThreadRef);
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
 
-    let firstComposerImageName: string | null = null;
-    if (composerImagesSnapshot.length > 0) {
-      const firstComposerImage = composerImagesSnapshot[0];
-      if (firstComposerImage) {
-        firstComposerImageName = firstComposerImage.name;
-      }
-    }
-    let titleSeed = assistantCitationsToPlainText(trimmed);
-    if (!titleSeed) {
-      if (firstComposerImageName) {
-        titleSeed = `Image: ${firstComposerImageName}`;
-      } else if (composerFilesSnapshot[0]) {
-        titleSeed = `File: ${composerFilesSnapshot[0].name}`;
-      } else if (composerTerminalContextsSnapshot.length > 0) {
-        titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
-      } else if (composerElementContextsSnapshot.length > 0) {
-        titleSeed = formatElementContextLabel(composerElementContextsSnapshot[0]!);
-      } else {
-        titleSeed = "New thread";
-      }
-    }
-    const title = truncate(titleSeed);
+    const title = deriveThreadTitleSeed({
+      text: messageTextForSend,
+      attachments: composerAttachmentsSnapshot,
+      fallbackLabels: [
+        composerElementContextsSnapshot[0]
+          ? formatElementContextLabel(composerElementContextsSnapshot[0])
+          : undefined,
+        composerTerminalContextsSnapshot[0]
+          ? formatTerminalContextLabel(composerTerminalContextsSnapshot[0])
+          : undefined,
+        composerReviewCommentsSnapshot[0]
+          ? `Review: ${reviewCommentContextLabel(composerReviewCommentsSnapshot[0])}`
+          : undefined,
+        composerPreviewAnnotationsSnapshot[0]
+          ? previewAnnotationContextLabel(composerPreviewAnnotationsSnapshot[0])
+          : undefined,
+      ],
+    });
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
       ctxSelectedModel || activeProjectDefaultModelSelection?.model || DEFAULT_MODEL,
@@ -7098,7 +7079,6 @@ export default function ChatView(props: ChatViewProps) {
         },
       });
       if (backgroundThreadRef) {
-        markPromotedDraftThreadByRef(backgroundThreadRef);
         try {
           backgroundDraftOpened = Boolean(
             await handleNewThread(
@@ -7132,12 +7112,15 @@ export default function ChatView(props: ChatViewProps) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();
-        if (backgroundThreadRef) {
+        // A draft still on screen finalizes once its thread route takes over.
+        if (sentDraftThreadRef) {
           if (backgroundDraftOpened || currentRouteThreadKeyRef.current !== routeThreadKey) {
-            finalizePromotedDraftThreadByRef(backgroundThreadRef);
+            finalizePromotedDraftThreadByRef(sentDraftThreadRef);
           } else {
-            clearBackgroundDraftSubmissionByRef(backgroundThreadRef);
+            clearBackgroundDraftSubmissionByRef(sentDraftThreadRef);
           }
+        }
+        if (backgroundThreadRef) {
           if (backgroundDraftOpened) {
             toastManager.add(
               stackedThreadToast({
@@ -7166,8 +7149,8 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     if (failure !== null) {
-      if (submissionIntent === "background" && draftId && draftThread) {
-        restoreFailedBackgroundDraftThread(
+      if (isLocalDraftThread && draftId && draftThread) {
+        restoreFailedDraftThread(
           draftId,
           draftThread,
           wasBootstrapThreadDeleted(squashAtomCommandFailure(failure))
@@ -7177,20 +7160,9 @@ export default function ChatView(props: ChatViewProps) {
         clearBackgroundDraftSubmissionByRef(scopeThreadRef(environmentId, threadIdForSend));
       }
       if (
-        backgroundDraftOpened
-          ? !composerDraftHasUserContent(
-              useComposerDraftStore.getState().getComposerDraft(composerDraftTarget),
-            )
-          : promptRef.current.length === 0 &&
-            composerImagesRef.current.length === 0 &&
-            composerFilesRef.current.length === 0 &&
-            composerTerminalContextsRef.current.length === 0 &&
-            (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)
-              ?.previewAnnotations.length ?? 0) === 0 &&
-            (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments
-              .length ?? 0) === 0 &&
-            (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.threadContexts
-              .length ?? 0) === 0
+        !composerDraftHasUserContent(
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget),
+        )
       ) {
         setOptimisticUserMessages((existing) => {
           const removed = existing.filter((message) => message.id === messageIdForSend);
@@ -7200,13 +7172,8 @@ export default function ChatView(props: ChatViewProps) {
           const next = existing.filter((message) => message.id !== messageIdForSend);
           return next.length === existing.length ? existing : next;
         });
-        promptRef.current = promptForSend;
         const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
-        composerImagesRef.current = retryComposerImages;
-        composerFilesRef.current = composerFilesSnapshot;
-        composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
-        composerElementContextsRef.current = composerElementContextsSnapshot;
-        setComposerDraftPrompt(composerDraftTarget, promptForSend);
+        setComposerDraftPrompt(composerDraftTarget, messageTextForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
         addComposerDraftFiles(composerDraftTarget, composerFilesSnapshot);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
@@ -7215,11 +7182,18 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
         setComposerDraftThreadContexts(composerDraftTarget, composerThreadContextsSnapshot);
         setComposerReplyTo(composerDraftTarget, composerReplyTo);
-        composerRef.current?.resetCursorState({
-          cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
-          prompt: promptForSend,
-          detectTrigger: true,
-        });
+        if (currentRouteThreadKeyRef.current === routeThreadKey) {
+          promptRef.current = messageTextForSend;
+          composerImagesRef.current = retryComposerImages;
+          composerFilesRef.current = composerFilesSnapshot;
+          composerElementContextsRef.current = composerElementContextsSnapshot;
+          composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
+          composerRef.current?.resetCursorState({
+            cursor: collapseExpandedComposerCursor(messageTextForSend, messageTextForSend.length),
+            prompt: messageTextForSend,
+            detectTrigger: true,
+          });
+        }
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
@@ -7227,11 +7201,17 @@ export default function ChatView(props: ChatViewProps) {
           threadIdForSend,
           error instanceof Error ? error.message : "Failed to send message.",
         );
-        if (backgroundDraftOpened && draftId) {
+        if (
+          draftId &&
+          (backgroundDraftOpened || currentRouteThreadKeyRef.current !== routeThreadKey)
+        ) {
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Background task failed",
+              title:
+                submissionIntent === "background"
+                  ? "Background task failed"
+                  : "Could not start thread",
               description: error instanceof Error ? error.message : "Failed to send message.",
               actionProps: {
                 children: "Open draft",

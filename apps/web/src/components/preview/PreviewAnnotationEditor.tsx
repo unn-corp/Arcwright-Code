@@ -5,7 +5,7 @@ import {
   type PreviewAnnotationElementTarget,
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useComposerDraftStore, type ComposerImageAttachment } from "~/composerDraftStore";
 import { useClientSettings } from "~/hooks/useSettings";
 import {
@@ -69,20 +69,14 @@ function PreviewAnnotationEditor({ session }: { session: PreviewAnnotationEditor
   const voiceBusy = voicePhase === "recording" || voicePhase === "transcribing";
   const ready = session.status === "ready";
   const annotation = ready ? session.annotation : null;
-  const update = useCallback(
-    (change: (annotation: PreviewAnnotationPayload) => PreviewAnnotationPayload) => {
-      usePreviewAnnotationEditorStore.getState().update(session.id, change);
-    },
-    [session.id],
-  );
-  const onTranscript = useCallback(
-    (text: string) =>
-      update((current) => ({
-        ...current,
-        comment: appendAnnotationTranscript(current.comment, text),
-      })),
-    [update],
-  );
+  const update = (change: (annotation: PreviewAnnotationPayload) => PreviewAnnotationPayload) => {
+    usePreviewAnnotationEditorStore.getState().update(session.id, change);
+  };
+  const onTranscript = (text: string) =>
+    update((current) => ({
+      ...current,
+      comment: appendAnnotationTranscript(current.comment, text),
+    }));
 
   useEffect(() => {
     const protectReload = (event: BeforeUnloadEvent) => {
@@ -99,7 +93,7 @@ function PreviewAnnotationEditor({ session }: { session: PreviewAnnotationEditor
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
-    try {
+    return await (async () => {
       const rendered = await renderAnnotationScreenshot({
         ...annotation,
         comment: annotation.comment.trim(),
@@ -132,14 +126,16 @@ function PreviewAnnotationEditor({ session }: { session: PreviewAnnotationEditor
         currentSender(rendered, image);
       else toastManager.add({ type: "success", title: "Annotation attached to draft" });
       usePreviewAnnotationEditorStore.getState().finish(session.id);
-    } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : "Could not attach the annotation. Try again.",
-      );
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
+    })()
+      .catch((error: unknown) => {
+        setSubmitError(
+          error instanceof Error ? error.message : "Could not attach the annotation. Try again.",
+        );
+      })
+      .finally(() => {
+        submittingRef.current = false;
+        setSubmitting(false);
+      });
   };
   const toggleElement = (target: PreviewAnnotationElementTarget) =>
     update((current) => {

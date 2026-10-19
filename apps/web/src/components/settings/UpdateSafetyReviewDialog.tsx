@@ -32,7 +32,7 @@ export function UpdateSafetyReviewDialog({
     if (!acknowledged) return;
     setBusy(true);
     setError(null);
-    try {
+    return await (async () => {
       const fresh = await controller.refresh();
       if (!bootstrap && !fresh.automationReviewRequired) {
         onClose();
@@ -42,11 +42,13 @@ export function UpdateSafetyReviewDialog({
         action: bootstrap ? "confirm-bootstrap" : "acknowledge-automation-review",
       });
       onClose();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "The review could not be recorded.");
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : "The review could not be recorded.");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   return (
     <Dialog

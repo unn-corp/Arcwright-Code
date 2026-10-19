@@ -59,7 +59,7 @@ import {
   type DraftThreadState,
 } from "../composerDraftStore";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadShells, environmentThreadDetails } from "../state/threads";
@@ -789,29 +789,16 @@ export function useThreadComposerSelection(
   } = input;
   const draft = useComposerDraftModelState(threadRef);
   const clearIntent = useComposerDraftStore((state) => state.clearModelSelectionIntent);
-  const selection = useMemo(
-    () =>
-      resolveThreadComposerSelection({
-        draft,
-        entries,
-        lockedProvider,
-        projectModelSelection,
-        providers,
-        serverThread,
-        settings,
-        threadModelSelection,
-      }),
-    [
-      draft,
-      entries,
-      lockedProvider,
-      projectModelSelection,
-      providers,
-      serverThread,
-      settings,
-      threadModelSelection,
-    ],
-  );
+  const selection = resolveThreadComposerSelection({
+    draft,
+    entries,
+    lockedProvider,
+    projectModelSelection,
+    providers,
+    serverThread,
+    settings,
+    threadModelSelection,
+  });
   useEffect(() => {
     // Forget an observed stale override so A -> B -> A cannot revive it.
     // Content and remembered defaults stay intact. The expected-base guard

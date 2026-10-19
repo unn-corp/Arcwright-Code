@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   OrganizationBindingId,
   ProjectId,
@@ -188,7 +188,7 @@ export function OrganizationIntentActivation({
     setBusy(true);
     setError(null);
     setSuccess(null);
-    try {
+    const operation = await settlePromise(async () => {
       const selection = {
         workflowId: selectedWorkflow.id,
         targetRef,
@@ -253,9 +253,9 @@ export function OrganizationIntentActivation({
         setSuccess(`Work ${result.value.workId} is queued.`);
         onActivated();
       }
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   return (

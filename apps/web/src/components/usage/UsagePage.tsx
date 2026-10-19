@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { ChatGptUsageButton } from "../settings/ChatGptUsageButton";
 import { usesChatGptSharing } from "@t3tools/shared/usageLimits";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -223,18 +222,14 @@ export function UsagePage() {
     activeEnvironmentId,
     limitsEnvironmentIds,
   );
-  const currentLimitsEnvironmentIds = useMemo(
-    () => new Set(limitsEnvironmentId === null ? [] : [limitsEnvironmentId]),
-    [limitsEnvironmentId],
+  const currentLimitsEnvironmentIds = new Set(
+    limitsEnvironmentId === null ? [] : [limitsEnvironmentId],
   );
   const selectedEnvironmentIds = showingLimits ? currentLimitsEnvironmentIds : usageEnvironmentIds;
   const setSelectedEnvironmentIds = showingLimits
     ? setLimitsEnvironmentIds
     : setUsageEnvironmentIds;
-  const hiddenProviders = useMemo(
-    () => new Set(preferences.hiddenProviders),
-    [preferences.hiddenProviders],
-  );
+  const hiddenProviders = new Set(preferences.hiddenProviders);
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const {

@@ -1,15 +1,7 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import type { Organization, OrganizationRoleId } from "@t3tools/contracts";
 import { GripIcon, Maximize2Icon, MinusIcon, PlusIcon } from "lucide-react";
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent,
-  type WheelEvent,
-} from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 
 import { cn } from "../../lib/utils";
 import { observeResize } from "../../lib/observeResize";
@@ -45,6 +37,38 @@ type PointerSession =
       readonly zoom: number;
     };
 
+function revealRole(
+  frame: HTMLDivElement | null,
+  position: Point,
+  setViewport: (update: (current: GraphViewport) => GraphViewport) => void,
+) {
+  if (!frame) return;
+  setViewport((current) => {
+    const margin = 12;
+    const left = current.x + position.x * current.zoom;
+    const top = current.y + position.y * current.zoom;
+    const width = NODE_WIDTH * current.zoom;
+    const height = NODE_HEIGHT * current.zoom;
+    const x =
+      width > frame.clientWidth - margin * 2
+        ? frame.clientWidth / 2 - (position.x + NODE_WIDTH / 2) * current.zoom
+        : left < margin
+          ? current.x + margin - left
+          : left + width > frame.clientWidth - margin
+            ? current.x + frame.clientWidth - margin - left - width
+            : current.x;
+    const y =
+      height > frame.clientHeight - margin * 2
+        ? frame.clientHeight / 2 - (position.y + NODE_HEIGHT / 2) * current.zoom
+        : top < margin
+          ? current.y + margin - top
+          : top + height > frame.clientHeight - margin
+            ? current.y + frame.clientHeight - margin - top - height
+            : current.y;
+    return x === current.x && y === current.y ? current : { ...current, x, y };
+  });
+}
+
 export function OrganizationGraphView({
   organization,
   selectedRoleId,
@@ -77,17 +101,17 @@ export function OrganizationGraphView({
     readonly roleId: OrganizationRoleId;
     readonly point: Point;
   } | null>(null);
-  const positions = useMemo(() => rolePositions(organization), [organization]);
-  const displayedPositions = useMemo(() => {
+  const positions = rolePositions(organization);
+  const displayedPositions = (() => {
     const next = new Map(positions);
     if (dragPreview !== null) next.set(dragPreview.roleId, dragPreview.point);
     return next;
-  }, [dragPreview, positions]);
-  const bounds = useMemo(() => roleBounds(displayedPositions), [displayedPositions]);
+  })();
+  const bounds = roleBounds(displayedPositions);
   const boundsRef = useRef(bounds);
   useEffect(() => {
     boundsRef.current = bounds;
-  }, [bounds]);
+  }, [bounds, boundsRef]);
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame || typeof ResizeObserver === "undefined") return;
@@ -98,7 +122,7 @@ export function OrganizationGraphView({
       size = next;
       setViewport(fitGraphViewport(boundsRef.current, next));
     });
-  }, []);
+  }, [boundsRef]);
   const normalizedSearch = search.trim().toLowerCase();
   const graphWidth = Math.max(1, bounds.maxX + NODE_WIDTH);
   const graphHeight = Math.max(1, bounds.maxY + NODE_HEIGHT);
@@ -139,14 +163,15 @@ export function OrganizationGraphView({
     } else {
       setViewport(fitted);
     }
-  }, [organization.id, organization.graph.roles, positions, selectedRoleId]);
+  }, [fittedOrganizationId, organization.id, organization.graph.roles, positions, selectedRoleId]);
 
   useEffect(() => {
     if (lastSelectedRoleId.current === selectedRoleId) return;
     lastSelectedRoleId.current = selectedRoleId;
     const selected = organization.graph.roles.find((role) => role.id === selectedRoleId);
     const position = selected ? positions.get(selected.id) : null;
-    if (position) revealRole(position);
+    if (!position) return;
+    revealRole(frameRef.current, position, setViewport);
   }, [organization.graph.roles, positions, selectedRoleId]);
 
   function zoomBy(factor: number, point?: Point) {
@@ -260,35 +285,6 @@ export function OrganizationGraphView({
     if (pointerSessionRef.current?.pointerId !== event.pointerId) return;
     pointerSessionRef.current = null;
     setDragPreview(null);
-  }
-
-  function revealRole(position: Point) {
-    const frame = frameRef.current;
-    if (!frame) return;
-    setViewport((current) => {
-      const margin = 12;
-      const left = current.x + position.x * current.zoom;
-      const top = current.y + position.y * current.zoom;
-      const width = NODE_WIDTH * current.zoom;
-      const height = NODE_HEIGHT * current.zoom;
-      const x =
-        width > frame.clientWidth - margin * 2
-          ? frame.clientWidth / 2 - (position.x + NODE_WIDTH / 2) * current.zoom
-          : left < margin
-            ? current.x + margin - left
-            : left + width > frame.clientWidth - margin
-              ? current.x + frame.clientWidth - margin - left - width
-              : current.x;
-      const y =
-        height > frame.clientHeight - margin * 2
-          ? frame.clientHeight / 2 - (position.y + NODE_HEIGHT / 2) * current.zoom
-          : top < margin
-            ? current.y + margin - top
-            : top + height > frame.clientHeight - margin
-              ? current.y + frame.clientHeight - margin - top - height
-              : current.y;
-      return x === current.x && y === current.y ? current : { ...current, x, y };
-    });
   }
 
   return (
@@ -466,7 +462,7 @@ export function OrganizationGraphView({
                   key={role.id}
                   data-role-node
                   data-role-id={role.id}
-                  onFocus={() => revealRole(position)}
+                  onFocus={() => revealRole(frameRef.current, position, setViewport)}
                   className={cn(
                     "absolute rounded-xl border bg-card shadow-sm",
                     selectedRoleId === role.id

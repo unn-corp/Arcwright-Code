@@ -37,7 +37,7 @@ export function usePermissionStatus<Id extends string>(
         return;
       }
       checking = true;
-      try {
+      return await (async () => {
         const next = await checkLatest(controller.signal);
         if (!disposed && !pending && isVisible()) {
           const stable =
@@ -50,19 +50,21 @@ export function usePermissionStatus<Id extends string>(
           setError(null);
           setFresh(true);
         }
-      } catch {
-        delay = 1_500;
-        previous = undefined;
-        if (!disposed) setError("Could not check permissions. We'll try again automatically.");
-      } finally {
-        checking = false;
-        if (!disposed && pending) {
-          pending = false;
-          void refresh();
-        } else {
-          schedule();
-        }
-      }
+      })()
+        .catch(() => {
+          delay = 1_500;
+          previous = undefined;
+          if (!disposed) setError("Could not check permissions. We'll try again automatically.");
+        })
+        .finally(() => {
+          checking = false;
+          if (!disposed && pending) {
+            pending = false;
+            void refresh();
+          } else {
+            schedule();
+          }
+        });
     };
     const refreshImmediately = () => {
       delay = 1_500;

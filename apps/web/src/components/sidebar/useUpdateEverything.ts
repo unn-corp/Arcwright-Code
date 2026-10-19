@@ -11,7 +11,11 @@ import { environmentUpdateStatesAtom } from "~/state/server";
 import { environmentSessionStatesAtom } from "~/state/session";
 import { getProviderUpdateRunOutcome } from "../ProviderUpdateLaunchNotification.logic";
 import { useProviderUpdates } from "../ProviderUpdatesAction";
-import { canUpdateServer, type ServerUpdateOutcome, useServerUpdate } from "../ServerUpdateAction";
+import {
+  canUpdateServer,
+  type ServerUpdateOutcome,
+  createServerUpdate,
+} from "../ServerUpdateAction";
 import {
   closeFinishedUpdateRun,
   collectRestartingMachines,
@@ -77,7 +81,7 @@ export function useUpdateEverything(localUpdateVersion: string | null) {
   ];
   const restarts = collectRestartingMachines(machines, servers, localUpdateVersion !== null);
   const providers = useProviderUpdates();
-  const updateServer = useServerUpdate();
+  const updateServer = createServerUpdate();
 
   const { summary, lines } = describeUpdateEverything({
     localVersion: localUpdateVersion,

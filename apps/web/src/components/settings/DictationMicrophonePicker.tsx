@@ -1,5 +1,6 @@
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { RefreshCwIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
@@ -38,21 +39,23 @@ export function DictationMicrophonePicker({
   const [isDetecting, setIsDetecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const mediaDevices = availableMediaDevices();
+  const displayedError = !mediaDevices?.enumerateDevices
+    ? "Microphone selection is unavailable on this device."
+    : errorMessage;
 
-  const refreshDeviceList = useCallback(async () => {
+  const refreshDeviceList = useStableCallback(() => {
     const available = availableMediaDevices();
-    if (!available?.enumerateDevices) {
-      setDevices([]);
-      setErrorMessage("Microphone selection is unavailable on this device.");
-      return;
-    }
-    try {
-      setDevices(await enumerateMicrophones(available));
-      setErrorMessage(null);
-    } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not list microphones.");
-    }
-  }, []);
+    if (!available?.enumerateDevices) return Promise.resolve();
+    return enumerateMicrophones(available).then(
+      (nextDevices) => {
+        setDevices(nextDevices);
+        setErrorMessage(null);
+      },
+      (error: unknown) => {
+        setErrorMessage(error instanceof Error ? error.message : "Could not list microphones.");
+      },
+    );
+  });
 
   useEffect(() => {
     void refreshDeviceList();
@@ -63,7 +66,7 @@ export function DictationMicrophonePicker({
     return () => available.removeEventListener("devicechange", handleDeviceChange);
   }, [refreshDeviceList]);
 
-  const detectMicrophones = useCallback(async () => {
+  const detectMicrophones = async () => {
     const available = availableMediaDevices();
     if (!available?.getUserMedia) {
       setErrorMessage("Microphone selection is unavailable on this device.");
@@ -74,38 +77,40 @@ export function DictationMicrophonePicker({
     setErrorMessage(null);
     let stream: MediaStream | null = null;
     let releaseUpdateHold: (() => void) | undefined;
-    try {
+    return await (async () => {
       releaseUpdateHold = await beginClientUpdateUpload();
       stream = await available.getUserMedia({ audio: true });
       setDevices(await enumerateMicrophones(available));
-    } catch (error: unknown) {
-      const description =
-        error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Allow microphone access, then try detecting microphones again."
-          : error instanceof Error
-            ? error.message
-            : "Could not detect microphones.";
-      setErrorMessage(description);
-      toastManager.add({
-        type: "error",
-        title: "Could not detect microphones",
-        description,
+    })()
+      .catch((error: unknown) => {
+        const description =
+          error instanceof DOMException && error.name === "NotAllowedError"
+            ? "Allow microphone access, then try detecting microphones again."
+            : error instanceof Error
+              ? error.message
+              : "Could not detect microphones.";
+        setErrorMessage(description);
+        toastManager.add({
+          type: "error",
+          title: "Could not detect microphones",
+          description,
+        });
+      })
+      .finally(() => {
+        for (const track of stream?.getTracks() ?? []) track.stop();
+        releaseUpdateHold?.();
+        setIsDetecting(false);
       });
-    } finally {
-      for (const track of stream?.getTracks() ?? []) track.stop();
-      releaseUpdateHold?.();
-      setIsDetecting(false);
-    }
-  }, []);
+  };
 
-  const selectedLabel = useMemo(() => {
+  const selectedLabel = (() => {
     if (value.length === 0) return "System default";
     const selectedIndex = devices.findIndex((device) => device.deviceId === value);
     const selectedDevice = devices[selectedIndex];
     return selectedDevice
       ? microphoneLabel(selectedDevice, selectedIndex)
       : "Selected microphone (unavailable)";
-  }, [devices, value]);
+  })();
   const selectedDeviceIsUnavailable =
     value.length > 0 && !devices.some((device) => device.deviceId === value);
 
@@ -154,9 +159,9 @@ export function DictationMicrophonePicker({
           Detect
         </Button>
       </div>
-      {errorMessage ? (
+      {displayedError ? (
         <p className="text-xs text-destructive" role="status">
-          {errorMessage}
+          {displayedError}
         </p>
       ) : null}
     </div>

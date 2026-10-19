@@ -66,11 +66,11 @@ export function AndroidParticipantProfileSync() {
     const refresh = async () => {
       if (reading || canceled) return;
       reading = true;
-      try {
+      return await (async () => {
         await (status.userId ? serializeProfilePhoto(status.userId, persist) : persist());
-      } finally {
+      })().finally(() => {
         reading = false;
-      }
+      });
     };
     void refresh().catch(() => console.error("Could not save participant profile"));
     const stopRefresh =

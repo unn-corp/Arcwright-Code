@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { MarkdownFindContext, findRevealRef } from "./chat/markdownFindContext";
 import {
   buildFileLinkParentSuffixByPath,
@@ -1426,11 +1425,11 @@ function ChatMarkdownImage(props: {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const autoRefreshAttempted = useRef(false);
   const { onRetry } = props;
-  const retry = useCallback(async () => {
+  const retry = async () => {
     if (!onRetry) return;
     await onRetry();
     setFailedSrc(null);
-  }, [onRetry]);
+  };
   const src = props.src ?? loadedSrc;
   const failed = props.sourceFailed === true || (src !== null && failedSrc === src);
   const settled = src !== null && !failed && (!props.standalone || loadedSrc !== null);

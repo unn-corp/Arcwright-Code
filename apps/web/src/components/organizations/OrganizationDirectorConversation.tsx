@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   OrganizationDirectorRequestId,
   type Organization,
@@ -114,10 +114,11 @@ export function OrganizationDirectorConversation({
     (left, right) => left.sequence - right.sequence,
   );
 
+  const listRefresh = list.refresh;
   useEffect(() => {
-    if (wasOffline.current && !offline) list.refresh();
+    if (wasOffline.current && !offline) listRefresh();
     wasOffline.current = offline;
-  }, [offline, list.refresh]);
+  }, [offline, listRefresh]);
 
   function changeScope(value: string) {
     setSelectedProjectId(value);
@@ -132,7 +133,7 @@ export function OrganizationDirectorConversation({
     setSending(true);
     setError(null);
     setNotice(null);
-    try {
+    const operation = await settlePromise(async () => {
       const result = await ask({
         environmentId,
         input: {
@@ -157,9 +158,9 @@ export function OrganizationDirectorConversation({
       setPageCursor(afterSequence);
       setPreviousCursors([]);
       list.refresh();
-    } finally {
-      setSending(false);
-    }
+    });
+    setSending(false);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   function nextPage() {

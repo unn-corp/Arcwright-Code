@@ -1,5 +1,5 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
   Organization,
   OrganizationBindingAccess,
@@ -102,7 +102,7 @@ export function OrganizationGovernance({
     setDrainBusy(true);
     setDrainError(null);
     setDrainNotice(null);
-    try {
+    const operation = await settlePromise(async () => {
       const result = await requestDrain({
         environmentId,
         input: { organizationId: organization.id, requestId: drainRequestId.current },
@@ -119,9 +119,9 @@ export function OrganizationGovernance({
         drain.refresh();
         onRefresh();
       }
-    } finally {
-      setDrainBusy(false);
-    }
+    });
+    setDrainBusy(false);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
   const audit = useEnvironmentQuery(
     environmentId === null

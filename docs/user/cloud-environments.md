@@ -143,7 +143,7 @@ a fresh task; an existing task retains its own state.
 In the Cloud setup conversation, ask Codex to prepare the tools with this prompt:
 
 ```text
-Prepare this repository for ordinary T3 Codex chats inside cloud tasks.
+Prepare this repository for ordinary Arcwright Codex chats inside cloud tasks.
 Keep the repository's existing setup. Install Python 3, curl or wget, tar,
 and sha256sum or shasum. Install Codex CLI using its supported installer.
 Install Claude Code only if the user explicitly requested it for this environment.

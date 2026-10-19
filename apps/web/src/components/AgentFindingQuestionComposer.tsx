@@ -8,7 +8,7 @@ import {
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import { ChevronDownIcon, MessageCircleQuestionIcon, MicIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { cn } from "../lib/utils";
 import type { AppModelOption } from "../modelSelection";
@@ -86,24 +86,20 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
   const runtimeModeOption = RUNTIME_MODE_PRESENTATION[runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
 
-  useEffect(() => {
-    if (
-      selectedProviderEntry?.enabled &&
-      selectedProviderEntry.isAvailable &&
-      modelSelection.model.trim().length > 0
-    ) {
-      return;
-    }
+  if (
+    (!selectedProviderEntry?.enabled ||
+      !selectedProviderEntry.isAvailable ||
+      modelSelection.model.trim().length === 0) &&
+    (modelSelection.instanceId !== initialModelSelection.instanceId ||
+      modelSelection.model !== initialModelSelection.model)
+  ) {
     setModelSelection(initialModelSelection);
-  }, [initialModelSelection, modelSelection.model, selectedProviderEntry]);
+  }
 
-  const handleVoicePhaseChange = useCallback(
-    (phase: VoiceInputPhase) => {
-      setVoiceInputPhase(phase);
-      onVoiceActivityChange(findingId, phase === "recording" || phase === "transcribing");
-    },
-    [findingId, onVoiceActivityChange],
-  );
+  const handleVoicePhaseChange = (phase: VoiceInputPhase) => {
+    setVoiceInputPhase(phase);
+    onVoiceActivityChange(findingId, phase === "recording" || phase === "transcribing");
+  };
 
   useEffect(
     () => () => {

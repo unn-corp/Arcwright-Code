@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { androidAuthStore } from "../../android/connectAuth";
 import { ManagedAuthContext } from "../../auth/managedAuthContext";
 import { ManagedRelayAuthProvider } from "../../cloud/managedAuth";
@@ -15,26 +15,23 @@ export default function AndroidManagedAuthShell({
   useEffect(() => {
     androidAuthStore.start();
   }, []);
-  const value = useMemo(
-    () => ({
-      surface: "android" as const,
-      isLoaded:
-        status.phase === "signedIn" || status.phase === "signedOut" || status.phase === "signingIn",
-      isSignedIn: status.phase === "signedIn",
-      userId: status.userId,
-      sessionId: status.sessionId,
-      generation: status.generation,
-      error: status.error,
-      isSigningIn: status.phase === "signingIn",
-      isUnavailable: !status.available,
-      getRelayToken: (forceRefresh = false) => androidAuthStore.getRelayToken(forceRefresh, status),
-      setProfilePhoto: (photo: string | null) => androidAuthStore.setProfilePhoto(photo, status),
-      openSignIn: androidAuthStore.signIn,
-      signOut: androidAuthStore.signOut,
-      openAccountPages: null,
-    }),
-    [status],
-  );
+  const value = {
+    surface: "android" as const,
+    isLoaded:
+      status.phase === "signedIn" || status.phase === "signedOut" || status.phase === "signingIn",
+    isSignedIn: status.phase === "signedIn",
+    userId: status.userId,
+    sessionId: status.sessionId,
+    generation: status.generation,
+    error: status.error,
+    isSigningIn: status.phase === "signingIn",
+    isUnavailable: !status.available,
+    getRelayToken: (forceRefresh = false) => androidAuthStore.getRelayToken(forceRefresh, status),
+    setProfilePhoto: (photo: string | null) => androidAuthStore.setProfilePhoto(photo, status),
+    openSignIn: androidAuthStore.signIn,
+    signOut: androidAuthStore.signOut,
+    openAccountPages: null,
+  };
   return (
     <ManagedAuthContext value={value}>
       <AndroidParticipantProfileSync />

@@ -15,7 +15,7 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import {
   buildNativeAgentFeedFromDurableCards,
@@ -170,29 +170,28 @@ export function AgentDashboardUpdates({
   });
   const [expanded, setExpanded] = useState(false);
   const [dismissingId, setDismissingId] = useState<string | null>(null);
-  const updates = useMemo(
-    () =>
-      dashboardSnapshot.data === null || dashboardSnapshot.environmentId === null
-        ? []
-        : buildNativeAgentFeedFromDurableCards(
-            dashboardSnapshot.data.externalFeed,
-            dashboardSnapshot.environmentId,
-            projects,
-            threads,
-          ),
-    [dashboardSnapshot.data, dashboardSnapshot.environmentId, projects, threads],
-  );
+  const updates =
+    dashboardSnapshot.data === null || dashboardSnapshot.environmentId === null
+      ? []
+      : buildNativeAgentFeedFromDurableCards(
+          dashboardSnapshot.data.externalFeed,
+          dashboardSnapshot.environmentId,
+          projects,
+          threads,
+        );
   const visibleUpdates = expanded ? updates : updates.slice(0, COLLAPSED_UPDATE_COUNT);
 
   const dismissUpdate = async (item: NativeAgentFeedItem) => {
     if (!item.durableCard || dashboardSnapshot.environmentId === null || dismissingId !== null) {
       return;
     }
+    const environmentId = dashboardSnapshot.environmentId;
+    const durableCard = item.durableCard;
     setDismissingId(item.id);
-    try {
+    return await (async () => {
       const result = await dismissFeedCard({
-        environmentId: dashboardSnapshot.environmentId,
-        input: { id: item.durableCard.id },
+        environmentId,
+        input: { id: durableCard.id },
       });
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
@@ -208,9 +207,9 @@ export function AgentDashboardUpdates({
         return;
       }
       await dashboardSnapshot.refresh();
-    } finally {
+    })().finally(() => {
       setDismissingId(null);
-    }
+    });
   };
 
   const openAction = (action: AgentDashboardFeedAction, item: NativeAgentFeedItem) => {

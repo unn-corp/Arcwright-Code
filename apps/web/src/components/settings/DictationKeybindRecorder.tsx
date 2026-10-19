@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
@@ -55,7 +56,9 @@ export function DictationKeybindRecorder({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingValue, setRecordingValue] = useState<string | null>(null);
   const onValueChangeRef = useRef(onValueChange);
-  onValueChangeRef.current = onValueChange;
+  useLayoutEffect(() => {
+    onValueChangeRef.current = onValueChange;
+  }, [onValueChange]);
 
   useEffect(() => {
     if (!isRecording) return;

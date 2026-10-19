@@ -6,7 +6,7 @@ import {
   ListChecksIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -46,27 +46,29 @@ export function AgentDashboardSidebarButton() {
     pathname === "/agent-dashboard" || pathname.startsWith("/agent-dashboard/");
   const [isExpanded, setIsExpanded] = useState(isAgentDashboardRoute);
 
-  useEffect(() => {
+  const [expandedRoute, setExpandedRoute] = useState(isAgentDashboardRoute);
+  if (expandedRoute !== isAgentDashboardRoute) {
+    setExpandedRoute(isAgentDashboardRoute);
     setIsExpanded(isAgentDashboardRoute);
-  }, [isAgentDashboardRoute]);
+  }
 
-  const closeMobileSidebar = useCallback(() => {
+  const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
     }
-  }, [isMobile, setOpenMobile]);
+  };
 
-  const openDashboard = useCallback(() => {
+  const openDashboard = () => {
     setIsExpanded(true);
     closeMobileSidebar();
     void navigate({ to: "/agent-dashboard" });
-  }, [closeMobileSidebar, navigate]);
+  };
 
-  const toggleExpanded = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+  const toggleExpanded = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     setIsExpanded((expanded) => !expanded);
-  }, []);
+  };
 
   return (
     <SidebarMenuItem data-agent-dashboard-sidebar-item>

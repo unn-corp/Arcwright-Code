@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useLayoutEffect } from "react";
+
 ("use client");
 
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -168,7 +169,9 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   // Kept in sync so the title effect can depend on the stable thread key
   // instead of the thread object, which is recreated on every update.
   const threadRefRef = useRef(threadRef);
-  threadRefRef.current = threadRef;
+  useLayoutEffect(() => {
+    threadRefRef.current = threadRef;
+  }, [threadRef]);
   const pickActiveRef = useRef<{ cancelled: boolean } | null>(null);
   const isMountedRef = useRef(true);
   const previewState = useThreadPreviewState(threadRef);
@@ -773,76 +776,73 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
    * under the point instead, and the answer is assembled into the same
    * annotation the composer already understands.
    */
-  const handleRemotePick = useCallback(
-    (point: { readonly x: number; readonly y: number }) => {
-      if (!tabId) return;
-      setPickActive(false);
-      void (async () => {
-        const result = await pickElement({
-          environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId, tabId, x: point.x, y: point.y },
-        });
-        if (result._tag === "Failure") return;
-        const picked = result.value.picked;
-        if (!picked) return;
-        const pickedAt = new Date().toISOString();
-        addPreviewAnnotation(threadRef, {
-          id: `remote-pick-${pickedAt}`,
-          pageUrl: picked.pageUrl,
-          pageTitle: picked.pageTitle,
-          comment: "",
-          elements: [
-            {
-              id: `element-${pickedAt}`,
-              element: {
-                pageUrl: picked.pageUrl,
-                pageTitle: picked.pageTitle,
-                tagName: picked.tagName,
-                selector: picked.selector,
-                htmlPreview: picked.htmlPreview,
-                // Only the desktop's injected runtime can resolve React
-                // component and source data; absent is honest, invented is not.
-                componentName: null,
-                source: null,
-                stack: [],
-                styles: picked.styles,
-                pickedAt,
-              },
-              rect: picked.rect,
+  const handleRemotePick = (point: { readonly x: number; readonly y: number }) => {
+    if (!tabId) return;
+    setPickActive(false);
+    void (async () => {
+      const result = await pickElement({
+        environmentId: threadRef.environmentId,
+        input: { threadId: threadRef.threadId, tabId, x: point.x, y: point.y },
+      });
+      if (result._tag === "Failure") return;
+      const picked = result.value.picked;
+      if (!picked) return;
+      const pickedAt = new Date().toISOString();
+      addPreviewAnnotation(threadRef, {
+        id: `remote-pick-${pickedAt}`,
+        pageUrl: picked.pageUrl,
+        pageTitle: picked.pageTitle,
+        comment: "",
+        elements: [
+          {
+            id: `element-${pickedAt}`,
+            element: {
+              pageUrl: picked.pageUrl,
+              pageTitle: picked.pageTitle,
+              tagName: picked.tagName,
+              selector: picked.selector,
+              htmlPreview: picked.htmlPreview,
+              // Only the desktop's injected runtime can resolve React
+              // component and source data; absent is honest, invented is not.
+              componentName: null,
+              source: null,
+              stack: [],
+              styles: picked.styles,
+              pickedAt,
             },
-          ],
-          regions: [],
-          strokes: [],
-          styleChanges: [],
-          screenshot: result.value.screenshot
-            ? {
-                dataUrl: `data:image/jpeg;base64,${result.value.screenshot}`,
-                width: picked.rect.width,
-                height: picked.rect.height,
-                cropRect: picked.rect,
-              }
-            : null,
-          createdAt: pickedAt,
-        });
-      })();
-    },
-    [addPreviewAnnotation, pickElement, tabId, threadRef],
-  );
+            rect: picked.rect,
+          },
+        ],
+        regions: [],
+        strokes: [],
+        styleChanges: [],
+        screenshot: result.value.screenshot
+          ? {
+              dataUrl: `data:image/jpeg;base64,${result.value.screenshot}`,
+              width: picked.rect.width,
+              height: picked.rect.height,
+              cropRect: picked.rect,
+            }
+          : null,
+        createdAt: pickedAt,
+      });
+    })();
+  };
 
-  const handlePickElement = useCallback(() => {
+  const handlePickElement = () => {
     if (!previewBridge || !runtimeTabId) return;
     const editor = usePreviewAnnotationEditorStore.getState();
     const id = editor.begin(threadRef, runtimeTabId);
     if (!id) return;
     void (async () => {
-      try {
+      return await (async () => {
         if (!previewBridge.captureAnnotationSnapshot)
           throw new Error("Update the desktop app to capture annotation snapshots.");
         const snapshot = await previewBridge.captureAnnotationSnapshot(runtimeTabId);
         // The snapshot belongs to the original thread and capture, even if the
         // panel, tab, or live page changes before this request returns.
         usePreviewAnnotationEditorStore.getState().complete(id, snapshot);
-      } catch (error) {
+      })().catch((error: unknown) => {
         usePreviewAnnotationEditorStore
           .getState()
           .fail(
@@ -851,9 +851,9 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
               ? error.message
               : "Could not capture the page. Close this annotation and try again.",
           );
-      }
+      });
     })();
-  }, [runtimeTabId, threadRef]);
+  };
 
   // Subscribe only while visible; `toggle-panel` is owned by ChatView's
   // URL-aware handler regardless of whether the panel is currently mounted.

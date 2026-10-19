@@ -31,16 +31,18 @@ export function AndroidNotificationSettings() {
   ) => {
     setBusy(true);
     setMessage(null);
-    try {
+    return await (async () => {
       const next = await androidNotificationRequest(action, payload);
       setStatus(next);
       return next;
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update notifications.");
-      return null;
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((error: unknown) => {
+        setMessage(error instanceof Error ? error.message : "Could not update notifications.");
+        return null;
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   return (
     <SettingsSection {...searchableSetting("notifications")}>

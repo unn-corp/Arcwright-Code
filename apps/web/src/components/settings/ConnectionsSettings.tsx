@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { LocalConnectCleanup } from "./LocalConnectCleanup";
 import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
 import { HostMaintenanceStatus } from "./HostMaintenanceStatus";
@@ -2791,14 +2790,11 @@ export function ConnectionsSettings() {
     setSavedBackendHost(value);
   };
   const closePairingScanner = () => setIsScanningPairingQr(false);
-  const handlePairingQrScan = useCallback(
-    (url: string) => {
-      handleSavedBackendHostChange(url);
-      setSavedBackendError(null);
-      setIsScanningPairingQr(false);
-    },
-    [handleSavedBackendHostChange],
-  );
+  const handlePairingQrScan = (url: string) => {
+    handleSavedBackendHostChange(url);
+    setSavedBackendError(null);
+    setIsScanningPairingQr(false);
+  };
 
   const renderConnectionModeCard = (input: {
     readonly mode: "remote" | "ssh";

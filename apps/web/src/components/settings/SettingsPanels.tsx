@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { ParticipantProfileSettings } from "./ParticipantProfileSettings";
 import { ClientBuildIdentity } from "./ClientBuildIdentity";
 import { AppUpdateSettings } from "./AppUpdateSettings";
@@ -1620,7 +1619,7 @@ export function GeneralSettingsPanel() {
   const hasServerTargets = connectedEnvironments.length > 0;
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const notificationPreferences = useClientSettings((value) => value.agentNotifications);
-  const sendNotificationTest = useCallback(() => {
+  const sendNotificationTest = () => {
     const bridge = window.desktopBridge;
     if (!bridge || typeof bridge.showAgentNotification !== "function") return;
 
@@ -1657,21 +1656,18 @@ export function GeneralSettingsPanel() {
         );
       }
     });
-  }, [notificationPreferences.playSound, notificationPreferences.sounds]);
-  const setNotificationSound = useCallback(
-    (kind: AgentNotificationKind, soundId: AgentNotificationSoundId) => {
-      updateClientSettings({
-        agentNotifications: {
-          ...notificationPreferences,
-          sounds: { ...notificationPreferences.sounds, [kind]: soundId },
-        },
-      });
-      // Play the new choice immediately: picking a sound you cannot hear is
-      // guesswork, and this is the only place it is auditioned in context.
-      playAgentNotificationSoundId(soundId);
-    },
-    [notificationPreferences, updateClientSettings],
-  );
+  };
+  const setNotificationSound = (kind: AgentNotificationKind, soundId: AgentNotificationSoundId) => {
+    updateClientSettings({
+      agentNotifications: {
+        ...notificationPreferences,
+        sounds: { ...notificationPreferences.sounds, [kind]: soundId },
+      },
+    });
+    // Play the new choice immediately: picking a sound you cannot hear is
+    // guesswork, and this is the only place it is auditioned in context.
+    playAgentNotificationSoundId(soundId);
+  };
   const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),

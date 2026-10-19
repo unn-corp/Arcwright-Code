@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { OrganizationId } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -59,12 +59,13 @@ export function OrganizationsPage() {
 
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (unavailable || organizations.environmentId === null || !title.trim() || isCreating) return;
+    const environmentId = organizations.environmentId;
+    if (unavailable || environmentId === null || !title.trim() || isCreating) return;
     setIsCreating(true);
     setActionError(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await create({
-        environmentId: organizations.environmentId,
+        environmentId,
         input: {
           organizationId: OrganizationId.make(randomUUID()),
           mutationId: randomUUID(),
@@ -84,9 +85,10 @@ export function OrganizationsPage() {
         to: "/organizations/$organizationId",
         params: { organizationId: result.value.id },
       });
-    } finally {
-      setIsCreating(false);
-    }
+    });
+    setIsCreating(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (

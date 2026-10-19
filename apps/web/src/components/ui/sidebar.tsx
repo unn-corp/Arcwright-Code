@@ -122,13 +122,13 @@ function SidebarProvider({
   const [mobileSheetVisible, setMobileSheetVisible] = React.useState(false);
   // A keepMounted popup remains in the DOM while closed. Track its visible
   // lifetime so the floating trigger returns after the closing transition.
-  const setOpenMobile = React.useCallback((open: boolean) => {
+  const setOpenMobile = (open: boolean) => {
     if (open) setMobileSheetVisible(true);
     setOpenMobileState(open);
-  }, []);
-  const setMobileSheetElement = React.useCallback((element: HTMLDivElement | null) => {
+  };
+  const setMobileSheetElement = (element: HTMLDivElement | null) => {
     if (element === null) setMobileSheetVisible(false);
-  }, []);
+  };
 
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
@@ -892,10 +892,7 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) {
-  // Random width between 50 to 90%. Intentionally wrapped in useMemo to avoid changing width on every render.
-  const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`;
-  }, []);
+  const [width] = React.useState(() => `${Math.floor(Math.random() * 40) + 50}%`);
 
   return (
     <div

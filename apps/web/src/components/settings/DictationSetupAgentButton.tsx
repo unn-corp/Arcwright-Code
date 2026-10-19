@@ -2,7 +2,7 @@ import { BotIcon, LoaderIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { resolveAppModelSelectionState } from "../../modelSelection";
 import { newMessageId, newThreadId } from "../../lib/utils";
@@ -29,16 +29,12 @@ export function DictationSetupAgentButton() {
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const [isStarting, setIsStarting] = useState(false);
 
-  const setupProject = useMemo(
-    () =>
-      primaryEnvironment
-        ? projects.find((project) => project.environmentId === primaryEnvironment.environmentId)
-        : undefined,
-    [primaryEnvironment, projects],
-  );
+  const setupProject = primaryEnvironment
+    ? projects.find((project) => project.environmentId === primaryEnvironment.environmentId)
+    : undefined;
   const canStart = primaryEnvironment !== null && setupProject !== undefined;
 
-  const startSetupAgent = useCallback(async () => {
+  const startSetupAgent = async () => {
     if (!primaryEnvironment || !setupProject || isStarting) {
       if (!primaryEnvironment || !setupProject) {
         toastManager.add(
@@ -121,15 +117,7 @@ export function DictationSetupAgentButton() {
       to: "/$environmentId/$threadId",
       params: { environmentId, threadId },
     });
-  }, [
-    isStarting,
-    navigate,
-    primaryEnvironment,
-    serverProviders,
-    settings,
-    setupProject,
-    startThreadTurn,
-  ]);
+  };
 
   return (
     <Button

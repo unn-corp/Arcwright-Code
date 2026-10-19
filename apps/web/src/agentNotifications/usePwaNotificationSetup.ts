@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { registerPwaServiceWorker } from "../pwa";
 import { getExistingBrowserPushSubscription } from "./browserNotifications";
@@ -22,11 +22,11 @@ export function usePwaNotificationSetup() {
   const [setupState, setSetupState] = useState<PwaNotificationSetupState>("loading");
   const [hasBrowserSubscription, setHasBrowserSubscription] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const retry = useCallback(() => {
+  const retry = () => {
     setVapidPublicKey(null);
     setSetupState("loading");
     setAttempt((value) => value + 1);
-  }, []);
+  };
 
   useEffect(() => {
     let cancelled = false;

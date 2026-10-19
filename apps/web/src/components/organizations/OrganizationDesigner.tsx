@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   type Organization,
   type OrganizationChange,
@@ -411,7 +412,7 @@ export function OrganizationDesigner({
           onSave={async (role) => {
             if (savingRef.current) return false;
             savingRef.current = true;
-            try {
+            const operation = await settlePromise(async () => {
               if (employee.id && !organization.graph.roles.some((item) => item.id === employee.id))
                 return false;
               const saved = await applyDesignerChange(
@@ -446,9 +447,10 @@ export function OrganizationDesigner({
                 setEmployee(null);
               }
               return saved;
-            } finally {
-              savingRef.current = false;
-            }
+            });
+            savingRef.current = false;
+            if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
+            return operation.value;
           }}
         />
       ) : null}

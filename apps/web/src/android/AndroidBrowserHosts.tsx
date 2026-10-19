@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   type EnvironmentId,
@@ -49,13 +49,9 @@ const OPERATIONS: NonNullable<PreviewAutomationHost["supportedOperations"]> = [
 
 export function AndroidBrowserHosts() {
   const { isReady, environments } = useEnvironments();
-  const ids = useMemo(
-    () =>
-      environments
-        .filter((environment) => environment.entry.enabled)
-        .map((environment) => environment.environmentId),
-    [environments],
-  );
+  const ids = environments
+    .filter((environment) => environment.entry.enabled)
+    .map((environment) => environment.environmentId);
   const key = JSON.stringify(ids);
   useEffect(() => {
     if (!isReady || !supportsAndroidBrowser()) return;
@@ -79,10 +75,7 @@ function PhoneBrowserHost({ environmentId }: { readonly environmentId: Environme
   const [clientId] = useState(createPreviewAutomationClientId);
   const [connectionAtom] = useState(() => Atom.make<string | null>(null));
   const connectionId = useAtomValue(connectionAtom);
-  const host = useMemo<PreviewAutomationHost>(
-    () => ({ clientId, environmentId, supportedOperations: OPERATIONS }),
-    [clientId, environmentId],
-  );
+  const host = { clientId, environmentId, supportedOperations: OPERATIONS };
   const requests = previewEnvironment.automationRequests({ environmentId, input: host });
   const events = previewEnvironment.events({ environmentId, input: {} });
   const list = useAtomQueryRunner(previewEnvironment.list, { reportFailure: false });
@@ -113,172 +106,161 @@ function PhoneBrowserHost({ environmentId }: { readonly environmentId: Environme
   );
 
   // Subscribe to each close event, including tabs whose thread is no longer on screen.
-  const lifecycle = useMemo(
-    () =>
-      Atom.make((get) => {
-        get.subscribe(events, (result) => {
-          if (!AsyncResult.isSuccess(result) || result.value.type !== "closed") return;
-          const event = result.value;
-          for (const [key, tab] of Object.entries(useAndroidBrowserTabs.getState().tabs)) {
-            if (
-              tab.environmentId === environmentId &&
-              tab.threadId === event.threadId &&
-              tab.tabId === event.tabId
-            )
-              void closeAndroidBrowserTab(key).catch(() => {});
-          }
-        });
-      }).pipe(Atom.setIdleTTL(0)),
-    [environmentId, events],
-  );
+  const lifecycle = Atom.make((get) => {
+    get.subscribe(events, (result) => {
+      if (!AsyncResult.isSuccess(result) || result.value.type !== "closed") return;
+      const event = result.value;
+      for (const [key, tab] of Object.entries(useAndroidBrowserTabs.getState().tabs)) {
+        if (
+          tab.environmentId === environmentId &&
+          tab.threadId === event.threadId &&
+          tab.tabId === event.tabId
+        )
+          void closeAndroidBrowserTab(key).catch(() => {});
+      }
+    });
+  }).pipe(Atom.setIdleTTL(0));
   useAtomValue(lifecycle);
 
-  const handle = useCallback(
-    async (request: PreviewAutomationRequest): Promise<unknown> => {
-      const threadRef = { environmentId, threadId: ThreadId.make(request.threadId) };
-      const listed = await list({ environmentId, input: { threadId: threadRef.threadId } });
-      if (listed._tag === "Failure") throw squashAtomCommandFailure(listed);
-      reconcilePreviewServerSessions(threadRef, listed.value);
-      let state = readThreadPreviewState(threadRef);
-      let tabId = request.tabId ?? state.activeTabId;
-      let snapshot = tabId ? state.sessions[tabId] : undefined;
-      const input = request.input;
-      if (request.operation === "open") {
-        const options = input as PreviewAutomationOpenInput;
-        if (options.reuseExistingTab === false) snapshot = undefined;
-        if (!snapshot) {
-          const result = await open({
-            environmentId,
-            input: {
-              threadId: threadRef.threadId,
-              ...(options.url
-                ? {
-                    url: normalizePreviewUrl(options.url),
-                    shareLocalhost: phoneBrowserShareRequired(environmentId, options.url),
-                  }
-                : {}),
-              viewport: { _tag: "fill" },
-              profileId: "default",
-            },
-          });
-          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-          snapshot = result.value;
-          applyPreviewServerSnapshot(threadRef, snapshot);
-          tabId = snapshot.tabId;
-        }
+  const handle = async (request: PreviewAutomationRequest): Promise<unknown> => {
+    const threadRef = { environmentId, threadId: ThreadId.make(request.threadId) };
+    const listed = await list({ environmentId, input: { threadId: threadRef.threadId } });
+    if (listed._tag === "Failure") throw squashAtomCommandFailure(listed);
+    reconcilePreviewServerSessions(threadRef, listed.value);
+    let state = readThreadPreviewState(threadRef);
+    let tabId = request.tabId ?? state.activeTabId;
+    let snapshot = tabId ? state.sessions[tabId] : undefined;
+    const input = request.input;
+    if (request.operation === "open") {
+      const options = input as PreviewAutomationOpenInput;
+      if (options.reuseExistingTab === false) snapshot = undefined;
+      if (!snapshot) {
+        const result = await open({
+          environmentId,
+          input: {
+            threadId: threadRef.threadId,
+            ...(options.url
+              ? {
+                  url: normalizePreviewUrl(options.url),
+                  shareLocalhost: phoneBrowserShareRequired(environmentId, options.url),
+                }
+              : {}),
+            viewport: { _tag: "fill" },
+            profileId: "default",
+          },
+        });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        snapshot = result.value;
+        applyPreviewServerSnapshot(threadRef, snapshot);
+        tabId = snapshot.tabId;
       }
-      if (!snapshot || !tabId) {
-        if (request.operation === "status")
-          return {
-            available: true,
-            visible: false,
-            tabId: null,
-            url: null,
-            title: null,
-            loading: false,
-          } satisfies PreviewAutomationStatus;
-        throw new Error("Open a phone browser tab first.");
-      }
-      state = readThreadPreviewState(threadRef);
-      const key = androidBrowserKey(
-        environmentId,
-        state.serverEpoch,
-        threadRef.threadId,
-        snapshot.tabId,
-      );
-      const url = snapshot.navStatus._tag === "Idle" ? "about:blank" : snapshot.navStatus.url;
-      await androidBrowserRequest("ensure", {
-        key,
-        ...threadRef,
-        serverEpoch: state.serverEpoch,
-        tabId: snapshot.tabId,
-        url,
-      });
-      if (request.operation === "open") {
-        const options = input as PreviewAutomationOpenInput;
-        if (options.open !== false && options.show !== false)
-          useRightPanelStore.getState().openBrowser(threadRef, snapshot.tabId);
-        if (options.url) {
-          const result = await serverNavigate({
-            environmentId,
-            input: {
-              threadId: threadRef.threadId,
-              tabId,
-              url: normalizePreviewUrl(options.url),
-              shareLocalhost: phoneBrowserShareRequired(environmentId, options.url),
-            },
-          });
-          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-          const nav = result.value.navStatus;
-          await androidBrowserRequest("command", {
-            key,
-            operation: "navigate",
-            input: { url: nav._tag === "Idle" ? "about:blank" : nav.url, readiness: "none" },
-          });
-        }
-        return await androidBrowserRequest("command", { key, operation: "status" });
-      }
-      if (request.operation === "navigate") {
-        const options = input as PreviewAutomationNavigateInput;
-        const target = options.target ?? { kind: "url" as const, url: options.url! };
-        const requestedUrl = phoneBrowserTargetUrl(target);
+    }
+    if (!snapshot || !tabId) {
+      if (request.operation === "status")
+        return {
+          available: true,
+          visible: false,
+          tabId: null,
+          url: null,
+          title: null,
+          loading: false,
+        } satisfies PreviewAutomationStatus;
+      throw new Error("Open a phone browser tab first.");
+    }
+    state = readThreadPreviewState(threadRef);
+    const key = androidBrowserKey(
+      environmentId,
+      state.serverEpoch,
+      threadRef.threadId,
+      snapshot.tabId,
+    );
+    const url = snapshot.navStatus._tag === "Idle" ? "about:blank" : snapshot.navStatus.url;
+    await androidBrowserRequest("ensure", {
+      key,
+      ...threadRef,
+      serverEpoch: state.serverEpoch,
+      tabId: snapshot.tabId,
+      url,
+    });
+    if (request.operation === "open") {
+      const options = input as PreviewAutomationOpenInput;
+      if (options.open !== false && options.show !== false)
+        useRightPanelStore.getState().openBrowser(threadRef, snapshot.tabId);
+      if (options.url) {
         const result = await serverNavigate({
           environmentId,
           input: {
             threadId: threadRef.threadId,
             tabId,
-            url: requestedUrl,
-            shareLocalhost: phoneBrowserShareRequired(environmentId, requestedUrl),
+            url: normalizePreviewUrl(options.url),
+            shareLocalhost: phoneBrowserShareRequired(environmentId, options.url),
           },
         });
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         const nav = result.value.navStatus;
-        const resolved = {
-          requestedUrl,
-          resolvedUrl: nav._tag === "Idle" ? "about:blank" : nav.url,
-          environmentId,
-          resolutionKind:
-            nav._tag !== "Idle" && nav.url === requestedUrl
-              ? ("direct" as const)
-              : ("direct-private-network" as const),
-        };
-        const status = await androidBrowserRequest<PreviewAutomationStatus>(
-          "command",
-          {
-            key,
-            operation: "navigate",
-            input: { ...options, url: normalizePreviewUrl(resolved.resolvedUrl) },
-          },
-          request.timeoutMs + 1000,
-        );
-        return { ...status, ...resolved };
+        await androidBrowserRequest("command", {
+          key,
+          operation: "navigate",
+          input: { url: nav._tag === "Idle" ? "about:blank" : nav.url, readiness: "none" },
+        });
       }
-      return androidBrowserRequest(
+      return await androidBrowserRequest("command", { key, operation: "status" });
+    }
+    if (request.operation === "navigate") {
+      const options = input as PreviewAutomationNavigateInput;
+      const target = options.target ?? { kind: "url" as const, url: options.url! };
+      const requestedUrl = phoneBrowserTargetUrl(target);
+      const result = await serverNavigate({
+        environmentId,
+        input: {
+          threadId: threadRef.threadId,
+          tabId,
+          url: requestedUrl,
+          shareLocalhost: phoneBrowserShareRequired(environmentId, requestedUrl),
+        },
+      });
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      const nav = result.value.navStatus;
+      const resolved = {
+        requestedUrl,
+        resolvedUrl: nav._tag === "Idle" ? "about:blank" : nav.url,
+        environmentId,
+        resolutionKind:
+          nav._tag !== "Idle" && nav.url === requestedUrl
+            ? ("direct" as const)
+            : ("direct-private-network" as const),
+      };
+      const status = await androidBrowserRequest<PreviewAutomationStatus>(
         "command",
-        { key, operation: request.operation, input },
+        {
+          key,
+          operation: "navigate",
+          input: { ...options, url: normalizePreviewUrl(resolved.resolvedUrl) },
+        },
         request.timeoutMs + 1000,
       );
-    },
-    [environmentId, list, open, serverNavigate],
-  );
+      return { ...status, ...resolved };
+    }
+    return androidBrowserRequest(
+      "command",
+      { key, operation: request.operation, input },
+      request.timeoutMs + 1000,
+    );
+  };
   const [handlerAtom] = useState(() => Atom.make({ handle }));
   const setHandler = useAtomSet(handlerAtom);
   useEffect(() => {
     setHandler({ handle });
   }, [handle, setHandler]);
-  const consumer = useMemo(
-    () =>
-      createPreviewAutomationRequestConsumerAtom({
-        requestsAtom: requests,
-        clientId,
-        connectionAtom,
-        environmentId,
-        requestHandlerAtom: handlerAtom,
-        respond: (response) => respond({ environmentId, input: response }),
-        label: `preview:phone:${environmentId}:${clientId}`,
-      }),
-    [requests, clientId, connectionAtom, environmentId, handlerAtom, respond],
-  );
+  const consumer = createPreviewAutomationRequestConsumerAtom({
+    requestsAtom: requests,
+    clientId,
+    connectionAtom,
+    environmentId,
+    requestHandlerAtom: handlerAtom,
+    respond: (response) => respond({ environmentId, input: response }),
+    label: `preview:phone:${environmentId}:${clientId}`,
+  });
   useAtomValue(consumer);
   useEffect(() => {
     const report = () => {

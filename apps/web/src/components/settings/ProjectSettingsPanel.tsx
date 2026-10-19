@@ -54,7 +54,7 @@ import {
   resolveProjectScripts,
 } from "@t3tools/shared/projectScripts";
 import * as Equal from "effect/Equal";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
@@ -351,7 +351,7 @@ function ProjectDetail({
     if (savingBrowserAccessRef.current || !canEditGroup) return;
     savingBrowserAccessRef.current = true;
     setSavingBrowserAccess(true);
-    try {
+    return await (async () => {
       const environmentIds = new Set(group.memberProjects.map((member) => member.environmentId));
       for (const environmentId of environmentIds) {
         const environment = environmentById.get(environmentId);
@@ -389,10 +389,10 @@ function ProjectDetail({
           return;
         }
       }
-    } finally {
+    })().finally(() => {
       savingBrowserAccessRef.current = false;
       setSavingBrowserAccess(false);
-    }
+    });
   };
   const setBrowserAccess = (enabled: boolean | undefined) =>
     setBooleanOverride("projectAgentBrowserAccessOverrides", enabled);
@@ -435,128 +435,115 @@ function ProjectDetail({
       ? window.desktopBridge?.pickProjectFavicon
       : undefined;
 
-  const threadCountByMember = useMemo(() => {
+  const threadCountByMember = (() => {
     const counts = new Map<string, number>();
     for (const thread of threads) {
       const key = `${thread.environmentId}:${thread.projectId}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
-  }, [threads]);
-  const reportFailure = useCallback(
-    (title: string, result: AtomCommandResult<unknown, unknown>) => {
-      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-      const error = squashAtomCommandFailure(result);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title,
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-    },
-    [],
-  );
+  })();
+  const reportFailure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
+    if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      }),
+    );
+  };
 
   const [isSavingAutomations, setIsSavingAutomations] = useState(false);
   const savingAutomationsRef = useRef(false);
-  const setAutomationTypeEnabled = useCallback(
-    async (automationKind: AgentDashboardAutomationKind, enabled: boolean) => {
-      if (savingAutomationsRef.current || !canEditGroup) return;
-      savingAutomationsRef.current = true;
-      setIsSavingAutomations(true);
-      try {
-        const nextEnabledAutomationKinds = new Set(enabledProjectAutomationKinds(automationPolicy));
-        if (enabled) {
-          nextEnabledAutomationKinds.add(automationKind);
-        } else {
-          nextEnabledAutomationKinds.delete(automationKind);
-        }
-        const enabledAutomations = PROJECT_AUTOMATION_KINDS.filter((kind) =>
-          nextEnabledAutomationKinds.has(kind),
-        );
-        const disabledAutomations = PROJECT_AUTOMATION_KINDS.filter(
-          (kind) => !nextEnabledAutomationKinds.has(kind),
-        );
-        const updatedAt = new Date().toISOString();
-        for (const member of group.memberProjects) {
-          const result = mapAtomCommandResult(
-            await updateAutomationPolicy({
-              environmentId: member.environmentId,
-              input: {
-                repository: { projectId: member.id },
-                enabled: enabledAutomations.length > 0,
-                enabledAutomations,
-                disabledAutomations,
-                updatedAt,
-              },
-            }),
-            () => undefined,
-          );
-          if (result._tag === "Failure") {
-            reportFailure(
-              group.memberProjects.length > 1
-                ? `Failed to update automations on ${member.environmentLabel ?? "the current environment"}`
-                : "Failed to update project automations",
-              result,
-            );
-            return;
-          }
-        }
-        await automationSnapshot.refresh();
-      } finally {
-        savingAutomationsRef.current = false;
-        setIsSavingAutomations(false);
+  const setAutomationTypeEnabled = async (
+    automationKind: AgentDashboardAutomationKind,
+    enabled: boolean,
+  ) => {
+    if (savingAutomationsRef.current || !canEditGroup) return;
+    savingAutomationsRef.current = true;
+    setIsSavingAutomations(true);
+    return await (async () => {
+      const nextEnabledAutomationKinds = new Set(enabledProjectAutomationKinds(automationPolicy));
+      if (enabled) {
+        nextEnabledAutomationKinds.add(automationKind);
+      } else {
+        nextEnabledAutomationKinds.delete(automationKind);
       }
-    },
-    [
-      automationSnapshot,
-      automationPolicy,
-      group.memberProjects,
-      canEditGroup,
-      reportFailure,
-      updateAutomationPolicy,
-    ],
-  );
+      const enabledAutomations = PROJECT_AUTOMATION_KINDS.filter((kind) =>
+        nextEnabledAutomationKinds.has(kind),
+      );
+      const disabledAutomations = PROJECT_AUTOMATION_KINDS.filter(
+        (kind) => !nextEnabledAutomationKinds.has(kind),
+      );
+      const updatedAt = new Date().toISOString();
+      for (const member of group.memberProjects) {
+        const result = mapAtomCommandResult(
+          await updateAutomationPolicy({
+            environmentId: member.environmentId,
+            input: {
+              repository: { projectId: member.id },
+              enabled: enabledAutomations.length > 0,
+              enabledAutomations,
+              disabledAutomations,
+              updatedAt,
+            },
+          }),
+          () => undefined,
+        );
+        if (result._tag === "Failure") {
+          reportFailure(
+            group.memberProjects.length > 1
+              ? `Failed to update automations on ${member.environmentLabel ?? "the current environment"}`
+              : "Failed to update project automations",
+            result,
+          );
+          return;
+        }
+      }
+      await automationSnapshot.refresh();
+    })().finally(() => {
+      savingAutomationsRef.current = false;
+      setIsSavingAutomations(false);
+    });
+  };
 
   const [isSavingProductContext, setIsSavingProductContext] = useState(false);
   const savingProductContextRef = useRef(false);
   const [isStartingProductDiscovery, setIsStartingProductDiscovery] = useState(false);
-  const updateProductContextPolicy = useCallback(
-    async (input: {
-      readonly productContextPath?: string;
-      readonly productContextConfirmedAt?: string | null;
-    }) => {
-      if (savingProductContextRef.current || !canEditGroup) return;
-      savingProductContextRef.current = true;
-      setIsSavingProductContext(true);
-      try {
-        const updatedAt = new Date().toISOString();
-        for (const member of group.memberProjects) {
-          const result = mapAtomCommandResult(
-            await updateAutomationPolicy({
-              environmentId: member.environmentId,
-              input: {
-                repository: { projectId: member.id },
-                ...input,
-                updatedAt,
-              },
-            }),
-            () => undefined,
-          );
-          if (result._tag === "Failure") {
-            reportFailure("Failed to update product context", result);
-            return;
-          }
+  const updateProductContextPolicy = async (input: {
+    readonly productContextPath?: string;
+    readonly productContextConfirmedAt?: string | null;
+  }) => {
+    if (savingProductContextRef.current || !canEditGroup) return;
+    savingProductContextRef.current = true;
+    setIsSavingProductContext(true);
+    return await (async () => {
+      const updatedAt = new Date().toISOString();
+      for (const member of group.memberProjects) {
+        const result = mapAtomCommandResult(
+          await updateAutomationPolicy({
+            environmentId: member.environmentId,
+            input: {
+              repository: { projectId: member.id },
+              ...input,
+              updatedAt,
+            },
+          }),
+          () => undefined,
+        );
+        if (result._tag === "Failure") {
+          reportFailure("Failed to update product context", result);
+          return;
         }
-        await automationSnapshot.refresh();
-      } finally {
-        savingProductContextRef.current = false;
-        setIsSavingProductContext(false);
       }
-    },
-    [automationSnapshot, canEditGroup, group.memberProjects, reportFailure, updateAutomationPolicy],
-  );
+      await automationSnapshot.refresh();
+    })().finally(() => {
+      savingProductContextRef.current = false;
+      setIsSavingProductContext(false);
+    });
+  };
 
   const checkProjectAccess = (
     members: ReadonlyArray<SidebarProjectGroupMember>,
@@ -666,29 +653,21 @@ function ProjectDetail({
   });
   const resolvedInstanceId = resolvedSelection?.instanceId ?? null;
   const resolvedModel = resolvedSelection?.model ?? null;
-  const instanceEntries = useMemo(
-    () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(
-          deriveProviderInstanceEntries(serverProviders),
-          projectSettings,
-          representative.id,
-        ),
-      ),
-    [representative.id, serverProviders, projectSettings],
+  const instanceEntries = sortProviderInstanceEntries(
+    applyProviderInstanceSettings(
+      deriveProviderInstanceEntries(serverProviders),
+      projectSettings,
+      representative.id,
+    ),
   );
-  const modelOptionsByInstance = useMemo(
-    () =>
-      getCustomModelOptionsByInstance(
-        projectSettings,
-        serverProviders,
-        resolvedInstanceId,
-        resolvedModel,
-      ),
-    [resolvedInstanceId, resolvedModel, serverProviders, projectSettings],
+  const modelOptionsByInstance = getCustomModelOptionsByInstance(
+    projectSettings,
+    serverProviders,
+    resolvedInstanceId,
+    resolvedModel,
   );
   const activeEntry = instanceEntries.find((entry) => entry.instanceId === resolvedInstanceId);
-  const startProductDiscoveryConversation = useCallback(async () => {
+  const startProductDiscoveryConversation = async () => {
     if (isStartingProductDiscovery || !canEditGroup) return;
     if (!resolvedSelection || resolvedSelection.model.trim().length === 0) {
       toastManager.add({
@@ -699,7 +678,7 @@ function ProjectDetail({
       return;
     }
     setIsStartingProductDiscovery(true);
-    try {
+    return await (async () => {
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
       const title = `Discover product: ${representative.title}`.slice(0, 80);
@@ -747,20 +726,10 @@ function ProjectDetail({
         to: "/$environmentId/$threadId",
         params: { environmentId: representative.environmentId, threadId },
       });
-    } finally {
+    })().finally(() => {
       setIsStartingProductDiscovery(false);
-    }
-  }, [
-    canEditGroup,
-    isStartingProductDiscovery,
-    navigate,
-    productContextConfirmedAt,
-    productContextPath,
-    representative,
-    reportFailure,
-    resolvedSelection,
-    startThreadTurn,
-  ]);
+    });
+  };
   const setDefaultModel = (selection: ModelSelection | null) => {
     if (selection !== null) {
       for (const member of group.memberProjects) {
@@ -811,14 +780,8 @@ function ProjectDetail({
   const mixedWorkspace = group.memberProjects.some(
     (member) => member.defaultThreadEnvMode !== storedEnvMode,
   );
-  const setDefaultThreadEnvMode = useCallback(
-    (mode: ThreadEnvMode | null) =>
-      void updateAllMembers(
-        { defaultThreadEnvMode: mode },
-        "Failed to update new-thread workspace",
-      ),
-    [updateAllMembers],
-  );
+  const setDefaultThreadEnvMode = (mode: ThreadEnvMode | null) =>
+    void updateAllMembers({ defaultThreadEnvMode: mode }, "Failed to update new-thread workspace");
 
   const autoPull = resolveProjectAutoPull(
     projectSettings,
@@ -840,46 +803,40 @@ function ProjectDetail({
     setBooleanOverride("projectAutoPullOverrides", enabled);
 
   const storedGitHubAccountId = representative.githubAccountId ?? null;
-  const setGitHubAccountId = useCallback(
-    (accountId: GitHubAccountId | null) =>
-      void updateAllMembers({ githubAccountId: accountId }, "Failed to update GitHub account"),
-    [updateAllMembers],
-  );
+  const setGitHubAccountId = (accountId: GitHubAccountId | null) =>
+    void updateAllMembers({ githubAccountId: accountId }, "Failed to update GitHub account");
 
   const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditGroup);
   const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditGroup);
   const [isSavingFavicon, setIsSavingFavicon] = useState(false);
   const savingFaviconRef = useRef(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const setProjectIcon = useCallback(
-    async (input: { faviconPath: string | null; projectIcon: ProjectIconOverride | null }) => {
-      if (savingFaviconRef.current) return;
-      savingFaviconRef.current = true;
-      setIsSavingFavicon(true);
-      try {
-        await updateAllMembers(input, "Failed to update project icon");
-      } finally {
-        savingFaviconRef.current = false;
-        setIsSavingFavicon(false);
-      }
-    },
-    [updateAllMembers],
-  );
-  const uploadProjectPhoto = useCallback(
-    async (file: File) => {
-      try {
-        const dataUrl = await projectPhotoFromFile(file);
-        await setProjectIcon({ faviconPath: null, projectIcon: { kind: "photo", dataUrl } });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not upload project photo",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      }
-    },
-    [setProjectIcon],
-  );
+  const setProjectIcon = async (input: {
+    faviconPath: string | null;
+    projectIcon: ProjectIconOverride | null;
+  }) => {
+    if (savingFaviconRef.current) return;
+    savingFaviconRef.current = true;
+    setIsSavingFavicon(true);
+    return await (async () => {
+      await updateAllMembers(input, "Failed to update project icon");
+    })().finally(() => {
+      savingFaviconRef.current = false;
+      setIsSavingFavicon(false);
+    });
+  };
+  const uploadProjectPhoto = async (file: File) => {
+    try {
+      const dataUrl = await projectPhotoFromFile(file);
+      await setProjectIcon({ faviconPath: null, projectIcon: { kind: "photo", dataUrl } });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not upload project photo",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    }
+  };
 
   const hasMultipleCheckouts = group.memberProjects.length > 1;
 

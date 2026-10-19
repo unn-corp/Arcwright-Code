@@ -29,11 +29,11 @@ export function LocalConnectCleanup({
             onClick={async () => {
               if (!canManage || pending || busy) return;
               setBusy(true);
-              try {
+              return await (async () => {
                 await unlink();
-              } finally {
+              })().finally(() => {
                 setBusy(false);
-              }
+              });
             }}
           >
             Unlink locally

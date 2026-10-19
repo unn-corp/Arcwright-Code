@@ -1,4 +1,5 @@
 import {
+  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
@@ -107,7 +108,7 @@ export function OrganizationSources({
   async function createSource() {
     if (disabled || !sourceName.trim() || environmentId === null) return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = checkResult(
         await registerSource({
           environmentId,
@@ -128,15 +129,16 @@ export function OrganizationSources({
       setSourceName("");
       setNotice(`${result.source.name} was created.`);
       refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function updateSource(sourceId: OrganizationIntakeSourceId, enabled: boolean) {
     if (disabled || environmentId === null) return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = checkResult(
         await setSourceEnabled({
           environmentId,
@@ -147,15 +149,16 @@ export function OrganizationSources({
       setOneTimeSecret(null);
       setNotice(`${result.name} ${enabled ? "enabled" : "disabled"}.`);
       refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function rotate(sourceId: OrganizationIntakeSourceId) {
     if (disabled || environmentId === null) return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = checkResult(
         await rotateSecret({ environmentId, input: { organizationId: organization.id, sourceId } }),
       );
@@ -165,15 +168,16 @@ export function OrganizationSources({
       );
       setNotice(`The previous secret for ${result.source.name} was revoked.`);
       refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function submitReport() {
     if (disabled || !selectedManualSource || !reportTitle.trim() || environmentId === null) return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const eventId = randomUUID();
       const result = checkResult(
         await ingestManual({
@@ -213,15 +217,16 @@ export function OrganizationSources({
               : "Report recorded as an observation. It has not authorized any work.",
       );
       refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   async function retryObservation(observationId: OrganizationObservationId) {
     if (disabled || environmentId === null) return;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = checkResult(
         await retryCorrelation({
           environmentId,
@@ -238,9 +243,10 @@ export function OrganizationSources({
       );
       findings.refresh();
       correlationJobs.refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (

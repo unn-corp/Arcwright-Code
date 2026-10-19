@@ -3,7 +3,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, PreviewInputEvent, ThreadId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { observeResize } from "~/lib/observeResize";
 
 import { previewEnvironment } from "~/state/preview";
@@ -61,23 +61,13 @@ export function PreviewRemoteSurface(props: {
   // subscription lives and dies with this component. The parent only mounts it
   // while the surface is actually on screen, which is what stops the host's
   // screencast when nobody is looking.
-  const framesAtom = useMemo(
-    () => previewEnvironment.frames({ environmentId, input: { threadId, tabId } }),
-    [environmentId, threadId, tabId],
-  );
+  const framesAtom = previewEnvironment.frames({ environmentId, input: { threadId, tabId } });
   const frameResult = useAtomValue(framesAtom);
 
   useEffect(() => {
     if (!AsyncResult.isSuccess(frameResult)) return;
     const event = frameResult.value;
-    if (event._tag === "unavailable") {
-      setUnavailable(event.reason);
-      return;
-    }
-    if (event._tag === "attached") {
-      setUnavailable(null);
-      return;
-    }
+    if (event._tag === "unavailable" || event._tag === "attached") return;
     const frame = event.frame;
     // Frames can overtake each other on a lossy link. Anything older than what
     // is already painted is dropped rather than rewinding the picture.
@@ -111,7 +101,7 @@ export function PreviewRemoteSurface(props: {
     image.src = `data:image/jpeg;base64,${frame.data}`;
   }, [frameResult]);
 
-  const measure = useCallback(() => {
+  const measure = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -120,7 +110,7 @@ export function PreviewRemoteSurface(props: {
       elementWidth: rect.width,
       elementHeight: rect.height,
     };
-  }, []);
+  };
 
   useEffect(() => {
     measure();
@@ -129,14 +119,11 @@ export function PreviewRemoteSurface(props: {
     return observeResize(canvas, measure);
   }, [measure]);
 
-  const dispatch = useCallback(
-    (event: PreviewInputEvent) => {
-      void sendInput({ environmentId, input: { threadId, tabId, event } });
-    },
-    [environmentId, sendInput, tabId, threadId],
-  );
+  const dispatch = (event: PreviewInputEvent) => {
+    void sendInput({ environmentId, input: { threadId, tabId, event } });
+  };
 
-  const pointFor = useCallback((clientX: number, clientY: number) => {
+  const pointFor = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -144,31 +131,28 @@ export function PreviewRemoteSurface(props: {
       offsetX: clientX - rect.left,
       offsetY: clientY - rect.top,
     });
-  }, []);
+  };
 
   /** Canvas-pixel to page-pixel ratio, for turning a drag into a scroll. */
-  const pageScale = useCallback(() => {
+  const pageScale = () => {
     const { elementWidth, elementHeight, pageWidth, pageHeight } = geometryRef.current;
     if (elementWidth <= 0 || elementHeight <= 0) return null;
     return { x: pageWidth / elementWidth, y: pageHeight / elementHeight };
-  }, []);
+  };
 
-  const tapAt = useCallback(
-    (point: { readonly x: number; readonly y: number }, modifiers: number) => {
-      for (const kind of ["mousePressed", "mouseReleased"] as const) {
-        dispatch({
-          _tag: "mouse",
-          kind,
-          x: point.x,
-          y: point.y,
-          button: "left",
-          clickCount: 1,
-          modifiers,
-        });
-      }
-    },
-    [dispatch],
-  );
+  const tapAt = (point: { readonly x: number; readonly y: number }, modifiers: number) => {
+    for (const kind of ["mousePressed", "mouseReleased"] as const) {
+      dispatch({
+        _tag: "mouse",
+        kind,
+        x: point.x,
+        y: point.y,
+        button: "left",
+        clickCount: 1,
+        modifiers,
+      });
+    }
+  };
 
   /**
    * Touch is handled apart from mouse and pen. A finger has no hover and no
@@ -176,118 +160,107 @@ export function PreviewRemoteSurface(props: {
    * has to become a scroll and a stationary press has to become a click. The
    * host never sees the difference.
    */
-  const handleTouchDown = useCallback((reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleTouchDown = (reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
     touchRef.current = beginTouchGesture(
       reactEvent.pointerId,
       reactEvent.clientX,
       reactEvent.clientY,
     );
     reactEvent.currentTarget.setPointerCapture(reactEvent.pointerId);
-  }, []);
+  };
 
-  const handleTouchMove = useCallback(
-    (reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
-      const gesture = touchRef.current;
-      const scale = pageScale();
-      if (!gesture || gesture.pointerId !== reactEvent.pointerId || !scale) return;
-      const advanced = advanceTouchGesture(gesture, reactEvent.clientX, reactEvent.clientY, scale);
-      touchRef.current = advanced.gesture;
-      if (!advanced.scroll) return;
-      const point = pointFor(reactEvent.clientX, reactEvent.clientY);
-      if (!point) return;
-      dispatch({
-        _tag: "wheel",
-        x: point.x,
-        y: point.y,
-        deltaX: advanced.scroll.x,
-        deltaY: advanced.scroll.y,
-        modifiers: toModifiers(reactEvent),
-      });
-    },
-    [dispatch, pageScale, pointFor],
-  );
+  const handleTouchMove = (reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
+    const gesture = touchRef.current;
+    const scale = pageScale();
+    if (!gesture || gesture.pointerId !== reactEvent.pointerId || !scale) return;
+    const advanced = advanceTouchGesture(gesture, reactEvent.clientX, reactEvent.clientY, scale);
+    touchRef.current = advanced.gesture;
+    if (!advanced.scroll) return;
+    const point = pointFor(reactEvent.clientX, reactEvent.clientY);
+    if (!point) return;
+    dispatch({
+      _tag: "wheel",
+      x: point.x,
+      y: point.y,
+      deltaX: advanced.scroll.x,
+      deltaY: advanced.scroll.y,
+      modifiers: toModifiers(reactEvent),
+    });
+  };
 
-  const handleTouchUp = useCallback(
+  const handleTouchUp = (reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
+    const gesture = touchRef.current;
+    touchRef.current = null;
+    if (reactEvent.currentTarget.hasPointerCapture(reactEvent.pointerId)) {
+      reactEvent.currentTarget.releasePointerCapture(reactEvent.pointerId);
+    }
+    if (!gesture || gesture.pointerId !== reactEvent.pointerId) return;
+    if (!isTapGesture(gesture)) return;
+    const point = pointFor(reactEvent.clientX, reactEvent.clientY);
+    if (!point) return;
+    if (onPickAt) {
+      // Picking must not also click: activating the thing being selected
+      // would navigate away from what the user meant to point at.
+      onPickAt(point);
+      return;
+    }
+    tapAt(point, toModifiers(reactEvent));
+    // A canvas cannot raise the on-screen keyboard, so a tap hands focus to
+    // a hidden field. Whatever the page focused now receives what is typed.
+    keyboardRef.current?.focus();
+  };
+
+  const handlePointer =
+    (kind: "mousePressed" | "mouseReleased" | "mouseMoved") =>
     (reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
-      const gesture = touchRef.current;
-      touchRef.current = null;
-      if (reactEvent.currentTarget.hasPointerCapture(reactEvent.pointerId)) {
-        reactEvent.currentTarget.releasePointerCapture(reactEvent.pointerId);
+      if (reactEvent.pointerType === "touch") {
+        if (kind === "mousePressed") handleTouchDown(reactEvent);
+        else if (kind === "mouseMoved") handleTouchMove(reactEvent);
+        else handleTouchUp(reactEvent);
+        return;
       }
-      if (!gesture || gesture.pointerId !== reactEvent.pointerId) return;
-      if (!isTapGesture(gesture)) return;
       const point = pointFor(reactEvent.clientX, reactEvent.clientY);
       if (!point) return;
       if (onPickAt) {
-        // Picking must not also click: activating the thing being selected
-        // would navigate away from what the user meant to point at.
-        onPickAt(point);
+        if (kind === "mousePressed") onPickAt(point);
         return;
       }
-      tapAt(point, toModifiers(reactEvent));
-      // A canvas cannot raise the on-screen keyboard, so a tap hands focus to
-      // a hidden field. Whatever the page focused now receives what is typed.
-      keyboardRef.current?.focus();
-    },
-    [onPickAt, pointFor, tapAt],
-  );
-
-  const handlePointer = useCallback(
-    (kind: "mousePressed" | "mouseReleased" | "mouseMoved") =>
-      (reactEvent: React.PointerEvent<HTMLCanvasElement>) => {
-        if (reactEvent.pointerType === "touch") {
-          if (kind === "mousePressed") handleTouchDown(reactEvent);
-          else if (kind === "mouseMoved") handleTouchMove(reactEvent);
-          else handleTouchUp(reactEvent);
-          return;
-        }
-        const point = pointFor(reactEvent.clientX, reactEvent.clientY);
-        if (!point) return;
-        if (onPickAt) {
-          if (kind === "mousePressed") onPickAt(point);
-          return;
-        }
-        if (kind === "mousePressed") {
-          // Keeps keystrokes flowing to the surface after a tap.
-          reactEvent.currentTarget.focus();
-          reactEvent.currentTarget.setPointerCapture(reactEvent.pointerId);
-        }
-        if (
-          kind === "mouseReleased" &&
-          reactEvent.currentTarget.hasPointerCapture(reactEvent.pointerId)
-        ) {
-          reactEvent.currentTarget.releasePointerCapture(reactEvent.pointerId);
-        }
-        dispatch({
-          _tag: "mouse",
-          kind,
-          x: point.x,
-          y: point.y,
-          button: kind === "mouseMoved" ? "none" : toMouseButton(reactEvent.button),
-          clickCount: kind === "mouseMoved" ? 0 : 1,
-          modifiers: toModifiers(reactEvent),
-        });
-      },
-    [dispatch, handleTouchDown, handleTouchMove, handleTouchUp, onPickAt, pointFor],
-  );
-
-  const handleWheel = useCallback(
-    (reactEvent: React.WheelEvent<HTMLCanvasElement>) => {
-      const point = pointFor(reactEvent.clientX, reactEvent.clientY);
-      if (!point) return;
+      if (kind === "mousePressed") {
+        // Keeps keystrokes flowing to the surface after a tap.
+        reactEvent.currentTarget.focus();
+        reactEvent.currentTarget.setPointerCapture(reactEvent.pointerId);
+      }
+      if (
+        kind === "mouseReleased" &&
+        reactEvent.currentTarget.hasPointerCapture(reactEvent.pointerId)
+      ) {
+        reactEvent.currentTarget.releasePointerCapture(reactEvent.pointerId);
+      }
       dispatch({
-        _tag: "wheel",
+        _tag: "mouse",
+        kind,
         x: point.x,
         y: point.y,
-        deltaX: reactEvent.deltaX,
-        deltaY: reactEvent.deltaY,
+        button: kind === "mouseMoved" ? "none" : toMouseButton(reactEvent.button),
+        clickCount: kind === "mouseMoved" ? 0 : 1,
         modifiers: toModifiers(reactEvent),
       });
-    },
-    [dispatch, pointFor],
-  );
+    };
 
-  const handleKey = useCallback(
+  const handleWheel = (reactEvent: React.WheelEvent<HTMLCanvasElement>) => {
+    const point = pointFor(reactEvent.clientX, reactEvent.clientY);
+    if (!point) return;
+    dispatch({
+      _tag: "wheel",
+      x: point.x,
+      y: point.y,
+      deltaX: reactEvent.deltaX,
+      deltaY: reactEvent.deltaY,
+      modifiers: toModifiers(reactEvent),
+    });
+  };
+
+  const handleKey =
     (kind: "keyDown" | "keyUp") => (reactEvent: React.KeyboardEvent<HTMLCanvasElement>) => {
       // The page owns these keys while the surface is focused; letting them
       // bubble would scroll the chat behind it.
@@ -300,53 +273,49 @@ export function PreviewRemoteSurface(props: {
           modifiers: toModifiers(reactEvent),
         }),
       );
-    },
-    [dispatch],
-  );
+    };
 
   /**
    * Text typed into the hidden field is replayed as character input. A phone
    * keyboard reports most keys only through composition and input events, so
    * keydown alone would drop everything a soft keyboard produces.
    */
-  const handleKeyboardInput = useCallback(
-    (reactEvent: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const typed = reactEvent.target.value;
-      reactEvent.target.value = "";
-      for (const character of typed) {
-        dispatch({
-          _tag: "key",
-          kind: "char",
-          key: character,
-          code: "",
-          text: character,
-          modifiers: 0,
-        });
-      }
-    },
-    [dispatch],
-  );
+  const handleKeyboardInput = (reactEvent: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const typed = reactEvent.target.value;
+    reactEvent.target.value = "";
+    for (const character of typed) {
+      dispatch({
+        _tag: "key",
+        kind: "char",
+        key: character,
+        code: "",
+        text: character,
+        modifiers: 0,
+      });
+    }
+  };
 
-  const handleKeyboardKeyDown = useCallback(
-    (reactEvent: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Printable keys arrive through onChange as characters; these do not,
-      // and a page cannot be used without them.
-      if (reactEvent.key.length === 1 && !reactEvent.metaKey && !reactEvent.ctrlKey) return;
-      reactEvent.preventDefault();
-      for (const kind of ["keyDown", "keyUp"] as const) {
-        dispatch(
-          toKeyEvent({
-            kind,
-            key: reactEvent.key,
-            code: reactEvent.code,
-            modifiers: toModifiers(reactEvent),
-          }),
-        );
-      }
-    },
-    [dispatch],
-  );
+  const handleKeyboardKeyDown = (reactEvent: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Printable keys arrive through onChange as characters; these do not,
+    // and a page cannot be used without them.
+    if (reactEvent.key.length === 1 && !reactEvent.metaKey && !reactEvent.ctrlKey) return;
+    reactEvent.preventDefault();
+    for (const kind of ["keyDown", "keyUp"] as const) {
+      dispatch(
+        toKeyEvent({
+          kind,
+          key: reactEvent.key,
+          code: reactEvent.code,
+          modifiers: toModifiers(reactEvent),
+        }),
+      );
+    }
+  };
 
+  const statusMessage =
+    AsyncResult.isSuccess(frameResult) && frameResult.value._tag === "unavailable"
+      ? frameResult.value.reason
+      : unavailable;
   return (
     <div className={props.className}>
       <canvas
@@ -381,7 +350,7 @@ export function PreviewRemoteSurface(props: {
       />
       {!hasFrame ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-muted-foreground">
-          {unavailable ?? "Connecting to the browser on your other device..."}
+          {statusMessage ?? "Connecting to the browser on your other device..."}
         </div>
       ) : null}
     </div>

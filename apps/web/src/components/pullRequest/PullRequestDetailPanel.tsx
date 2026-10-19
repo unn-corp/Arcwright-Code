@@ -1,4 +1,3 @@
-import { useMemo, useCallback } from "react";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
@@ -916,14 +915,11 @@ export function PullRequestDetailPanel({
   const [titleSaving, setTitleSaving] = useState(false);
   const newThread = useNewThreadHandler();
   const { environments } = useEnvironments();
-  const openHostUrl = useCallback(
-    (url: string) => {
-      const api = readLocalApi();
-      if (!api) return;
-      void openExternalWithGitHubAccount(api.shell, url, githubAccountId).catch(() => undefined);
-    },
-    [githubAccountId],
-  );
+  const openHostUrl = (url: string) => {
+    const api = readLocalApi();
+    if (!api) return;
+    void openExternalWithGitHubAccount(api.shell, url, githubAccountId).catch(() => undefined);
+  };
   const pickableEnvironments =
     context === "page"
       ? resolvePickableEnvironments(

@@ -31,7 +31,7 @@ name. For DeepSeek Harness, use `dsh` with arguments `--profile` and `acp`.
 
 Local commands require no registry entry or download. Environment overrides apply to the command;
 credentials and skills remain managed by the installed agent or its wrapper. Models and reasoning
-options come from ACP, including model IDs that contain JSON. T3 Code launches the executable directly
+options come from ACP, including model IDs that contain JSON. Arcwright Code launches the executable directly
 without expanding shell expressions.
 
 ## Where agents run

@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import {
   ORGANIZATION_EMPLOYEE_FOCUS_MAX_LENGTH,
@@ -192,22 +193,24 @@ export function OrganizationEmployeeDialog({
             : {}
         : {}),
     };
-    try {
-      if (await onSave(employee)) {
-        onClose();
-      } else {
+    const operation = await settlePromise(async () => {
+      try {
+        if (await onSave(employee)) {
+          onClose();
+        } else {
+          setError(
+            "Employee was not saved. Your entries are still here. Check the connection and current draft, then try again.",
+          );
+        }
+      } catch (cause) {
         setError(
-          "Employee was not saved. Your entries are still here. Check the connection and current draft, then try again.",
+          `Employee could not be saved. Your entries are still here. ${cause instanceof Error ? cause.message : "Check the connection and try again."}`,
         );
       }
-    } catch (cause) {
-      setError(
-        `Employee could not be saved. Your entries are still here. ${cause instanceof Error ? cause.message : "Check the connection and try again."}`,
-      );
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
+    });
+    savingRef.current = false;
+    setSaving(false);
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   }
 
   return (

@@ -78,6 +78,10 @@ vi.mock("~/rpc/atomRegistry", () => ({
 }));
 vi.mock("~/state/environments", () => ({
   useEnvironments: () => ({ environments }),
+  useEnvironmentProviders: () =>
+    new Map(
+      environments.map((entry) => [entry.environmentId, state.registry!.get(state.providers!)]),
+    ),
   usePrimaryEnvironmentId: () => primaryId,
 }));
 vi.mock("~/state/entities", () => ({

@@ -1,4 +1,5 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useNowMinute } from "../../hooks/useNowMinute";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { Organization } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -16,6 +17,7 @@ export function OrganizationStandingWorkAuthorizations({
   readonly organization: Organization;
   readonly offline: boolean;
 }) {
+  const now = Date.parse(useNowMinute());
   const environmentId = usePrimaryEnvironmentId();
   const grants = useEnvironmentQuery(
     environmentId === null
@@ -37,7 +39,7 @@ export function OrganizationStandingWorkAuthorizations({
     if (offline || environmentId === null || revokingId !== null) return;
     setRevokingId(authorizationId);
     setError(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await revoke({
         environmentId,
         input: { organizationId: organization.id, authorizationId },
@@ -48,9 +50,10 @@ export function OrganizationStandingWorkAuthorizations({
       } else {
         grants.refresh();
       }
-    } finally {
-      setRevokingId(null);
-    }
+    });
+    setRevokingId(null);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (
@@ -84,7 +87,7 @@ export function OrganizationStandingWorkAuthorizations({
                 : grant.revocationReason === "exhausted"
                   ? "Used"
                   : "Revoked"
-              : Date.parse(grant.expiresAt) <= Date.now()
+              : Date.parse(grant.expiresAt) <= now
                 ? "Expired"
                 : grant.usedActivations >= grant.maxActivations
                   ? "Used"

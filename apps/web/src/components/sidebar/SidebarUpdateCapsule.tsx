@@ -4,7 +4,7 @@ import { type ReactNode, useSyncExternalStore } from "react";
 import { cn } from "~/lib/utils";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentUpdateStatesAtom } from "~/state/server";
-import { useServerUpdate } from "../ServerUpdateAction";
+import { createServerUpdate } from "../ServerUpdateAction";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
@@ -72,7 +72,7 @@ export function SidebarUpdateCapsule({
   );
   const now = useNow(run.phase === "countdown" ? 1_000 : hasActiveMachine ? 30_000 : null);
   const view = describeUpdateCapsule(run, machines, local, now);
-  const updateServer = useServerUpdate();
+  const updateServer = createServerUpdate();
   const failed = machines.some(({ status }) => status === "failed");
   const settled = !hasActiveMachine && run.localVersion === null;
 

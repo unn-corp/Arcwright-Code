@@ -46,7 +46,7 @@ import {
   XIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   DASHBOARD_FINDING_TYPES,
@@ -381,7 +381,7 @@ export function AgentFindings({
   const [manageAssignee, setManageAssignee] = useState("");
   const [manageNote, setManageNote] = useState("");
   const [snoozeDays, setSnoozeDays] = useState("3");
-  const findingComposerModelCatalog = useMemo(() => {
+  const findingComposerModelCatalog = (() => {
     const providerInstanceEntries = sortProviderInstanceEntries(
       applyProviderInstanceSettings(deriveProviderInstanceEntries(serverProviders), settings, null),
     );
@@ -397,85 +397,51 @@ export function AgentFindings({
       providerInstanceEntries,
       modelOptionsByInstance,
     };
-  }, [serverProviders, settings]);
+  })();
 
-  const records = useMemo(
-    () =>
-      dashboardSnapshot.data === null ? [] : buildDashboardFindingRecords(dashboardSnapshot.data),
-    [dashboardSnapshot.data],
-  );
-  const continuousImprovementRuns = useMemo(
-    () =>
-      (dashboardSnapshot.data?.automationRuns ?? []).filter(
-        (run) => run.kind === "continuous-improvement",
-      ),
-    [dashboardSnapshot.data?.automationRuns],
+  const records =
+    dashboardSnapshot.data === null ? [] : buildDashboardFindingRecords(dashboardSnapshot.data);
+  const continuousImprovementRuns = (dashboardSnapshot.data?.automationRuns ?? []).filter(
+    (run) => run.kind === "continuous-improvement",
   );
   const latestContinuousImprovementRun = continuousImprovementRuns[0] ?? null;
-  const continuousImprovementPullRequests = useMemo(
-    () =>
-      new Map(
-        (dashboardSnapshot.data?.externalActions ?? []).flatMap((action) =>
-          action.actor === "continuous-improvement" &&
-          action.runId !== null &&
-          action.targetUrl !== null
-            ? ([[action.runId, action.targetUrl]] as const)
-            : [],
-        ),
-      ),
-    [dashboardSnapshot.data?.externalActions],
+  const continuousImprovementPullRequests = new Map(
+    (dashboardSnapshot.data?.externalActions ?? []).flatMap((action) =>
+      action.actor === "continuous-improvement" &&
+      action.runId !== null &&
+      action.targetUrl !== null
+        ? ([[action.runId, action.targetUrl]] as const)
+        : [],
+    ),
   );
-  const repositoryNameById = useMemo(
-    () =>
-      new Map(
-        (dashboardSnapshot.data?.repositories ?? []).map((repository) => [
-          String(repository.projectId),
-          repository.title,
-        ]),
-      ),
-    [dashboardSnapshot.data?.repositories],
+  const repositoryNameById = new Map(
+    (dashboardSnapshot.data?.repositories ?? []).map((repository) => [
+      String(repository.projectId),
+      repository.title,
+    ]),
   );
-  const findingTitleById = useMemo(
-    () => new Map(records.map((record) => [record.id, record.finding.title])),
-    [records],
-  );
+  const findingTitleById = new Map(records.map((record) => [record.id, record.finding.title]));
   const improvementGuardrails = {
     maxRiskTier: settings.continuousImprovement.maxRiskTier,
     minimumConfidence: settings.continuousImprovement.minimumConfidence,
   } as const;
-  const recordsAcrossTypes = useMemo(
-    () =>
-      filterDashboardFindingRecords(records, {
-        query,
-        projectId: projectFilter,
-        status: statusFilter,
-        type: "all",
-        severity: severityFilter,
-        ...improvementGuardrails,
-      }),
-    [
-      improvementGuardrails.maxRiskTier,
-      improvementGuardrails.minimumConfidence,
-      projectFilter,
-      query,
-      records,
-      severityFilter,
-      statusFilter,
-    ],
+  const recordsAcrossTypes = filterDashboardFindingRecords(records, {
+    query,
+    projectId: projectFilter,
+    status: statusFilter,
+    type: "all",
+    severity: severityFilter,
+    ...improvementGuardrails,
+  });
+  const visibleRecords = sortDashboardFindingRecords(
+    typeFilter === "all"
+      ? recordsAcrossTypes
+      : recordsAcrossTypes.filter((record) => record.type === typeFilter),
+    findingSort,
   );
-  const visibleRecords = useMemo(
-    () =>
-      sortDashboardFindingRecords(
-        typeFilter === "all"
-          ? recordsAcrossTypes
-          : recordsAcrossTypes.filter((record) => record.type === typeFilter),
-        findingSort,
-      ),
-    [findingSort, recordsAcrossTypes, typeFilter],
-  );
-  const groups = useMemo(() => groupDashboardFindingRecords(visibleRecords), [visibleRecords]);
+  const groups = groupDashboardFindingRecords(visibleRecords);
   useEffect(() => {
-    if (!initialSearch.findingId) return;
+    if (!initialSearch.findingId || groups.length === 0) return;
     const frame = requestAnimationFrame(() => {
       const target = document.getElementById(`agent-finding-${initialSearch.findingId}`);
       target?.scrollIntoView({ block: "center" });
@@ -483,27 +449,15 @@ export function AgentFindings({
     });
     return () => cancelAnimationFrame(frame);
   }, [groups, initialSearch.findingId]);
-  const pipelineRecords = useMemo(
-    () =>
-      filterDashboardFindingRecords(records, {
-        query,
-        projectId: projectFilter,
-        status: "all",
-        type: typeFilter,
-        severity: severityFilter,
-        ...improvementGuardrails,
-      }),
-    [
-      improvementGuardrails.maxRiskTier,
-      improvementGuardrails.minimumConfidence,
-      projectFilter,
-      query,
-      records,
-      severityFilter,
-      typeFilter,
-    ],
-  );
-  const pipelineCounts = useMemo(() => {
+  const pipelineRecords = filterDashboardFindingRecords(records, {
+    query,
+    projectId: projectFilter,
+    status: "all",
+    type: typeFilter,
+    severity: severityFilter,
+    ...improvementGuardrails,
+  });
+  const pipelineCounts = (() => {
     const counts: Record<DashboardFindingPipelineStage, number> = {
       candidate: 0,
       "needs-qualification": 0,
@@ -517,31 +471,27 @@ export function AgentFindings({
       counts[dashboardFindingPipelineStage(record, improvementGuardrails)] += 1;
     }
     return counts;
-  }, [improvementGuardrails.maxRiskTier, improvementGuardrails.minimumConfidence, pipelineRecords]);
+  })();
   const selectedVisibleCount = visibleRecords.filter((record) =>
     selectedFindingIds.has(record.id),
   ).length;
   const allVisibleSelected =
     visibleRecords.length > 0 && selectedVisibleCount === visibleRecords.length;
-  const projectOptions = useMemo(
-    () =>
-      [
-        ...new Map(records.map((record) => [record.projectId, record.projectName])).entries(),
-      ].toSorted((left, right) => left[1].localeCompare(right[1])),
-    [records],
-  );
+  const projectOptions = [
+    ...new Map(records.map((record) => [record.projectId, record.projectName])).entries(),
+  ].toSorted((left, right) => left[1].localeCompare(right[1]));
   const researchProjectValue = researchProjectId || projectOptions[0]?.[0] || "";
   const researchProjectLabel = resolveDashboardProjectOptionLabel(
     projectOptions,
     researchProjectValue,
   );
-  const typeCounts = useMemo(() => {
+  const typeCounts = (() => {
     const counts = new Map(DASHBOARD_FINDING_TYPES.map((type) => [type, 0]));
     for (const record of recordsAcrossTypes) {
       counts.set(record.type, (counts.get(record.type) ?? 0) + 1);
     }
     return counts;
-  }, [recordsAcrossTypes]);
+  })();
   const collectorStates = dashboardSnapshot.data?.collectorStates ?? [];
   const unconfiguredResearchCollectors = collectorStates.filter(
     (collector) =>
@@ -570,101 +520,91 @@ export function AgentFindings({
             ? `Next run in ${nextScheduledRunLabel.replace(" left", "")}`
             : "Schedule ready";
 
-  const showFailure = useCallback((title: string, message: string) => {
+  const showFailure = (title: string, message: string) => {
     toastManager.add(stackedThreadToast({ type: "error", title, description: message }));
-  }, []);
+  };
 
-  const dashboardRepositoryForRecord = useCallback(
-    (record: DashboardFindingRecord) =>
-      dashboardSnapshot.data?.repositories.find(
-        (repository) => String(repository.projectId) === record.projectId,
-      ) ?? null,
-    [dashboardSnapshot.data?.repositories],
-  );
+  const dashboardRepositoryForRecord = (record: DashboardFindingRecord) =>
+    dashboardSnapshot.data?.repositories.find(
+      (repository) => String(repository.projectId) === record.projectId,
+    ) ?? null;
 
-  const projectForRecord = useCallback(
-    (record: DashboardFindingRecord, environmentId: EnvironmentId): EnvironmentProject | null =>
-      findDashboardProject(
-        projects,
-        { projectId: record.projectId, repositoryPath: record.repositoryPath },
-        environmentId,
-      ),
-    [projects],
-  );
+  const projectForRecord = (
+    record: DashboardFindingRecord,
+    environmentId: EnvironmentId,
+  ): EnvironmentProject | null =>
+    findDashboardProject(
+      projects,
+      { projectId: record.projectId, repositoryPath: record.repositoryPath },
+      environmentId,
+    );
 
-  const githubRepositoryForRecord = useCallback(
-    (record: DashboardFindingRecord): string | null => {
-      const environmentId = dashboardSnapshot.environmentId;
-      const project = environmentId ? projectForRecord(record, environmentId) : null;
-      return (
-        githubRepositoryForIdentity(dashboardRepositoryForRecord(record)?.repositoryIdentity) ??
-        githubRepositoryForIdentity(project?.repositoryIdentity)
-      );
-    },
-    [dashboardRepositoryForRecord, dashboardSnapshot.environmentId, projectForRecord],
-  );
+  const githubRepositoryForRecord = (record: DashboardFindingRecord): string | null => {
+    const environmentId = dashboardSnapshot.environmentId;
+    const project = environmentId ? projectForRecord(record, environmentId) : null;
+    return (
+      githubRepositoryForIdentity(dashboardRepositoryForRecord(record)?.repositoryIdentity) ??
+      githubRepositoryForIdentity(project?.repositoryIdentity)
+    );
+  };
 
-  const openExternal = useCallback(
-    async (url: string, project?: EnvironmentProject | null) => {
-      try {
-        const localApi = readLocalApi();
-        if (localApi) {
-          await openProjectExternalLink(localApi.shell, url, project);
-          return;
-        }
-        window.open(url, "_blank", "noopener,noreferrer");
-      } catch (error) {
-        showFailure(
-          "Could not open GitHub issue",
-          error instanceof Error ? error.message : "The link could not be opened.",
-        );
-      }
-    },
-    [showFailure],
-  );
-
-  const retryContinuousImprovementRun = useCallback(
-    async (run: AgentDashboardAutomationRun) => {
-      if (!dashboardSnapshot.environmentId || retryingAutomationRunId !== null) return;
-      setRetryingAutomationRunId(run.id);
-      try {
-        const result = await retryAutomationRun({
-          environmentId: dashboardSnapshot.environmentId,
-          input: { id: run.id },
-        });
-        if (result._tag === "Failure" || !result.value.ok) {
-          if (result._tag === "Failure" && isAtomCommandInterrupted(result)) return;
-          const error =
-            result._tag === "Failure"
-              ? squashAtomCommandFailure(result)
-              : (result.value.message ?? "The implementation retry could not start.");
-          showFailure(
-            "Could not retry implementation",
-            error instanceof Error ? error.message : String(error),
-          );
-          return;
-        }
-        await dashboardSnapshot.refresh();
-        toastManager.add(
-          stackedThreadToast({
-            type: "success",
-            title: "Implementation retry started",
-            description: "A new work session is starting with the current automation settings.",
-          }),
-        );
-      } finally {
-        setRetryingAutomationRunId(null);
-      }
-    },
-    [dashboardSnapshot, retryAutomationRun, retryingAutomationRunId, showFailure],
-  );
-
-  const collectNow = useCallback(async () => {
-    if (!dashboardSnapshot.environmentId || isCollecting) return;
-    setIsCollecting(true);
+  const openExternal = async (url: string, project?: EnvironmentProject | null) => {
     try {
+      const localApi = readLocalApi();
+      if (localApi) {
+        await openProjectExternalLink(localApi.shell, url, project);
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      showFailure(
+        "Could not open GitHub issue",
+        error instanceof Error ? error.message : "The link could not be opened.",
+      );
+    }
+  };
+
+  const retryContinuousImprovementRun = async (run: AgentDashboardAutomationRun) => {
+    if (!dashboardSnapshot.environmentId || retryingAutomationRunId !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
+    setRetryingAutomationRunId(run.id);
+    return await (async () => {
+      const result = await retryAutomationRun({
+        environmentId,
+        input: { id: run.id },
+      });
+      if (result._tag === "Failure" || !result.value.ok) {
+        if (result._tag === "Failure" && isAtomCommandInterrupted(result)) return;
+        const error =
+          result._tag === "Failure"
+            ? squashAtomCommandFailure(result)
+            : (result.value.message ?? "The implementation retry could not start.");
+        showFailure(
+          "Could not retry implementation",
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
+      await dashboardSnapshot.refresh();
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: "Implementation retry started",
+          description: "A new work session is starting with the current automation settings.",
+        }),
+      );
+    })().finally(() => {
+      setRetryingAutomationRunId(null);
+    });
+  };
+
+  const collectNow = async () => {
+    if (!dashboardSnapshot.environmentId || isCollecting) return;
+    const environmentId = dashboardSnapshot.environmentId;
+    setIsCollecting(true);
+    return await (async () => {
       const result = await collect({
-        environmentId: dashboardSnapshot.environmentId,
+        environmentId,
         input: { kind: "all" },
       });
       if (result._tag === "Failure") {
@@ -675,547 +615,498 @@ export function AgentFindings({
         return;
       }
       await dashboardSnapshot.refresh();
-    } finally {
+    })().finally(() => {
       setIsCollecting(false);
-    }
-  }, [collect, dashboardSnapshot, isCollecting, showFailure]);
+    });
+  };
 
-  const applyDisposition = useCallback(
-    async (
-      record: DashboardFindingRecord,
-      action: AgentDashboardDispositionAction,
-      details: Pick<AgentDashboardDispositionActionInput, "assignee" | "note" | "snoozeUntil"> = {},
-    ) => {
-      if (!dashboardSnapshot.environmentId || updatingFindingId !== null) return;
-      setUpdatingFindingId(record.id);
-      try {
+  const applyDisposition = async (
+    record: DashboardFindingRecord,
+    action: AgentDashboardDispositionAction,
+    details: Pick<AgentDashboardDispositionActionInput, "assignee" | "note" | "snoozeUntil"> = {},
+  ) => {
+    if (!dashboardSnapshot.environmentId || updatingFindingId !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
+    setUpdatingFindingId(record.id);
+    return await (async () => {
+      const result = await applyFindingAction({
+        environmentId,
+        input: { id: record.id, action, ...details },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          showFailure(
+            "Could not update finding",
+            error instanceof Error ? error.message : "The finding could not be updated.",
+          );
+        }
+        return;
+      }
+      if (!result.value.ok || result.value.outcome === "not-found") {
+        showFailure(
+          "Finding was not updated",
+          result.value.message ?? "The finding no longer exists.",
+        );
+        return;
+      }
+      await dashboardSnapshot.refresh();
+    })().finally(() => {
+      setUpdatingFindingId(null);
+    });
+  };
+
+  const applyBulkDisposition = async (
+    action: AgentDashboardDispositionAction,
+    snoozeUntil?: string,
+  ) => {
+    if (!dashboardSnapshot.environmentId || bulkAction !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
+    const selected = visibleRecords.filter((record) => selectedFindingIds.has(record.id));
+    if (selected.length === 0) return;
+    setBulkAction(action);
+    let failed = 0;
+    return await (async () => {
+      for (const record of selected) {
         const result = await applyFindingAction({
-          environmentId: dashboardSnapshot.environmentId,
-          input: { id: record.id, action, ...details },
+          environmentId,
+          input: {
+            id: record.id,
+            action,
+            ...(snoozeUntil ? { snoozeUntil } : {}),
+          },
         });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showFailure(
-              "Could not update finding",
-              error instanceof Error ? error.message : "The finding could not be updated.",
-            );
-          }
-          return;
-        }
-        if (!result.value.ok || result.value.outcome === "not-found") {
-          showFailure(
-            "Finding was not updated",
-            result.value.message ?? "The finding no longer exists.",
-          );
-          return;
-        }
-        await dashboardSnapshot.refresh();
-      } finally {
-        setUpdatingFindingId(null);
+        if (result._tag === "Failure" || !result.value.ok) failed += 1;
       }
-    },
-    [applyFindingAction, dashboardSnapshot, showFailure, updatingFindingId],
-  );
+      await dashboardSnapshot.refresh();
+      setSelectedFindingIds(new Set());
+      toastManager.add(
+        stackedThreadToast({
+          type: failed === 0 ? "success" : "warning",
+          title: failed === 0 ? "Findings updated" : "Some findings were not updated",
+          description:
+            failed === 0
+              ? `${selected.length} ${selected.length === 1 ? "finding" : "findings"} updated.`
+              : `${selected.length - failed} updated, ${failed} failed.`,
+        }),
+      );
+    })().finally(() => {
+      setBulkAction(null);
+    });
+  };
 
-  const applyBulkDisposition = useCallback(
-    async (action: AgentDashboardDispositionAction, snoozeUntil?: string) => {
-      if (!dashboardSnapshot.environmentId || bulkAction !== null) return;
-      const selected = visibleRecords.filter((record) => selectedFindingIds.has(record.id));
-      if (selected.length === 0) return;
-      setBulkAction(action);
-      let failed = 0;
-      try {
-        for (const record of selected) {
-          const result = await applyFindingAction({
-            environmentId: dashboardSnapshot.environmentId,
-            input: {
-              id: record.id,
-              action,
-              ...(snoozeUntil ? { snoozeUntil } : {}),
+  const createIssueForRecord = async (record: DashboardFindingRecord) => {
+    if (!dashboardSnapshot.environmentId || creatingIssueId !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
+    if (record.finding.externalIssueUrl) {
+      await openExternal(
+        record.finding.externalIssueUrl,
+        projectForRecord(record, dashboardSnapshot.environmentId),
+      );
+      return;
+    }
+    if (!githubRepositoryForRecord(record)) {
+      showFailure(
+        "Connect this repository to GitHub first",
+        "A GitHub remote is required before Arcwright Code can create an issue.",
+      );
+      return;
+    }
+    setCreatingIssueId(record.id);
+    return await (async () => {
+      const result = await createGithubIssue({
+        environmentId,
+        input: { id: record.id },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          showFailure(
+            "Could not create GitHub issue",
+            error instanceof Error ? error.message : "The GitHub issue could not be created.",
+          );
+        }
+        return;
+      }
+      if (!result.value.ok || result.value.outcome === "not-found") {
+        showFailure(
+          "GitHub issue was not created",
+          result.value.message ?? "The finding could not be found.",
+        );
+        return;
+      }
+      await dashboardSnapshot.refresh();
+    })().finally(() => {
+      setCreatingIssueId(null);
+    });
+  };
+
+  const startFindingWork = async (record: DashboardFindingRecord) => {
+    if (startingFindingId !== null) return;
+    const environmentId =
+      dashboardSnapshot.environmentId ?? primaryEnvironment?.environmentId ?? null;
+    if (!environmentId) {
+      showFailure(
+        "Connect an environment first",
+        "This finding needs an Arcwright Code environment to start an agent session.",
+      );
+      return;
+    }
+    if (record.finding.thread) {
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId: record.finding.thread.threadId },
+      });
+      return;
+    }
+    const project = projectForRecord(record, environmentId);
+    if (!project) {
+      showFailure(
+        "Add this repository to Arcwright Code first",
+        `No project is configured for ${record.repositoryPath || record.projectName}.`,
+      );
+      return;
+    }
+    const intent = findingIntent(record);
+    const baseBranch =
+      intent === "implement"
+        ? suggestionWorktreeBaseBranch(dashboardRepositoryForRecord(record)?.vcs)
+        : null;
+    if (intent === "implement" && !baseBranch) {
+      showFailure(
+        "Primary branch not found",
+        "Arcwright Code could not identify this repository's default branch. Refresh repository data and try again.",
+      );
+      return;
+    }
+    const availableModelSelection = resolveAppModelSelectionState(settings, serverProviders);
+    if (availableModelSelection.model.trim().length === 0) {
+      showFailure(
+        "Enable an agent provider first",
+        "Choose and authenticate a provider before starting finding work.",
+      );
+      return;
+    }
+
+    const modelSelection = suggestionWorkModelSelection(availableModelSelection);
+    const threadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    const prompt =
+      intent === "implement" && baseBranch
+        ? buildDashboardFindingPrompt(record, {
+            kind: "implement",
+            baseBranch,
+          })
+        : buildDashboardFindingPrompt(record, { kind: "research" });
+    const title =
+      `${intent === "research" ? "Research" : "Work on"}: ${record.finding.title}`.slice(0, 80);
+    setStartingFindingId(record.id);
+    return await (async () => {
+      const result = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: prompt,
+            attachments: [],
+          },
+          modelSelection,
+          titleSeed: title,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          bootstrap: {
+            createThread: {
+              projectId: project.id,
+              title,
+              modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt,
             },
-          });
-          if (result._tag === "Failure" || !result.value.ok) failed += 1;
-        }
-        await dashboardSnapshot.refresh();
-        setSelectedFindingIds(new Set());
-        toastManager.add(
-          stackedThreadToast({
-            type: failed === 0 ? "success" : "warning",
-            title: failed === 0 ? "Findings updated" : "Some findings were not updated",
-            description:
-              failed === 0
-                ? `${selected.length} ${selected.length === 1 ? "finding" : "findings"} updated.`
-                : `${selected.length - failed} updated, ${failed} failed.`,
-          }),
-        );
-      } finally {
-        setBulkAction(null);
-      }
-    },
-    [applyFindingAction, bulkAction, dashboardSnapshot, selectedFindingIds, visibleRecords],
-  );
-
-  const createIssueForRecord = useCallback(
-    async (record: DashboardFindingRecord) => {
-      if (!dashboardSnapshot.environmentId || creatingIssueId !== null) return;
-      if (record.finding.externalIssueUrl) {
-        await openExternal(
-          record.finding.externalIssueUrl,
-          projectForRecord(record, dashboardSnapshot.environmentId),
-        );
-        return;
-      }
-      if (!githubRepositoryForRecord(record)) {
-        showFailure(
-          "Connect this repository to GitHub first",
-          "A GitHub remote is required before Arcwright Code can create an issue.",
-        );
-        return;
-      }
-      setCreatingIssueId(record.id);
-      try {
-        const result = await createGithubIssue({
-          environmentId: dashboardSnapshot.environmentId,
-          input: { id: record.id },
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showFailure(
-              "Could not create GitHub issue",
-              error instanceof Error ? error.message : "The GitHub issue could not be created.",
-            );
-          }
-          return;
-        }
-        if (!result.value.ok || result.value.outcome === "not-found") {
+            ...(intent === "implement" && baseBranch
+              ? buildDashboardFindingWorktreeBootstrap({
+                  projectCwd: project.workspaceRoot,
+                  baseBranch,
+                  branch: buildTemporaryWorktreeBranchName(randomHex),
+                })
+              : {}),
+          },
+          createdAt,
+        },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
           showFailure(
-            "GitHub issue was not created",
-            result.value.message ?? "The finding could not be found.",
+            intent === "research" ? "Could not start research" : "Could not start work",
+            error instanceof Error ? error.message : "The agent session could not be started.",
           );
-          return;
         }
-        await dashboardSnapshot.refresh();
-      } finally {
-        setCreatingIssueId(null);
+        return;
       }
+      const linkResult = await linkFindingThread({
+        environmentId,
+        input: { id: record.id, projectId: project.id, threadId },
+      });
+      if (linkResult._tag === "Failure" || !linkResult.value.ok) {
+        showFailure(
+          "Agent started without a dashboard link",
+          linkResult._tag === "Success"
+            ? (linkResult.value.message ?? "The finding could not be linked to the agent.")
+            : "The finding could not be linked to the agent.",
+        );
+        return;
+      }
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: intent === "research" ? "Research started" : "Work started",
+          description:
+            intent === "research"
+              ? "The agent is qualifying this finding against the repository."
+              : `The agent will open a pull request targeting ${baseBranch} from a new worktree.`,
+        }),
+      );
+      await dashboardSnapshot.refresh();
+    })().finally(() => {
+      setStartingFindingId(null);
+    });
+  };
+
+  const askAboutFinding = async (
+    record: DashboardFindingRecord,
+    input: {
+      readonly question: string;
+      readonly modelSelection: ModelSelection;
+      readonly runtimeMode: RuntimeMode;
     },
-    [
-      createGithubIssue,
-      creatingIssueId,
-      dashboardSnapshot,
-      githubRepositoryForRecord,
-      openExternal,
-      showFailure,
-    ],
-  );
+  ) => {
+    const prompt = input.question.trim();
+    if (!prompt || askingFindingId !== null) return;
+    const environmentId =
+      dashboardSnapshot.environmentId ?? primaryEnvironment?.environmentId ?? null;
+    if (!environmentId) {
+      showFailure(
+        "Connect an environment first",
+        "This question needs an Arcwright Code environment to start a session.",
+      );
+      return;
+    }
+    const project = projectForRecord(record, environmentId);
+    if (!project) {
+      showFailure(
+        "Add this repository to Arcwright Code first",
+        `No project is configured for ${record.repositoryPath || record.projectName}.`,
+      );
+      return;
+    }
+    if (input.modelSelection.model.trim().length === 0) {
+      showFailure(
+        "Enable an agent provider first",
+        "Choose and authenticate a provider before asking about this finding.",
+      );
+      return;
+    }
 
-  const startFindingWork = useCallback(
-    async (record: DashboardFindingRecord) => {
-      if (startingFindingId !== null) return;
-      const environmentId =
-        dashboardSnapshot.environmentId ?? primaryEnvironment?.environmentId ?? null;
-      if (!environmentId) {
-        showFailure(
-          "Connect an environment first",
-          "This finding needs an Arcwright Code environment to start an agent session.",
-        );
+    const modelSelection = input.modelSelection;
+    const threadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    const title = `Ask: ${record.finding.title}`.slice(0, 80);
+    setAskingFindingId(record.id);
+    return await (async () => {
+      const result = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: buildDashboardFindingQuestionPrompt(record, prompt),
+            attachments: [],
+          },
+          modelSelection,
+          titleSeed: title,
+          runtimeMode: input.runtimeMode,
+          interactionMode: "default",
+          bootstrap: {
+            createThread: {
+              projectId: project.id,
+              title,
+              modelSelection,
+              runtimeMode: input.runtimeMode,
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt,
+            },
+          },
+          createdAt,
+        },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          showFailure(
+            "Could not start the conversation",
+            error instanceof Error ? error.message : "The agent session could not be started.",
+          );
+        }
         return;
       }
-      if (record.finding.thread) {
-        await navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId, threadId: record.finding.thread.threadId },
-        });
-        return;
-      }
-      const project = projectForRecord(record, environmentId);
-      if (!project) {
-        showFailure(
-          "Add this repository to Arcwright Code first",
-          `No project is configured for ${record.repositoryPath || record.projectName}.`,
-        );
-        return;
-      }
-      const intent = findingIntent(record);
-      const baseBranch =
-        intent === "implement"
-          ? suggestionWorktreeBaseBranch(dashboardRepositoryForRecord(record)?.vcs)
-          : null;
-      if (intent === "implement" && !baseBranch) {
-        showFailure(
-          "Primary branch not found",
-          "Arcwright Code could not identify this repository's default branch. Refresh repository data and try again.",
-        );
-        return;
-      }
-      const availableModelSelection = resolveAppModelSelectionState(settings, serverProviders);
-      if (availableModelSelection.model.trim().length === 0) {
-        showFailure(
-          "Enable an agent provider first",
-          "Choose and authenticate a provider before starting finding work.",
-        );
-        return;
-      }
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId },
+      });
+    })().finally(() => {
+      setAskingFindingId(null);
+    });
+  };
 
-      const modelSelection = suggestionWorkModelSelection(availableModelSelection);
-      const threadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      const prompt =
-        intent === "implement" && baseBranch
-          ? buildDashboardFindingPrompt(record, {
-              kind: "implement",
+  const combineProjectPullRequests = async (
+    target: {
+      readonly projectId: string;
+      readonly projectName: string;
+      readonly repositoryPath: string;
+    },
+    input: {
+      readonly pullRequests: ReadonlyArray<SourceControlProjectPullRequest>;
+      readonly title: string;
+      readonly modelSelection: ModelSelection;
+      readonly runtimeMode: RuntimeMode;
+    },
+  ): Promise<boolean> => {
+    if (combiningProjectId !== null) return false;
+    const environmentId =
+      dashboardSnapshot.environmentId ?? primaryEnvironment?.environmentId ?? null;
+    if (!environmentId) {
+      showFailure(
+        "Connect an environment first",
+        "Combining pull requests needs an Arcwright Code environment to start an agent session.",
+      );
+      return false;
+    }
+    const project = findDashboardProject(projects, target, environmentId);
+    if (!project) {
+      showFailure(
+        "Add this repository to Arcwright Code first",
+        `No project is configured for ${target.repositoryPath || target.projectName}.`,
+      );
+      return false;
+    }
+    const uniquePullRequests = new Set(input.pullRequests.map((pullRequest) => pullRequest.number));
+    if (uniquePullRequests.size < 2 || uniquePullRequests.size !== input.pullRequests.length) {
+      showFailure(
+        "Select at least two pull requests",
+        "Each source pull request can appear only once in a combination plan.",
+      );
+      return false;
+    }
+    const baseBranches = new Set(
+      input.pullRequests.map((pullRequest) => pullRequest.baseRefName.trim()).filter(Boolean),
+    );
+    if (baseBranches.size !== 1) {
+      showFailure(
+        "Choose one target branch",
+        "All source pull requests must target the same branch before they can be combined.",
+      );
+      return false;
+    }
+    const [baseBranch] = baseBranches;
+    const outputTitle = input.title.trim();
+    if (!baseBranch || !outputTitle || input.modelSelection.model.trim().length === 0) {
+      showFailure(
+        "Complete the launch setup",
+        "Choose an available model, a target branch, and a title for the replacement PR.",
+      );
+      return false;
+    }
+
+    const threadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    const title = `Combine ${input.pullRequests.length} PRs: ${target.projectName}`.slice(0, 80);
+    setCombiningProjectId(target.projectId);
+    return await (async () => {
+      const result = await startThreadTurn({
+        environmentId,
+        input: {
+          threadId,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: buildDashboardPullRequestCombinationPrompt({
+              projectName: target.projectName,
+              repositoryPath: target.repositoryPath,
+              baseRefName: baseBranch,
+              outputTitle,
+              pullRequests: input.pullRequests,
+            }),
+            attachments: [],
+          },
+          modelSelection: input.modelSelection,
+          titleSeed: title,
+          runtimeMode: input.runtimeMode,
+          interactionMode: "default",
+          bootstrap: {
+            createThread: {
+              projectId: project.id,
+              title,
+              modelSelection: input.modelSelection,
+              runtimeMode: input.runtimeMode,
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt,
+            },
+            prepareWorktree: {
+              projectCwd: project.workspaceRoot,
               baseBranch,
-            })
-          : buildDashboardFindingPrompt(record, { kind: "research" });
-      const title =
-        `${intent === "research" ? "Research" : "Work on"}: ${record.finding.title}`.slice(0, 80);
-      setStartingFindingId(record.id);
-      try {
-        const result = await startThreadTurn({
-          environmentId,
-          input: {
-            threadId,
-            message: {
-              messageId: newMessageId(),
-              role: "user",
-              text: prompt,
-              attachments: [],
+              branch: buildTemporaryWorktreeBranchName(randomHex),
+              startFromOrigin: true,
             },
-            modelSelection,
-            titleSeed: title,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            bootstrap: {
-              createThread: {
-                projectId: project.id,
-                title,
-                modelSelection,
-                runtimeMode: "full-access",
-                interactionMode: "default",
-                branch: null,
-                worktreePath: null,
-                createdAt,
-              },
-              ...(intent === "implement" && baseBranch
-                ? buildDashboardFindingWorktreeBootstrap({
-                    projectCwd: project.workspaceRoot,
-                    baseBranch,
-                    branch: buildTemporaryWorktreeBranchName(randomHex),
-                  })
-                : {}),
-            },
-            createdAt,
+            runSetupScript: true,
           },
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showFailure(
-              intent === "research" ? "Could not start research" : "Could not start work",
-              error instanceof Error ? error.message : "The agent session could not be started.",
-            );
-          }
-          return;
-        }
-        const linkResult = await linkFindingThread({
-          environmentId,
-          input: { id: record.id, projectId: project.id, threadId },
-        });
-        if (linkResult._tag === "Failure" || !linkResult.value.ok) {
+          createdAt,
+        },
+      });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
           showFailure(
-            "Agent started without a dashboard link",
-            linkResult._tag === "Success"
-              ? (linkResult.value.message ?? "The finding could not be linked to the agent.")
-              : "The finding could not be linked to the agent.",
+            "Could not launch the combination agent",
+            error instanceof Error ? error.message : "The agent session could not be started.",
           );
-          return;
         }
-        toastManager.add(
-          stackedThreadToast({
-            type: "success",
-            title: intent === "research" ? "Research started" : "Work started",
-            description:
-              intent === "research"
-                ? "The agent is qualifying this finding against the repository."
-                : `The agent will open a pull request targeting ${baseBranch} from a new worktree.`,
-          }),
-        );
-        await dashboardSnapshot.refresh();
-      } finally {
-        setStartingFindingId(null);
-      }
-    },
-    [
-      dashboardRepositoryForRecord,
-      dashboardSnapshot,
-      linkFindingThread,
-      navigate,
-      primaryEnvironment?.environmentId,
-      projectForRecord,
-      serverProviders,
-      settings,
-      showFailure,
-      startThreadTurn,
-      startingFindingId,
-    ],
-  );
-
-  const askAboutFinding = useCallback(
-    async (
-      record: DashboardFindingRecord,
-      input: {
-        readonly question: string;
-        readonly modelSelection: ModelSelection;
-        readonly runtimeMode: RuntimeMode;
-      },
-    ) => {
-      const prompt = input.question.trim();
-      if (!prompt || askingFindingId !== null) return;
-      const environmentId =
-        dashboardSnapshot.environmentId ?? primaryEnvironment?.environmentId ?? null;
-      if (!environmentId) {
-        showFailure(
-          "Connect an environment first",
-          "This question needs an Arcwright Code environment to start a session.",
-        );
-        return;
-      }
-      const project = projectForRecord(record, environmentId);
-      if (!project) {
-        showFailure(
-          "Add this repository to Arcwright Code first",
-          `No project is configured for ${record.repositoryPath || record.projectName}.`,
-        );
-        return;
-      }
-      if (input.modelSelection.model.trim().length === 0) {
-        showFailure(
-          "Enable an agent provider first",
-          "Choose and authenticate a provider before asking about this finding.",
-        );
-        return;
-      }
-
-      const modelSelection = input.modelSelection;
-      const threadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      const title = `Ask: ${record.finding.title}`.slice(0, 80);
-      setAskingFindingId(record.id);
-      try {
-        const result = await startThreadTurn({
-          environmentId,
-          input: {
-            threadId,
-            message: {
-              messageId: newMessageId(),
-              role: "user",
-              text: buildDashboardFindingQuestionPrompt(record, prompt),
-              attachments: [],
-            },
-            modelSelection,
-            titleSeed: title,
-            runtimeMode: input.runtimeMode,
-            interactionMode: "default",
-            bootstrap: {
-              createThread: {
-                projectId: project.id,
-                title,
-                modelSelection,
-                runtimeMode: input.runtimeMode,
-                interactionMode: "default",
-                branch: null,
-                worktreePath: null,
-                createdAt,
-              },
-            },
-            createdAt,
-          },
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showFailure(
-              "Could not start the conversation",
-              error instanceof Error ? error.message : "The agent session could not be started.",
-            );
-          }
-          return;
-        }
-        await navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId, threadId },
-        });
-      } finally {
-        setAskingFindingId(null);
-      }
-    },
-    [
-      askingFindingId,
-      dashboardSnapshot.environmentId,
-      navigate,
-      primaryEnvironment?.environmentId,
-      projectForRecord,
-      showFailure,
-      startThreadTurn,
-    ],
-  );
-
-  const combineProjectPullRequests = useCallback(
-    async (
-      target: {
-        readonly projectId: string;
-        readonly projectName: string;
-        readonly repositoryPath: string;
-      },
-      input: {
-        readonly pullRequests: ReadonlyArray<SourceControlProjectPullRequest>;
-        readonly title: string;
-        readonly modelSelection: ModelSelection;
-        readonly runtimeMode: RuntimeMode;
-      },
-    ): Promise<boolean> => {
-      if (combiningProjectId !== null) return false;
-      const environmentId =
-        dashboardSnapshot.environmentId ?? primaryEnvironment?.environmentId ?? null;
-      if (!environmentId) {
-        showFailure(
-          "Connect an environment first",
-          "Combining pull requests needs an Arcwright Code environment to start an agent session.",
-        );
         return false;
       }
-      const project = findDashboardProject(projects, target, environmentId);
-      if (!project) {
-        showFailure(
-          "Add this repository to Arcwright Code first",
-          `No project is configured for ${target.repositoryPath || target.projectName}.`,
-        );
-        return false;
-      }
-      const uniquePullRequests = new Set(
-        input.pullRequests.map((pullRequest) => pullRequest.number),
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: "Combination agent started",
+          description: `${input.pullRequests.length} PRs will be integrated from ${baseBranch} in a new worktree.`,
+        }),
       );
-      if (uniquePullRequests.size < 2 || uniquePullRequests.size !== input.pullRequests.length) {
-        showFailure(
-          "Select at least two pull requests",
-          "Each source pull request can appear only once in a combination plan.",
-        );
-        return false;
-      }
-      const baseBranches = new Set(
-        input.pullRequests.map((pullRequest) => pullRequest.baseRefName.trim()).filter(Boolean),
-      );
-      if (baseBranches.size !== 1) {
-        showFailure(
-          "Choose one target branch",
-          "All source pull requests must target the same branch before they can be combined.",
-        );
-        return false;
-      }
-      const [baseBranch] = baseBranches;
-      const outputTitle = input.title.trim();
-      if (!baseBranch || !outputTitle || input.modelSelection.model.trim().length === 0) {
-        showFailure(
-          "Complete the launch setup",
-          "Choose an available model, a target branch, and a title for the replacement PR.",
-        );
-        return false;
-      }
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId },
+      });
+      return true;
+    })().finally(() => {
+      setCombiningProjectId(null);
+    });
+  };
 
-      const threadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      const title = `Combine ${input.pullRequests.length} PRs: ${target.projectName}`.slice(0, 80);
-      setCombiningProjectId(target.projectId);
-      try {
-        const result = await startThreadTurn({
-          environmentId,
-          input: {
-            threadId,
-            message: {
-              messageId: newMessageId(),
-              role: "user",
-              text: buildDashboardPullRequestCombinationPrompt({
-                projectName: target.projectName,
-                repositoryPath: target.repositoryPath,
-                baseRefName: baseBranch,
-                outputTitle,
-                pullRequests: input.pullRequests,
-              }),
-              attachments: [],
-            },
-            modelSelection: input.modelSelection,
-            titleSeed: title,
-            runtimeMode: input.runtimeMode,
-            interactionMode: "default",
-            bootstrap: {
-              createThread: {
-                projectId: project.id,
-                title,
-                modelSelection: input.modelSelection,
-                runtimeMode: input.runtimeMode,
-                interactionMode: "default",
-                branch: null,
-                worktreePath: null,
-                createdAt,
-              },
-              prepareWorktree: {
-                projectCwd: project.workspaceRoot,
-                baseBranch,
-                branch: buildTemporaryWorktreeBranchName(randomHex),
-                startFromOrigin: true,
-              },
-              runSetupScript: true,
-            },
-            createdAt,
-          },
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            showFailure(
-              "Could not launch the combination agent",
-              error instanceof Error ? error.message : "The agent session could not be started.",
-            );
-          }
-          return false;
-        }
-        toastManager.add(
-          stackedThreadToast({
-            type: "success",
-            title: "Combination agent started",
-            description: `${input.pullRequests.length} PRs will be integrated from ${baseBranch} in a new worktree.`,
-          }),
-        );
-        await navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId, threadId },
-        });
-        return true;
-      } finally {
-        setCombiningProjectId(null);
-      }
-    },
-    [
-      combiningProjectId,
-      dashboardSnapshot.environmentId,
-      navigate,
-      primaryEnvironment?.environmentId,
-      projects,
-      showFailure,
-      startThreadTurn,
-    ],
-  );
-
-  const handleFindingVoiceActivityChange = useCallback((findingId: string, active: boolean) => {
+  const handleFindingVoiceActivityChange = (findingId: string, active: boolean) => {
     setVoiceFindingId((current) => {
       if (active) return current ?? findingId;
       return current === findingId ? null : current;
     });
-  }, []);
+  };
 
-  const saveResearchSource = useCallback(async () => {
+  const saveResearchSource = async () => {
     const environmentId = dashboardSnapshot.environmentId;
     const projectId = researchProjectId || projectOptions[0]?.[0] || "";
     if (
@@ -1228,7 +1119,7 @@ export function AgentFindings({
       return;
     }
     setSavingResearchSource(true);
-    try {
+    return await (async () => {
       const result = await addResearchWatchItem({
         environmentId,
         input: {
@@ -1263,21 +1154,10 @@ export function AgentFindings({
           description: "Arcwright Code collected the watch item for the selected repository.",
         }),
       );
-    } finally {
+    })().finally(() => {
       setSavingResearchSource(false);
-    }
-  }, [
-    addResearchWatchItem,
-    collect,
-    dashboardSnapshot,
-    projectOptions,
-    researchProjectId,
-    researchSummary,
-    researchTitle,
-    researchUrl,
-    savingResearchSource,
-    showFailure,
-  ]);
+    });
+  };
 
   return (
     <AgentDashboardPageShell

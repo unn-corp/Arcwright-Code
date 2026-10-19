@@ -1,3 +1,5 @@
+import { RegistryProvider } from "@effect/atom-react";
+import { serverEnvironment } from "../../state/server";
 // @vitest-environment jsdom
 
 import {
@@ -26,6 +28,24 @@ import { useComposerFocusState } from "./useComposerFocusState";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
 import type { SubagentActivityMember } from "./SubagentActivity";
+
+vi.mock("@tanstack/react-router", async (original) => ({
+  ...(await original<typeof import("@tanstack/react-router")>()),
+  useNavigate: () => vi.fn(),
+  useLocation: ({
+    select,
+  }: {
+    select?: (location: {
+      pathname: string;
+      search: Record<string, never>;
+      hash: string;
+      state: object;
+    }) => unknown;
+  } = {}) => {
+    const location = { pathname: "/", search: {}, hash: "", state: {} };
+    return select ? select(location) : location;
+  },
+}));
 
 const activityTestState = vi.hoisted(() => ({
   expanded: false,
@@ -131,8 +151,11 @@ vi.mock("@legendapp/list/react", async () => {
     onScroll?: () => void;
     ref?: Ref<LegendListRef>;
   }) => {
-    legendListTestState.data = props.data;
-    legendListTestState.onScroll = props.onScroll;
+    const { data, onScroll } = props;
+    useLayoutEffect(() => {
+      legendListTestState.data = data;
+      legendListTestState.onScroll = onScroll;
+    }, [data, onScroll]);
     if (props.anchoredEndSpace) {
       props.anchoredEndSpace.onSizeChanged?.(240);
       props.anchoredEndSpace.onReady?.({ anchorIndex: props.anchoredEndSpace.anchorIndex });
@@ -795,13 +818,16 @@ describe("MessagesTimeline", () => {
     let navigateManually = () => {};
     function ChatProbe() {
       const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
-      navigateManually = () => setLiveFollowEnabled(false);
+      const onManualNavigation = () => setLiveFollowEnabled(false);
+      useLayoutEffect(() => {
+        navigateManually = onManualNavigation;
+      }, [onManualNavigation]);
       return (
         <MessagesTimeline
           {...props}
           timelineEntries={[buildUserTimelineEntry("First prompt")]}
           liveFollowEnabled={liveFollowEnabled}
-          onManualNavigation={navigateManually}
+          onManualNavigation={onManualNavigation}
         />
       );
     }
@@ -1942,6 +1968,16 @@ describe("MessagesTimeline", () => {
         skills: [],
       },
     ] as never;
+    const renderHandoff = (element: ReactNode) =>
+      renderToStaticMarkup(
+        <RegistryProvider
+          initialValues={[
+            [serverEnvironment.providersValueAtom(ACTIVE_THREAD_ENVIRONMENT_ID), providerStatuses],
+          ]}
+        >
+          {element}
+        </RegistryProvider>,
+      );
     const buildHandoffEntry = (item: Record<string, unknown>) => ({
       id: "handoff-1",
       kind: "event" as const,
@@ -1977,7 +2013,7 @@ describe("MessagesTimeline", () => {
       } as never,
     });
 
-    const markup = renderToStaticMarkup(
+    const markup = renderHandoff(
       <MessagesTimeline
         {...buildProps()}
         providerStatuses={providerStatuses}
@@ -2012,7 +2048,7 @@ describe("MessagesTimeline", () => {
         modelSelection: { instanceId: "claudeAgent", model: "claude-fable-5" },
       },
     ] as never;
-    const legacyMarkup = renderToStaticMarkup(
+    const legacyMarkup = renderHandoff(
       <MessagesTimeline
         {...buildProps()}
         providerStatuses={providerStatuses}
@@ -2030,7 +2066,7 @@ describe("MessagesTimeline", () => {
     expect(legacyMarkup).toContain("Claude Fable 5");
     expect(legacyMarkup).not.toContain("Full conversation context");
 
-    const bareMarkup = renderToStaticMarkup(
+    const bareMarkup = renderHandoff(
       <MessagesTimeline
         {...buildProps()}
         providerStatuses={providerStatuses}

@@ -29,7 +29,7 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { defaultDashboardPullRequestCombinationTitle } from "../agentDashboardPages";
 import { cn } from "../lib/utils";
@@ -150,14 +150,10 @@ export function AgentProjectPullRequests({
   const [combinationRuntimeMode, setCombinationRuntimeMode] =
     useState<RuntimeMode>(DEFAULT_RUNTIME_MODE);
   const pullRequests = query.data?.pullRequests ?? [];
-  const selectedPullRequests = useMemo(
-    () =>
-      selectedPullRequestNumbers.flatMap((number) => {
-        const pullRequest = pullRequests.find((candidate) => candidate.number === number);
-        return pullRequest ? [pullRequest] : [];
-      }),
-    [pullRequests, selectedPullRequestNumbers],
-  );
+  const selectedPullRequests = selectedPullRequestNumbers.flatMap((number) => {
+    const pullRequest = pullRequests.find((candidate) => candidate.number === number);
+    return pullRequest ? [pullRequest] : [];
+  });
   const selectedBaseBranches = new Set(
     selectedPullRequests.map((pullRequest) => pullRequest.baseRefName),
   );
@@ -168,25 +164,22 @@ export function AgentProjectPullRequests({
   const runtimeModeOption = RUNTIME_MODE_PRESENTATION[combinationRuntimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
 
-  useEffect(() => {
-    const availableNumbers = new Set(pullRequests.map((pullRequest) => pullRequest.number));
-    setSelectedPullRequestNumbers((current) =>
-      current.every((number) => availableNumbers.has(number))
-        ? current
-        : current.filter((number) => availableNumbers.has(number)),
+  const availableNumbers = new Set(pullRequests.map((pullRequest) => pullRequest.number));
+  if (selectedPullRequestNumbers.some((number) => !availableNumbers.has(number))) {
+    setSelectedPullRequestNumbers(
+      selectedPullRequestNumbers.filter((number) => availableNumbers.has(number)),
     );
-  }, [pullRequests]);
+  }
 
-  useEffect(() => {
-    if (
-      selectedProviderEntry?.enabled &&
-      selectedProviderEntry.isAvailable &&
-      combinationModelSelection.model.trim().length > 0
-    ) {
-      return;
-    }
+  if (
+    (!selectedProviderEntry?.enabled ||
+      !selectedProviderEntry.isAvailable ||
+      combinationModelSelection.model.trim().length === 0) &&
+    (combinationModelSelection.instanceId !== initialModelSelection.instanceId ||
+      combinationModelSelection.model !== initialModelSelection.model)
+  ) {
     setCombinationModelSelection(initialModelSelection);
-  }, [combinationModelSelection.model, initialModelSelection, selectedProviderEntry]);
+  }
 
   const openCombinationDialog = () => {
     if (!canCombine || combinationBusy) return;
@@ -236,7 +229,7 @@ export function AgentProjectPullRequests({
   const confirmMerge = async () => {
     if (!environmentId || !selectedPullRequest || merging) return;
     setMerging(true);
-    try {
+    return await (async () => {
       const result = await mergePullRequest({
         environmentId,
         input: {
@@ -272,9 +265,9 @@ export function AgentProjectPullRequests({
       );
       setSelectedPullRequest(null);
       query.refresh();
-    } finally {
+    })().finally(() => {
       setMerging(false);
-    }
+    });
   };
 
   return (

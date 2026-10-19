@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -43,48 +43,45 @@ export function AndroidPreviewView({
   const key = tabId
     ? androidBrowserKey(threadRef.environmentId, state.serverEpoch, threadRef.threadId, tabId)
     : null;
-  const command = useCallback(
-    async (operation: string, input: unknown = {}) => {
-      if (!key || !snapshot) return;
-      try {
-        setError(null);
-        await androidBrowserRequest("ensure", {
-          key,
-          ...threadRef,
-          serverEpoch: state.serverEpoch,
-          tabId: snapshot.tabId,
-          url: url || "about:blank",
+  const command = async (operation: string, input: unknown = {}) => {
+    if (!key || !snapshot) return;
+    return await (async () => {
+      setError(null);
+      await androidBrowserRequest("ensure", {
+        key,
+        ...threadRef,
+        serverEpoch: state.serverEpoch,
+        tabId: snapshot.tabId,
+        url: url || "about:blank",
+      });
+      let commandInput = input;
+      if (operation === "navigate") {
+        const requestedUrl = normalizePreviewUrl((input as { url: string }).url);
+        const result = await serverNavigate({
+          environmentId: threadRef.environmentId,
+          input: {
+            threadId: threadRef.threadId,
+            tabId: snapshot.tabId,
+            url: requestedUrl,
+            shareLocalhost: phoneBrowserShareRequired(threadRef.environmentId, requestedUrl),
+          },
         });
-        let commandInput = input;
-        if (operation === "navigate") {
-          const requestedUrl = normalizePreviewUrl((input as { url: string }).url);
-          const result = await serverNavigate({
-            environmentId: threadRef.environmentId,
-            input: {
-              threadId: threadRef.threadId,
-              tabId: snapshot.tabId,
-              url: requestedUrl,
-              shareLocalhost: phoneBrowserShareRequired(threadRef.environmentId, requestedUrl),
-            },
-          });
-          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-          const nav = result.value.navStatus;
-          commandInput = {
-            ...(input as object),
-            url: nav._tag === "Idle" ? "about:blank" : nav.url,
-          };
-        }
-        await androidBrowserRequest("command", { key, operation, input: commandInput });
-        return true;
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Phone browser failed");
-        return false;
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        const nav = result.value.navStatus;
+        commandInput = {
+          ...(input as object),
+          url: nav._tag === "Idle" ? "about:blank" : nav.url,
+        };
       }
-    },
-    [key, snapshot, state.serverEpoch, threadRef, url, serverNavigate],
-  );
+      await androidBrowserRequest("command", { key, operation, input: commandInput });
+      return true;
+    })().catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : "Phone browser failed");
+      return false;
+    });
+  };
   const navigate = async (next: string) => {
-    try {
+    return await (async () => {
       const resolvedUrl = normalizePreviewUrl(next);
       if (snapshot) {
         if (await command("navigate", { url: resolvedUrl, readiness: "none" }))
@@ -105,12 +102,12 @@ export function AndroidPreviewView({
       applyPreviewServerSnapshot(threadRef, result.value);
       recordVisitForThread(threadRef, resolvedUrl);
       setError(null);
-    } catch (cause) {
+    })().catch((cause: unknown) => {
       const description =
         cause instanceof Error ? cause.message : "Could not open the phone browser";
       setError(description);
       toastManager.add({ type: "error", title: "Unable to open browser", description });
-    }
+    });
   };
   return (
     <div className="flex h-full min-h-0 flex-col">

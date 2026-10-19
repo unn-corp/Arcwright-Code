@@ -32,7 +32,7 @@ import {
   SquareTerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 
 import {
   buildDashboardRepositoryQuestionPrompt,
@@ -446,21 +446,14 @@ function RepositoryOverviewRow({
   const statusError = serverRepository === null ? statusQuery.error : null;
   const statusPending = serverRepository === null ? statusQuery.isPending : serverSnapshotPending;
   const repositoryStatus = resolveDashboardRepositoryStatus(status, statusError);
-  const repositoryThreads = useMemo(
-    () => selectDashboardThreadsForRepository(threads, group.memberProjectRefs),
-    [group.memberProjectRefs, threads],
-  );
+  const repositoryThreads = selectDashboardThreadsForRepository(threads, group.memberProjectRefs);
   const mainThreads = repositoryThreads.filter((thread) => thread.worktreePath === null);
   const registeredWorktrees = worktreeInventoryQuery.data?.worktrees;
-  const worktrees = useMemo(
-    () =>
-      buildDashboardWorktreeGroups({
-        environmentId: group.representative.environmentId,
-        worktrees: registeredWorktrees ?? [],
-        threads: repositoryThreads,
-      }),
-    [group.representative.environmentId, registeredWorktrees, repositoryThreads],
-  );
+  const worktrees = buildDashboardWorktreeGroups({
+    environmentId: group.representative.environmentId,
+    worktrees: registeredWorktrees ?? [],
+    threads: repositoryThreads,
+  });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const primaryEnvironmentLabel =
     environmentLabelById.get(group.representative.environmentId) ?? "Environment";
@@ -718,34 +711,22 @@ export function AgentDashboard() {
           input: {},
         }),
   );
-  const serverRepositories = useMemo(
-    () =>
-      serverSnapshotQuery.data === null || primaryEnvironmentId === null
-        ? []
-        : normalizeAgentDashboardSnapshot(serverSnapshotQuery.data, primaryEnvironmentId),
-    [primaryEnvironmentId, serverSnapshotQuery.data],
-  );
-  const serverRepositoryByProjectKey = useMemo(
-    () =>
-      new Map(
-        serverRepositories.map((repository) => [
-          `${repository.environmentId}:${repository.projectId}`,
-          repository,
-        ]),
-      ),
-    [serverRepositories],
+  const serverRepositories =
+    serverSnapshotQuery.data === null || primaryEnvironmentId === null
+      ? []
+      : normalizeAgentDashboardSnapshot(serverSnapshotQuery.data, primaryEnvironmentId);
+  const serverRepositoryByProjectKey = new Map(
+    serverRepositories.map((repository) => [
+      `${repository.environmentId}:${repository.projectId}`,
+      repository,
+    ]),
   );
   const portfolioHealth = serverSnapshotQuery.data?.portfolioHealth;
-  const environmentLabelById = useMemo(
-    () =>
-      new Map(environments.map((environment) => [environment.environmentId, environment.label])),
-    [environments],
+  const environmentLabelById = new Map(
+    environments.map((environment) => [environment.environmentId, environment.label]),
   );
-  const repositoryGroups = useMemo(
-    () => buildResearchRepositoryGroups(projects, primaryEnvironmentId),
-    [primaryEnvironmentId, projects],
-  );
-  const activeThreads = useMemo(() => {
+  const repositoryGroups = buildResearchRepositoryGroups(projects, primaryEnvironmentId);
+  const activeThreads = (() => {
     const uniqueThreads = new Map<string, DashboardThreadRecord>();
 
     for (const group of repositoryGroups) {
@@ -761,29 +742,18 @@ export function AgentDashboard() {
       if (priorityDifference !== 0) return priorityDifference;
       return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
     });
-  }, [repositoryGroups, threads]);
-  const recentFindings = useMemo(
-    () =>
-      (serverSnapshotQuery.data?.findings ?? [])
-        .toSorted((left, right) => Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt))
-        .slice(0, 4),
-    [serverSnapshotQuery.data?.findings],
+  })();
+  const recentFindings = (serverSnapshotQuery.data?.findings ?? [])
+    .toSorted((left, right) => Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt))
+    .slice(0, 4);
+  const findingRecordById = new Map(
+    (serverSnapshotQuery.data === null
+      ? []
+      : buildDashboardFindingRecords(serverSnapshotQuery.data)
+    ).map((record) => [record.id, record]),
   );
-  const findingRecordById = useMemo(
-    () =>
-      new Map(
-        (serverSnapshotQuery.data === null
-          ? []
-          : buildDashboardFindingRecords(serverSnapshotQuery.data)
-        ).map((record) => [record.id, record]),
-      ),
-    [serverSnapshotQuery.data],
-  );
-  const projectNameById = useMemo(
-    () => new Map(projects.map((project) => [String(project.id), project.title])),
-    [projects],
-  );
-  const needsYouItems = useMemo(() => {
+  const projectNameById = new Map(projects.map((project) => [String(project.id), project.title]));
+  const needsYouItems = (() => {
     const snapshot = serverSnapshotQuery.data;
     const repositoryNameById = new Map(
       (snapshot?.repositories ?? []).map((repository) => [
@@ -852,212 +822,187 @@ export function AgentDashboard() {
         updatedAt: coverage.observedAt,
       })),
     });
-  }, [
-    activeThreads,
-    findingRecordById,
-    primaryEnvironmentId,
-    projectNameById,
-    serverSnapshotQuery.data,
-  ]);
+  })();
   const needsYouCount = needsYouItems.length;
-  const defaultModelSelection = useMemo(
-    () => resolveAppModelSelectionState(settings, serverProviders),
-    [serverProviders, settings],
-  );
+  const defaultModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const defaultModelLabel = defaultModelSelection.model.trim() || "an enabled model";
-  const openThread = useCallback(
-    (thread: DashboardThreadRecord) => {
-      void router.navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          ...scopeThreadRef(EnvironmentId.make(thread.environmentId), ThreadId.make(thread.id)),
+  const openThread = (thread: DashboardThreadRecord) => {
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        ...scopeThreadRef(EnvironmentId.make(thread.environmentId), ThreadId.make(thread.id)),
+      },
+    });
+  };
+  const openScopedThread = (environmentId: string, threadId: string) => {
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: scopeThreadRef(EnvironmentId.make(environmentId), ThreadId.make(threadId)),
+    });
+  };
+  const askAboutRepository = (
+    project: EnvironmentProject,
+    repositoryName: string,
+    repositoryDetail: string,
+  ) => {
+    setQuestionTarget({
+      key: `repository:${project.environmentId}:${project.id}`,
+      kindLabel: "Repository",
+      title: repositoryName,
+      detail: repositoryDetail,
+      project,
+      prompt: { kind: "repository" },
+    });
+  };
+  const askAboutFinding = (findingId: string) => {
+    const record = findingRecordById.get(findingId);
+    const environmentId = primaryEnvironmentId ?? primaryEnvironment?.environmentId ?? null;
+    if (!record || environmentId === null) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Finding context is unavailable",
+          description: "Refresh the dashboard and try again.",
+        }),
+      );
+      return;
+    }
+    const project = findDashboardProject(projects, record, environmentId);
+    if (!project) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Add this repository first",
+          description: `No Arcwright Code project is configured for ${record.repositoryPath || record.projectName}.`,
+        }),
+      );
+      return;
+    }
+    setQuestionTarget({
+      key: `finding:${record.id}`,
+      kindLabel: "Finding",
+      title: record.finding.title,
+      detail: record.projectName,
+      project,
+      prompt: { kind: "finding", record },
+    });
+  };
+  const askAboutUpdate = (update: NativeAgentFeedItem) => {
+    const project = findDashboardProject(
+      projects,
+      { projectId: update.projectId, repositoryPath: update.workspaceRoot },
+      update.environmentId,
+    );
+    if (!project) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Add this repository first",
+          description: `No Arcwright Code project is configured for ${update.workspaceRoot || update.projectName}.`,
+        }),
+      );
+      return;
+    }
+    setQuestionTarget({
+      key: `update:${update.id}`,
+      kindLabel: "Update",
+      title: update.title,
+      detail: update.projectName,
+      project,
+      prompt: { kind: "update", update },
+    });
+  };
+  const submitDashboardQuestion = async (question: string) => {
+    if (questionTarget === null || questionPending) return;
+    const prompt = question.trim();
+    if (!prompt) return;
+    const modelSelection = resolveAppModelSelectionState(settings, serverProviders);
+    if (modelSelection.model.trim().length === 0) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Enable an agent provider first",
+          description: "Choose and authenticate a provider before asking this question.",
+        }),
+      );
+      return;
+    }
+
+    const threadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    const title = `Ask: ${questionTarget.title}`.slice(0, 80);
+    let messageText: string;
+    switch (questionTarget.prompt.kind) {
+      case "finding":
+        messageText = buildDashboardFindingQuestionPrompt(questionTarget.prompt.record, prompt);
+        break;
+      case "repository":
+        messageText = buildDashboardRepositoryQuestionPrompt(questionTarget.project, prompt);
+        break;
+      case "update":
+        messageText = buildDashboardUpdateQuestionPrompt(questionTarget.prompt.update, prompt);
+        break;
+      default: {
+        const unreachable: never = questionTarget.prompt;
+        throw new Error(`Unhandled dashboard question target: ${String(unreachable)}`);
+      }
+    }
+    setQuestionPending(true);
+    return await (async () => {
+      const result = await startThreadTurn({
+        environmentId: questionTarget.project.environmentId,
+        input: {
+          threadId,
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: messageText,
+            attachments: [],
+          },
+          modelSelection,
+          titleSeed: title,
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          interactionMode: "default",
+          bootstrap: {
+            createThread: {
+              projectId: questionTarget.project.id,
+              title,
+              modelSelection,
+              runtimeMode: DEFAULT_RUNTIME_MODE,
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt,
+            },
+          },
+          createdAt,
         },
       });
-    },
-    [router],
-  );
-  const openScopedThread = useCallback(
-    (environmentId: string, threadId: string) => {
-      void router.navigate({
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not start the conversation",
+              description:
+                error instanceof Error ? error.message : "The agent session could not be started.",
+            }),
+          );
+        }
+        return;
+      }
+      await router.navigate({
         to: "/$environmentId/$threadId",
-        params: scopeThreadRef(EnvironmentId.make(environmentId), ThreadId.make(threadId)),
-      });
-    },
-    [router],
-  );
-  const askAboutRepository = useCallback(
-    (project: EnvironmentProject, repositoryName: string, repositoryDetail: string) => {
-      setQuestionTarget({
-        key: `repository:${project.environmentId}:${project.id}`,
-        kindLabel: "Repository",
-        title: repositoryName,
-        detail: repositoryDetail,
-        project,
-        prompt: { kind: "repository" },
-      });
-    },
-    [],
-  );
-  const askAboutFinding = useCallback(
-    (findingId: string) => {
-      const record = findingRecordById.get(findingId);
-      const environmentId = primaryEnvironmentId ?? primaryEnvironment?.environmentId ?? null;
-      if (!record || environmentId === null) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Finding context is unavailable",
-            description: "Refresh the dashboard and try again.",
-          }),
-        );
-        return;
-      }
-      const project = findDashboardProject(projects, record, environmentId);
-      if (!project) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Add this repository first",
-            description: `No Arcwright Code project is configured for ${record.repositoryPath || record.projectName}.`,
-          }),
-        );
-        return;
-      }
-      setQuestionTarget({
-        key: `finding:${record.id}`,
-        kindLabel: "Finding",
-        title: record.finding.title,
-        detail: record.projectName,
-        project,
-        prompt: { kind: "finding", record },
-      });
-    },
-    [findingRecordById, primaryEnvironment?.environmentId, primaryEnvironmentId, projects],
-  );
-  const askAboutUpdate = useCallback(
-    (update: NativeAgentFeedItem) => {
-      const project = findDashboardProject(
-        projects,
-        { projectId: update.projectId, repositoryPath: update.workspaceRoot },
-        update.environmentId,
-      );
-      if (!project) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Add this repository first",
-            description: `No Arcwright Code project is configured for ${update.workspaceRoot || update.projectName}.`,
-          }),
-        );
-        return;
-      }
-      setQuestionTarget({
-        key: `update:${update.id}`,
-        kindLabel: "Update",
-        title: update.title,
-        detail: update.projectName,
-        project,
-        prompt: { kind: "update", update },
-      });
-    },
-    [projects],
-  );
-  const submitDashboardQuestion = useCallback(
-    async (question: string) => {
-      if (questionTarget === null || questionPending) return;
-      const prompt = question.trim();
-      if (!prompt) return;
-      const modelSelection = resolveAppModelSelectionState(settings, serverProviders);
-      if (modelSelection.model.trim().length === 0) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Enable an agent provider first",
-            description: "Choose and authenticate a provider before asking this question.",
-          }),
-        );
-        return;
-      }
-
-      const threadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      const title = `Ask: ${questionTarget.title}`.slice(0, 80);
-      let messageText: string;
-      switch (questionTarget.prompt.kind) {
-        case "finding":
-          messageText = buildDashboardFindingQuestionPrompt(questionTarget.prompt.record, prompt);
-          break;
-        case "repository":
-          messageText = buildDashboardRepositoryQuestionPrompt(questionTarget.project, prompt);
-          break;
-        case "update":
-          messageText = buildDashboardUpdateQuestionPrompt(questionTarget.prompt.update, prompt);
-          break;
-        default: {
-          const unreachable: never = questionTarget.prompt;
-          throw new Error(`Unhandled dashboard question target: ${String(unreachable)}`);
-        }
-      }
-      setQuestionPending(true);
-      try {
-        const result = await startThreadTurn({
+        params: {
           environmentId: questionTarget.project.environmentId,
-          input: {
-            threadId,
-            message: {
-              messageId: newMessageId(),
-              role: "user",
-              text: messageText,
-              attachments: [],
-            },
-            modelSelection,
-            titleSeed: title,
-            runtimeMode: DEFAULT_RUNTIME_MODE,
-            interactionMode: "default",
-            bootstrap: {
-              createThread: {
-                projectId: questionTarget.project.id,
-                title,
-                modelSelection,
-                runtimeMode: DEFAULT_RUNTIME_MODE,
-                interactionMode: "default",
-                branch: null,
-                worktreePath: null,
-                createdAt,
-              },
-            },
-            createdAt,
-          },
-        });
-        if (result._tag === "Failure") {
-          if (!isAtomCommandInterrupted(result)) {
-            const error = squashAtomCommandFailure(result);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Could not start the conversation",
-                description:
-                  error instanceof Error
-                    ? error.message
-                    : "The agent session could not be started.",
-              }),
-            );
-          }
-          return;
-        }
-        await router.navigate({
-          to: "/$environmentId/$threadId",
-          params: {
-            environmentId: questionTarget.project.environmentId,
-            threadId,
-          },
-        });
-      } finally {
-        setQuestionPending(false);
-      }
-    },
-    [questionPending, questionTarget, router, serverProviders, settings, startThreadTurn],
-  );
+          threadId,
+        },
+      });
+    })().finally(() => {
+      setQuestionPending(false);
+    });
+  };
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">

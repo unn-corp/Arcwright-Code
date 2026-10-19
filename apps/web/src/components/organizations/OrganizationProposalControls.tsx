@@ -1,4 +1,4 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   OrganizationProposalMutationId,
   type Organization,
@@ -46,22 +46,24 @@ export function OrganizationObservationModeControl({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const wasOffline = useRef(offline);
+  const modeRefresh = mode.refresh;
   useEffect(() => {
-    if (wasOffline.current && !offline) mode.refresh();
+    if (wasOffline.current && !offline) modeRefresh();
     wasOffline.current = offline;
-  }, [offline, mode.refresh]);
+  }, [offline, modeRefresh]);
 
   async function change(enabled: boolean) {
-    if (busy || offline || environmentId === null || !mode.data) return;
+    const currentMode = mode.data;
+    if (busy || offline || environmentId === null || !currentMode) return;
     setBusy(true);
     setError(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await setMode({
         environmentId,
         input: {
           organizationId: organization.id,
           mutationId: OrganizationProposalMutationId.make(randomUUID()),
-          expectedVersion: mode.data.version,
+          expectedVersion: currentMode.version,
           enabled,
         },
       });
@@ -70,9 +72,10 @@ export function OrganizationObservationModeControl({
         setNotice(enabled ? "Observation mode enabled." : "Observation mode disabled.");
         mode.refresh();
       }
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (
@@ -165,10 +168,11 @@ export function OrganizationProposalList({
     reportFailure: false,
   });
   const wasOffline = useRef(offline);
+  const listRefresh = list.refresh;
   useEffect(() => {
-    if (wasOffline.current && !offline) list.refresh();
+    if (wasOffline.current && !offline) listRefresh();
     wasOffline.current = offline;
-  }, [offline, list.refresh]);
+  }, [offline, listRefresh]);
 
   async function decision(
     proposal: OrganizationWorkProposal,
@@ -177,7 +181,7 @@ export function OrganizationProposalList({
     if (offline || environmentId === null || busyId !== null) return;
     setBusyId(proposal.id);
     setError(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await decide({
         environmentId,
         input: {
@@ -199,9 +203,10 @@ export function OrganizationProposalList({
         setReasons((current) => ({ ...current, [proposal.id]: "" }));
         list.refresh();
       }
-    } finally {
-      setBusyId(null);
-    }
+    });
+    setBusyId(null);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
 
   return (

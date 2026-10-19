@@ -35,7 +35,7 @@ export function UpdateRecoveryDialog({
   const restore = async () => {
     setBusy(true);
     setError(null);
-    try {
+    return await (async () => {
       const fresh = await controller.refresh();
       if (fresh.currentBuild.artifactSha256 !== reviewedBuild?.artifactSha256)
         throw new Error(
@@ -55,11 +55,13 @@ export function UpdateRecoveryDialog({
         acknowledgeDataRestore: acknowledged,
       });
       onClose();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Recovery failed.");
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : "Recovery failed.");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   return (
     <Dialog

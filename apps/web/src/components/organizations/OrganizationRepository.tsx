@@ -1,4 +1,5 @@
 import {
+  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
@@ -153,7 +154,7 @@ export function OrganizationRepository({
     setBusy(true);
     setError(null);
     setNotice(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await action();
       if (result._tag === "Failure") {
         setError(errorText(result));
@@ -161,9 +162,10 @@ export function OrganizationRepository({
       }
       setNotice(success);
       refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
   function changeKind(next: Kind) {
     setKind(next);
@@ -185,12 +187,13 @@ export function OrganizationRepository({
     setSelected(null);
   }
   async function adoptMemory() {
+    const repository = status.data?.repository;
     if (
       blocked ||
       !selected ||
       selected.record.kind !== "memory" ||
       selected.record.content.project_id !== null ||
-      !status.data?.repository
+      !repository
     )
       return;
     const original = selected.record.content.content;
@@ -201,11 +204,8 @@ export function OrganizationRepository({
     setBusy(true);
     setError(null);
     setNotice(null);
-    try {
-      const reference = `github:${status.data.repository}:memory:${selected.record.id}`.slice(
-        0,
-        512,
-      );
+    const outcome = await settlePromise(async () => {
+      const reference = `github:${repository}:memory:${selected.record.id}`.slice(0, 512);
       const note =
         `Imported from the shared repository as an unverified reference. Original provenance: ${original.provenance.reference ?? original.provenance.kind}`.slice(
           0,
@@ -234,9 +234,10 @@ export function OrganizationRepository({
         "Shared memory saved as a local, unverified reference. Review it in Memory and decisions.",
       );
       refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
   const linked = status.data?.repository;
 
@@ -651,7 +652,7 @@ export function OrganizationRepositoryLoader({
     if (!environmentId || disabled || busy || !repository.trim()) return;
     setBusy(true);
     setError(null);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await load({
         environmentId,
         input: {
@@ -671,9 +672,10 @@ export function OrganizationRepositoryLoader({
         to: "/organizations/$organizationId",
         params: { organizationId: result.value.organizationId },
       });
-    } finally {
-      setBusy(false);
-    }
+    });
+    setBusy(false);
+    if (outcome._tag === "Failure") throw squashAtomCommandFailure(outcome);
+    return outcome.value;
   }
   return (
     <Dialog

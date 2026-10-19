@@ -13,14 +13,22 @@ const assetState = vi.hoisted(() => ({
 vi.mock("@effect/atom-react", async () => {
   const { useSyncExternalStore } = await import("react");
   return {
-    useAtomValue: () =>
-      useSyncExternalStore(
+    useAtomValue: (atom: { label?: readonly string[] }) => {
+      const result = useSyncExternalStore(
         (listener) => {
           assetState.listeners.add(listener);
           return () => assetState.listeners.delete(listener);
         },
         () => assetState.result,
-      ),
+      );
+      return atom.label?.[0] === "markdown-server-config-fields"
+        ? {
+            pullRequestsEnabled: false,
+            availableEditors: [],
+            revealInFileManagerLabel: "Show in file manager",
+          }
+        : result;
+    },
   };
 });
 vi.mock("./media/MediaActions", () => ({
@@ -59,6 +67,7 @@ vi.mock("../state/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/session")>()),
   readEnvironmentScope: () => false,
   useEnvironmentScope: () => false,
+  readPreparedConnection: () => ({ httpBaseUrl: assetState.origin }),
   usePreparedConnection: () => ({ _tag: "Some", value: { httpBaseUrl: assetState.origin } }),
 }));
 vi.mock("../state/entities", () => ({

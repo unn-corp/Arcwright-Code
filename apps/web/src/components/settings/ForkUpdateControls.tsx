@@ -56,7 +56,7 @@ export function ForkUpdateControls({
   const requestUpdate = async (input: ForkMaintenanceActionInput) => {
     setPendingAction(input.action);
     setActionFeedback(null);
-    try {
+    return await (async () => {
       const result = await controller.action(input);
       if (result.lastError) return;
       const target = result.targetBuild ? ` · ${formatBuildVersion(result.targetBuild)}` : "";
@@ -69,17 +69,19 @@ export function ForkUpdateControls({
               ? "Installation has not started. Waiting for this device’s activity and safety checks."
               : `Install request checked. ${forkPhaseLabels[result.phase]}.`,
       });
-    } catch {
-      // The controller retains the error across status polling and native status events.
-    } finally {
-      setPendingAction(null);
-    }
+    })()
+      .catch(() => {
+        // The controller retains the error across status polling and native status events.
+      })
+      .finally(() => {
+        setPendingAction(null);
+      });
   };
   const updateNow = async () => {
     const reviewed = status?.targetBuild;
     if (!reviewed) return;
     setInstallError(null);
-    try {
+    return await (async () => {
       const fresh = await controller.refresh();
       if (fresh.targetBuild?.artifactSha256 !== reviewed.artifactSha256)
         throw new Error("The update changed. Review the current build before updating.");
@@ -92,11 +94,11 @@ export function ForkUpdateControls({
         return;
       }
       await requestUpdate({ action: "install", targetArtifactSha256: reviewed.artifactSha256 });
-    } catch (failure) {
+    })().catch((failure: unknown) => {
       setInstallError(
         failure instanceof Error ? failure.message : "Could not check update status.",
       );
-    }
+    });
   };
   if (!status)
     return (

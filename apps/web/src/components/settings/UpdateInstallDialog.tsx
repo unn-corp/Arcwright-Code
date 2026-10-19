@@ -30,7 +30,7 @@ export function UpdateInstallDialog({
   const install = async () => {
     setBusy(true);
     setError(null);
-    try {
+    return await (async () => {
       const fresh = await controller.refresh();
       if (fresh.targetBuild?.artifactSha256 !== build.artifactSha256)
         throw new Error("The update changed. Cancel and review the current build before updating.");
@@ -40,11 +40,13 @@ export function UpdateInstallDialog({
         interruptActiveWork: true,
       });
       onClose();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "The update could not start.");
-    } finally {
-      setBusy(false);
-    }
+    })()
+      .catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : "The update could not start.");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   return (
     <Dialog

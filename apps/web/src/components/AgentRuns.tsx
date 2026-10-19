@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -131,31 +131,20 @@ export function AgentRuns({
   const [updatingPolicyId, setUpdatingPolicyId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState(initialSearch.status ?? "all");
   const [projectFilter, setProjectFilter] = useState(initialSearch.project ?? "all");
-  const runs = useMemo(
-    () => dashboardSnapshot.data?.automationRuns ?? [],
-    [dashboardSnapshot.data?.automationRuns],
-  );
+  const runs = dashboardSnapshot.data?.automationRuns ?? [];
   const policies = dashboardSnapshot.data?.repositoryPolicies ?? [];
   const coverage = dashboardSnapshot.data?.repositoryCoverage ?? [];
   const health = dashboardSnapshot.data?.portfolioHealth;
-  const repositoryNames = useMemo(
-    () =>
-      new Map(
-        (dashboardSnapshot.data?.repositories ?? []).map((repository) => [
-          String(repository.projectId),
-          repository.title,
-        ]),
-      ),
-    [dashboardSnapshot.data?.repositories],
+  const repositoryNames = new Map(
+    (dashboardSnapshot.data?.repositories ?? []).map((repository) => [
+      String(repository.projectId),
+      repository.title,
+    ]),
   );
-  const visibleRuns = useMemo(
-    () =>
-      runs.filter(
-        (run) =>
-          (statusFilter === "all" || run.status === statusFilter) &&
-          (projectFilter === "all" || String(run.repository.projectId) === projectFilter),
-      ),
-    [projectFilter, runs, statusFilter],
+  const visibleRuns = runs.filter(
+    (run) =>
+      (statusFilter === "all" || run.status === statusFilter) &&
+      (projectFilter === "all" || String(run.repository.projectId) === projectFilter),
   );
   useEffect(() => {
     const targetId = initialSearch.runId
@@ -163,7 +152,7 @@ export function AgentRuns({
       : initialSearch.focus === "coverage" && initialSearch.project
         ? `agent-coverage-${initialSearch.project}`
         : null;
-    if (!targetId) return;
+    if (!targetId || (coverage.length === 0 && visibleRuns.length === 0)) return;
     const frame = requestAnimationFrame(() => {
       const target = document.getElementById(targetId);
       target?.scrollIntoView({ block: "center" });
@@ -184,10 +173,11 @@ export function AgentRuns({
 
   const retry = async (run: AgentDashboardAutomationRun) => {
     if (!dashboardSnapshot.environmentId || retryingRunId !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
     setRetryingRunId(run.id);
-    try {
+    return await (async () => {
       const result = await retryRun({
-        environmentId: dashboardSnapshot.environmentId,
+        environmentId,
         input: { id: run.id },
       });
       if (result._tag === "Failure") {
@@ -203,17 +193,18 @@ export function AgentRuns({
           description: `A new run was started for ${repositoryNames.get(String(run.repository.projectId)) ?? "the repository"}.`,
         }),
       );
-    } finally {
+    })().finally(() => {
       setRetryingRunId(null);
-    }
+    });
   };
 
   const togglePolicy = async (policy: AgentDashboardRepositoryPolicy) => {
     if (!dashboardSnapshot.environmentId || updatingPolicyId !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
     setUpdatingPolicyId(String(policy.repository.projectId));
-    try {
+    return await (async () => {
       const result = await updatePolicy({
-        environmentId: dashboardSnapshot.environmentId,
+        environmentId,
         input: { ...policy, enabled: !policy.enabled, updatedAt: new Date().toISOString() },
       });
       if (result._tag === "Failure") {
@@ -222,9 +213,9 @@ export function AgentRuns({
         return;
       }
       await dashboardSnapshot.refresh();
-    } finally {
+    })().finally(() => {
       setUpdatingPolicyId(null);
-    }
+    });
   };
 
   const changePolicy = async (
@@ -234,11 +225,12 @@ export function AgentRuns({
     >,
   ) => {
     if (!dashboardSnapshot.environmentId || updatingPolicyId !== null) return;
+    const environmentId = dashboardSnapshot.environmentId;
     const id = String(policy.repository.projectId);
     setUpdatingPolicyId(id);
-    try {
+    return await (async () => {
       const result = await updatePolicy({
-        environmentId: dashboardSnapshot.environmentId,
+        environmentId,
         input: { ...policy, ...patch, updatedAt: new Date().toISOString() },
       });
       if (result._tag === "Failure") {
@@ -248,9 +240,9 @@ export function AgentRuns({
         return;
       }
       await dashboardSnapshot.refresh();
-    } finally {
+    })().finally(() => {
       setUpdatingPolicyId(null);
-    }
+    });
   };
 
   return (

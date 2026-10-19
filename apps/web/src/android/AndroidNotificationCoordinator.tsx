@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import * as Option from "effect/Option";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { androidAuthStore } from "./connectAuth";
@@ -13,17 +13,16 @@ import {
 } from "./notificationRegistration";
 
 let registrationSequence = 0;
+function nextRegistrationId(): string {
+  return `${Date.now()}:${++registrationSequence}`;
+}
 
 export function AndroidNotificationCoordinator() {
   const { isReady, environments } = useEnvironments();
   const preferences = useClientSettings((settings) => settings.agentNotifications);
-  const ids = useMemo(
-    () =>
-      environments
-        .filter((environment) => environment.entry.enabled)
-        .map((environment) => environment.environmentId),
-    [environments],
-  );
+  const ids = environments
+    .filter((environment) => environment.entry.enabled)
+    .map((environment) => environment.environmentId);
   const configuration = JSON.stringify({ preferences, environmentIds: ids });
   const [configured, setConfigured] = useState<{
     readonly configuration: string;
@@ -32,7 +31,7 @@ export function AndroidNotificationCoordinator() {
   useEffect(() => {
     if (!isReady || !supportsAndroidNotifications()) return;
     let current = true;
-    const id = `${Date.now()}:${++registrationSequence}`;
+    const id = nextRegistrationId();
     void androidNotificationRequest("configure", {
       ...JSON.parse(configuration),
       configurationId: id,

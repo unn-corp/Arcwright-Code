@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { openPairingCamera, readPairingQr } from "../../android/pairingQr";
 
+function loadPairingDecoder() {
+  return import("jsqr");
+}
+
 export function PairingQrScanner({
   onScan,
   onClose,
@@ -27,10 +31,10 @@ export function PairingQrScanner({
     };
     document.addEventListener("visibilitychange", hidden);
     const start = async () => {
-      try {
+      return await (async () => {
         // Software decoding also works on Android WebViews without BarcodeDetector.
         const [{ default: decode }, stream] = await Promise.all([
-          import("jsqr"),
+          loadPairingDecoder(),
           openPairingCamera(controller.signal),
         ]);
         const video = videoRef.current;
@@ -62,7 +66,7 @@ export function PairingQrScanner({
           timer = setTimeout(scan, 200);
         };
         scan();
-      } catch (cause) {
+      })().catch((cause: unknown) => {
         if (controller.signal.aborted) return;
         close();
         setError(
@@ -70,7 +74,7 @@ export function PairingQrScanner({
             ? "Allow camera access in Android Settings for Arcwright Code, then try again. You can also paste the pairing link."
             : "Could not open the camera. Try again or paste the pairing link.",
         );
-      }
+      });
     };
     void start();
     return () => {

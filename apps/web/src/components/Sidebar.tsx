@@ -5,7 +5,7 @@ import {
   threadChangeRequestSnapshotsAtom,
   type ThreadChangeRequestSnapshot,
 } from "./ThreadStatusIndicators";
-import { useMemo, useCallback } from "react";
+
 import { subscribeElapsedClock } from "../lib/elapsedClock";
 import { getProjectOrderKey } from "../logicalProject";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
@@ -904,6 +904,7 @@ function JumpHintBadge(props: { label: string }) {
 // The shared clock writes only this label, without re-rendering the sidebar row.
 function WorkingDuration(props: { startedAt: string | null }) {
   const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
+  const [initialNow] = useState(Date.now);
   const textRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!Number.isFinite(startedMs)) return;
@@ -915,7 +916,7 @@ function WorkingDuration(props: { startedAt: string | null }) {
   if (Number.isNaN(startedMs)) return null;
   return (
     <span ref={textRef} className="tabular-nums">
-      {formatWorkingDurationLabel(Date.now() - startedMs)}
+      {formatWorkingDurationLabel(initialNow - startedMs)}
     </span>
   );
 }
@@ -3005,28 +3006,19 @@ export default function Sidebar() {
     0,
   );
   const projectGroupsRef = useRef(projectGroups);
-  projectGroupsRef.current = projectGroups;
-  const projectGroupByPhysicalRef = useMemo(
-    () =>
-      new Map(
-        projectGroups.flatMap((group) =>
-          group.memberProjectRefs.map(
-            (projectRef) => [`${projectRef.environmentId}:${projectRef.projectId}`, group] as const,
-          ),
-        ),
+  useLayoutEffect(() => {
+    projectGroupsRef.current = projectGroups;
+  }, [projectGroups]);
+  const projectGroupByPhysicalRef = new Map(
+    projectGroups.flatMap((group) =>
+      group.memberProjectRefs.map(
+        (projectRef) => [`${projectRef.environmentId}:${projectRef.projectId}`, group] as const,
       ),
-    [projectGroups],
+    ),
   );
 
-  const projectCwdByKey = useMemo(
-    () =>
-      new Map(
-        projects.map((project) => [
-          `${project.environmentId}:${project.id}`,
-          project.workspaceRoot,
-        ]),
-      ),
-    [projects],
+  const projectCwdByKey = new Map(
+    projects.map((project) => [`${project.environmentId}:${project.id}`, project.workspaceRoot]),
   );
   const persistedProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setPersistedProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
@@ -3280,7 +3272,7 @@ export default function Sidebar() {
       ?.scrollIntoView({ block: "nearest" });
   }, [activeSearchResultKey]);
 
-  const activeThreadGroups = useMemo(() => {
+  const activeThreadGroups = (() => {
     const threadsByGroupKey = new Map<string, EnvironmentThreadShell[]>();
     const ungroupedThreads: EnvironmentThreadShell[] = [];
     for (const thread of activeThreads) {
@@ -3308,30 +3300,22 @@ export default function Sidebar() {
       groups.push({ group: null, threads: ungroupedThreads });
     }
     return groups;
-  }, [activeThreads, projectGroupByPhysicalRef, projectGroups]);
+  })();
   const [collapsedProjectGroupKeys, setCollapsedProjectGroupKeys] = useLocalStorage(
     COLLAPSED_PROJECT_GROUPS_KEY,
     EMPTY_COLLAPSED_PROJECT_GROUP_KEYS,
     COLLAPSED_PROJECT_GROUPS_SCHEMA,
   );
-  const collapsedProjectGroups = useMemo(
-    () => new Set(collapsedProjectGroupKeys),
-    [collapsedProjectGroupKeys],
-  );
-  const toggleProjectGroup = useCallback(
-    (projectKey: string) => {
-      if (!collapsedProjectGroups.has(projectKey)) clearSelection();
-      setCollapsedProjectGroupKeys((keys) =>
-        keys.includes(projectKey)
-          ? keys.filter((key) => key !== projectKey)
-          : [...keys, projectKey],
-      );
-    },
-    [clearSelection, collapsedProjectGroups, setCollapsedProjectGroupKeys],
-  );
-  const visibleActiveThreads = useMemo(
-    () => visibleActiveGroupThreads(activeThreadGroups, collapsedProjectGroups),
-    [activeThreadGroups, collapsedProjectGroups],
+  const collapsedProjectGroups = new Set(collapsedProjectGroupKeys);
+  const toggleProjectGroup = (projectKey: string) => {
+    if (!collapsedProjectGroups.has(projectKey)) clearSelection();
+    setCollapsedProjectGroupKeys((keys) =>
+      keys.includes(projectKey) ? keys.filter((key) => key !== projectKey) : [...keys, projectKey],
+    );
+  };
+  const visibleActiveThreads = visibleActiveGroupThreads(
+    activeThreadGroups,
+    collapsedProjectGroups,
   );
   const orderedThreadKeys = [
     ...pinnedThreads,
@@ -3688,7 +3672,6 @@ export default function Sidebar() {
   const sectionByThreadKeyRef = useRef(sectionByThreadKey);
   useLayoutEffect(() => {
     routeThreadKeyRef.current = routeThreadKey;
-    projectGroupsRef.current = projectGroups;
     orderedThreadKeysRef.current = orderedThreadKeys;
     threadByKeyRef.current = threadByKey;
     handleNewThreadRef.current = newThreadContext.handleNewThread;
@@ -4819,42 +4802,33 @@ export default function Sidebar() {
     updateThreadJumpHintsVisibility(shouldShowJumpHintsNow);
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
-  const clearProjectGroupDrag = useCallback(() => {
+  const clearProjectGroupDrag = () => {
     projectGroupDragSensorRef.current = null;
     setDraggingProjectGroupKey(null);
     setDropProjectGroupKey(null);
-  }, []);
-  const reorderProjectGroup = useCallback(
-    (sourceProjectKey: string, targetProjectKey: string) => {
-      if (sourceProjectKey === targetProjectKey) return;
-      const source = projectGroups.find((group) => group.projectKey === sourceProjectKey);
-      const target = projectGroups.find((group) => group.projectKey === targetProjectKey);
-      if (!source || !target) return;
-      const currentProjectOrder = [
-        ...new Set([
-          ...projectGroups.flatMap((group) =>
-            group.memberProjects.map((member) => member.physicalProjectKey),
-          ),
-          ...orderedProjects.map(getProjectOrderKey),
-        ]),
-      ];
-      reorderProjects(
-        currentProjectOrder,
-        source.memberProjects.map((member) => member.physicalProjectKey),
-        target.memberProjects.map((member) => member.physicalProjectKey),
-      );
-      if (sidebarProjectSortOrder !== "manual") {
-        updateClientSettings({ sidebarProjectSortOrder: "manual" });
-      }
-    },
-    [
-      orderedProjects,
-      projectGroups,
-      reorderProjects,
-      sidebarProjectSortOrder,
-      updateClientSettings,
-    ],
-  );
+  };
+  const reorderProjectGroup = (sourceProjectKey: string, targetProjectKey: string) => {
+    if (sourceProjectKey === targetProjectKey) return;
+    const source = projectGroups.find((group) => group.projectKey === sourceProjectKey);
+    const target = projectGroups.find((group) => group.projectKey === targetProjectKey);
+    if (!source || !target) return;
+    const currentProjectOrder = [
+      ...new Set([
+        ...projectGroups.flatMap((group) =>
+          group.memberProjects.map((member) => member.physicalProjectKey),
+        ),
+        ...orderedProjects.map(getProjectOrderKey),
+      ]),
+    ];
+    reorderProjects(
+      currentProjectOrder,
+      source.memberProjects.map((member) => member.physicalProjectKey),
+      target.memberProjects.map((member) => member.physicalProjectKey),
+    );
+    if (sidebarProjectSortOrder !== "manual") {
+      updateClientSettings({ sidebarProjectSortOrder: "manual" });
+    }
+  };
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
     if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectDestinationCount)) {
       if (isMobile) setOpenMobile(false);
