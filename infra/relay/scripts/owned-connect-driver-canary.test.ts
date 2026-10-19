@@ -54,7 +54,8 @@ class CanaryFixtureFailure extends Schema.TaggedError<CanaryFixtureFailure>()(
 function executionOwner() {
   const pending: Promise<unknown>[] = [];
   let rejected = 0;
-  const execution = Workers.fromExecutionContext({
+  // Workers v5 adds context fields absent in v4; both accept this fixture structurally.
+  const context = {
     props: {},
     exports: {},
     get tracing(): never {
@@ -70,7 +71,8 @@ function executionOwner() {
         rejected++;
       });
     },
-  });
+  };
+  const execution = Workers.fromExecutionContext(context);
   const runtime = RuntimeContext.of({
     Type: "CanaryTest",
     id: "CanaryTest",
