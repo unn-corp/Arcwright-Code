@@ -1777,7 +1777,7 @@ export function AgentFindings({
                     initialSearch.project === group.projectId
                   }
                 >
-                  <CollapsibleTrigger className="mb-3 flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-1 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring data-panel-open:[&>svg]:rotate-180">
+                  <CollapsibleTrigger className="mb-3 flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-1 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring data-panel-open:[&>svg]:rotate-180 focus-visible:ring-inset">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border bg-card text-muted-foreground shadow-xs">
                       <FolderGit2Icon className="size-4" />
                     </div>
@@ -1851,7 +1851,7 @@ export function AgentFindings({
                           githubRepositoryForRecord(record) !== null;
                         return (
                           <div
-                            className="scroll-mt-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="scroll-mt-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                             id={`agent-finding-${record.id}`}
                             key={record.id}
                             tabIndex={-1}

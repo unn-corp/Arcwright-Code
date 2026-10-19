@@ -214,7 +214,7 @@ function WorkflowEditor({
 
   return (
     <Card>
-      <CardPanel className="space-y-5 p-5">
+      <CardPanel size="md" spacing={5}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold">Edit workflow</h3>
@@ -560,7 +560,7 @@ export function OrganizationWorkflows({
       <div className="grid gap-5 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5">
           <Card>
-            <CardPanel className="space-y-4 p-5">
+            <CardPanel size="md" spacing={4}>
               <h2 className="text-lg font-semibold">Saved workflows</h2>
               {organization.workflows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No workflow definitions yet.</p>
@@ -569,7 +569,7 @@ export function OrganizationWorkflows({
                   {organization.workflows.map((workflow) => (
                     <li key={workflow.id}>
                       <Button
-                        className="min-h-11 w-full justify-between gap-3 whitespace-normal text-left"
+                        className="min-h-11 w-full justify-between whitespace-normal text-left"
                         variant={selected?.id === workflow.id ? "secondary" : "outline"}
                         aria-pressed={selected?.id === workflow.id}
                         onClick={() => setSelectedId(workflow.id)}
@@ -586,7 +586,7 @@ export function OrganizationWorkflows({
             </CardPanel>
           </Card>
           <Card>
-            <CardPanel className="space-y-4 p-5">
+            <CardPanel size="md" spacing={4}>
               <div>
                 <h2 className="text-lg font-semibold">Create workflow</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -696,7 +696,7 @@ export function OrganizationWorkflows({
             />
           ) : (
             <Card>
-              <CardPanel className="p-5 text-sm text-muted-foreground">
+              <CardPanel size="md" tone="muted">
                 Select a saved workflow to inspect its steps and transitions.
               </CardPanel>
             </Card>

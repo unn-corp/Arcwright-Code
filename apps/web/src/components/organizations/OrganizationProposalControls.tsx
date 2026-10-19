@@ -77,7 +77,7 @@ export function OrganizationObservationModeControl({
 
   return (
     <Card>
-      <CardPanel className="space-y-3 p-5">
+      <CardPanel size="md" spacing={3}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Observation mode</h2>
           <Badge variant="outline">
@@ -240,7 +240,7 @@ export function OrganizationProposalList({
         {(list.data?.proposals ?? []).map((proposal) => (
           <li key={proposal.id}>
             <Card>
-              <CardPanel className="space-y-3 p-5">
+              <CardPanel size="md" spacing={3}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <h3 className="break-words font-semibold">{proposal.title}</h3>
                   <div className="flex flex-wrap gap-2">

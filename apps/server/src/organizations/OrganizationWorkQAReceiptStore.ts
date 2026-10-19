@@ -11,14 +11,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 import {
   OrganizationWorkArtifactStore,
   OrganizationWorkArtifactStoreLive,
-  OrganizationWorkArtifactVerifierFromStore,
 } from "./OrganizationWorkArtifactStore.ts";
 import {
   OrganizationWorkEvaluationVerifier,
-  OrganizationWorkApprovalVerifierDisabled,
-  OrganizationWorkIntegrationVerifierDisabled,
-  OrganizationWorkExecutionDisabled,
-  OrganizationWorkStoreLayer,
   type OrganizationWorkEvaluationTarget,
 } from "./OrganizationWorkStore.ts";
 
@@ -64,7 +59,7 @@ export class OrganizationWorkQAReceiptCaptureAuthority extends Context.Service<
     ) => boolean;
   }
 >()("t3/organizations/OrganizationWorkQAReceiptStore/OrganizationWorkQAReceiptCaptureAuthority") {}
-export const OrganizationWorkQAReceiptCaptureDisabled = Layer.succeed(
+const OrganizationWorkQAReceiptCaptureDisabled = Layer.succeed(
   OrganizationWorkQAReceiptCaptureAuthority,
   { permits: () => false },
 );
@@ -391,22 +386,3 @@ export const OrganizationWorkEvaluationVerifierFromQAReceipts = Layer.effect(
 /** Default read verifier can inspect persisted evidence, while capture remains denied. */
 export const OrganizationWorkQAReceiptStoreWithArtifactsLive =
   OrganizationWorkQAReceiptStoreLive.pipe(Layer.provide(OrganizationWorkArtifactStoreLive));
-
-/** Persisted read verifiers; work mutation and QA capture remain denied live. */
-export const OrganizationWorkStoreWithQAReceiptsLive = OrganizationWorkStoreLayer.pipe(
-  Layer.provide(OrganizationWorkExecutionDisabled),
-  Layer.provide(OrganizationWorkApprovalVerifierDisabled),
-  Layer.provide(OrganizationWorkIntegrationVerifierDisabled),
-  Layer.provide(
-    Layer.mergeAll(
-      OrganizationWorkArtifactVerifierFromStore,
-      OrganizationWorkEvaluationVerifierFromQAReceipts,
-    ).pipe(
-      Layer.provide(
-        OrganizationWorkQAReceiptStoreLive.pipe(
-          Layer.provideMerge(OrganizationWorkArtifactStoreLive),
-        ),
-      ),
-    ),
-  ),
-);

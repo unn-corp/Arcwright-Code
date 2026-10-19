@@ -66,7 +66,7 @@ export class OrganizationWorkApprovalCaptureAuthority extends Context.Service<
 >()(
   "t3/organizations/OrganizationWorkApprovalReceiptStore/OrganizationWorkApprovalCaptureAuthority",
 ) {}
-export const OrganizationWorkApprovalCaptureDisabled = Layer.succeed(
+const OrganizationWorkApprovalCaptureDisabled = Layer.succeed(
   OrganizationWorkApprovalCaptureAuthority,
   { permitsAuthenticatedHuman: () => false },
 );

@@ -87,11 +87,12 @@ export function applyHermesAcpModelSelection<E>(input: {
     return Effect.succeed(input.currentModelId);
   }
   return input.runtime.setSessionModel(requestedModelId).pipe(
-    Effect.catchTag("AcpRequestError", (cause) =>
-      cause.code === -32601 && input.runtime.setModel !== undefined
-        ? input.runtime.setModel(requestedModelId)
-        : Effect.fail(cause),
-    ),
+    Effect.catchTags({
+      AcpRequestError: (cause) =>
+        cause.code === -32601 && input.runtime.setModel !== undefined
+          ? input.runtime.setModel(requestedModelId)
+          : Effect.fail(cause),
+    }),
     Effect.mapError(input.mapError),
     Effect.as(requestedModelId),
   );

@@ -77,14 +77,11 @@ const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
     ? undefined
     : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
 );
-export const buildConnectMode = resolveConnectMode(
+const buildConnectMode = resolveConnectMode(
   typeof __T3CODE_BUILD_CONNECT_MODE__ === "undefined" ? undefined : __T3CODE_BUILD_CONNECT_MODE__,
 );
-export const buildConnectProfileDigest =
-  typeof __T3CODE_BUILD_CONNECT_PROFILE_DIGEST__ === "undefined"
-    ? ""
-    : __T3CODE_BUILD_CONNECT_PROFILE_DIGEST__;
-export const buildConnectProfile = selectConnectProfile(buildConnectMode, [
+
+const buildConnectProfile = selectConnectProfile(buildConnectMode, [
   {
     T3CODE_CLERK_PUBLISHABLE_KEY: buildTimeClerkPublishableKey,
     T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: buildTimeClerkCliOAuthClientId,

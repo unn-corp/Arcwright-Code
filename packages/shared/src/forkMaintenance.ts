@@ -13,18 +13,15 @@ import {
   type ForkUpdateCountdown,
 } from "@t3tools/contracts";
 
-export { FORK_AUTOMATIC_INSTALL_COUNTDOWN_MS };
-
-export const FORK_TAG_PREFIX = "fork-v";
+const FORK_TAG_PREFIX = "fork-v";
 export const FORK_MANIFEST_ASSET = "fork-release.json";
 export const FORK_RELEASES_API = "https://api.github.com/repos/unn-corp/t3code/releases";
 export const FORK_RELEASE_DOWNLOAD_ORIGIN = "https://github.com/unn-corp/t3code/releases/download/";
 /** Managed hosts check at this cadence. The desktop keeps its existing check cadence. */
 export const FORK_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 /** Desktop and standalone hosts install only after this much input and upload inactivity. */
-export const FORK_DESKTOP_INPUT_IDLE_MS = 5 * 60 * 1000;
-/** Android installs wait for this long in the background with no phone-side operation. */
-export const FORK_ANDROID_BACKGROUND_IDLE_MS = 2 * 60 * 1000;
+const FORK_DESKTOP_INPUT_IDLE_MS = 5 * 60 * 1000;
+
 const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_MAX_MS = FORK_CHECK_INTERVAL_MS;
 
@@ -79,7 +76,7 @@ export function compareForkVersions(left: string, right: string): number {
   return Math.sign(a.run! - b.run!);
 }
 
-export const forkVersionFromTag = (tag: string): string | null => {
+const forkVersionFromTag = (tag: string): string | null => {
   if (!tag.startsWith(FORK_TAG_PREFIX)) return null;
   const version = tag.slice(FORK_TAG_PREFIX.length);
   return parseForkVersion(version) ? version : null;
@@ -114,7 +111,7 @@ const WITHDRAWN_PATTERN = /^<!-- t3-fork-release:withdrawn\b[^>]*-->/m;
 const COMMISSIONING_PATTERN =
   /^<!-- t3-fork-release:commissioning source-tag=(\S+) source-version=(\S+) source-commit=([0-9a-f]{40}) -->/m;
 const REQUIRED_CHECKS = ["build", "install", "update", "recovery"] as const;
-export const isWithdrawn = (record: Pick<ForkReleaseRecord, "body">): boolean =>
+const isWithdrawn = (record: Pick<ForkReleaseRecord, "body">): boolean =>
   WITHDRAWN_PATTERN.test(record.body);
 
 function commissioningSource(
@@ -344,11 +341,11 @@ export function forkDesktopAssetFor(
  * script and the Node runtime that runs it, so recovery never depends on a system Node or on the
  * (possibly broken) main app. They are told apart by exact name, never by kind alone.
  */
-export const RECOVERY_NODE_ASSET: Record<ForkPlatformKey, string> = {
+const RECOVERY_NODE_ASSET: Record<ForkPlatformKey, string> = {
   "linux-x64": "t3-recovery-node-linux-x64",
   "windows-x64": "t3-recovery-node-windows-x64.exe",
 };
-export const RECOVERY_HELPER_ASSET: Record<ForkPlatformKey, string> = {
+const RECOVERY_HELPER_ASSET: Record<ForkPlatformKey, string> = {
   "linux-x64": "t3-recovery-helper-linux-x64.mjs",
   "windows-x64": "t3-recovery-helper-windows-x64.mjs",
 };

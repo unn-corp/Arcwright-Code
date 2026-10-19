@@ -565,7 +565,7 @@ function PreviewAnnotationEditor({ session }: { session: PreviewAnnotationEditor
                   aria-label="Resize annotation composer"
                   aria-description="Drag to resize, or use the Up and Down arrow keys"
                   disabled={submitting || discardRequested}
-                  className="absolute z-20 size-11 touch-none rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 cursor-ns-resize"
+                  className="absolute z-20 size-11 touch-none rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 cursor-ns-resize focus-visible:ring-inset"
                   style={{ right: "calc(-1px - 1.5rem)", bottom: "calc(-1px - 1.5rem)" }}
                   onPointerDown={(event) => {
                     if (event.button !== 0 || commentResizeRef.current) return;

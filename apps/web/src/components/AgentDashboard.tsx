@@ -643,7 +643,7 @@ function DashboardLoadingState() {
           key={key}
           className="flex min-h-16 items-center gap-3 border-b border-border/60 px-4 py-3 last:border-b-0"
         >
-          <Skeleton className="size-8 shrink-0 rounded-lg" />
+          <Skeleton className="size-8 shrink-0" />
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className="h-3.5 w-48 max-w-full" />
             <Skeleton className="h-3 w-80 max-w-full" />
@@ -670,7 +670,7 @@ function findingSeverityVariant(severity: AgentDashboardFindingSeverity) {
 
 function DashboardEmptyState() {
   return (
-    <Empty className="min-h-[min(28rem,60vh)] rounded-2xl border border-dashed border-border/80 bg-card">
+    <Empty variant="card" className="min-h-[min(28rem,60vh)]">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <FolderGit2Icon />
@@ -1060,7 +1060,7 @@ export function AgentDashboard() {
   );
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col bg-background">
         <WorkspacePageHeader
           electron={isElectron}
@@ -1119,12 +1119,17 @@ export function AgentDashboard() {
           </div>
         </WorkspacePageHeader>
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
           <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-            <Card className={cn(needsYouCount > 0 && "border-warning/35")}>
-              <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/60 p-3 sm:p-4">
+            <Card variant={needsYouCount > 0 ? "warning" : "default"}>
+              <CardHeader
+                size="xs"
+                variant="divided"
+                gap={3}
+                className="flex flex-row items-center justify-between"
+              >
                 <div className="min-w-0">
-                  <CardTitle className="text-base">Needs you</CardTitle>
+                  <CardTitle size="sm">Needs you</CardTitle>
                   <CardDescription className="mt-1">
                     Open the exact work behind every decision, failure, and repository alert.
                   </CardDescription>
@@ -1135,7 +1140,7 @@ export function AgentDashboard() {
                     : "Clear"}
                 </Badge>
               </CardHeader>
-              <CardPanel className="p-0">
+              <CardPanel size="flush">
                 {needsYouCount > 0 ? (
                   <>
                     {(needsYouExpanded ? needsYouItems : needsYouItems.slice(0, 4)).map((item) => (
@@ -1147,9 +1152,9 @@ export function AgentDashboard() {
                     ))}
                     {needsYouItems.length > 4 ? (
                       <Button
-                        className="min-h-11 w-full rounded-none border-x-0 border-b-0"
+                        className="min-h-11 w-full"
                         onClick={() => setNeedsYouExpanded((current) => !current)}
-                        variant="ghost"
+                        variant="ghost-flush"
                       >
                         {needsYouExpanded
                           ? "Show priority actions only"
@@ -1178,9 +1183,14 @@ export function AgentDashboard() {
 
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(20rem,1fr)]">
               <Card className="overflow-hidden" id="dashboard-active">
-                <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/60 p-3 sm:p-4">
+                <CardHeader
+                  size="xs"
+                  variant="divided"
+                  gap={3}
+                  className="flex flex-row items-center justify-between"
+                >
                   <div className="min-w-0">
-                    <CardTitle className="text-base">Active now</CardTitle>
+                    <CardTitle size="sm">Active now</CardTitle>
                     <CardDescription className="mt-1">
                       Running agents and work ready for review or input.
                     </CardDescription>
@@ -1201,7 +1211,7 @@ export function AgentDashboard() {
                     </Button>
                   ) : null}
                 </CardHeader>
-                <CardPanel className="p-0">
+                <CardPanel size="flush">
                   {activeThreads.length > 0 ? (
                     <>
                       {(activeThreadsExpanded ? activeThreads : activeThreads.slice(0, 6)).map(
@@ -1215,9 +1225,9 @@ export function AgentDashboard() {
                       )}
                       {!activeThreadsExpanded && activeThreads.length > 6 ? (
                         <Button
-                          className="h-9 w-full rounded-none border-x-0 border-b-0"
+                          className="h-9 w-full"
                           onClick={() => setActiveThreadsExpanded(true)}
-                          variant="ghost"
+                          variant="ghost-flush"
                         >
                           Show {activeThreads.length - 6} more active agents
                           <ChevronDownIcon />
@@ -1258,9 +1268,14 @@ export function AgentDashboard() {
               </Card>
 
               <Card className="overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/60 p-3 sm:p-4">
+                <CardHeader
+                  size="xs"
+                  variant="divided"
+                  gap={3}
+                  className="flex flex-row items-center justify-between"
+                >
                   <div className="min-w-0">
-                    <CardTitle className="text-base">Recent findings</CardTitle>
+                    <CardTitle size="sm">Recent findings</CardTitle>
                     <CardDescription className="mt-1">
                       Latest signals across repositories.
                     </CardDescription>
@@ -1274,7 +1289,7 @@ export function AgentDashboard() {
                     <ArrowUpRightIcon />
                   </Button>
                 </CardHeader>
-                <CardPanel className="p-0">
+                <CardPanel size="flush">
                   {recentFindings.length > 0 ? (
                     recentFindings.map((finding) => {
                       const relativeTime = formatRelativeTimeLabel(finding.lastSeenAt);
@@ -1348,9 +1363,7 @@ export function AgentDashboard() {
             <section className="space-y-3" id="dashboard-repositories">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="font-heading text-base font-semibold tracking-tight">
-                    Repositories
-                  </h2>
+                  <h2 className="font-sans text-base font-semibold tracking-tight">Repositories</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Expand a repository for checkout, worktree, and thread details.
                   </p>

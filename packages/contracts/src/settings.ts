@@ -1281,8 +1281,8 @@ export const InactiveWorktreeCleanupSettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type InactiveWorktreeCleanupSettings = typeof InactiveWorktreeCleanupSettings.Type;
 
-export const MIN_REPOSITORY_REVIEW_INTERVAL_MINUTES = 15;
-export const MAX_REPOSITORY_REVIEW_INTERVAL_MINUTES = 24 * 60;
+const MIN_REPOSITORY_REVIEW_INTERVAL_MINUTES = 15;
+const MAX_REPOSITORY_REVIEW_INTERVAL_MINUTES = 24 * 60;
 export const RepositoryReviewIntervalMinutes = Schema.Int.check(
   Schema.isBetween({
     minimum: MIN_REPOSITORY_REVIEW_INTERVAL_MINUTES,
@@ -1327,8 +1327,8 @@ export const ProductOpportunityDiscoverySettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type ProductOpportunityDiscoverySettings = typeof ProductOpportunityDiscoverySettings.Type;
 
-export const MIN_DECISION_FOLLOW_UP_INTERVAL_MINUTES = 15;
-export const MAX_DECISION_FOLLOW_UP_INTERVAL_MINUTES = 24 * 60;
+const MIN_DECISION_FOLLOW_UP_INTERVAL_MINUTES = 15;
+const MAX_DECISION_FOLLOW_UP_INTERVAL_MINUTES = 24 * 60;
 export const DecisionFollowUpIntervalMinutes = Schema.Int.check(
   Schema.isBetween({
     minimum: MIN_DECISION_FOLLOW_UP_INTERVAL_MINUTES,

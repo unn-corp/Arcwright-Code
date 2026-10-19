@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -23,8 +24,6 @@ import {
   CircleAlertIcon,
   Clock3Icon,
   ExternalLinkIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
   ListChecksIcon,
   LoaderIcon,
   RefreshCwIcon,
@@ -282,9 +281,9 @@ export function AgentProjectPullRequests({
     <>
       <Collapsible>
         <div className="rounded-xl border border-border/70 bg-muted/15">
-          <CollapsibleTrigger className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2 text-left outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring data-panel-open:[&>svg]:rotate-180">
+          <CollapsibleTrigger className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2 text-left outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring data-panel-open:[&>svg]:rotate-180 focus-visible:ring-inset">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
-              <GitPullRequestIcon className="size-4" />
+              <PullRequestGlyph.pullRequest className="size-4" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -395,7 +394,7 @@ export function AgentProjectPullRequests({
                         {combinationBusy ? (
                           <LoaderIcon className="animate-spin" />
                         ) : (
-                          <GitPullRequestIcon />
+                          <PullRequestGlyph.pullRequest />
                         )}
                         Combine PRs
                       </Button>
@@ -468,7 +467,7 @@ export function AgentProjectPullRequests({
                                 size="sm"
                                 variant={pullRequest.canMerge ? "success" : "outline"}
                               >
-                                <GitMergeIcon className="size-3" />
+                                <PullRequestGlyph.merged className="size-3" />
                                 {pullRequest.canMerge ? "Merge ready" : "Merge blocked"}
                               </Badge>
                             </div>
@@ -500,7 +499,7 @@ export function AgentProjectPullRequests({
                               }}
                               size="xs"
                             >
-                              <GitMergeIcon />
+                              <PullRequestGlyph.merged />
                               Merge
                             </Button>
                           </div>
@@ -529,7 +528,7 @@ export function AgentProjectPullRequests({
               head commit changed after this review.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="grid gap-4">
+          <DialogPanel className="grid">
             {selectedPullRequest ? (
               <div className="grid gap-3 rounded-xl border bg-muted/20 p-3">
                 <p className="text-sm font-medium">{selectedPullRequest.title}</p>
@@ -568,7 +567,7 @@ export function AgentProjectPullRequests({
               Cancel
             </DialogClose>
             <Button disabled={!selectedPullRequest || merging} onClick={() => void confirmMerge()}>
-              {merging ? <LoaderIcon className="animate-spin" /> : <GitMergeIcon />}
+              {merging ? <LoaderIcon className="animate-spin" /> : <PullRequestGlyph.merged />}
               {merging ? "Merging" : `Merge PR #${selectedPullRequest?.number ?? ""}`}
             </Button>
           </DialogFooter>
@@ -589,7 +588,7 @@ export function AgentProjectPullRequests({
               stay open and unchanged.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="grid gap-5 md:grid-cols-[minmax(0,1.35fr)_minmax(15rem,0.65fr)]">
+          <DialogPanel className="grid md:grid-cols-[minmax(0,1.35fr)_minmax(15rem,0.65fr)]">
             <div className="grid min-w-0 content-start gap-4">
               <div className="grid gap-1.5">
                 <label className="text-sm font-medium" htmlFor={`combine-pr-title-${projectId}`}>
@@ -760,7 +759,7 @@ export function AgentProjectPullRequests({
                       const option = RUNTIME_MODE_PRESENTATION[mode];
                       const OptionIcon = option.icon;
                       return (
-                        <SelectItem className="min-w-64 py-2" hideIndicator key={mode} value={mode}>
+                        <SelectItem className="min-w-64" hideIndicator key={mode} value={mode}>
                           <div className="grid min-w-0 gap-0.5">
                             <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                               <OptionIcon className="size-3.5 text-muted-foreground" />
@@ -796,7 +795,11 @@ export function AgentProjectPullRequests({
               }
               onClick={() => void launchCombination()}
             >
-              {combinationBusy ? <LoaderIcon className="animate-spin" /> : <GitPullRequestIcon />}
+              {combinationBusy ? (
+                <LoaderIcon className="animate-spin" />
+              ) : (
+                <PullRequestGlyph.pullRequest />
+              )}
               {combinationBusy ? "Launching agent" : "Launch combination agent"}
             </Button>
           </DialogFooter>

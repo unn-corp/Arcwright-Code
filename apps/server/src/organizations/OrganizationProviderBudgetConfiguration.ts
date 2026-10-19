@@ -59,7 +59,7 @@ export class OrganizationProviderBudgetConfigurationAuthority extends Context.Se
 >()(
   "t3/organizations/OrganizationProviderBudgetConfiguration/OrganizationProviderBudgetConfigurationAuthority",
 ) {}
-export const OrganizationProviderBudgetConfigurationDisabled = Layer.succeed(
+const OrganizationProviderBudgetConfigurationDisabled = Layer.succeed(
   OrganizationProviderBudgetConfigurationAuthority,
   {
     authenticatedHumanId: null,

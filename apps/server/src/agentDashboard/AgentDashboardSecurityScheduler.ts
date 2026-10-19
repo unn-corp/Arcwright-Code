@@ -22,8 +22,8 @@ import * as ProjectionSnapshotQuery from "../agentDashboard/AutomationSnapshotQu
 import * as ServerConfig from "../config.ts";
 import { MaintenanceWorkHeld, withAutomationWork } from "../maintenance/WorkAdmission.ts";
 
-export const SECURITY_SCHEDULE_ID = "t3-security-collector";
-export const SECURITY_INTERVAL_MINUTES = 120;
+const SECURITY_SCHEDULE_ID = "t3-security-collector";
+const SECURITY_INTERVAL_MINUTES = 120;
 
 const POLL_INTERVAL = Duration.seconds(30);
 const INTERVAL_MS = SECURITY_INTERVAL_MINUTES * 60_000;
@@ -141,15 +141,6 @@ const readSchedule = async (path: string): Promise<AgentDashboardSecuritySchedul
     return defaultSchedule();
   }
 };
-
-/** Read-only status access for dashboard snapshots; the scheduler owns writes. */
-export const readPersistedStatus = (
-  stateDir: string,
-): Effect.Effect<AgentDashboardSecuritySchedule> =>
-  Effect.tryPromise({
-    try: () => readSchedule(NodePath.join(stateDir, "agent-dashboard", "security-schedule.json")),
-    catch: () => undefined,
-  }).pipe(Effect.orElseSucceed(() => defaultSchedule()));
 
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;

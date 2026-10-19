@@ -136,7 +136,7 @@ export function DictationSetupAgentButton() {
       type="button"
       size="xs"
       variant="outline"
-      className="shrink-0 gap-1.5"
+      className="shrink-0"
       disabled={isStarting || !canStart}
       onClick={() => void startSetupAgent()}
       title={canStart ? "Start an agent to configure local voice dictation" : "Add a project first"}

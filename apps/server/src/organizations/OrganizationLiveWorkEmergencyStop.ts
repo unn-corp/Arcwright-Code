@@ -2,6 +2,7 @@
 import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import {
   OrganizationWorkError,
   type OrganizationId,
@@ -80,7 +81,7 @@ export const makeOrganizationEmergencyProviderObserver = (
 ): OrganizationPatchProcessObserverShape => {
   const launchMarker = NodeCrypto.randomBytes(32).toString("hex");
   let markerRecord = launchMarker;
-  if (process.platform === "linux") {
+  if (HostProcessPlatform.defaultValue() === "linux") {
     try {
       const uptime = Number(NodeFS.readFileSync("/proc/uptime", "utf8").split(" ")[0]);
       const bootId = NodeFS.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
@@ -371,7 +372,7 @@ export const requestOrganizationEmergencyStop = (
   });
 
 /** Called only after the exact spawned provider handle reports exited. */
-export const recordOrganizationProviderExit = (input: {
+const recordOrganizationProviderExit = (input: {
   readonly organizationId: OrganizationId;
   readonly workId: OrganizationWorkId;
   readonly processId: number;

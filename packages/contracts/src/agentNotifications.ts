@@ -21,7 +21,7 @@ export type AgentNotificationKind = typeof AgentNotificationKind.Type;
 export const AgentNotificationInputKind = Schema.Literals(["approval", "input"]);
 export type AgentNotificationInputKind = typeof AgentNotificationInputKind.Type;
 
-export const AGENT_NOTIFICATION_MAX_TITLE_LENGTH = 120;
+const AGENT_NOTIFICATION_MAX_TITLE_LENGTH = 120;
 const AgentNotificationTitle = TrimmedNonEmptyString.check(
   Schema.isMaxLength(AGENT_NOTIFICATION_MAX_TITLE_LENGTH),
 );

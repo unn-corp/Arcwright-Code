@@ -43,7 +43,7 @@ export function AgentDashboardQuestionComposer({
 
   return (
     <form
-      className="shrink-0 border-t border-border/70 bg-card/95 px-4 py-2.5 shadow-[0_-8px_24px_-18px_color-mix(in_oklab,var(--foreground)_25%,transparent)] backdrop-blur sm:px-6 lg:px-8"
+      className="shrink-0 border-t border-border/70 bg-card/95 px-4 py-2.5 shadow-dashboard-composer backdrop-blur sm:px-6 lg:px-8"
       onSubmit={(event) => {
         event.preventDefault();
         if (canSubmit) onSubmit(question);
@@ -58,7 +58,7 @@ export function AgentDashboardQuestionComposer({
             <p className="truncate text-xs font-semibold">
               {target.kindLabel}: {target.title}
             </p>
-            <p className="truncate text-[11px] text-muted-foreground">{target.detail}</p>
+            <p className="truncate text-2xs text-muted-foreground">{target.detail}</p>
           </div>
         </div>
 
@@ -89,7 +89,7 @@ export function AgentDashboardQuestionComposer({
           </Button>
         </div>
 
-        <p className="truncate text-[11px] text-muted-foreground sm:max-w-36 sm:text-right">
+        <p className="truncate text-2xs text-muted-foreground sm:max-w-36 sm:text-right">
           Opens a new session with {modelLabel}
         </p>
       </div>

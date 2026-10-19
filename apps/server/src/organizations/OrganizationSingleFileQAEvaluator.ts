@@ -61,7 +61,7 @@ export interface OrganizationSingleFileQAEvaluation {
   readonly evidenceBytes: Uint8Array;
 }
 
-export class OrganizationSingleFileQAEvaluatorError extends Error {
+class OrganizationSingleFileQAEvaluatorError extends Error {
   override readonly name = "OrganizationSingleFileQAEvaluatorError";
 }
 

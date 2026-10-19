@@ -1,5 +1,5 @@
 import type { OrganizationPatchProposalInput } from "@t3tools/contracts";
-import type { OrganizationArchitectTurnInput } from "@t3tools/provider-core/server/textGeneration";
+
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -154,19 +154,6 @@ export const make = Effect.gen(function* () {
       ),
   });
 });
-
-/** A required call surface for consumers of the optional provider-instance method. */
-export const generateOrganizationArchitectTurn = (input: OrganizationArchitectTurnInput) =>
-  Effect.flatMap(TextGeneration, (service) =>
-    service.generateOrganizationArchitectTurn
-      ? service.generateOrganizationArchitectTurn(input)
-      : Effect.fail(
-          new TextGenerationError({
-            operation: "generateOrganizationArchitectTurn",
-            detail: "Organization Architect generation is unavailable.",
-          }),
-        ),
-  );
 
 /** A required facade for the optional per-provider patch proposal method. */
 export const generateOrganizationPatchProposal = (input: OrganizationPatchProposalInput) =>

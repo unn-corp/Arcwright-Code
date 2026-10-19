@@ -13,7 +13,6 @@ import {
   OrganizationFindingCorrelationAuthority,
   OrganizationFindingCorrelator,
   OrganizationFindingCorrelatorLayer,
-  OrganizationFindingCorrelatorLive,
   type OrganizationCorrelationPrincipal,
 } from "./OrganizationFindingCorrelator.ts";
 
@@ -107,10 +106,6 @@ const make = Effect.gen(function* () {
 export const OrganizationCorrelationCoordinatorLayer = Layer.effect(
   OrganizationCorrelationCoordinator,
   make,
-);
-/** No finding creation occurs until a reviewed correlation policy is provided. */
-export const OrganizationCorrelationCoordinatorLive = OrganizationCorrelationCoordinatorLayer.pipe(
-  Layer.provide(OrganizationFindingCorrelatorLive),
 );
 
 /** Server-owned intake may form tentative findings after authenticated persistence. */

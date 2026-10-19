@@ -1,3 +1,4 @@
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 // @effect-diagnostics nodeBuiltinImport:off - Disposable child verifies Linux pidfd recovery.
 import * as NodeChildProcess from "node:child_process";
 import { assert, it } from "@effect/vitest";
@@ -190,7 +191,7 @@ const nextStatus = (
 testLayer("Organization live work lifecycle", (it) => {
   it.effect("clears an uncertain provider launch only after a different Linux boot", () =>
     Effect.gen(function* () {
-      if (process.platform !== "linux") return;
+      if (HostProcessPlatform.defaultValue() !== "linux") return;
       const fixture = yield* seed;
       yield* seedActivatedWork(fixture);
       const sql = yield* SqlClient.SqlClient;
@@ -219,7 +220,7 @@ testLayer("Organization live work lifecycle", (it) => {
   );
   it.effect("recovers a crash-gap provider by its durable marker and exact pidfd", () =>
     Effect.gen(function* () {
-      if (process.platform !== "linux") return;
+      if (HostProcessPlatform.defaultValue() !== "linux") return;
       const fixture = yield* seed;
       yield* seedActivatedWork(fixture);
       const sql = yield* SqlClient.SqlClient;

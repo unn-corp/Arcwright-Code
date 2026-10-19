@@ -109,7 +109,7 @@ export function automationThreadShell(
   });
 }
 
-export function automationActivities(
+function automationActivities(
   projection: Pick<OrchestrationV2ThreadProjection, "turnItems" | "runtimeRequests">,
 ): ReadonlyArray<OrchestrationThreadActivity> {
   const items = projection.turnItems.flatMap((item): Array<OrchestrationThreadActivity> => {
@@ -240,7 +240,7 @@ export class ProjectionSnapshotQuery extends Context.Service<
   ProjectionSnapshotQuery,
   AutomationSnapshotQueryShape
 >()("t3/agentDashboard/AutomationSnapshotQuery/ProjectionSnapshotQuery") {}
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService;
   const projects = yield* ProjectStoreV2;
   const events = yield* EventStoreV2;

@@ -6,10 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import {
-  OrganizationWorkArtifactStore,
-  OrganizationWorkArtifactStoreLive,
-} from "./OrganizationWorkArtifactStore.ts";
+import { OrganizationWorkArtifactStore } from "./OrganizationWorkArtifactStore.ts";
 import { decodeOrganizationSingleFileArtifact } from "./OrganizationSingleFileArtifact.ts";
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -60,7 +57,7 @@ export class OrganizationGitCandidateRetentionAuthority extends Context.Service<
 >()(
   "t3/organizations/OrganizationGitCandidateIntentStore/OrganizationGitCandidateRetentionAuthority",
 ) {}
-export const OrganizationGitCandidateRetentionDisabled = Layer.succeed(
+const OrganizationGitCandidateRetentionDisabled = Layer.succeed(
   OrganizationGitCandidateRetentionAuthority,
   { permits: () => false },
 );
@@ -373,6 +370,3 @@ export const OrganizationGitCandidateIntentStoreLive = Layer.effect(
   OrganizationGitCandidateIntentStore,
   make.pipe(Effect.provide(OrganizationGitCandidateRetentionDisabled)),
 );
-/** Convenience layer with persisted artifact verification and no retention authority. */
-export const OrganizationGitCandidateIntentStoreStandaloneLive =
-  OrganizationGitCandidateIntentStoreLive.pipe(Layer.provide(OrganizationWorkArtifactStoreLive));

@@ -28,7 +28,7 @@ export function HostMaintenanceStatus({
           render={
             <Link
               to="/settings/connections"
-              className="block min-w-0 rounded-sm outline-none focus-visible:ring-2"
+              className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset"
             />
           }
         >

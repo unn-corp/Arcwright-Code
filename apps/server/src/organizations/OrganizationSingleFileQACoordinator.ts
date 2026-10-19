@@ -74,9 +74,6 @@ export class OrganizationSingleFileQAHost extends Context.Service<
     ) => Promise<OrganizationSingleFileQAEvaluation>;
   }
 >()("t3/organizations/OrganizationSingleFileQACoordinator/OrganizationSingleFileQAHost") {}
-export const OrganizationSingleFileQAHostDisabled = Layer.succeed(OrganizationSingleFileQAHost, {
-  evaluate: () => Promise.reject(failure("unavailable", "Scoped QA host is disabled.")),
-});
 
 export interface OrganizationSingleFileQARunInput {
   readonly workId: OrganizationWorkId;

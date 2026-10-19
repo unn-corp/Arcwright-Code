@@ -33,7 +33,7 @@ export class IdleProcessRoots extends Context.Service<IdleProcessRoots, IdleProc
   "@t3tools/shared/idleProcessRoots",
 ) {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const entries = yield* Ref.make<ReadonlyMap<string, IdleProcessRoot>>(new Map());
   const register: IdleProcessRootsShape["register"] = (pid, kind, isCurrent) =>
     Effect.suspend(() => {

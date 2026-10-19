@@ -29,7 +29,7 @@ import * as ServerRuntimeStartup from "../serverRuntimeStartup.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { withAutomationWork } from "../maintenance/WorkAdmission.ts";
 
-export const DECISION_FOLLOW_UP_KIND = "decision-follow-up";
+const DECISION_FOLLOW_UP_KIND = "decision-follow-up";
 const POLL_INTERVAL = Duration.seconds(30);
 
 const severityWeight = { info: 1, low: 2, medium: 3, high: 4, critical: 5 } as const;

@@ -45,7 +45,7 @@ export class GitHubAccountBrowser extends Context.Service<
   }
 >()("@t3tools/desktop/electron/GitHubAccountBrowser") {}
 
-export const make = Effect.gen(function* GitHubAccountBrowserMake() {
+const make = Effect.gen(function* GitHubAccountBrowserMake() {
   const browserSessions = yield* BrowserSession.BrowserSession;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const windows = new Map<string, Electron.BrowserWindow>();

@@ -7,7 +7,7 @@ export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME =
 export const COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME =
   "block self-center truncate leading-tight select-none";
 export const COMPOSER_INLINE_CHIP_DISMISS_BUTTON_CLASS_NAME =
-  "ml-[0.17em] inline-flex size-[1.17em] shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/72 transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "ml-[0.17em] inline-flex size-[1.17em] shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/72 transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset";
 
 /** Keeps both the recognizable beginning and the extension/end of a long attachment name. */
 export function middleTruncateAttachmentName(name: string, maxCharacters = 36): string {

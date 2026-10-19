@@ -1,8 +1,8 @@
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 // @effect-diagnostics nodeBuiltinImport:off
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EventEmitter } from "node:events";
-import * as NodeOS from "node:os";
-import type { ChildProcess } from "node:child_process";
+import * as NodeEvents from "node:events";
+import * as NodeChildProcess from "node:child_process";
 import type { MaintenanceHost } from "./MaintenanceHost.ts";
 import { runStorageWorker } from "./storageWorker.ts";
 
@@ -16,14 +16,14 @@ vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 describe("storage worker invocation", () => {
   it("dispatches a SEA directly to the native maintenance verb", async () => {
     mocks.isSea.mockReturnValue(true);
-    const child = Object.assign(new EventEmitter(), {
+    const child = Object.assign(new NodeEvents.EventEmitter(), {
       pid: 4321,
-      stdout: new EventEmitter(),
-      stderr: new EventEmitter(),
+      stdout: new NodeEvents.EventEmitter(),
+      stderr: new NodeEvents.EventEmitter(),
       stdin: { end: vi.fn() },
       kill: vi.fn(),
     });
-    mocks.spawn.mockReturnValue(child as unknown as ChildProcess);
+    mocks.spawn.mockReturnValue(child as unknown as NodeChildProcess.ChildProcess);
     const recordStorageChild = vi.fn().mockResolvedValue(undefined);
     const host = {
       mode: "active",
@@ -37,7 +37,7 @@ describe("storage worker invocation", () => {
     child.emit("close", 0);
     await pending;
 
-    const linux = NodeOS.platform() === "linux";
+    const linux = HostProcessPlatform.defaultValue() === "linux";
     const [executable, arguments_, options] = mocks.spawn.mock.calls[0]!;
     expect(executable).toBe(linux ? "/usr/bin/ionice" : process.execPath);
     expect(arguments_).toEqual([

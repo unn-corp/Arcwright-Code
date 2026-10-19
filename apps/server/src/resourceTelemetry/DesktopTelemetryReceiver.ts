@@ -699,11 +699,12 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
             Stream.filter((candidate) => candidate.requestId === requestId),
             Stream.runHead,
             Effect.timeout(MAINTENANCE_REQUEST_TIMEOUT),
-            Effect.catchTag("TimeoutError", () =>
-              Effect.fail(
-                new ForkMaintenanceError({ reason: "The desktop app did not answer in time." }),
-              ),
-            ),
+            Effect.catchTags({
+              TimeoutError: () =>
+                Effect.fail(
+                  new ForkMaintenanceError({ reason: "The desktop app did not answer in time." }),
+                ),
+            }),
           );
           if (Option.isNone(report))
             return yield* new ForkMaintenanceError({

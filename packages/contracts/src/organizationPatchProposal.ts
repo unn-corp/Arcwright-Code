@@ -2,10 +2,10 @@ import * as Schema from "effect/Schema";
 import { OrganizationEmployeeProfileFields, OrganizationRoleId } from "./organizations.ts";
 import { ModelSelection } from "./orchestration.ts";
 
-export const ORGANIZATION_PATCH_TASK_MAX_BYTES = 4_000;
-export const ORGANIZATION_PATCH_SOURCE_MAX_BYTES = 64 * 1024;
-export const ORGANIZATION_PATCH_REPLACEMENT_MAX_BYTES = 64 * 1024;
-export const ORGANIZATION_PATCH_RATIONALE_MAX_BYTES = 2_000;
+const ORGANIZATION_PATCH_TASK_MAX_BYTES = 4_000;
+const ORGANIZATION_PATCH_SOURCE_MAX_BYTES = 64 * 1024;
+const ORGANIZATION_PATCH_REPLACEMENT_MAX_BYTES = 64 * 1024;
+const ORGANIZATION_PATCH_RATIONALE_MAX_BYTES = 2_000;
 
 const utf8 = new TextEncoder();
 const textWithin = (maxBytes: number) =>

@@ -60,7 +60,7 @@ type BridgeWork =
       readonly action: "archived" | "unarchived" | "deleted";
     };
 
-export const eventToWork = (
+const eventToWork = (
   event: OrchestrationV2DomainEvent,
   mirrorActivity: boolean,
 ): BridgeWork | null => {
@@ -393,10 +393,11 @@ export const make = Effect.gen(function* () {
           return;
       }
     }).pipe(
-      Effect.catchTag("DiscordResponseError", (error) =>
-        isArchivedError(error) ? Effect.void : handleRestError(work.threadId, error),
-      ),
-      Effect.catchTag("DiscordRequestError", (error) => handleRestError(work.threadId, error)),
+      Effect.catchTags({
+        DiscordResponseError: (error) =>
+          isArchivedError(error) ? Effect.void : handleRestError(work.threadId, error),
+      }),
+      Effect.catchTags({ DiscordRequestError: (error) => handleRestError(work.threadId, error) }),
     );
 
   /**
@@ -553,13 +554,13 @@ export const make = Effect.gen(function* () {
     const active = yield* links.listActive().pipe(Effect.orElseSucceed(() => []));
     for (const link of active) {
       yield* pollThread(link, config).pipe(
-        Effect.catchTag("DiscordResponseError", (error) =>
-          handleRestError(link.threadId as ThreadId, error),
-        ),
-        Effect.catchTag("DiscordRequestError", (error) =>
-          handleRestError(link.threadId as ThreadId, error),
-        ),
-        Effect.catchTag("MaintenanceWorkHeld", () => Effect.void),
+        Effect.catchTags({
+          DiscordResponseError: (error) => handleRestError(link.threadId as ThreadId, error),
+        }),
+        Effect.catchTags({
+          DiscordRequestError: (error) => handleRestError(link.threadId as ThreadId, error),
+        }),
+        Effect.catchTags({ MaintenanceWorkHeld: () => Effect.void }),
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause)
             ? Effect.interrupt

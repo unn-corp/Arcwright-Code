@@ -173,8 +173,9 @@ it.effect("migration 74 applies after the full schema and adds bounded immutable
   }).pipe(Effect.provide(database)),
 );
 
-for (const approved of [true, false])
-  it.effect(`captures and verifies immutable ${approved ? "approval" : "rejection"}`, () =>
+it.effect.each([true, false])(
+  "captures and verifies immutable approval decision (approved=%s)",
+  (approved) =>
     Effect.gen(function* () {
       const artifact = yield* fixture();
       const store = yield* OrganizationWorkApprovalReceiptStore;
@@ -196,7 +197,7 @@ for (const approved of [true, false])
         OrganizationWorkApprovalVerifierFromReceipts.pipe(Layer.provideMerge(approvalPermitted)),
       ),
     ),
-  );
+);
 
 it.effect("replays exact receipt after transition but rejects a changed decision", () =>
   Effect.gen(function* () {

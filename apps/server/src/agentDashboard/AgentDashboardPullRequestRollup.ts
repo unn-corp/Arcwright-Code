@@ -798,7 +798,7 @@ const make = Effect.gen(function* () {
             undefined,
             syncScheduleSettings(current, currentSettings, nowMs),
           ]),
-        ).pipe(Effect.catchTag("MaintenanceWorkHeld", () => Effect.void));
+        ).pipe(Effect.catchTags({ MaintenanceWorkHeld: () => Effect.void }));
       }
       return null;
     }
@@ -967,7 +967,7 @@ const make = Effect.gen(function* () {
         ]);
         return cycle.success.launched;
       }),
-    ).pipe(Effect.catchTag("MaintenanceWorkHeld", () => Effect.succeed(null)));
+    ).pipe(Effect.catchTags({ MaintenanceWorkHeld: () => Effect.succeed(null) }));
   });
 
   const tick = runOnce.pipe(

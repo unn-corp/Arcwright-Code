@@ -35,10 +35,6 @@ export class OrganizationFindingCorrelationAuthority extends Context.Service<
   OrganizationFindingCorrelationAuthority,
   OrganizationFindingCorrelationAuthorityShape
 >()("t3/organizations/OrganizationFindingCorrelator/OrganizationFindingCorrelationAuthority") {}
-export const OrganizationFindingCorrelationDisabled = Layer.succeed(
-  OrganizationFindingCorrelationAuthority,
-  { permits: () => false },
-);
 
 type ObservationRow = {
   observation_id: string;
@@ -267,7 +263,3 @@ const make = Effect.gen(function* () {
 });
 
 export const OrganizationFindingCorrelatorLayer = Layer.effect(OrganizationFindingCorrelator, make);
-/** No automatic correlation runs until a server policy is explicitly provided. */
-export const OrganizationFindingCorrelatorLive = OrganizationFindingCorrelatorLayer.pipe(
-  Layer.provide(OrganizationFindingCorrelationDisabled),
-);

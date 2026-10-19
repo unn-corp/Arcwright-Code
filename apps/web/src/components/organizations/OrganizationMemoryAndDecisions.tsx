@@ -321,7 +321,7 @@ export function OrganizationMemoryAndDecisions({
   return (
     <div className="min-w-0 space-y-5">
       <Card>
-        <CardPanel className="space-y-4 p-4 sm:p-5">
+        <CardPanel size="compact" spacing={4}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">Memory & Decisions</h2>
@@ -427,7 +427,7 @@ export function OrganizationMemoryAndDecisions({
             );
             return (
               <Card key={record.id}>
-                <CardPanel className="min-w-0 space-y-3 p-4 sm:p-5">
+                <CardPanel size="compact" spacing={3} className="min-w-0">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <h3 className="min-w-0 break-words font-semibold">{record.content.title}</h3>
                     <div className="flex flex-wrap gap-1.5">
@@ -716,7 +716,7 @@ export function OrganizationMemoryAndDecisions({
 
         <aside className="min-w-0" aria-label="Memory editor">
           <Card>
-            <CardPanel className="space-y-4 p-4 sm:p-5">
+            <CardPanel size="compact" spacing={4}>
               <div>
                 <h2 className="text-lg font-semibold">
                   {editing ? "Correct memory" : "Add memory"}

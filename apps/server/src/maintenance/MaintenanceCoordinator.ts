@@ -56,8 +56,6 @@ export class MaintenanceCoordinator extends Context.Service<
   }
 >()("t3/maintenance/MaintenanceCoordinator") {}
 
-export { describeCapability };
-
 /** OS creation identity for each descendant, so a reused PID is never mistaken for the original process. */
 const identifyDescendants = async (
   participantId: string,

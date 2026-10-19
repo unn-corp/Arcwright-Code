@@ -9,10 +9,10 @@ import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
  * The token deliberately does not live in settings.json: that file is copied
  * around as test data and returned to clients through the settings RPC.
  */
-export const DISCORD_BRIDGE_TOKEN_SECRET = "discord-bridge-token";
+const DISCORD_BRIDGE_TOKEN_SECRET = "discord-bridge-token";
 
 /** Environment fallback, mainly for containers and one-off local runs. */
-export const DISCORD_BRIDGE_TOKEN_ENV = "T3_DISCORD_BRIDGE_TOKEN";
+const DISCORD_BRIDGE_TOKEN_ENV = "T3_DISCORD_BRIDGE_TOKEN";
 
 const decoder = new TextDecoder();
 

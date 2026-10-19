@@ -1,9 +1,4 @@
-import {
-  IN_FLIGHT_PHASES,
-  RELEASABLE_PHASES,
-  type MaintenanceJournal,
-  type MaintenancePhase,
-} from "./forkMaintenanceJournal.ts";
+import { type MaintenanceJournal, type MaintenancePhase } from "./forkMaintenanceJournal.ts";
 
 /**
  * Side effects of one device transaction. Production adapters (desktop,
@@ -260,6 +255,3 @@ export async function beginRecoveryTransaction(
   journal = await advanceTo(ports, journal, "restoring");
   return advanceTransaction(journal.id, ports, options);
 }
-
-export const isInFlight = (journal: MaintenanceJournal) => IN_FLIGHT_PHASES.has(journal.phase);
-export const isReleasable = (journal: MaintenanceJournal) => RELEASABLE_PHASES.has(journal.phase);

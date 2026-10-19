@@ -21,7 +21,7 @@ import { restrictWindowsAcl } from "./forkMaintenanceSnapshot.ts";
 import { recoveryProofEnvironment } from "./forkRecoveryProofEnvironment.ts";
 
 const run = NodeUtil.promisify(NodeChildProcess.execFile);
-export const RECOVERY_HELPER_PROTOCOL_LINE = "recovery-helper-protocol=1";
+const RECOVERY_HELPER_PROTOCOL_LINE = "recovery-helper-protocol=1";
 const RETAINED_VERSIONS = 2;
 const PROMOTION_RETRY_DELAYS_MS = [100, 200, 400, 800, 1_600, 2_000, 2_000, 2_000] as const;
 
@@ -115,7 +115,7 @@ async function atomicJson(file: string, value: unknown) {
 }
 
 /** Runs the cached runtime on the cached helper from a neutral directory and requires the protocol line. */
-export async function selfTestRecoveryCommand(
+async function selfTestRecoveryCommand(
   command: Pick<RecoveryCommand, "nodePath" | "helperPath">,
 ): Promise<void> {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-recovery-proof-"));

@@ -212,7 +212,7 @@ export function OrganizationDirectorConversation({
       ) : null}
 
       <Card>
-        <CardPanel className="space-y-4 p-4 sm:p-5">
+        <CardPanel size="compact" spacing={4}>
           <label className="block max-w-md space-y-1.5 text-sm font-medium">
             <span>Project scope</span>
             <select

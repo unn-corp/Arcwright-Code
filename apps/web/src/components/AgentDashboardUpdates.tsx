@@ -231,10 +231,15 @@ export function AgentDashboardUpdates({
 
   return (
     <Card className="overflow-hidden" id="dashboard-updates">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/60 p-3 sm:p-4">
+      <CardHeader
+        size="xs"
+        variant="divided"
+        gap={3}
+        className="flex flex-row items-center justify-between"
+      >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base">Updates</CardTitle>
+            <CardTitle size="sm">Updates</CardTitle>
             {updates.length > 0 ? (
               <Badge size="sm" variant="outline">
                 {updates.length}
@@ -256,7 +261,7 @@ export function AgentDashboardUpdates({
           Refresh
         </Button>
       </CardHeader>
-      <CardPanel className="p-0">
+      <CardPanel size="flush">
         {dashboardSnapshot.isPending && dashboardSnapshot.data === null ? (
           <div className="space-y-3 p-4">
             <Skeleton className="h-4 w-52" />
@@ -289,9 +294,9 @@ export function AgentDashboardUpdates({
             ))}
             {updates.length > COLLAPSED_UPDATE_COUNT ? (
               <Button
-                className="h-9 w-full rounded-none border-x-0 border-b-0"
+                className="h-9 w-full"
                 onClick={() => setExpanded((current) => !current)}
-                variant="ghost"
+                variant="ghost-flush"
               >
                 {expanded
                   ? "Show fewer updates"

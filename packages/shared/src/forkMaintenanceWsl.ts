@@ -18,7 +18,6 @@ import {
 } from "./forkMaintenanceAdmission.ts";
 import {
   INITIAL_JOURNAL_PROTOCOL,
-  runFenceOperation,
   type FenceOperation,
   type FenceOperationResult,
 } from "./forkMaintenanceFenceOperations.ts";
@@ -101,10 +100,7 @@ const parseResult = (
 };
 
 /** Argument vectors of the CLI verbs (`t3 maintenance home|fence ...`). */
-export const homeOperationArgs = (
-  home: string,
-  operation: HomeOperation,
-): ReadonlyArray<string> => {
+const homeOperationArgs = (home: string, operation: HomeOperation): ReadonlyArray<string> => {
   const base = ["home", operation.op, "--home", home];
   switch (operation.op) {
     case "requirement":
@@ -162,7 +158,7 @@ export const homeOperationArgs = (
       ];
   }
 };
-export const fenceOperationArgs = (operation: FenceOperation): ReadonlyArray<string> => {
+const fenceOperationArgs = (operation: FenceOperation): ReadonlyArray<string> => {
   switch (operation.op) {
     case "status":
     case "confirm-bootstrap":
@@ -221,7 +217,7 @@ export interface FenceControl {
 }
 
 /** Refuse old WSL machine verbs before sending a freeze they may ignore unsafe new flags on. */
-export async function assertInitialJournalProtocol(
+async function assertInitialJournalProtocol(
   members: ReadonlyArray<{
     readonly member: Pick<WslMember, "distro">;
     readonly fence: FenceControl;
@@ -244,10 +240,6 @@ export async function assertInitialJournalProtocol(
 export const createLocalHomeControl = (home: string, store?: CoordinatorStore): HomeControl => ({
   run: (operation) => runHomeOperation(home, operation, store === undefined ? {} : { store }),
 });
-export const createLocalFenceControl = (
-  store: CoordinatorStore,
-  now: () => number,
-): FenceControl => ({ run: (operation) => runFenceOperation(store, operation, now()) });
 
 /** `wsl.exe -d <distro> --exec <t3> maintenance <args>` (no shell between wsl.exe and t3). A missing distro, stopped service or absent t3 is a failure, never a skip. */
 export const wslInvocation = (member: WslMember, args: ReadonlyArray<string>) => {

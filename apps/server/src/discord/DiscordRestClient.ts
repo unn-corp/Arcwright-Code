@@ -10,7 +10,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { readDiscordBotToken } from "./config.ts";
 import type { DiscordEmbed } from "./render.ts";
 
-export const DISCORD_API_BASE = "https://discord.com/api/v10";
+const DISCORD_API_BASE = "https://discord.com/api/v10";
 
 /**
  * Discord rate limit buckets are per-route. We key on the route template
@@ -148,9 +148,7 @@ export class DiscordRestClient extends Context.Service<
   }
 >()("t3/discord/DiscordRestClient") {}
 
-export const make = (
-  options: { readonly token: string } | { readonly tokenRef: Ref.Ref<string> },
-) =>
+const make = (options: { readonly token: string } | { readonly tokenRef: Ref.Ref<string> }) =>
   Effect.gen(function* () {
     const tokenRef = "tokenRef" in options ? options.tokenRef : yield* Ref.make(options.token);
     const buckets = yield* Ref.make(new Map<string, BucketState>());
@@ -314,9 +312,6 @@ export const make = (
         ).pipe(Effect.asVoid),
     } satisfies DiscordRestClient["Service"];
   });
-
-export const layer = (options: { readonly token: string }) =>
-  Layer.effect(DiscordRestClient, make(options)).pipe(Layer.provide(FetchHttpClient.layer));
 
 /**
  * Live layer that resolves the bot token from the secret store at build time.

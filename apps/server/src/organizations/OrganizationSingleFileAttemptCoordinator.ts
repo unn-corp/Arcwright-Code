@@ -84,15 +84,7 @@ export class OrganizationSingleFileAttemptHost extends Context.Service<
 >()(
   "t3/organizations/OrganizationSingleFileAttemptCoordinator/OrganizationSingleFileAttemptHost",
 ) {}
-/** The standalone default denies both preparation and persisted stop verification. */
-export const OrganizationSingleFileAttemptHostDisabled = Layer.succeed(
-  OrganizationSingleFileAttemptHost,
-  {
-    reserve: () => Promise.reject(failure("unavailable", "Scoped attempt host is disabled.")),
-    prepare: () => Promise.reject(failure("unavailable", "Scoped attempt host is disabled.")),
-    verifyStopped: () => Effect.fail(failure("unavailable", "OS stop verifier is disabled.")),
-  },
-);
+
 /** A reviewed host can be supplied to ScopeStore without accepting a caller receipt. */
 export const OrganizationSingleFileAttemptScopeVerifierFromHost = Layer.effect(
   OrganizationWorkScopeStopVerifier,

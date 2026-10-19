@@ -370,7 +370,7 @@ export const HermesIcon: Icon = ({ className, ...props }) => (
     {...props}
     viewBox="0 0 24 24"
     fill="none"
-    className={cn("fill-[#1D2433] dark:fill-[#E8EDF7]", className)}
+    className={cn("fill-hermes-mark dark:fill-hermes-mark-inverted", className)}
   >
     <path d="M3 3h4v6h10V3h4v18h-4v-7H7v7H3V3Z" />
     <path d="M8 10h8v3H8z" className="fill-current" />

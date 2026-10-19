@@ -121,7 +121,7 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
       }}
     >
       <CollapsibleTrigger
-        className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring data-panel-open:[&>svg]:rotate-180"
+        className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-ring data-panel-open:[&>svg]:rotate-180 focus-visible:ring-inset"
         disabled={busy || voiceInputBusy}
       >
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">

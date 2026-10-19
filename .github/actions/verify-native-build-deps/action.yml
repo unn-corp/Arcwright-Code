@@ -1,0 +1,12 @@
+name: Verify native build dependencies
+description: Require the toolchain and secret-store headers supplied by the isolated runner image.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        for tool in cc c++ make pkg-config; do
+          command -v "$tool"
+        done
+        pkg-config --print-errors --exists libsecret-1

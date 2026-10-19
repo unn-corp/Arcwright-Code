@@ -17,7 +17,7 @@ const run = NodeUtil.promisify(NodeChildProcess.execFile);
  * artifacts. An allowlist would silently miss new state (pairing, queues,
  * provider profiles), so exclusions are the explicit, reviewed part.
  */
-export const SNAPSHOT_EXCLUDED = new Set([
+const SNAPSHOT_EXCLUDED = new Set([
   "logs",
   "server-runtime.json",
   // This zero-data SQLite file holds the live runtime's exclusive ownership
@@ -30,8 +30,8 @@ const isExcluded = (name: string) =>
   SNAPSHOT_EXCLUDED.has(name) || name.startsWith(".maintenance-");
 const isDatabase = (name: string) => /\.(sqlite|sqlite3|db)$/.test(name);
 const isDatabaseSidecar = (name: string) => /\.(sqlite|sqlite3|db)-(wal|shm|journal)$/.test(name);
-export const DATABASE_FILES = ["statev2.sqlite", "state.sqlite"] as const;
-export const RESTORE_POINT_DIRECTORY = "maintenance/restore-points";
+
+const RESTORE_POINT_DIRECTORY = "maintenance/restore-points";
 const PREFIX = "tx-";
 
 const Manifest = Schema.Struct({
@@ -192,7 +192,7 @@ function checkDatabase(file: string) {
 }
 
 export const stateDirectory = (home: string) => NodePath.join(home, "userdata");
-export const restorePointsDirectory = (home: string) =>
+const restorePointsDirectory = (home: string) =>
   NodePath.join(home, ...RESTORE_POINT_DIRECTORY.split("/"));
 
 /**

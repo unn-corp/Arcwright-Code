@@ -1,10 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off - The isolation fixture verifies real host filesystem and /proc behavior.
 import { it } from "@effect/vitest";
-import { strict as assert } from "node:assert";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as NodeAssert from "node:assert";
+import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import {
   isOrganizationSandboxAvailable,
   launchOrganizationSandbox,
@@ -13,7 +13,7 @@ import {
 const available = isOrganizationSandboxAvailable();
 
 async function descendantsOf(pid: number): Promise<number[]> {
-  const children = (await readFile(`/proc/${pid}/task/${pid}/children`, "utf8"))
+  const children = (await NodeFSP.readFile(`/proc/${pid}/task/${pid}/children`, "utf8"))
     .trim()
     .split(/\s+/)
     .filter(Boolean)
@@ -24,11 +24,11 @@ async function descendantsOf(pid: number): Promise<number[]> {
 
 async function assertPidExited(pid: number): Promise<void> {
   try {
-    const status = await readFile(`/proc/${pid}/status`, "utf8");
+    const status = await NodeFSP.readFile(`/proc/${pid}/status`, "utf8");
     const state = status.split("\n").find((line) => line.startsWith("State:"));
     // Reparented zombies can remain visible until the host init process reaps them.
     // They have exited and cannot execute, even though /proc still has a row.
-    assert.match(
+    NodeAssert.strict.match(
       state ?? "",
       /^State:\s+[ZX]/,
       `sandbox descendant ${pid} is still live: ${state ?? "unknown state"}`,
@@ -42,10 +42,12 @@ async function assertPidExited(pid: number): Promise<void> {
 it.skipIf(!available)(
   "hides host data, denies writes outside workspace, and stops a forked child",
   async () => {
-    const hostDirectory = await mkdtemp(join(tmpdir(), "t3-org-host-secret-"));
-    const secretPath = join(hostDirectory, "secret.txt");
-    const outsidePath = join(hostDirectory, "outside.txt");
-    await writeFile(secretPath, "synthetic-host-secret");
+    const hostDirectory = await NodeFSP.mkdtemp(
+      NodePath.join(NodeOS.tmpdir(), "t3-org-host-secret-"),
+    );
+    const secretPath = NodePath.join(hostDirectory, "secret.txt");
+    const outsidePath = NodePath.join(hostDirectory, "outside.txt");
+    await NodeFSP.writeFile(secretPath, "synthetic-host-secret");
     try {
       const fixture = `
       import fs from "node:fs";
@@ -71,22 +73,25 @@ it.skipIf(!available)(
       });
       await handle.waitForOutput("CHILD_READY");
       const descendants = await descendantsOf(handle.pid);
-      assert.ok(descendants.length >= 2, "the adversarial fixture started a descendant process");
+      NodeAssert.strict.ok(
+        descendants.length >= 2,
+        "the adversarial fixture started a descendant process",
+      );
       const result = await handle.stop();
-      assert.equal(handle.processGroupId, handle.pid);
-      assert.match(result.stdout, /SECRET_DENIED/);
-      assert.match(result.stdout, /WRITE_DENIED/);
-      assert.match(result.stdout, /HOME=undefined/);
-      assert.match(result.stdout, /NETWORK=lo\n/);
-      assert.doesNotMatch(result.stdout, /SECRET_LEAK|WRITE_ESCAPED/);
-      assert.equal(result.timedOut, false);
-      assert.equal(await readFile(secretPath, "utf8"), "synthetic-host-secret");
-      await assert.rejects(stat(outsidePath), { code: "ENOENT" });
-      await assert.rejects(stat(handle.workDirectory), { code: "ENOENT" });
+      NodeAssert.strict.equal(handle.processGroupId, handle.pid);
+      NodeAssert.strict.match(result.stdout, /SECRET_DENIED/);
+      NodeAssert.strict.match(result.stdout, /WRITE_DENIED/);
+      NodeAssert.strict.match(result.stdout, /HOME=undefined/);
+      NodeAssert.strict.match(result.stdout, /NETWORK=lo\n/);
+      NodeAssert.strict.doesNotMatch(result.stdout, /SECRET_LEAK|WRITE_ESCAPED/);
+      NodeAssert.strict.equal(result.timedOut, false);
+      NodeAssert.strict.equal(await NodeFSP.readFile(secretPath, "utf8"), "synthetic-host-secret");
+      await NodeAssert.strict.rejects(NodeFSP.stat(outsidePath), { code: "ENOENT" });
+      await NodeAssert.strict.rejects(NodeFSP.stat(handle.workDirectory), { code: "ENOENT" });
       for (const pid of descendants) await assertPidExited(pid);
-      assert.deepEqual(await handle.wait(), result);
+      NodeAssert.strict.deepEqual(await handle.wait(), result);
     } finally {
-      await rm(hostDirectory, { recursive: true, force: true });
+      await NodeFSP.rm(hostDirectory, { recursive: true, force: true });
     }
   },
 );
@@ -97,8 +102,8 @@ it.skipIf(!available)("enforces runtime and output bounds", async () => {
     runtimeMs: 100,
   });
   const timedResult = await timed.wait();
-  assert.equal(timedResult.timedOut, true);
-  await assert.rejects(stat(timed.workDirectory), { code: "ENOENT" });
+  NodeAssert.strict.equal(timedResult.timedOut, true);
+  await NodeAssert.strict.rejects(NodeFSP.stat(timed.workDirectory), { code: "ENOENT" });
 
   const noisy = await launchOrganizationSandbox({
     argv: [
@@ -109,8 +114,11 @@ it.skipIf(!available)("enforces runtime and output bounds", async () => {
     maxOutputBytes: 128,
   });
   const noisyResult = await noisy.wait();
-  assert.equal(noisyResult.outputLimitExceeded, true);
-  assert.equal(Buffer.byteLength(noisyResult.stdout) + Buffer.byteLength(noisyResult.stderr), 128);
+  NodeAssert.strict.equal(noisyResult.outputLimitExceeded, true);
+  NodeAssert.strict.equal(
+    Buffer.byteLength(noisyResult.stdout) + Buffer.byteLength(noisyResult.stderr),
+    128,
+  );
 });
 
 it.skipIf(!available)(
@@ -140,17 +148,20 @@ it.skipIf(!available)(
       runtimeMs: 5_000,
     });
     const result = await handle.wait();
-    assert.equal(result.exitCode, 0);
-    assert.match(result.stdout, /CAPACITY=1048576\n/);
-    assert.match(result.stdout, /STAGED=true\n/);
-    assert.match(result.stdout, /DEV_SHM=false\n/);
-    assert.match(result.stdout, /DEV_DENIED=EROFS\n/);
-    assert.match(result.stdout, /ROOT_DENIED=(EACCES|EROFS)\n/);
-    assert.match(result.stdout, /STAGE_DENIED=(EROFS|EBUSY)\n/);
-    assert.match(result.stdout, /QUOTA=ENOSPC\n/);
-    assert.match(result.stdout, /TMP_QUOTA=ENOSPC\n/);
-    assert.doesNotMatch(result.stdout, /UNBOUNDED|STAGE_WRITABLE|DEV_WRITABLE|ROOT_WRITABLE/);
-    await assert.rejects(stat(handle.workDirectory), { code: "ENOENT" });
+    NodeAssert.strict.equal(result.exitCode, 0);
+    NodeAssert.strict.match(result.stdout, /CAPACITY=1048576\n/);
+    NodeAssert.strict.match(result.stdout, /STAGED=true\n/);
+    NodeAssert.strict.match(result.stdout, /DEV_SHM=false\n/);
+    NodeAssert.strict.match(result.stdout, /DEV_DENIED=EROFS\n/);
+    NodeAssert.strict.match(result.stdout, /ROOT_DENIED=(EACCES|EROFS)\n/);
+    NodeAssert.strict.match(result.stdout, /STAGE_DENIED=(EROFS|EBUSY)\n/);
+    NodeAssert.strict.match(result.stdout, /QUOTA=ENOSPC\n/);
+    NodeAssert.strict.match(result.stdout, /TMP_QUOTA=ENOSPC\n/);
+    NodeAssert.strict.doesNotMatch(
+      result.stdout,
+      /UNBOUNDED|STAGE_WRITABLE|DEV_WRITABLE|ROOT_WRITABLE/,
+    );
+    await NodeAssert.strict.rejects(NodeFSP.stat(handle.workDirectory), { code: "ENOENT" });
   },
 );
 
@@ -177,25 +188,25 @@ it.skipIf(!available)("tears down a detached descendant that closed all output p
   });
   await handle.waitForOutput("DETACHED_READY");
   const descendants = await descendantsOf(handle.pid);
-  assert.ok(descendants.length >= 2, "detached child exists before stop");
+  NodeAssert.strict.ok(descendants.length >= 2, "detached child exists before stop");
   const result = await handle.stop();
-  assert.equal(result.timedOut, false);
+  NodeAssert.strict.equal(result.timedOut, false);
   for (const pid of descendants) await assertPidExited(pid);
 });
 
 it("rejects escape paths and non-system executable paths before launch", async () => {
-  await assert.rejects(
+  await NodeAssert.strict.rejects(
     launchOrganizationSandbox({
       argv: ["/usr/bin/node", "/workspace/fixture.mjs"],
       files: { "../host.txt": "no" },
     }),
     TypeError,
   );
-  await assert.rejects(
+  await NodeAssert.strict.rejects(
     launchOrganizationSandbox({ argv: ["/tmp/attacker"], files: {} }),
     TypeError,
   );
-  await assert.rejects(
+  await NodeAssert.strict.rejects(
     launchOrganizationSandbox({ argv: ["/usr/bin/true"], workspaceBytes: 65 * 1_048_576 }),
     TypeError,
   );
@@ -204,8 +215,8 @@ it("rejects escape paths and non-system executable paths before launch", async (
 it.skipIf(!available)(
   "snapshots staged names, bytes, argv, and limits before asynchronous setup",
   async () => {
-    const markerName = `t3-org-sandbox-escape-${randomUUID()}.txt`;
-    const outsidePath = join(tmpdir(), markerName);
+    const markerName = `t3-org-sandbox-escape-${NodeCrypto.randomUUID()}.txt`;
+    const outsidePath = NodePath.join(NodeOS.tmpdir(), markerName);
     const script = Buffer.from(
       'import f from "node:fs"; const s=f.statfsSync("/workspace"); process.stdout.write("SNAPSHOT_OK\\nCAPACITY="+(s.blocks*s.bsize)+"\\n")',
     );
@@ -228,12 +239,12 @@ it.skipIf(!available)(
       input.maxOutputBytes = 1;
       const handle = await launching;
       const result = await handle.wait();
-      assert.equal(result.exitCode, 0);
-      assert.match(result.stdout, /SNAPSHOT_OK\n/);
-      assert.match(result.stdout, /CAPACITY=1048576\n/);
-      await assert.rejects(stat(outsidePath), { code: "ENOENT" });
+      NodeAssert.strict.equal(result.exitCode, 0);
+      NodeAssert.strict.match(result.stdout, /SNAPSHOT_OK\n/);
+      NodeAssert.strict.match(result.stdout, /CAPACITY=1048576\n/);
+      await NodeAssert.strict.rejects(NodeFSP.stat(outsidePath), { code: "ENOENT" });
     } finally {
-      await rm(outsidePath, { force: true });
+      await NodeFSP.rm(outsidePath, { force: true });
     }
   },
 );

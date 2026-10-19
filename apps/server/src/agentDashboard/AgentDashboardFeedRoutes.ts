@@ -98,9 +98,10 @@ const makeRoutes = Effect.gen(function* () {
 
     return HttpServerResponse.text("Method Not Allowed", { status: 405 });
   }).pipe(
-    Effect.catchTag("AgentDashboardStoreError", (error) =>
-      Effect.succeed(HttpServerResponse.text(error.message, { status: 500 })),
-    ),
+    Effect.catchTags({
+      AgentDashboardStoreError: (error) =>
+        Effect.succeed(HttpServerResponse.text(error.message, { status: 500 })),
+    }),
     Effect.catchTags({
       EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
       EnvironmentInternalError: HttpServerRespondable.toResponse,
@@ -142,9 +143,10 @@ const makeRoutes = Effect.gen(function* () {
 
     return HttpServerResponse.text("Not Found", { status: 404 });
   }).pipe(
-    Effect.catchTag("AgentDashboardStoreError", (error) =>
-      Effect.succeed(HttpServerResponse.text(error.message, { status: 500 })),
-    ),
+    Effect.catchTags({
+      AgentDashboardStoreError: (error) =>
+        Effect.succeed(HttpServerResponse.text(error.message, { status: 500 })),
+    }),
     Effect.catchTags({
       EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
       EnvironmentInternalError: HttpServerRespondable.toResponse,

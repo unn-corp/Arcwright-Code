@@ -56,7 +56,7 @@ import {
 import * as PreviewManager from "./Manager.ts";
 
 /** Everything this host can actually do, and nothing else. */
-export const HEADLESS_SUPPORTED_OPERATIONS = [
+const HEADLESS_SUPPORTED_OPERATIONS = [
   "status",
   "open",
   "navigate",
@@ -222,7 +222,7 @@ const awaitDevToolsEndpoint = <E>(stderr: Stream.Stream<Uint8Array, E>) =>
     Stream.runHead,
   );
 
-export const run = Effect.gen(function* HeadlessBrowserHostRun() {
+const run = Effect.gen(function* HeadlessBrowserHostRun() {
   const manager = yield* PreviewManager.PreviewManager;
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;

@@ -131,36 +131,35 @@ it.effect("migration 73 adds immutable bounded receipt columns", () =>
   }).pipe(Effect.provide(database)),
 );
 
-for (const accepted of [true, false])
-  it.effect(
-    `captures and verifies immutable ${accepted ? "accepted" : "rejected"} QA evidence`,
-    () =>
-      Effect.gen(function* () {
-        const artifact = yield* fixture;
-        const store = yield* OrganizationWorkQAReceiptStore;
-        const input = qaInput(artifact, accepted);
-        const saved = yield* store.capture(input);
-        assert.equal(saved.accepted, accepted);
-        assert.match(saved.receiptDigest, /^[a-f0-9]{64}$/);
-        assert.deepEqual(saved.evidenceBytes, input.evidenceBytes);
-        yield* store.verifyEvaluation(input);
-        const verifier = yield* OrganizationWorkEvaluationVerifier;
-        yield* verifier.verifyEvaluation(input);
-        assert.equal((yield* store.capture(input)).receiptDigest, saved.receiptDigest);
-        assert.equal(
-          (yield* store.capture({ ...input, evidenceRef: "different" }).pipe(Effect.flip)).code,
-          "conflict",
-        );
-        assert.equal(
-          (yield* store.verifyEvaluation({ ...input, accepted: !accepted }).pipe(Effect.flip)).code,
-          "conflict",
-        );
-      }).pipe(
-        Effect.provide(
-          OrganizationWorkEvaluationVerifierFromQAReceipts.pipe(Layer.provideMerge(permitted)),
-        ),
+it.effect.each([true, false])(
+  "captures and verifies immutable QA evidence (accepted=%s)",
+  (accepted) =>
+    Effect.gen(function* () {
+      const artifact = yield* fixture;
+      const store = yield* OrganizationWorkQAReceiptStore;
+      const input = qaInput(artifact, accepted);
+      const saved = yield* store.capture(input);
+      assert.equal(saved.accepted, accepted);
+      assert.match(saved.receiptDigest, /^[a-f0-9]{64}$/);
+      assert.deepEqual(saved.evidenceBytes, input.evidenceBytes);
+      yield* store.verifyEvaluation(input);
+      const verifier = yield* OrganizationWorkEvaluationVerifier;
+      yield* verifier.verifyEvaluation(input);
+      assert.equal((yield* store.capture(input)).receiptDigest, saved.receiptDigest);
+      assert.equal(
+        (yield* store.capture({ ...input, evidenceRef: "different" }).pipe(Effect.flip)).code,
+        "conflict",
+      );
+      assert.equal(
+        (yield* store.verifyEvaluation({ ...input, accepted: !accepted }).pipe(Effect.flip)).code,
+        "conflict",
+      );
+    }).pipe(
+      Effect.provide(
+        OrganizationWorkEvaluationVerifierFromQAReceipts.pipe(Layer.provideMerge(permitted)),
       ),
-  );
+    ),
+);
 
 it.effect("rejects tampered bytes and mismatched artifact or reviewer", () =>
   Effect.gen(function* () {

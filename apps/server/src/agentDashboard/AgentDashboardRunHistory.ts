@@ -294,11 +294,3 @@ export const layer = Layer.effect(AgentDashboardRunHistory, make);
 
 export const layerForStateDir = (stateDir: string) =>
   Layer.effect(AgentDashboardRunHistory, makeForStateDir(stateDir));
-
-export const __testing = {
-  normalizeRun,
-  recoverInterruptedRuns,
-  isActiveStatus,
-  maxRuns: MAX_RUNS,
-  historyFilename: HISTORY_FILENAME,
-};

@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 export const ORGANIZATION_LAUNCH_BROKER_PROTOCOL = 1;
 export const organizationLaunchSuspendMarkerPath = (baseDir: string): string =>
   NodePath.join(baseDir, "runtime", "organization-launch-suspended.json");
-export const organizationLaunchBrokerTokenPath = (baseDir: string): string =>
+const organizationLaunchBrokerTokenPath = (baseDir: string): string =>
   NodePath.join(baseDir, "runtime", "organization-launch", "token");
 
 /** Abstract AF_UNIX names are released by the kernel on broker exit. */
@@ -21,7 +21,7 @@ export function organizationLaunchBrokerAddress(baseDir: string): string {
   return `\0t3-org-launch-${process.getuid()}-${digest}`;
 }
 
-export async function readOrganizationLaunchBrokerToken(baseDir: string): Promise<string> {
+async function readOrganizationLaunchBrokerToken(baseDir: string): Promise<string> {
   const path = organizationLaunchBrokerTokenPath(baseDir);
   const handle = await NodeFSP.open(path, NodeFS.constants.O_RDONLY | NodeFS.constants.O_NOFOLLOW);
   try {

@@ -56,7 +56,8 @@ all-private-repository access and does not admit this public fork.
 Use a current GitHub Actions runner compatible with the workflows' Node-based action versions.
 Tool-cache and package-cache directories must be writable. Vite+, Java, Rust, and Gradle setup
 remain in the workflows; these do not supply native OS compilers or emulator hardware.
-Native package dependencies must be present in the dedicated isolated image. The APT mirror
+Native package dependencies must be present in the dedicated isolated image. CI and release jobs verify the C/C++ toolchain and libsecret headers with
+`verify-native-build-deps`; they do not install packages or wait for background APT work. The APT mirror
 helper skips hardened workers; on writable Ubuntu workers it uses architecture-specific HTTPS
 mirrors without assuming a hosted image's `ubuntu.sources` file. Do not add sudo or make the
 existing pool's root filesystem writable to run these workflows.

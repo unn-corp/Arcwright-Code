@@ -650,7 +650,6 @@ function ProjectDetail({
     [group.memberProjects, updateAllMembers],
   );
 
-  // ----- default model -----
   const storedSelection = representative.defaultModelSelection;
   const resolvedSelection = resolveDefaultProviderModelSelection(
     serverProviders,
@@ -810,7 +809,6 @@ function ProjectDetail({
     void updateAllMembers({ defaultModelSelection: selection }, "Failed to update default model");
   };
 
-  // ----- new-thread workspace mode -----
   const storedEnvMode = representative.defaultThreadEnvMode ?? null;
   const inheritedEnvMode = projectSettings.defaultThreadEnvMode ?? "local";
   const inheritedEnvModeSource = "environment";
@@ -845,7 +843,6 @@ function ProjectDetail({
   const setAutoPull = (enabled: boolean | undefined) =>
     setBooleanOverride("projectAutoPullOverrides", enabled);
 
-  // ----- GitHub account -----
   const storedGitHubAccountId = representative.githubAccountId ?? null;
   const setGitHubAccountId = useCallback(
     (accountId: GitHubAccountId | null) =>
@@ -853,8 +850,6 @@ function ProjectDetail({
     [updateAllMembers],
   );
 
-  // ----- favicon -----
-  // ----- project icon -----
   const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditGroup);
   const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditGroup);
   const [isSavingFavicon, setIsSavingFavicon] = useState(false);

@@ -4,6 +4,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, PreviewInputEvent, ThreadId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { observeResize } from "~/lib/observeResize";
 
 import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -124,10 +125,8 @@ export function PreviewRemoteSurface(props: {
   useEffect(() => {
     measure();
     const canvas = canvasRef.current;
-    if (!canvas || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(canvas);
-    return () => observer.disconnect();
+    if (!canvas) return;
+    return observeResize(canvas, measure);
   }, [measure]);
 
   const dispatch = useCallback(

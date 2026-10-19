@@ -8,10 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import {
-  OrganizationWorkApprovalReceiptStore,
-  OrganizationWorkApprovalReceiptStoreWithQAReceiptsLive,
-} from "./OrganizationWorkApprovalReceiptStore.ts";
+import { OrganizationWorkApprovalReceiptStore } from "./OrganizationWorkApprovalReceiptStore.ts";
 import {
   OrganizationWorkIntegrationVerifier,
   type OrganizationWorkIntegrationTarget,
@@ -63,7 +60,7 @@ export class OrganizationWorkIntegrationCaptureAuthority extends Context.Service
 >()(
   "t3/organizations/OrganizationWorkIntegrationReceiptStore/OrganizationWorkIntegrationCaptureAuthority",
 ) {}
-export const OrganizationWorkIntegrationCaptureDisabled = Layer.succeed(
+const OrganizationWorkIntegrationCaptureDisabled = Layer.succeed(
   OrganizationWorkIntegrationCaptureAuthority,
   { permitsTrustedProducer: () => false },
 );
@@ -463,8 +460,3 @@ export const OrganizationWorkIntegrationVerifierFromReceipts = Layer.effect(
     };
   }),
 );
-/** Read verification is available; production capture remains denied. */
-export const OrganizationWorkIntegrationReceiptStoreWithApprovalsLive =
-  OrganizationWorkIntegrationReceiptStoreLive.pipe(
-    Layer.provide(OrganizationWorkApprovalReceiptStoreWithQAReceiptsLive),
-  );

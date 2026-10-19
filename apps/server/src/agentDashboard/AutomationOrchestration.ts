@@ -1,7 +1,7 @@
 /** Fork automation commands execute against the v2 orchestrator only. */
 import { CommandId, OrchestrationV2Command, type OrchestrationCommand } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
+
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -22,7 +22,7 @@ export class OrchestrationEngineService extends Context.Service<
   OrchestrationEngineService,
   AutomationOrchestrationShape
 >()("t3/agentDashboard/AutomationOrchestration/OrchestrationEngineService") {}
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService;
   const sessions = yield* ProviderSessionManagerV2;
   const dispatch = (command: OrchestrationCommand) =>

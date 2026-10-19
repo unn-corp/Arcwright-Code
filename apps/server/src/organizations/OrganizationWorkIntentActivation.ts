@@ -62,10 +62,6 @@ export class OrganizationWorkIntentActivationReadiness extends Context.Service<
 >()(
   "t3/organizations/OrganizationWorkIntentActivation/OrganizationWorkIntentActivationReadiness",
 ) {}
-export const OrganizationWorkIntentActivationReadinessDisabled = Layer.succeed(
-  OrganizationWorkIntentActivationReadiness,
-  { permits: () => false },
-);
 
 type ActivationRow = {
   intent_id: string;

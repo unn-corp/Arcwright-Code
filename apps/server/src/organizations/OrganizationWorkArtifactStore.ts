@@ -9,11 +9,6 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import {
   OrganizationWorkArtifactVerifier,
-  OrganizationWorkApprovalVerifierDisabled,
-  OrganizationWorkIntegrationVerifierDisabled,
-  OrganizationWorkEvaluationVerifierDisabled,
-  OrganizationWorkExecutionDisabled,
-  OrganizationWorkStoreLayer,
   type OrganizationWorkArtifactTarget,
 } from "./OrganizationWorkStore.ts";
 
@@ -65,7 +60,7 @@ export class OrganizationWorkArtifactCaptureAuthority extends Context.Service<
   OrganizationWorkArtifactCaptureAuthority,
   { readonly permits: (input: OrganizationWorkArtifactCaptureInput) => boolean }
 >()("t3/organizations/OrganizationWorkArtifactStore/OrganizationWorkArtifactCaptureAuthority") {}
-export const OrganizationWorkArtifactCaptureDisabled = Layer.succeed(
+const OrganizationWorkArtifactCaptureDisabled = Layer.succeed(
   OrganizationWorkArtifactCaptureAuthority,
   { permits: () => false },
 );
@@ -405,17 +400,4 @@ export const OrganizationWorkArtifactVerifierFromStore = Layer.effect(
           ),
     };
   }),
-);
-
-/** Readable live work state with persisted artifact checks; mutation authority stays denied. */
-export const OrganizationWorkStoreWithArtifactsLive = OrganizationWorkStoreLayer.pipe(
-  Layer.provide(OrganizationWorkExecutionDisabled),
-  Layer.provide(OrganizationWorkEvaluationVerifierDisabled),
-  Layer.provide(OrganizationWorkApprovalVerifierDisabled),
-  Layer.provide(OrganizationWorkIntegrationVerifierDisabled),
-  Layer.provide(
-    OrganizationWorkArtifactVerifierFromStore.pipe(
-      Layer.provide(OrganizationWorkArtifactStoreLive),
-    ),
-  ),
 );

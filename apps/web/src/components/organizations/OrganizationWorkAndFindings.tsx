@@ -543,7 +543,7 @@ function WorkCard({
   return (
     <li>
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="break-words font-semibold">{finding?.title ?? "Work record"}</h3>
@@ -732,7 +732,7 @@ export function OrganizationWorkAndFindings({
             </p>
           </div>
           <Card>
-            <CardPanel className="p-5">
+            <CardPanel size="md">
               {findingItems.length === 0 ? (
                 <QueryMessage
                   pending={findings.isPending}
@@ -780,7 +780,7 @@ export function OrganizationWorkAndFindings({
             </p>
           </div>
           <Card>
-            <CardPanel className="p-5">
+            <CardPanel size="md">
               {observationItems.length === 0 ? (
                 <QueryMessage
                   pending={observations.isPending}

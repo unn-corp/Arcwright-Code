@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef } from "react";
 import type { PreviewSessionSnapshot, ScopedThreadRef } from "@t3tools/contracts";
+import { observeResize } from "~/lib/observeResize";
 import { androidBrowserKey, androidBrowserRequest, useAndroidBrowserTabs } from "./browser";
 
 /** A DOM slot positions a real Android WebView; page pixels never cross the network. */
@@ -82,8 +83,7 @@ export function AndroidBrowserSurface({
     const schedule = () => {
       if (!frame) frame = window.requestAnimationFrame(measure);
     };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(node);
+    const stopObserving = observeResize(node, schedule);
     const mutations = new MutationObserver(schedule);
     mutations.observe(document.body, {
       childList: true,
@@ -117,7 +117,7 @@ export function AndroidBrowserSurface({
     return () => {
       cancelled = true;
       window.cancelAnimationFrame(frame);
-      observer.disconnect();
+      stopObserving();
       mutations.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);

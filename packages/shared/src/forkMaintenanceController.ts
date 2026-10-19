@@ -27,7 +27,6 @@ import {
   forkCheckBackoffMs,
   forkInstallAssetFor,
   type ForkPackaging,
-  forkPlatformKey,
   parseForkVersion,
   selectForkTarget,
   type ForkPlatformKey,
@@ -1031,7 +1030,6 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
 }
 
 export type ForkMaintenanceController = ReturnType<typeof createForkMaintenanceController>;
-export { forkPlatformKey };
 
 /**
  * Identity of the running build. A build installed from a release records its artifact digest;

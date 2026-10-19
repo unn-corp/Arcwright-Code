@@ -272,19 +272,19 @@ export function AgentRuns({
       {health ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Card>
-            <CardPanel className="p-4">
+            <CardPanel size="sm">
               <p className="text-xs text-muted-foreground">Repositories</p>
               <p className="mt-1 text-lg font-semibold">{health.repositoryCount}</p>
             </CardPanel>
           </Card>
           <Card>
-            <CardPanel className="p-4">
+            <CardPanel size="sm">
               <p className="text-xs text-muted-foreground">Unassessed</p>
               <p className="mt-1 text-lg font-semibold">{health.unassessedRepositoryCount}</p>
             </CardPanel>
           </Card>
           <Card>
-            <CardPanel className="p-4">
+            <CardPanel size="sm">
               <p className="text-xs text-muted-foreground">Healthy</p>
               <p className="mt-1 text-lg font-semibold text-success">
                 {health.healthyRepositoryCount}
@@ -292,7 +292,7 @@ export function AgentRuns({
             </CardPanel>
           </Card>
           <Card>
-            <CardPanel className="p-4">
+            <CardPanel size="sm">
               <p className="text-xs text-muted-foreground">Attention</p>
               <p className="mt-1 text-lg font-semibold text-warning">
                 {health.attentionRepositoryCount}
@@ -300,7 +300,7 @@ export function AgentRuns({
             </CardPanel>
           </Card>
           <Card>
-            <CardPanel className="p-4">
+            <CardPanel size="sm">
               <p className="text-xs text-muted-foreground">Open findings</p>
               <p className="mt-1 text-lg font-semibold">{health.openFindingCount}</p>
             </CardPanel>
@@ -309,14 +309,14 @@ export function AgentRuns({
       ) : null}
 
       <Card>
-        <CardHeader className="p-4 sm:p-5">
-          <CardTitle className="text-base">Repository automation policy</CardTitle>
+        <CardHeader size="compact">
+          <CardTitle size="sm">Repository automation policy</CardTitle>
           <CardDescription>
             Disabled repositories are skipped by scheduled reviews, continuous improvement, and pull
             request rollups.
           </CardDescription>
         </CardHeader>
-        <CardPanel className="grid gap-2 border-t border-border/60 p-4 sm:p-5">
+        <CardPanel size="compact" variant="divided" gap={2} className="grid">
           {policies.map((policy) => {
             const id = String(policy.repository.projectId);
             const repositoryCoverage = coverage.find(
@@ -324,7 +324,7 @@ export function AgentRuns({
             );
             return (
               <div
-                className="flex scroll-mt-4 flex-col gap-3 rounded-lg border border-border/60 p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+                className="flex scroll-mt-4 flex-col gap-3 rounded-lg border border-border/60 p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between focus-visible:ring-inset"
                 id={`agent-coverage-${id}`}
                 key={id}
                 tabIndex={-1}
@@ -442,18 +442,18 @@ export function AgentRuns({
         <div className="grid gap-3">
           {visibleRuns.map((run) => (
             <div
-              className="scroll-mt-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="scroll-mt-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
               id={`agent-run-${run.id}`}
               key={run.id}
               tabIndex={-1}
             >
               <Card>
-                <CardHeader className="gap-3 p-4 sm:p-5">
+                <CardHeader size="compact" gap={3}>
                   <div className="flex min-w-0 items-start gap-3">
                     {statusIcon(run.status)}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle className="text-base">{runTitle(run)}</CardTitle>
+                        <CardTitle size="sm">{runTitle(run)}</CardTitle>
                         <Badge size="sm" variant={runVariant(run.status)}>
                           {runStatusLabel(run)}
                         </Badge>
@@ -461,7 +461,7 @@ export function AgentRuns({
                           {run.trigger}
                         </Badge>
                       </div>
-                      <CardDescription className="mt-1 truncate">
+                      <CardDescription truncate className="mt-1">
                         {repositoryNames.get(String(run.repository.projectId)) ??
                           String(run.repository.projectId)}
                         {run.target ? `, ${run.target}` : ""}
@@ -486,14 +486,20 @@ export function AgentRuns({
                     ) : null}
                   </div>
                 </CardHeader>
-                <CardPanel className="flex flex-col gap-2 border-t border-border/60 p-4 text-xs text-muted-foreground sm:p-5">
+                <CardPanel
+                  size="compact"
+                  variant="divided"
+                  gap={2}
+                  tone="caption"
+                  className="flex flex-col"
+                >
                   <div className="grid grid-cols-4 gap-1" aria-label={`Run stage: ${run.status}`}>
                     {["Queued", "Running", "Ingesting", "Complete"].map((label, index) => (
                       <div key={label}>
                         <div
                           className={`h-1.5 rounded-full ${index <= runStage(run.status) ? "bg-primary" : "bg-muted"}`}
                         />
-                        <span className="mt-1 block text-[10px]">{label}</span>
+                        <span className="mt-1 block text-3xs">{label}</span>
                       </div>
                     ))}
                   </div>
@@ -515,7 +521,7 @@ export function AgentRuns({
           ))}
         </div>
       ) : (
-        <Empty className="min-h-56 border border-dashed border-border/70 bg-card">
+        <Empty variant="card" className="min-h-56">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <Clock3Icon />

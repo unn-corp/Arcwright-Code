@@ -385,7 +385,7 @@ const make = Effect.gen(function* () {
               }),
             ),
           ),
-        ).pipe(Effect.catchTag("MaintenanceWorkHeld", (held) => Effect.fail(held))),
+        ).pipe(Effect.catchTags({ MaintenanceWorkHeld: (held) => Effect.fail(held) })),
       { concurrency: 1, discard: true },
     );
     yield* Ref.set(lastRunAt, nowMs);

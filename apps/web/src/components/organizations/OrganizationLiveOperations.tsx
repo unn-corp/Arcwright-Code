@@ -299,7 +299,7 @@ export function OrganizationLiveOperations({
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-2">
         <Card>
-          <CardPanel className="space-y-4 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={4}>
             <h3 className="text-lg font-semibold">Configuration</h3>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
               <div>
@@ -332,7 +332,7 @@ export function OrganizationLiveOperations({
           </CardPanel>
         </Card>
         <Card>
-          <CardPanel className="space-y-4 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={4}>
             <h3 className="text-lg font-semibold">Available capabilities</h3>
             <p className="text-sm">
               Director conversation reports from saved records. Current work intents can start one
@@ -357,7 +357,7 @@ export function OrganizationLiveOperations({
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-2">
         <Card>
-          <CardPanel className="space-y-3 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={3}>
             <h3 className="text-lg font-semibold">Observation mode</h3>
             {observationMode.error ? (
               <p role="alert" className="text-sm text-destructive-foreground">
@@ -423,7 +423,7 @@ export function OrganizationLiveOperations({
           </CardPanel>
         </Card>
         <Card>
-          <CardPanel className="space-y-3 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={3}>
             <h3 className="text-lg font-semibold">Proposal state, first page</h3>
             <EvidenceState label="Proposals" query={proposals} offline={offline} />
             {proposals.data ? (
@@ -586,7 +586,7 @@ export function OrganizationLiveOperations({
       </Card>
 
       <Card>
-        <CardPanel className="space-y-4 p-4 sm:p-5">
+        <CardPanel size="compact" spacing={4}>
           <h3 className="text-lg font-semibold">Current Project bindings</h3>
           {activeBindings.length === 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -702,7 +702,7 @@ export function OrganizationLiveOperations({
       </section>
 
       <Card>
-        <CardPanel className="space-y-4 p-4 sm:p-5">
+        <CardPanel size="compact" spacing={4}>
           <h3 className="text-lg font-semibold">Attention needed</h3>
           <ul className="space-y-2 text-sm">
             {organization.lifecycle === "draft" ? (
@@ -783,7 +783,7 @@ export function OrganizationLiveOperations({
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
         <Card>
-          <CardPanel className="space-y-3 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={3}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h3 className="text-lg font-semibold">Recent observations</h3>
               <Button size="sm" variant="outline" onClick={() => onNavigate("sources")}>
@@ -817,7 +817,7 @@ export function OrganizationLiveOperations({
           </CardPanel>
         </Card>
         <Card>
-          <CardPanel className="space-y-3 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={3}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h3 className="text-lg font-semibold">Correlation jobs</h3>
               <Button size="sm" variant="outline" onClick={() => onNavigate("sources")}>
@@ -858,7 +858,7 @@ export function OrganizationLiveOperations({
           </CardPanel>
         </Card>
         <Card>
-          <CardPanel className="space-y-3 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={3}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h3 className="text-lg font-semibold">Tentative findings</h3>
               <Button size="sm" variant="outline" onClick={() => onNavigate("work")}>
@@ -895,7 +895,7 @@ export function OrganizationLiveOperations({
           </CardPanel>
         </Card>
         <Card>
-          <CardPanel className="space-y-3 p-4 sm:p-5">
+          <CardPanel size="compact" spacing={3}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h3 className="text-lg font-semibold">Saved work states</h3>
               <Button size="sm" variant="outline" onClick={() => onNavigate("work")}>

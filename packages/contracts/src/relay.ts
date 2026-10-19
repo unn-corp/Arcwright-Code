@@ -1224,7 +1224,7 @@ export const RelayUnregisterDeviceEndpoint = HttpApiEndpoint.delete(
   },
 ).annotate(OpenApi.Summary, "Unregister a mobile device");
 
-export const RelayWebPushConfigEndpoint = HttpApiEndpoint.get(
+const RelayWebPushConfigEndpoint = HttpApiEndpoint.get(
   "getWebPushConfig",
   "/v1/client/web-push/config",
   {
@@ -1234,7 +1234,7 @@ export const RelayWebPushConfigEndpoint = HttpApiEndpoint.get(
   },
 ).annotate(OpenApi.Summary, "Read the Web Push application server key");
 
-export const RelayRegisterWebPushSubscriptionEndpoint = HttpApiEndpoint.put(
+const RelayRegisterWebPushSubscriptionEndpoint = HttpApiEndpoint.put(
   "registerWebPushSubscription",
   "/v1/client/web-push/subscriptions",
   {
@@ -1245,7 +1245,7 @@ export const RelayRegisterWebPushSubscriptionEndpoint = HttpApiEndpoint.put(
   },
 ).annotate(OpenApi.Summary, "Register or update an installed browser/PWA subscription");
 
-export const RelayUnregisterWebPushSubscriptionEndpoint = HttpApiEndpoint.delete(
+const RelayUnregisterWebPushSubscriptionEndpoint = HttpApiEndpoint.delete(
   "unregisterWebPushSubscription",
   "/v1/client/web-push/subscriptions/:subscriptionId",
   {
@@ -1256,7 +1256,7 @@ export const RelayUnregisterWebPushSubscriptionEndpoint = HttpApiEndpoint.delete
   },
 ).annotate(OpenApi.Summary, "Unregister an installed browser/PWA subscription");
 
-export const RelayTestWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
+const RelayTestWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
   "testWebPushSubscription",
   "/v1/client/web-push/subscriptions/:subscriptionId/test",
   {
@@ -1267,7 +1267,7 @@ export const RelayTestWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
   },
 ).annotate(OpenApi.Summary, "Queue a test notification for an installed browser/PWA subscription");
 
-export const RelayMobileGroup = HttpApiGroup.make("mobile")
+const RelayMobileGroup = HttpApiGroup.make("mobile")
   .add(
     RelayRegisterDeviceEndpoint,
     RelayRegisterLiveActivityEndpoint,
@@ -1464,7 +1464,7 @@ const RelayServerGroup = HttpApiGroup.make("server")
  * group. A per-installation secret authorizes mutations; no account token is
  * involved.
  */
-export const RelayPwaWebPushConfigEndpoint = HttpApiEndpoint.get(
+const RelayPwaWebPushConfigEndpoint = HttpApiEndpoint.get(
   "getPwaWebPushConfig",
   "/v1/pwa/web-push/config",
   {
@@ -1482,7 +1482,7 @@ export const RelayPwaAgentActivityPublishRequest = Schema.Struct({
 });
 export type RelayPwaAgentActivityPublishRequest = typeof RelayPwaAgentActivityPublishRequest.Type;
 
-export const RelayPublishPwaAgentActivityEndpoint = HttpApiEndpoint.post(
+const RelayPublishPwaAgentActivityEndpoint = HttpApiEndpoint.post(
   "publishPwaAgentActivity",
   "/v1/pwa/environments/:environmentId/threads/:threadId/agent-activity",
   {
@@ -1501,7 +1501,7 @@ export const RelayPublishPwaAgentActivityEndpoint = HttpApiEndpoint.post(
   },
 ).annotate(OpenApi.Summary, "Publish signed activity for anonymous installed PWAs");
 
-export const RelayRegisterPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.put(
+const RelayRegisterPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.put(
   "registerPwaWebPushSubscription",
   "/v1/pwa/web-push/subscriptions",
   {
@@ -1515,7 +1515,7 @@ const RelayPwaWebPushSubscriptionMutation = Schema.Struct({
   installation: RelayPwaInstallationCredentials,
 });
 
-export const RelayRemovePwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
+const RelayRemovePwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
   "removePwaWebPushSubscription",
   "/v1/pwa/web-push/subscriptions/:subscriptionId/remove",
   {
@@ -1526,7 +1526,7 @@ export const RelayRemovePwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
   },
 ).annotate(OpenApi.Summary, "Remove an anonymous installed-PWA subscription");
 
-export const RelayTestPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
+const RelayTestPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
   "testPwaWebPushSubscription",
   "/v1/pwa/web-push/subscriptions/:subscriptionId/test",
   {
@@ -1537,7 +1537,7 @@ export const RelayTestPwaWebPushSubscriptionEndpoint = HttpApiEndpoint.post(
   },
 ).annotate(OpenApi.Summary, "Queue a test for an anonymous installed-PWA subscription");
 
-export const RelayPwaGroup = HttpApiGroup.make("pwa")
+const RelayPwaGroup = HttpApiGroup.make("pwa")
   .add(
     RelayPwaWebPushConfigEndpoint,
     RelayPublishPwaAgentActivityEndpoint,

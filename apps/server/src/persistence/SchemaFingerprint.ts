@@ -19,7 +19,7 @@ export class SchemaFingerprintError extends Schema.TaggedError<SchemaFingerprint
 
 const digest = (value: unknown) =>
   NodeCrypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
-export const migrationManifestDigest = (manifest: ReadonlyArray<readonly [number, string]>) =>
+const migrationManifestDigest = (manifest: ReadonlyArray<readonly [number, string]>) =>
   digest([manifest, schemaFingerprint.format, schemaFingerprint.schemaSha256]);
 export const expectedSchemaObjects: ReadonlyArray<SchemaObject> = schemaFingerprint.objects;
 

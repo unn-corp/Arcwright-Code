@@ -234,7 +234,7 @@ export class ManagedRelayDpopSigner extends Context.Service<
 export const MANAGED_RELAY_REQUEST_TIMEOUT_MS = 10_000;
 // Managed tunnel setup/cleanup may span multiple durable transactions and
 // Cloudflare calls. Leave room for the relay's 45s setup deadline to respond.
-export const MANAGED_RELAY_ENVIRONMENT_LINK_TIMEOUT_MS = 50_000;
+const MANAGED_RELAY_ENVIRONMENT_LINK_TIMEOUT_MS = 50_000;
 
 export interface ManagedRelayAccessTokenCacheEntry {
   readonly accountId: string;

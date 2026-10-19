@@ -437,7 +437,7 @@ export class OrganizationLifecycleActivationAuthority extends Context.Service<
     readonly permits: (input: OrganizationLifecycleInput) => boolean;
   }
 >()("t3/organizations/OrganizationStore/OrganizationLifecycleActivationAuthority") {}
-export const OrganizationLifecycleActivationDisabled = Layer.succeed(
+const OrganizationLifecycleActivationDisabled = Layer.succeed(
   OrganizationLifecycleActivationAuthority,
   { permits: () => false },
 );

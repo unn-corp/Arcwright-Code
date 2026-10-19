@@ -31,7 +31,7 @@ const decoders = {
   action: Schema.decodeUnknownEffect(ForkMaintenanceActionInput),
   recover: Schema.decodeUnknownEffect(ForkRecoveryRequest),
 };
-const isMaintenanceError = Schema.is(ForkMaintenanceError);
+
 const failure = (reason: string, status: number, blockers?: ForkMaintenanceError["blockers"]) =>
   HttpServerResponse.jsonUnsafe(
     { error: { reason, ...(blockers === undefined ? {} : { blockers }) } },
@@ -144,5 +144,3 @@ export const operatorRouteLayer = Layer.unwrap(
     );
   }),
 );
-
-export { isMaintenanceError };

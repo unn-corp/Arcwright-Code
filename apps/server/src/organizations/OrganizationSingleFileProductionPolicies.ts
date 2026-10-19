@@ -181,7 +181,7 @@ export const OrganizationSingleFileProductionProposalPolicy = Layer.effect(
   })),
 );
 
-export const OrganizationSingleFileProductionAttemptPolicy = Layer.effect(
+const OrganizationSingleFileProductionAttemptPolicy = Layer.effect(
   OrganizationSingleFileAttemptPolicy,
   Effect.map(boundReader, (read) => ({
     select: (target: OrganizationSingleFileAttemptTarget) =>
@@ -208,7 +208,7 @@ export const OrganizationSingleFileProductionAttemptPolicy = Layer.effect(
   })),
 );
 
-export const OrganizationSingleFileProductionQAPolicy = Layer.effect(
+const OrganizationSingleFileProductionQAPolicy = Layer.effect(
   OrganizationSingleFileQAPolicy,
   Effect.map(boundReader, (read) => ({
     select: (target: OrganizationSingleFileQAPolicyTarget) =>

@@ -44,19 +44,13 @@ function BudgetCeiling({
     return <p className="text-sm text-muted-foreground">Unconfigured. Default: zero capacity.</p>;
   return (
     <div className="space-y-1 text-sm">
-      <p
-        className={
-          ceiling.maxConcurrent === 0 ? "font-medium text-amber-700 dark:text-amber-400" : ""
-        }
-      >
+      <p className={ceiling.maxConcurrent === 0 ? "font-medium text-warning-foreground" : ""}>
         {ceiling.maxConcurrent} concurrent {ceiling.maxConcurrent === 0 ? "(disabled)" : "maximum"}
       </p>
       <p>{ceiling.maxDailyCalls.toLocaleString()} calls per day maximum</p>
       <p>{ceiling.maxDailyEstimatedTokens.toLocaleString()} estimated tokens per day maximum</p>
       {ceiling.maxDailyCalls === 0 || ceiling.maxDailyEstimatedTokens === 0 ? (
-        <p className="font-medium text-amber-700 dark:text-amber-400">
-          Zero daily ceiling disables capacity.
-        </p>
+        <p className="font-medium text-warning-foreground">Zero daily ceiling disables capacity.</p>
       ) : null}
     </div>
   );
@@ -172,7 +166,7 @@ export function OrganizationGovernance({
         onRefresh={onRefresh}
       />
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <h2 className="text-lg font-semibold">Charter</h2>
           <p className="text-sm text-muted-foreground">
             Changes are saved to the draft revision. Publish when the structure is ready.
@@ -217,7 +211,7 @@ export function OrganizationGovernance({
       </Card>
 
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <h2 className="text-lg font-semibold">Publication and lifecycle</h2>
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between gap-3">
@@ -300,7 +294,7 @@ export function OrganizationGovernance({
       </Card>
 
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <h2 className="text-lg font-semibold">Project access</h2>
           <p className="text-sm text-muted-foreground">
             An Organization may have no linked Projects or several. Each binding has its own access
@@ -495,7 +489,7 @@ export function OrganizationGovernance({
       </Card>
 
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold">Change history</h2>
             <Button

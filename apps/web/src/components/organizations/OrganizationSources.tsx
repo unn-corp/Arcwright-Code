@@ -262,7 +262,7 @@ export function OrganizationSources({
         </p>
       ) : null}
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">Sources</h2>
@@ -449,7 +449,7 @@ export function OrganizationSources({
       </Card>
 
       <Card>
-        <CardPanel className="space-y-4 p-5">
+        <CardPanel size="md" spacing={4}>
           <h2 className="text-lg font-semibold">Manual report</h2>
           <p className="text-sm text-muted-foreground">
             A report is an unverified observation. It does not grant permission to change code.
@@ -537,7 +537,7 @@ export function OrganizationSources({
       </Card>
 
       <Card className="xl:col-span-2">
-        <CardPanel className="space-y-3 p-5">
+        <CardPanel size="md" spacing={3}>
           <h2 className="text-lg font-semibold">Observations and findings</h2>
           <p className="text-sm text-muted-foreground">
             Observations are source data. Findings remain tentative until separately verified and
@@ -631,7 +631,7 @@ export function OrganizationSources({
         </CardPanel>
       </Card>
       <Card className="xl:col-span-2">
-        <CardPanel className="space-y-2 p-5">
+        <CardPanel size="md" spacing={2}>
           <h2 className="text-lg font-semibold">Source changes</h2>
           <ul className="space-y-1 text-sm text-muted-foreground">
             {(intakeAudit.data?.entries ?? []).map((entry) => (

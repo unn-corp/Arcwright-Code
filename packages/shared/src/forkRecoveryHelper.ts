@@ -85,7 +85,6 @@ import {
 } from "./forkRecoveryCache.ts";
 
 export const RECOVERY_HELPER_PROTOCOL = 1;
-export const RECOVERY_HELPER_MIN_NODE_MAJOR = 24;
 
 export interface HelperIo {
   readonly out: (line: string) => void;

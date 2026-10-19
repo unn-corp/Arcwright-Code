@@ -5,10 +5,33 @@ import { useRender } from "@base-ui/react/use-render";
 
 import { cn } from "~/lib/utils";
 
-function Card({ className, render, ...props }: useRender.ComponentProps<"div">) {
+const cardPadding = {
+  default: "p-6",
+  xs: "p-3 sm:p-4",
+  sm: "p-4",
+  md: "p-5",
+  compact: "p-4 sm:p-5",
+  flush: "p-0",
+} as const;
+type CardSize = keyof typeof cardPadding;
+
+const cardSpacing = {
+  2: "space-y-2",
+  3: "space-y-3",
+  4: "space-y-4",
+  5: "space-y-5",
+} as const;
+
+function Card({
+  className,
+  render,
+  variant = "default",
+  ...props
+}: useRender.ComponentProps<"div"> & { variant?: "default" | "warning" }) {
   const defaultProps = {
     className: cn(
       "relative flex flex-col rounded-2xl border bg-card not-dark:bg-clip-padding text-card-foreground shadow-xs/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+      variant === "warning" && "border-warning/35",
       className,
     ),
     "data-slot": "card",
@@ -89,10 +112,24 @@ function CardFrameFooter({ className, render, ...props }: useRender.ComponentPro
   });
 }
 
-function CardHeader({ className, render, ...props }: useRender.ComponentProps<"div">) {
+function CardHeader({
+  className,
+  render,
+  size = "default",
+  variant = "default",
+  gap,
+  ...props
+}: useRender.ComponentProps<"div"> & {
+  size?: CardSize;
+  variant?: "default" | "divided";
+  gap?: 3;
+}) {
   const defaultProps = {
     className: cn(
-      "grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 p-6 in-[[data-slot=card]:has(>[data-slot=card-panel])]:pb-4 has-data-[slot=card-action]:grid-cols-[1fr_auto]",
+      "grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 in-[[data-slot=card]:has(>[data-slot=card-panel])]:pb-4 has-data-[slot=card-action]:grid-cols-[1fr_auto]",
+      cardPadding[size],
+      variant === "divided" && "border-b border-border/60",
+      gap === 3 && "gap-3",
       className,
     ),
     "data-slot": "card-header",
@@ -105,9 +142,14 @@ function CardHeader({ className, render, ...props }: useRender.ComponentProps<"d
   });
 }
 
-function CardTitle({ className, render, ...props }: useRender.ComponentProps<"div">) {
+function CardTitle({
+  className,
+  render,
+  size = "default",
+  ...props
+}: useRender.ComponentProps<"div"> & { size?: "default" | "sm" }) {
   const defaultProps = {
-    className: cn("font-semibold text-lg leading-none", className),
+    className: cn("font-semibold leading-none", size === "sm" ? "text-base" : "text-lg", className),
     "data-slot": "card-title",
   };
 
@@ -118,9 +160,14 @@ function CardTitle({ className, render, ...props }: useRender.ComponentProps<"di
   });
 }
 
-function CardDescription({ className, render, ...props }: useRender.ComponentProps<"div">) {
+function CardDescription({
+  className,
+  render,
+  truncate = false,
+  ...props
+}: useRender.ComponentProps<"div"> & { truncate?: boolean }) {
   const defaultProps = {
-    className: cn("text-muted-foreground text-sm", className),
+    className: cn("text-muted-foreground text-sm", truncate && "truncate", className),
     "data-slot": "card-description",
   };
 
@@ -147,10 +194,31 @@ function CardAction({ className, render, ...props }: useRender.ComponentProps<"d
   });
 }
 
-function CardPanel({ className, render, ...props }: useRender.ComponentProps<"div">) {
+function CardPanel({
+  className,
+  render,
+  size = "default",
+  variant = "default",
+  spacing,
+  gap,
+  tone = "default",
+  ...props
+}: useRender.ComponentProps<"div"> & {
+  size?: CardSize;
+  variant?: "default" | "divided";
+  spacing?: keyof typeof cardSpacing;
+  gap?: 2;
+  tone?: "default" | "muted" | "caption";
+}) {
   const defaultProps = {
     className: cn(
-      "flex-1 p-6 in-[[data-slot=card]:has(>[data-slot=card-header]:not(.border-b))]:pt-0 in-[[data-slot=card]:has(>[data-slot=card-footer]:not(.border-t))]:pb-0",
+      "flex-1 in-[[data-slot=card]:has(>[data-slot=card-header]:not(.border-b))]:pt-0 in-[[data-slot=card]:has(>[data-slot=card-footer]:not(.border-t))]:pb-0",
+      cardPadding[size],
+      variant === "divided" && "border-t border-border/60",
+      spacing !== undefined && cardSpacing[spacing],
+      gap === 2 && "gap-2",
+      tone === "muted" && "text-sm text-muted-foreground",
+      tone === "caption" && "text-xs text-muted-foreground",
       className,
     ),
     "data-slot": "card-panel",

@@ -130,7 +130,7 @@ const readClaudeCancelledSubagentResumeTranscript = Effect.fn(
             message: {
               ...frame.message.message,
               content: [
-                "Note: the T3 server restarted, and this background work was cancelled before it finished. It will not report back:",
+                "Note: the Arcwright Code server restarted, and this background work was cancelled before it finished. It will not report back:",
                 "- subagent: Audit src/math.ts",
                 "",
                 "User message:",

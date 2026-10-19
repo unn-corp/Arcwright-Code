@@ -344,9 +344,10 @@ export function makeOrganizationLiveWorkExecutor<RS, RA, RQ, RI>(
         inFlight.add(workId);
         const result = yield* Effect.exit(
           withAutomationWork(runWork(workId)).pipe(
-            Effect.catchTag("MaintenanceWorkHeld", () =>
-              Effect.succeed({ workId, phase: "skipped", outcome: "waiting" } as const),
-            ),
+            Effect.catchTags({
+              MaintenanceWorkHeld: () =>
+                Effect.succeed({ workId, phase: "skipped", outcome: "waiting" } as const),
+            }),
           ),
         ).pipe(Effect.ensuring(Effect.sync(() => inFlight.delete(workId))));
         if (Exit.isSuccess(result)) results.push(result.value);

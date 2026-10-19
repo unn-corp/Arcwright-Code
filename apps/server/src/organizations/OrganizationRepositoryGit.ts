@@ -17,7 +17,7 @@ import {
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
 const decodeRecord = Schema.decodeUnknownSync(OrganizationRepositoryRecord);
 export const MAX_RECORD_BYTES = 2 * 1024 * 1024;
-export const MAX_REPOSITORY_BYTES = 128 * 1024 * 1024;
+const MAX_REPOSITORY_BYTES = 128 * 1024 * 1024;
 export const MAX_RECORDS = 10_000;
 const nameDigest = (value: string) => NodeCrypto.createHash("sha256").update(value).digest("hex");
 const canonical = (value: unknown): string =>

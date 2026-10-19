@@ -68,7 +68,7 @@ export function readArchivedRow(
   ) as Row;
 }
 
-export function storePayloadSync(db: NodeSqlite.DatabaseSync, json: string): string {
+function storePayloadSync(db: NodeSqlite.DatabaseSync, json: string): string {
   const bytes = Buffer.byteLength(json);
   if (parsePayloadReference(json) !== null) {
     // An existing reference must remain readable before a maintenance run can complete.

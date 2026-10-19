@@ -42,7 +42,7 @@ export const CONNECT_PUBLIC_ALIASES = {
   ],
 } as const satisfies Record<ConnectPublicKey, readonly string[]>;
 
-export const CONNECT_GOOGLE_ALIASES = [
+const CONNECT_GOOGLE_ALIASES = [
   "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID",
   "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID",
   "EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID",
@@ -82,7 +82,7 @@ function readFields(source: ConnectEnvironment, strict: boolean): ConnectPublicF
   };
 }
 
-export function normalizeOwnedConnectOrigin(value: string, field: string): string {
+function normalizeOwnedConnectOrigin(value: string, field: string): string {
   try {
     // URL parsing erases dot segments and repairs missing authority slashes.
     // Admit origin syntax first so those inputs cannot become valid origins.
@@ -112,7 +112,7 @@ export function normalizeOwnedConnectOrigin(value: string, field: string): strin
   }
 }
 
-export function validateOwnedConnectFields(fields: ConnectPublicFields): ConnectPublicFields {
+function validateOwnedConnectFields(fields: ConnectPublicFields): ConnectPublicFields {
   if (CONNECT_PUBLIC_KEYS.some((key) => !fields[key])) {
     throw new Error(
       "Owned Connect requires one complete source containing all five public fields.",

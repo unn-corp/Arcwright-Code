@@ -6,7 +6,7 @@
  * to do. If the machine already has Chrome, Chromium, or Edge, previews work;
  * if it does not, the viewer is told so and nothing else changes.
  */
-export const CHROMIUM_PATH_ENV_VARS = [
+const CHROMIUM_PATH_ENV_VARS = [
   "T3_CHROMIUM_PATH",
   "CHROME_PATH",
   "PUPPETEER_EXECUTABLE_PATH",

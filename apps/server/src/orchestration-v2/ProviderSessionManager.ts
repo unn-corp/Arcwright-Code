@@ -2115,13 +2115,11 @@ export const layerWithOptions = (
               const projectEnvironment = yield* Effect.gen(function* () {
                 let environment: Readonly<Record<string, string | undefined>> | undefined;
                 if (Option.isSome(serverSettings) && Option.isSome(projectService)) {
-                  const thread = yield* projectionStore
-                    .getThreadRecords(input.threadId, [])
-                    .pipe(
-                      Effect.catchTag("ProjectionStoreThreadNotFoundError", () =>
-                        Effect.succeed(null),
-                      ),
-                    );
+                  const thread = yield* projectionStore.getThreadRecords(input.threadId, []).pipe(
+                    Effect.catchTags({
+                      ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
+                    }),
+                  );
                   if (thread === null) return undefined;
                   const project = yield* projectService.value.getById(thread.thread.projectId);
                   const accountId = Option.isSome(project) ? project.value.githubAccountId : null;

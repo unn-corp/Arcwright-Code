@@ -55,7 +55,7 @@ export function OrganizationStandingWorkAuthorizations({
 
   return (
     <Card>
-      <CardPanel className="space-y-3 p-5">
+      <CardPanel size="md" spacing={3}>
         <h2 className="text-lg font-semibold">Automatic Project work</h2>
         <p className="text-sm text-muted-foreground">
           A grant starts matching work from one HTTP source while its exact published configuration

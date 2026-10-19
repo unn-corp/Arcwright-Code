@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef } from "react";
+import { observeResize } from "~/lib/observeResize";
 
 const WAVE_LENGTH = 150;
 const WAVE_SAMPLE_COUNT = 36;
@@ -205,20 +206,14 @@ export function VoiceInputWaveform({
       animationFrame = window.requestAnimationFrame(animateTravelingWaves);
     }
 
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => {
-            syncWaveGeometry();
-            renderTravelingWaves(performance.now());
-          });
-    resizeObserver?.observe(entryArea);
-    resizeObserver?.observe(voiceControl);
-    resizeObserver?.observe(spinnerMark);
+    const stopObserving = observeResize([entryArea, voiceControl, spinnerMark], () => {
+      syncWaveGeometry();
+      renderTravelingWaves(performance.now());
+    });
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
-      resizeObserver?.disconnect();
+      stopObserving();
     };
   }, [recordingAudioSource, simulateInputLevel]);
 

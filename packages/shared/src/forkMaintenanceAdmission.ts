@@ -1,7 +1,7 @@
 import { FORK_ACTIVITY_PROTOCOL, type ForkActivityBlocker } from "@t3tools/contracts";
 
 export const AGENT_IDLE_WINDOW_MS = 5 * 60 * 1000;
-export const PARTICIPANT_MAX_AGE_MS = 30_000;
+const PARTICIPANT_MAX_AGE_MS = 30_000;
 export const CURRENT_ACTIVITY_PROTOCOL = FORK_ACTIVITY_PROTOCOL;
 
 export type MaintenanceParticipantKind =

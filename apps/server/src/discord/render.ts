@@ -124,7 +124,7 @@ export function withStreamingCursor(chunk: string): string {
 }
 
 /** Discord caps thread names at 100 characters. */
-export const DISCORD_THREAD_NAME_LIMIT = 100;
+const DISCORD_THREAD_NAME_LIMIT = 100;
 
 const PLACEHOLDER_TITLES = new Set(["", "new thread", "untitled"]);
 
@@ -226,7 +226,7 @@ export function buildHeaderEmbed(input: HeaderInput): DiscordEmbed {
 }
 
 /** Prefix used on injected inbound messages so the outbound side can skip them. */
-export const DISCORD_ORIGIN_PREFIX = "discord:";
+const DISCORD_ORIGIN_PREFIX = "discord:";
 
 export function isDiscordOriginatedMessageId(messageId: string): boolean {
   return messageId.startsWith(DISCORD_ORIGIN_PREFIX);

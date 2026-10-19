@@ -22,7 +22,7 @@ import { decodeGitHubProjectPullRequestListJson } from "./gitHubProjectPullReque
 
 const textEncoder = new TextEncoder();
 
-export const projectCredentialFingerprint = (
+const projectCredentialFingerprint = (
   crypto: Crypto.Crypto,
   host: string,
   token: string,
@@ -32,7 +32,7 @@ export const projectCredentialFingerprint = (
     Effect.orDie,
   );
 
-export const mergePullRequestRestInput = (input: {
+const mergePullRequestRestInput = (input: {
   readonly host: string;
   readonly owner: string;
   readonly repository: string;

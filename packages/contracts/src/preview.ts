@@ -396,7 +396,7 @@ export const PreviewFrameStreamEvent = Schema.Union([
 ]);
 export type PreviewFrameStreamEvent = typeof PreviewFrameStreamEvent.Type;
 
-export const PREVIEW_INPUT_MOUSE_BUTTONS = ["none", "left", "middle", "right"] as const;
+const PREVIEW_INPUT_MOUSE_BUTTONS = ["none", "left", "middle", "right"] as const;
 export const PreviewInputMouseButton = Schema.Literals(PREVIEW_INPUT_MOUSE_BUTTONS);
 export type PreviewInputMouseButton = typeof PreviewInputMouseButton.Type;
 

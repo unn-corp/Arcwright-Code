@@ -51,7 +51,7 @@ export function OrganizationEmergencyStopControl({
 
   return (
     <Card>
-      <CardPanel className="space-y-3 p-5">
+      <CardPanel size="md" spacing={3}>
         <h2 className="text-lg font-semibold">Emergency stop</h2>
         <p className="text-sm text-muted-foreground">
           A stop request blocks new Project work and interrupts admitted work. It does not undo

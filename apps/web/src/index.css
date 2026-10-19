@@ -811,6 +811,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 @theme inline {
+  --color-hermes-mark: #1d2433;
+  --color-hermes-mark-inverted: #e8edf7;
+  --tracking-keybinding: 0.08em;
+  --shadow-dashboard-composer: 0 -8px 24px -18px
+    color-mix(in oklab, var(--foreground) 25%, transparent);
   /* Two steps below Tailwind's text-xs (12px) for dense UI: metadata rows,
      badges, counters, keyboard hints and diagnostics tables. 2xs is 11px,
      3xs is 10px. Provider icon overlays use 4xs (8px) and 5xs (7px) to fit

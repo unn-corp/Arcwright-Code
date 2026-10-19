@@ -581,18 +581,6 @@ export const withRpcWorkAdmission = <A, E, R>(
   return rpcMethodNeedsWorkAdmission(method) ? maintenanceError(withWork(effect)) : effect;
 };
 
-/**
- * Authorizes every RPC on one connection against that connection's session scopes. Mutations and
- * active flows hold leases for their full operation; passive long-lived observers only check that
- * admission is open when they attach.
- */
-export const rpcScopeAuthorizationLayer = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>
-  Layer.succeed(RpcScopeAuthorization)((effect, { rpc }) => {
-    const requiredScope = requiredScopeForRpcMethod(rpc._tag);
-    if (!scopes.includes(requiredScope)) return Effect.fail(rpcAuthorizationError(requiredScope));
-    return withRpcWorkAdmission(rpc._tag, effect);
-  });
-
 const SettingsUpdate = Schema.Struct({
   patch: ServerSettingsPatch,
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),

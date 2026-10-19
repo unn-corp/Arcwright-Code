@@ -12,13 +12,18 @@ const emptySizeClassName = {
 function Empty({
   className,
   size = "default",
+  variant = "default",
   ...props
-}: React.ComponentProps<"div"> & { size?: keyof typeof emptySizeClassName }) {
+}: React.ComponentProps<"div"> & {
+  size?: keyof typeof emptySizeClassName;
+  variant?: "default" | "card";
+}) {
   return (
     <div
       className={cn(
         "flex min-w-0 flex-1 flex-col items-center justify-center text-balance text-center",
         emptySizeClassName[size],
+        variant === "card" && "rounded-2xl border border-dashed border-border/70 bg-card",
         className,
       )}
       data-slot="empty"

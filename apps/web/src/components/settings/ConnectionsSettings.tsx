@@ -1646,7 +1646,7 @@ function SavedBackendListRow({
               type="button"
               aria-expanded={routesOpen}
               onClick={() => setRoutesOpen((open) => !open)}
-              className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
             >
               {routeCount === 1 ? "Routes" : `${routeCount} routes`}
               <ChevronRightIcon

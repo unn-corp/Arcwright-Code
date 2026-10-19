@@ -33,9 +33,9 @@ function keyTokenLabel(token: string): string {
 
 function KeybindingPill({ value }: { value: string }) {
   return (
-    <KbdGroup className="min-w-0 bg-transparent p-0 shadow-none">
+    <KbdGroup className="min-w-0">
       {value.split("+").map((token) => (
-        <Kbd key={token} className="min-w-6 shrink-0 justify-center px-1.5">
+        <Kbd key={token} className="min-w-6 shrink-0 justify-center">
           {keyTokenLabel(token)}
         </Kbd>
       ))}
@@ -121,8 +121,8 @@ export function DictationKeybindRecorder({
         aria-pressed={isRecording}
         className={cn(
           "group flex h-8 min-w-0 cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-2 text-xs outline-none transition-[border-color,background-color,box-shadow]",
-          "hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24",
-          isRecording && "border-primary/70 bg-primary/5 ring-[3px] ring-primary/15",
+          "hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/24 focus-visible:ring-inset",
+          isRecording && "border-primary/70 bg-primary/5 ring-3 ring-primary/15",
         )}
         onBlur={() => {
           setRecordingValue(null);
@@ -141,7 +141,7 @@ export function DictationKeybindRecorder({
             ) : (
               <span className="truncate">Press shortcut…</span>
             )}
-            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+            <span className="ml-auto shrink-0 text-3xs text-muted-foreground">
               {recordingValue ? "Release to save" : "Esc to cancel"}
             </span>
           </>
@@ -155,7 +155,7 @@ export function DictationKeybindRecorder({
                 </span>
               ))}
             </div>
-            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/70 group-focus-visible:text-muted-foreground/70">
+            <span className="ml-auto shrink-0 text-3xs uppercase tracking-keybinding text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/70 group-focus-visible:text-muted-foreground/70">
               Change
             </span>
           </>

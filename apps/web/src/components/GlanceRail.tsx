@@ -46,7 +46,7 @@ import { readPullRequestListPreferences } from "./pullRequest/pullRequestListPre
 type GlanceRailStatScope = "all" | "project";
 
 const DOCK_ITEM_CLASS =
-  "group/dock-item relative flex min-h-14 w-full origin-right transform-gpu items-center gap-3 rounded-xl px-2.5 py-2 text-right outline-hidden ring-ring transition-transform duration-150 ease-out hover:z-10 hover:-translate-x-1 hover:scale-[1.02] focus-visible:z-10 focus-visible:-translate-x-1 focus-visible:scale-[1.02] focus-visible:ring-2 motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:hover:scale-100 motion-reduce:focus-visible:translate-x-0 motion-reduce:focus-visible:scale-100";
+  "group/dock-item relative flex min-h-14 w-full origin-right transform-gpu items-center gap-3 rounded-xl px-2.5 py-2 text-right outline-hidden ring-ring transition-transform duration-150 ease-out hover:z-10 hover:-translate-x-1 hover:scale-[1.02] focus-visible:z-10 focus-visible:-translate-x-1 focus-visible:scale-[1.02] focus-visible:ring-2 motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:hover:scale-100 motion-reduce:focus-visible:translate-x-0 motion-reduce:focus-visible:scale-100 focus-visible:ring-inset";
 
 function DockItemContent({
   detail,
@@ -345,7 +345,7 @@ export function GlanceRail() {
                     <button
                       aria-pressed={effectiveStatScope === "all"}
                       className={cn(
-                        "min-h-7 cursor-pointer rounded-sm px-2 text-xs text-sidebar-muted-foreground outline-hidden ring-ring transition-colors hover:text-sidebar-foreground focus-visible:ring-2",
+                        "min-h-7 cursor-pointer rounded-sm px-2 text-xs text-sidebar-muted-foreground outline-hidden ring-ring transition-colors hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset",
                         effectiveStatScope === "all" &&
                           "bg-sidebar-row-selected text-sidebar-foreground shadow-xs/5",
                       )}
@@ -357,7 +357,7 @@ export function GlanceRail() {
                     <button
                       aria-pressed={effectiveStatScope === "project"}
                       className={cn(
-                        "min-h-7 cursor-pointer rounded-sm px-2 text-xs text-sidebar-muted-foreground outline-hidden ring-ring transition-colors hover:text-sidebar-foreground focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50",
+                        "min-h-7 cursor-pointer rounded-sm px-2 text-xs text-sidebar-muted-foreground outline-hidden ring-ring transition-colors hover:text-sidebar-foreground focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-inset",
                         effectiveStatScope === "project" &&
                           "bg-sidebar-row-selected text-sidebar-foreground shadow-xs/5",
                       )}

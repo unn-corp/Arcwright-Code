@@ -56,7 +56,7 @@ function notificationCopy(event: AgentNotificationEvent, revealNames: boolean) {
   }
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const settingsStore = yield* DesktopClientSettings.DesktopClientSettings;
   const windows = yield* ElectronWindow.ElectronWindow;
 

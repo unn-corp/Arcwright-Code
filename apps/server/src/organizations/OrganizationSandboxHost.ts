@@ -1,20 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off preferSchemaOverJson:off - This boundary needs captured OS PIDs, /proc, and hard stop timers; bwrap owns the JSON info protocol.
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import {
-  mkdir,
-  mkdtemp,
-  open,
-  readFile,
-  readdir,
-  readlink,
-  rm,
-  symlink,
-  writeFile,
-  type FileHandle,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 
 const BWRAP = "/usr/bin/bwrap";
 const MAX_RUNTIME_MS = 30_000;
@@ -63,12 +53,6 @@ export class OrganizationSandboxUnavailable extends Error {
   override readonly name = "OrganizationSandboxUnavailable";
 }
 
-/** Keep production dispatch disconnected until aggregate limits are enforced. */
-export const OrganizationSandboxProductionStatus = {
-  ready: false,
-  missing: ["aggregate process, memory, and CPU limits"],
-} as const;
-
 const BASE_ARGS = [
   "--unshare-all",
   "--unshare-user",
@@ -109,8 +93,8 @@ const BASE_ARGS = [
 
 /** A real namespace probe; a present binary alone does not imply user namespaces work. */
 export function isOrganizationSandboxAvailable(): boolean {
-  if (process.platform !== "linux") return false;
-  const probe = spawnSync(
+  if (HostProcessPlatform.defaultValue() !== "linux") return false;
+  const probe = NodeChildProcess.spawnSync(
     BWRAP,
     [
       ...BASE_ARGS,
@@ -189,7 +173,7 @@ function assertInput(input: {
   }
 }
 
-function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+function signalGroup(child: NodeChildProcess.ChildProcess, signal: NodeJS.Signals): void {
   // The bwrap parent can exit while a descendant still owns an inherited pipe.
   // Signal the captured group until close, even after Node records its exit code.
   if (child.pid === undefined) return;
@@ -203,10 +187,10 @@ function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 export interface SandboxInfo {
   readonly childPid: number;
   readonly pidNamespace: number;
-  readonly namespaceHandle: FileHandle;
+  readonly namespaceHandle: NodeFSP.FileHandle;
 }
 
-export function readSandboxInfo(child: ChildProcess): Promise<SandboxInfo> {
+export function readSandboxInfo(child: NodeChildProcess.ChildProcess): Promise<SandboxInfo> {
   const stream = child.stdio[3];
   if (!stream) return Promise.reject(new Error("bubblewrap did not expose sandbox info"));
   return new Promise((resolve, reject) => {
@@ -233,10 +217,10 @@ export function readSandboxInfo(child: ChildProcess): Promise<SandboxInfo> {
           ) {
             throw new Error("bubblewrap omitted sandbox PID namespace identity");
           }
-          const namespaceHandle = await open(`/proc/${childPid}/ns/pid`, "r");
+          const namespaceHandle = await NodeFSP.open(`/proc/${childPid}/ns/pid`, "r");
           try {
-            const heldNamespace = await readlink(`/proc/self/fd/${namespaceHandle.fd}`);
-            const status = await readFile(`/proc/${childPid}/status`, "utf8");
+            const heldNamespace = await NodeFSP.readlink(`/proc/self/fd/${namespaceHandle.fd}`);
+            const status = await NodeFSP.readFile(`/proc/${childPid}/status`, "utf8");
             const uid = /^Uid:\s+(\d+)/m.exec(status)?.[1];
             const nsPids = /^NSpid:\s+([\d\s]+)/m.exec(status)?.[1]?.trim().split(/\s+/);
             if (
@@ -264,7 +248,7 @@ async function namespaceHasLiveProcesses(pidNamespace: number): Promise<boolean>
   if (hostUid === undefined)
     throw new Error("Host UID is unavailable for PID namespace verification");
   const namespaceLink = `pid:[${pidNamespace}]`;
-  const pids = (await readdir("/proc")).filter((entry) => /^\d+$/.test(entry));
+  const pids = (await NodeFSP.readdir("/proc")).filter((entry) => /^\d+$/.test(entry));
   let next = 0;
   let live = false;
   await Promise.all(
@@ -273,7 +257,7 @@ async function namespaceHasLiveProcesses(pidNamespace: number): Promise<boolean>
         const pid = pids[next++];
         if (pid === undefined) break;
         try {
-          const status = await readFile(`/proc/${pid}/status`, "utf8");
+          const status = await NodeFSP.readFile(`/proc/${pid}/status`, "utf8");
           // --unshare-user maps this sandbox to the launching host UID only.
           const uid = /^Uid:\s+(\d+)/m.exec(status)?.[1];
           if (uid === undefined) throw new Error(`Cannot verify UID for process ${pid}`);
@@ -281,7 +265,7 @@ async function namespaceHasLiveProcesses(pidNamespace: number): Promise<boolean>
           const nsPids = /^NSpid:\s+([\d\s]+)/m.exec(status)?.[1]?.trim().split(/\s+/);
           if (!nsPids) throw new Error(`Cannot verify PID namespace for process ${pid}`);
           if (nsPids.length === 1) continue;
-          if ((await readlink(`/proc/${pid}/ns/pid`)) !== namespaceLink) continue;
+          if ((await NodeFSP.readlink(`/proc/${pid}/ns/pid`)) !== namespaceLink) continue;
           const state = /^State:\s+([A-Z])/m.exec(status)?.[1];
           if (state !== "Z" && state !== "X") live = true;
         } catch (error) {
@@ -328,19 +312,25 @@ export async function launchOrganizationSandbox(
     );
   }
 
-  const workDirectory = await mkdtemp(join(tmpdir(), "t3-org-sandbox-"));
+  const workDirectory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-sandbox-"));
   try {
-    const deviceDirectory = join(workDirectory, "dev");
-    await mkdir(deviceDirectory, { mode: 0o700 });
+    const deviceDirectory = NodePath.join(workDirectory, "dev");
+    await NodeFSP.mkdir(deviceDirectory, { mode: 0o700 });
     for (const name of DEVICE_NAMES) {
-      await writeFile(join(deviceDirectory, name), "", { flag: "wx", mode: 0o600 });
+      await NodeFSP.writeFile(NodePath.join(deviceDirectory, name), "", {
+        flag: "wx",
+        mode: 0o600,
+      });
     }
-    await symlink("/proc/self/fd", join(deviceDirectory, "fd"));
-    await symlink("/proc/self/fd/0", join(deviceDirectory, "stdin"));
-    await symlink("/proc/self/fd/1", join(deviceDirectory, "stdout"));
-    await symlink("/proc/self/fd/2", join(deviceDirectory, "stderr"));
+    await NodeFSP.symlink("/proc/self/fd", NodePath.join(deviceDirectory, "fd"));
+    await NodeFSP.symlink("/proc/self/fd/0", NodePath.join(deviceDirectory, "stdin"));
+    await NodeFSP.symlink("/proc/self/fd/1", NodePath.join(deviceDirectory, "stdout"));
+    await NodeFSP.symlink("/proc/self/fd/2", NodePath.join(deviceDirectory, "stderr"));
     for (const [name, contents] of stagedInput) {
-      await writeFile(join(workDirectory, name), contents, { flag: "wx", mode: 0o600 });
+      await NodeFSP.writeFile(NodePath.join(workDirectory, name), contents, {
+        flag: "wx",
+        mode: 0o600,
+      });
     }
     const deviceMounts = DEVICE_NAMES.flatMap((name) => [
       "--dev-bind",
@@ -349,10 +339,10 @@ export async function launchOrganizationSandbox(
     ]);
     const stagedFiles = stagedInput.flatMap(([name]) => [
       "--ro-bind",
-      join(workDirectory, name),
+      NodePath.join(workDirectory, name),
       `/workspace/${name}`,
     ]);
-    const child = spawn(
+    const child = NodeChildProcess.spawn(
       BWRAP,
       [
         ...BASE_ARGS,
@@ -469,7 +459,9 @@ export async function launchOrganizationSandbox(
       settled = true;
       clearTimers();
       rejectOutputWaiters();
-      void rm(workDirectory, { recursive: true, force: true }).finally(() => rejectResult(error));
+      void NodeFSP.rm(workDirectory, { recursive: true, force: true }).finally(() =>
+        rejectResult(error),
+      );
     });
     child.once("close", (exitCode, signal) => {
       closed = true;
@@ -477,7 +469,7 @@ export async function launchOrganizationSandbox(
       if (stopTimer) clearTimeout(stopTimer);
       rejectOutputWaiters();
       if (settled) {
-        void rm(workDirectory, { recursive: true, force: true });
+        void NodeFSP.rm(workDirectory, { recursive: true, force: true });
         return;
       }
       void (async () => {
@@ -491,7 +483,7 @@ export async function launchOrganizationSandbox(
           if (settled) return;
           settled = true;
           clearTimers();
-          await rm(workDirectory, { recursive: true, force: true });
+          await NodeFSP.rm(workDirectory, { recursive: true, force: true });
           resolveResult({
             exitCode,
             signal,
@@ -504,7 +496,7 @@ export async function launchOrganizationSandbox(
           if (settled) return;
           settled = true;
           clearTimers();
-          await rm(workDirectory, { recursive: true, force: true });
+          await NodeFSP.rm(workDirectory, { recursive: true, force: true });
           rejectResult(error instanceof Error ? error : new Error(String(error)));
         }
       })();
@@ -515,7 +507,7 @@ export async function launchOrganizationSandbox(
     }, runtimeMs ?? 10_000);
 
     return {
-      id: randomUUID(),
+      id: NodeCrypto.randomUUID(),
       pid: child.pid,
       processGroupId: child.pid,
       workDirectory,
@@ -533,7 +525,7 @@ export async function launchOrganizationSandbox(
       stop,
     };
   } catch (error) {
-    await rm(workDirectory, { recursive: true, force: true });
+    await NodeFSP.rm(workDirectory, { recursive: true, force: true });
     throw error;
   }
 }

@@ -144,7 +144,7 @@ const normalizePullRequestUrl = (value: string): string | null => {
   }
 };
 
-export const extractReportedPullRequestUrls = (text: string): ReadonlyArray<string> =>
+const extractReportedPullRequestUrls = (text: string): ReadonlyArray<string> =>
   (text.match(/https?:\/\/[^\s<>"'`]+/g) ?? [])
     .map((candidate) => candidate.replace(/[),.;!?\]}]+$/g, ""))
     .flatMap((candidate) => {
@@ -1050,7 +1050,7 @@ const make = Effect.gen(function* () {
                     Effect.ignore,
                   );
               }),
-            ).pipe(Effect.catchTag("MaintenanceWorkHeld", () => Effect.void));
+            ).pipe(Effect.catchTags({ MaintenanceWorkHeld: () => Effect.void }));
           }).pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning("Continuous improvement could not reconcile a stale finding", {
@@ -1227,7 +1227,7 @@ const make = Effect.gen(function* () {
           retryCount: 0,
         }),
       ).pipe(
-        Effect.catchTag("MaintenanceWorkHeld", () => Effect.succeed(null)),
+        Effect.catchTags({ MaintenanceWorkHeld: () => Effect.succeed(null) }),
         Effect.mapError(mapLaunchError),
       );
     }).pipe(
@@ -1500,12 +1500,3 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(AgentDashboardContinuousImprovement, make);
-
-export const __testing = {
-  POLL_INTERVAL,
-  FAILURE_BACKOFF,
-  IMPLEMENTATION_MONITOR_INTERVAL,
-  IMPLEMENTATION_NUDGE_DELAYS,
-  MAX_IMPLEMENTATION_NUDGES,
-  MAX_IMPLEMENTATION_RETRIES,
-};

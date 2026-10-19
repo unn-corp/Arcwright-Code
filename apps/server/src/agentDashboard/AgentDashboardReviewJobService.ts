@@ -41,20 +41,20 @@ import {
 } from "../maintenance/WorkAdmission.ts";
 
 /** Server-scoped concurrency for repository reviews. */
-export const MAX_CONCURRENT_REVIEW_RUNS = 1;
+const MAX_CONCURRENT_REVIEW_RUNS = 1;
 /** Max automatic retries for a failed review lineage. */
-export const MAX_REVIEW_RETRIES = 2;
+const MAX_REVIEW_RETRIES = 2;
 /** Poll interval while waiting for the review turn to settle. TestClock-friendly. */
 export const MONITOR_POLL_INTERVAL = Duration.seconds(1);
-export const REVIEW_IDEMPOTENCY_KIND = "repository-review";
-export const MAX_REVIEW_OUTPUT_NUDGES = 2;
-export const REVIEW_OUTPUT_NUDGE_ACK_TIMEOUT = Duration.minutes(5);
-export const REVIEW_PROGRESS_NUDGE_DELAYS = [
+
+const MAX_REVIEW_OUTPUT_NUDGES = 2;
+const REVIEW_OUTPUT_NUDGE_ACK_TIMEOUT = Duration.minutes(5);
+const REVIEW_PROGRESS_NUDGE_DELAYS = [
   Duration.minutes(10),
   Duration.minutes(20),
   Duration.minutes(40),
 ] as const;
-export const MAX_REVIEW_PROGRESS_NUDGES = REVIEW_PROGRESS_NUDGE_DELAYS.length;
+const MAX_REVIEW_PROGRESS_NUDGES = REVIEW_PROGRESS_NUDGE_DELAYS.length;
 
 export type ReviewProgressWatchdogDecision =
   | { readonly kind: "wait" }
@@ -1243,20 +1243,3 @@ const make = Effect.gen(function* () {
 
 /** Core job service without default dependencies (tests provide fakes). */
 export const layerWithoutDefaults = Layer.effect(AgentDashboardReviewJobService, make);
-
-/** Production layer: durable run history under the server state directory. */
-export const layer = layerWithoutDefaults.pipe(Layer.provide(AgentDashboardRunHistory.layer));
-
-export const __testing = {
-  parseReviewMetadata,
-  decideTerminalOutcome,
-  findIdempotentMatch,
-  isActiveStatus,
-  maxConcurrent: MAX_CONCURRENT_REVIEW_RUNS,
-  maxRetries: MAX_REVIEW_RETRIES,
-  monitorPollInterval: MONITOR_POLL_INTERVAL,
-  maxOutputNudges: MAX_REVIEW_OUTPUT_NUDGES,
-  maxProgressNudges: MAX_REVIEW_PROGRESS_NUDGES,
-  outputNudgeAckTimeout: REVIEW_OUTPUT_NUDGE_ACK_TIMEOUT,
-  progressNudgeDelays: REVIEW_PROGRESS_NUDGE_DELAYS,
-};

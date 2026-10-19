@@ -79,10 +79,6 @@ export class OrganizationWorkScopeStopVerifier extends Context.Service<
   OrganizationWorkScopeStopVerifier,
   OrganizationWorkScopeStopVerifierShape
 >()("t3/organizations/OrganizationWorkScopeStore/OrganizationWorkScopeStopVerifier") {}
-export const OrganizationWorkScopeStopVerifierDisabled = Layer.succeed(
-  OrganizationWorkScopeStopVerifier,
-  { verifyStopped: () => Effect.fail(unavailable()) },
-);
 
 type ScopeRow = {
   attempt_id: string;
@@ -688,7 +684,3 @@ const make = Effect.gen(function* () {
 });
 
 export const OrganizationWorkScopeStoreLayer = Layer.effect(OrganizationWorkScopeStore, make);
-/** Production remains deny-by-default until an OS verifier and executor are wired. */
-export const OrganizationWorkScopeStoreLive = OrganizationWorkScopeStoreLayer.pipe(
-  Layer.provideMerge(OrganizationWorkScopeStopVerifierDisabled),
-);

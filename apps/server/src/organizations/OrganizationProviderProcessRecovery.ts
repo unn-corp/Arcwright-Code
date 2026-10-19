@@ -3,6 +3,7 @@ import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeUtil from "node:util";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import { OrganizationWorkError, type OrganizationId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -144,8 +145,9 @@ type ProviderRow = {
  */
 export const recoverOrganizationProviderProcessesAtStartup = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const platform = yield* HostProcessPlatform;
   let currentBootId: string | null = null;
-  if (process.platform === "linux") {
+  if (platform === "linux") {
     try {
       currentBootId = NodeFS.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
     } catch {
@@ -161,12 +163,7 @@ export const recoverOrganizationProviderProcessesAtStartup = Effect.gen(function
     held.push({ workId: rows[128]!.work_id, reason: "provider_recovery_batch_limit" });
   for (const row of rows.slice(0, 128)) {
     const marker = row.launch_marker && MARKER_RECORD.exec(row.launch_marker);
-    if (
-      process.platform !== "linux" ||
-      !marker ||
-      !currentBootId ||
-      !Number.isFinite(Number(marker[2]))
-    ) {
+    if (platform !== "linux" || !marker || !currentBootId || !Number.isFinite(Number(marker[2]))) {
       held.push({ workId: row.work_id, reason: "provider_identity_unavailable" });
       continue;
     }

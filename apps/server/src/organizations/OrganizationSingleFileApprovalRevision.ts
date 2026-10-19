@@ -79,13 +79,6 @@ export class OrganizationSingleFileApprovalRevisionGuard extends Context.Service
 >()(
   "t3/organizations/OrganizationSingleFileApprovalRevision/OrganizationSingleFileApprovalRevisionGuard",
 ) {}
-export const OrganizationSingleFileApprovalRevisionGuardDisabled = Layer.succeed(
-  OrganizationSingleFileApprovalRevisionGuard,
-  {
-    verifyCurrent: () =>
-      Effect.fail(failure("unavailable", "Current Git revision guard is disabled.")),
-  },
-);
 
 const revisionGuardLayer = (expectedCanonicalRoot?: string) =>
   Layer.effect(

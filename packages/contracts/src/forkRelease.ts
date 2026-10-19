@@ -4,7 +4,7 @@ import { ForkUpdateChannel } from "./maintenance.ts";
 export const FORK_RELEASE_MANIFEST_ASSET = "fork-release.json";
 export const FORK_RELEASE_REPOSITORY = "unn-corp/t3code";
 export const FORK_ANDROID_PACKAGE = "com.devotek.t3code.pwa";
-export const FORK_ANDROID_MAX_VERSION_CODE = 2_147_483_647;
+const FORK_ANDROID_MAX_VERSION_CODE = 2_147_483_647;
 export const ForkArtifactDigest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const ForkSourceCommit = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
 export const ForkReleaseAsset = Schema.Struct({

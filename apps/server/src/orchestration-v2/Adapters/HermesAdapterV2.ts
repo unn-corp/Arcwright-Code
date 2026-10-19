@@ -6,7 +6,6 @@ import {
 } from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
-  defaultInstanceIdForDriver,
   HermesSettings,
   ProviderDriverKind,
   type OrchestrationV2ProviderCapabilities,
@@ -15,7 +14,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as Layer from "effect/Layer";
+
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/process";
@@ -24,7 +23,6 @@ import * as ServerConfig from "../../config.ts";
 import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
 import {
   applyHermesAcpModelSelection,
-  currentHermesModelIdFromSessionSetup,
   makeHermesAcpRuntime,
   resolveHermesAcpBaseModelId,
 } from "../../provider/acp/HermesAcpSupport.ts";
@@ -34,7 +32,7 @@ import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRunti
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -46,12 +44,12 @@ import {
   type AcpAdapterV2Flavor,
   type AcpAdapterV2RuntimeInput,
 } from "@t3tools/provider-acp/server/adapter";
-export const HERMES_PROVIDER = ProviderDriverKind.make("hermes");
+const HERMES_PROVIDER = ProviderDriverKind.make("hermes");
 const HERMES_DRIVER_KIND = HERMES_PROVIDER;
-export const HERMES_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(HERMES_DRIVER_KIND);
+
 const DEFAULT_HERMES_SETTINGS = Schema.decodeSync(HermesSettings)({});
 
-export const HermesProviderCapabilitiesV2 = {
+const HermesProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
   sessions: {
     ...AcpProviderCapabilitiesV2.sessions,
@@ -104,7 +102,7 @@ export interface HermesAdapterV2Options {
   readonly assertComplete?: Effect.Effect<void, EffectAcpErrors.AcpError>;
 }
 
-export function makeHermesAcpAdapterFlavor(options: HermesAdapterV2Options): AcpAdapterV2Flavor {
+function makeHermesAcpAdapterFlavor(options: HermesAdapterV2Options): AcpAdapterV2Flavor {
   return {
     driver: HERMES_PROVIDER,
     runtimeHarness: "Hermes",
@@ -131,7 +129,7 @@ export function makeHermesAcpAdapterFlavor(options: HermesAdapterV2Options): Acp
     supportsImagePrompts: true,
   };
 }
-export function makeHermesAdapterV2(options: HermesAdapterV2Options) {
+function makeHermesAdapterV2(options: HermesAdapterV2Options) {
   const flavor = makeHermesAcpAdapterFlavor(options);
   return makeAcpAdapterV2({
     instanceId: options.instanceId,
@@ -213,51 +211,3 @@ export const HermesAdapterV2Driver: ProviderAdapterDriver<
       ),
   ),
 };
-
-const layer: Layer.Layer<
-  ProviderAdapter.ProviderAdapterV2,
-  never,
-  | McpProviderSessions.McpProviderSessions
-  | ProviderHost.ProviderHost
-  | Path.Path
-  | ChildProcessSpawner.ChildProcessSpawner
-  | Crypto.Crypto
-  | FileSystem.FileSystem
-  | IdAllocator.IdAllocatorV2
-  | ProviderEventLoggers.ProviderEventLoggers
-  | ServerConfig.ServerConfig
-> = Layer.effect(
-  ProviderAdapter.ProviderAdapterV2,
-  Effect.gen(function* () {
-    const hostEnvironment = yield* HostProcessEnvironment;
-    const hostPlatform = yield* HostProcessPlatform;
-    const selfInvocation = yield* resolveSelfInvocation();
-    const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const crypto = yield* Crypto.Crypto;
-    const fileSystem = yield* FileSystem.FileSystem;
-    const idAllocator = yield* IdAllocator.IdAllocatorV2;
-    const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-    const serverConfig = yield* ServerConfig.ServerConfig;
-    const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
-    const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
-    return yield* makeHermesAdapterV2({
-      instanceId: HERMES_DEFAULT_INSTANCE_ID,
-      settings: DEFAULT_HERMES_SETTINGS,
-      environment: hostEnvironment,
-      hostPlatform,
-      childProcessSpawner,
-      crypto,
-      fileSystem,
-      idAllocator,
-      serverConfig,
-      selfInvocation,
-      continuationRequests,
-      nativeLogging: (threadId) =>
-        makeNativeLogger({
-          nativeEventLogger: providerEventLoggers.native,
-          provider: HERMES_PROVIDER,
-          threadId,
-        }),
-    });
-  }),
-);

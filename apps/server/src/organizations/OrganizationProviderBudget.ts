@@ -99,10 +99,11 @@ export class OrganizationProviderBudgetAuthority extends Context.Service<
     ) => boolean;
   }
 >()("t3/organizations/OrganizationProviderBudget/OrganizationProviderBudgetAuthority") {}
-export const OrganizationProviderBudgetDisabled = Layer.succeed(
-  OrganizationProviderBudgetAuthority,
-  { permitsReserve: () => false, permitsTransition: () => false, permitsReconcile: () => false },
-);
+const OrganizationProviderBudgetDisabled = Layer.succeed(OrganizationProviderBudgetAuthority, {
+  permitsReserve: () => false,
+  permitsTransition: () => false,
+  permitsReconcile: () => false,
+});
 
 type BudgetRow = {
   request_id: string;
