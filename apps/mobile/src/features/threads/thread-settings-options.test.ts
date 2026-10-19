@@ -30,6 +30,12 @@ describe("selectableChoices", () => {
 
 describe("runtimeModeChoicesForSupportedModes", () => {
   it("keeps controls usable when forward-compatible decoding removes every advertised mode", () => {
-    expect(runtimeModeChoicesForSupportedModes([])).toHaveLength(4);
+    expect(runtimeModeChoicesForSupportedModes([]).map((choice) => choice.mode)).toEqual([
+      "approval-required",
+      "auto-accept-edits",
+      "auto",
+      "automated-review",
+      "full-access",
+    ]);
   });
 });

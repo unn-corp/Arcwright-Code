@@ -108,7 +108,7 @@ describe("useSelectedThreadGitActions", () => {
     await flush();
 
     expect(harness.refreshStatusCalls).toEqual([
-      { environmentId: "environment-1", input: { cwd: "/repo" } },
+      { environmentId: "environment-1", input: { cwd: "/repo", automatic: false } },
     ]);
   });
 
@@ -130,9 +130,9 @@ describe("useSelectedThreadGitActions", () => {
     await flush();
 
     expect(harness.refreshStatusCalls).toEqual([
-      { environmentId: "environment-1", input: { cwd: "/repo" } },
-      { environmentId: "environment-1", input: { cwd: "/repo" } },
-      { environmentId: "environment-1", input: { cwd: "/repo/worktree" } },
+      { environmentId: "environment-1", input: { cwd: "/repo", automatic: false } },
+      { environmentId: "environment-1", input: { cwd: "/repo", automatic: false } },
+      { environmentId: "environment-1", input: { cwd: "/repo/worktree", automatic: false } },
     ]);
   });
 
@@ -161,8 +161,8 @@ describe("useSelectedThreadGitActions", () => {
     await flush();
 
     expect(harness.refreshStatusCalls).toEqual([
-      { environmentId: "environment-1", input: { cwd: "/repo" } },
-      { environmentId: "environment-1", input: { cwd: "/repo" } },
+      { environmentId: "environment-1", input: { cwd: "/repo", automatic: false } },
+      { environmentId: "environment-1", input: { cwd: "/repo", automatic: false } },
     ]);
   });
 
@@ -184,7 +184,7 @@ describe("useSelectedThreadGitActions", () => {
     await flush();
 
     expect(harness.refreshStatusCalls).toEqual([
-      { environmentId: "environment-1", input: { cwd: "/repo" } },
+      { environmentId: "environment-1", input: { cwd: "/repo", automatic: false } },
     ]);
   });
 });
