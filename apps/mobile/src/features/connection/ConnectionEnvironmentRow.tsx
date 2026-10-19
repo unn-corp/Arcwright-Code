@@ -60,7 +60,7 @@ export function ConnectionEnvironmentRow(props: {
     setSavingName(false);
     if (AsyncResult.isFailure(result)) {
       const error = Cause.squash(result.cause);
-      Alert.alert(
+      Dialog.alert(
         "Could not rename environment",
         error instanceof Error ? error.message : "The name could not be saved.",
       );
@@ -189,12 +189,12 @@ export function ConnectionEnvironmentRow(props: {
             <Text className="text-sm text-danger-foreground">{environmentNameError(label)}</Text>
           ) : null}
           <View className="flex-row flex-wrap gap-2">
-            <MaterialButton
+            <Button
               label="Save name"
               disabled={savingName || environmentNameError(label) !== null}
               onPress={() => void saveName(label)}
             />
-            <MaterialButton
+            <Button
               label="Use server name"
               disabled={savingName}
               onPress={() => void saveName(null)}
