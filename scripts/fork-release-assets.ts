@@ -68,10 +68,6 @@ const sha512Base64 = (file: string): string => {
   return hash.digest("base64");
 };
 
-// ---------------------------------------------------------------------------------------------
-// Android
-// ---------------------------------------------------------------------------------------------
-
 export interface AndroidFacts {
   readonly packageName: string;
   readonly versionCode: number;
@@ -235,10 +231,6 @@ export const verifyAndroidApk = (input: {
     apkSha256: input.apkSha256,
   };
 };
-
-// ---------------------------------------------------------------------------------------------
-// Candidate discovery
-// ---------------------------------------------------------------------------------------------
 
 /** Artifact directories the build jobs upload, as downloaded into one input tree. */
 export const ARTIFACT_DIRS = {
@@ -464,10 +456,6 @@ export const discoverCandidateAssets = (input: DiscoveryInput): Discovery => {
   return { assets, problems };
 };
 
-// ---------------------------------------------------------------------------------------------
-// Verification
-// ---------------------------------------------------------------------------------------------
-
 /** Checks a feed: right version, and every referenced file present with its recorded size and digest. */
 export const verifyFeed = (input: {
   readonly feed: CandidateAsset;
@@ -684,10 +672,6 @@ export const candidateDigest = (assets: ReadonlyArray<{ name: string; sha256: st
     ),
   );
 
-// ---------------------------------------------------------------------------------------------
-// Validation receipts
-// ---------------------------------------------------------------------------------------------
-
 export { VALIDATION_CHECKS, VALIDATION_TARGETS };
 export type { ValidationCheck, ValidationTarget };
 
@@ -790,10 +774,6 @@ export const evaluateChecks = (
     recovery: passes("recovery"),
   };
 };
-
-// ---------------------------------------------------------------------------------------------
-// Manifest
-// ---------------------------------------------------------------------------------------------
 
 const toAndroidArtifact = (verified: VerifiedAndroidApk) => ({
   asset: verified.asset,

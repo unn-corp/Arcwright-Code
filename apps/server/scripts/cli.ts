@@ -12,6 +12,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   ServerCliBuildAssetMissingError,
   ServerCliCommandExitError,
@@ -152,7 +153,7 @@ const buildExeCmd = Command.make(
       if (specifiers.length > 0) {
         return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
       }
-      const executableName = process.platform === "win32" ? "bin.exe" : "bin";
+      const executableName = (yield* HostProcess.Platform) === "win32" ? "bin.exe" : "bin";
       const executablePath = path.join(serverDir, "build", executableName);
       if (!(yield* fs.exists(executablePath))) {
         return yield* new ServerCliBuildAssetMissingError({

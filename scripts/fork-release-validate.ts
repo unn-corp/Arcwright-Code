@@ -24,10 +24,6 @@ import { parseBaselineManifest, verifyBaselinePayload } from "./fork-release-bas
 import { cliSmokeEnvironment } from "./lib/cli-smoke-environment.ts";
 import { appendCliSmokeOutput, redactCliSmokeOutput } from "./lib/cli-smoke-output.ts";
 
-// ---------------------------------------------------------------------------------------------
-// Asset lookup
-// ---------------------------------------------------------------------------------------------
-
 export interface PayloadAssets {
   readonly windowsInstaller: string | null;
   readonly appImage: string | null;
@@ -88,10 +84,6 @@ const need = (value: string | null, label: string, where: string): string => {
   if (value === null) throw new Error(`${where} has no ${label}.`);
   return value;
 };
-
-// ---------------------------------------------------------------------------------------------
-// Process helpers
-// ---------------------------------------------------------------------------------------------
 
 const HOST_PLATFORM = Effect.runSync(HostProcessPlatform);
 
@@ -323,10 +315,6 @@ export const serverRecovery = async (
   return `old binary ${acceptsUpdatedHome ? "also accepts" : "rejects"} the updated home (a snapshot restore ${acceptsUpdatedHome ? "is not needed" : "is required"})`;
 };
 
-// ---------------------------------------------------------------------------------------------
-// Linux
-// ---------------------------------------------------------------------------------------------
-
 const coreOf = (version: string) => version.replace(/-.*/, "");
 
 /** The AppImage unpacks and carries its updater config. The .deb is checked by the dpkg flows below. */
@@ -356,10 +344,6 @@ export const checkLinuxPackages = (assets: PayloadAssets, scratch: string): void
   if (smoke.status !== 0 || !/^v\d+\.\d+\.\d+/m.test(smoke.stdout))
     throw new Error(`The extracted AppImage runtime cannot start: ${smoke.stderr}`);
 };
-
-// ---------------------------------------------------------------------------------------------
-// Debian package
-// ---------------------------------------------------------------------------------------------
 
 export interface DebTool {
   /** Package name and version from the .deb's control file. */
@@ -566,10 +550,6 @@ export const debRecovery = (
   checkDebInstalled(tool, name);
 };
 
-// ---------------------------------------------------------------------------------------------
-// Windows
-// ---------------------------------------------------------------------------------------------
-
 export const windowsDesktopExecutable = (directory: string): string => {
   const matches = NodeFS.readdirSync(directory).filter(
     (name) => /^(?:T3|Arcwright Code).*\.exe$/i.test(name) && !/uninstall/i.test(name),
@@ -604,10 +584,6 @@ const installWindowsPayload = (installer: string, directory: string) => {
 /** Silently installs an NSIS installer and returns its exact packaged source version. */
 export const installWindowsInstaller = (installer: string, directory: string): string =>
   installWindowsPayload(installer, directory).version;
-
-// ---------------------------------------------------------------------------------------------
-// Android
-// ---------------------------------------------------------------------------------------------
 
 export interface InstalledPackage {
   readonly versionCode: number;
@@ -865,10 +841,6 @@ export const androidRecovery = async (
     throw new Error("Recovery was not in place: the first install time changed.");
   await launchAndConfirm();
 };
-
-// ---------------------------------------------------------------------------------------------
-// Entry
-// ---------------------------------------------------------------------------------------------
 
 const requireEnv = (name: string): string => {
   const value = process.env[name];

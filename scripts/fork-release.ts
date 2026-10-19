@@ -137,10 +137,6 @@ const loadPlan = (file: string): PlannedRelease => {
   return plan;
 };
 
-// ---------------------------------------------------------------------------------------------
-// plan
-// ---------------------------------------------------------------------------------------------
-
 const runPlan = async (values: Args) => {
   const channel = values.channel as ForkChannel;
   if (channel !== "stable" && channel !== "nightly")
@@ -196,10 +192,6 @@ const runPlan = async (values: Args) => {
     has_additional_recoveries: plan.recoverySources.length > 1,
   });
 };
-
-// ---------------------------------------------------------------------------------------------
-// Android
-// ---------------------------------------------------------------------------------------------
 
 const resolveBuildTool = (name: string): string => {
   const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
@@ -264,10 +256,6 @@ const runAndroidVerify = (values: Args) => {
   writeJson(NodePath.join(outDir, ANDROID_METADATA_FILE), verified);
   setOutputs({ [`${role}_signer`]: verified.signerSha256 });
 };
-
-// ---------------------------------------------------------------------------------------------
-// baseline
-// ---------------------------------------------------------------------------------------------
 
 export interface BaselineProof {
   readonly format: 1;
@@ -339,10 +327,6 @@ const runBaselinePack = (values: Args): number => {
   );
   return proof.problems.length === 0 ? 0 : 1;
 };
-
-// ---------------------------------------------------------------------------------------------
-// assemble
-// ---------------------------------------------------------------------------------------------
 
 export interface CandidateRecord {
   readonly format: 1;
@@ -513,10 +497,6 @@ export const assembleCandidate = (input: {
   return { problems, record };
 };
 
-// ---------------------------------------------------------------------------------------------
-// receipts and manifest
-// ---------------------------------------------------------------------------------------------
-
 /** The record sits beside the payload directory, so it is never uploaded as a release asset. */
 const candidateRecordPath = (dir: string): string => `${NodePath.resolve(dir)}.json`;
 
@@ -668,10 +648,6 @@ const runManifest = (values: Args): number => {
   }
   return 0;
 };
-
-// ---------------------------------------------------------------------------------------------
-// entry
-// ---------------------------------------------------------------------------------------------
 
 const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   const [command, ...rest] = argv;

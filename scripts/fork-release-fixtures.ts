@@ -41,10 +41,6 @@ export const sha = (seed: string): string =>
 const sha256Of = (seed: string): string =>
   NodeCrypto.createHash("sha256").update(seed).digest("hex");
 
-// ---------------------------------------------------------------------------------------------
-// Manifests and records
-// ---------------------------------------------------------------------------------------------
-
 export interface ManifestOptions {
   readonly version: string;
   readonly channel?: ForkChannel;
@@ -133,10 +129,6 @@ export const makeRelease = (
     manifest: options.noManifest ? null : manifest,
   };
 };
-
-// ---------------------------------------------------------------------------------------------
-// Artifact trees
-// ---------------------------------------------------------------------------------------------
 
 export const HELPERS: ReadonlyArray<HelperAssetSpec> = RECOVERY_HELPER_ASSETS;
 
@@ -308,10 +300,6 @@ export const writeFixtureTree = (inputDir: string, options: FixtureOptions = {})
   };
 };
 
-// ---------------------------------------------------------------------------------------------
-// In-memory GitHub
-// ---------------------------------------------------------------------------------------------
-
 interface StoredRelease {
   id: number;
   name?: string;
@@ -475,10 +463,6 @@ export class FakeGitHub implements GitHubApi {
     }
   }
 }
-
-// ---------------------------------------------------------------------------------------------
-// A whole publishable candidate
-// ---------------------------------------------------------------------------------------------
 
 export const PREDECESSOR_DIGEST = "8".repeat(64);
 

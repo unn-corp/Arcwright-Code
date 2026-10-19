@@ -89,10 +89,6 @@ export interface GitHubApi {
   deleteRelease(id: number): Promise<void>;
 }
 
-// ---------------------------------------------------------------------------------------------
-// REST implementation
-// ---------------------------------------------------------------------------------------------
-
 export class GitHubApiError extends Error {
   readonly status: number;
   constructor(status: number, method: string, url: string, detail: string) {
@@ -227,10 +223,6 @@ export const createGitHubApi = (input: {
   };
 };
 
-// ---------------------------------------------------------------------------------------------
-// Reading release state
-// ---------------------------------------------------------------------------------------------
-
 /** Lists releases with their decoded fork-release.json; an undecodable manifest is recorded, not hidden. */
 export const loadReleaseRecords = async (github: GitHubApi): Promise<ReleaseRecord[]> => {
   const records: ReleaseRecord[] = [];
@@ -263,10 +255,6 @@ export const loadReleaseRecords = async (github: GitHubApi): Promise<ReleaseReco
   }
   return records;
 };
-
-// ---------------------------------------------------------------------------------------------
-// Android installation codes
-// ---------------------------------------------------------------------------------------------
 
 /**
  * Reserves the next pair of codes. Creating the reservation tag is the atomic step: GitHub
@@ -311,10 +299,6 @@ export const reserveAndroidCodes = async (
   }
   throw new Error("Could not reserve Android installation codes after repeated conflicts.");
 };
-
-// ---------------------------------------------------------------------------------------------
-// Draft, verify, publish
-// ---------------------------------------------------------------------------------------------
 
 export const releaseNotes = (plan: ReleasePlan, summary: string): string =>
   [
@@ -498,10 +482,6 @@ export const publishDraft = async (
     makeLatest: plan.channel === "stable",
   });
 };
-
-// ---------------------------------------------------------------------------------------------
-// Withdrawal
-// ---------------------------------------------------------------------------------------------
 
 const requireRelease = async (github: GitHubApi, version: string): Promise<RawRelease> => {
   const tag = forkTagForVersion(version);

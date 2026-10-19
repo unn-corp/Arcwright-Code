@@ -84,10 +84,6 @@ export const forkVersionFromTag = (tag: string): string | null => {
   return parseForkVersion(version) ? version : null;
 };
 
-// ---------------------------------------------------------------------------------------------
-// Release records
-// ---------------------------------------------------------------------------------------------
-
 export interface ReleaseAssetRecord {
   readonly id: number;
   readonly name: string;
@@ -357,10 +353,6 @@ export const selectUpdateCandidate = (input: {
   return best;
 };
 
-// ---------------------------------------------------------------------------------------------
-// Version and candidate planning
-// ---------------------------------------------------------------------------------------------
-
 const everyVersionUsed = (all: ReadonlyArray<ReleaseRecord>): string[] =>
   all.flatMap((record) => {
     const fromTag = forkVersionFromTag(record.tagName);
@@ -610,10 +602,6 @@ export const planStable = (input: {
   };
 };
 
-// ---------------------------------------------------------------------------------------------
-// Android installation codes
-// ---------------------------------------------------------------------------------------------
-
 export const androidCodeTag = (code: number): string => `${ANDROID_CODE_TAG_PREFIX}${code}`;
 export const androidCodeRangeTag = (start: number, end: number): string =>
   `${ANDROID_CODE_TAG_PREFIX}range-${start}-${end}`;
@@ -696,10 +684,6 @@ export const nextAndroidCodeAllocation = (
   const recoveries = Array.from({ length: recoveryCount }, (_, index) => normal + index + 1);
   return { normal, recovery: recoveries[0]!, recoveries, reservedThrough };
 };
-
-// ---------------------------------------------------------------------------------------------
-// Whole-run planning
-// ---------------------------------------------------------------------------------------------
 
 export interface PlannedRelease extends ReleasePlan {
   /** The release whose source the recovery APK is rebuilt from. */
