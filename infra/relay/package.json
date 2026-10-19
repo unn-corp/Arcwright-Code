@@ -8,7 +8,7 @@
     "push:android:watch": "node scripts/android-push-watch.ts",
     "tunnels:census": "node scripts/tunnel-census.ts",
     "destroy": "alchemy destroy",
-    "test": "vp test run --config ../../vite.config.ts --dir .",
+    "test": "vp test run --config ../../vite.config.ts --dir . --fileParallelism=false",
     "typecheck": "tsc-rs --noEmit"
   },
   "dependencies": {
@@ -35,6 +35,7 @@
     "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "workerd": "1.20260918.1"
   }
 }

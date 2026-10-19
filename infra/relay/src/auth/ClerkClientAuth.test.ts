@@ -86,7 +86,9 @@ describe("owned Clerk bearer policy", () => {
           /^(invalid_oauth_response|invalid_oauth_grant|oauth_verification_failed)$/,
         ),
       });
-      if (status === 204) expect(error.cause).toEqual({ reason: "invalid_oauth_response" });
+      // The SDK reads the audience before returning the grant, so an empty
+      // response rejects inside the SDK instead of reaching local validation.
+      if (status === 204) expect(error.cause).toEqual({ reason: "oauth_verification_failed" });
       expect(JSON.stringify(error.cause)).not.toContain("oat_sensitive_fixture");
       expect(JSON.stringify(error.cause)).not.toContain("provider-message-fixture");
       expect(fetchMock).toHaveBeenCalledTimes(1);

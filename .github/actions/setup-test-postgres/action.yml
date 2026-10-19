@@ -1,0 +1,23 @@
+name: Setup test PostgreSQL
+description: Cache a pinned native PostgreSQL without sudo, Docker, or a system install.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v6
+      id: postgres
+      with:
+        path: ${{ runner.temp }}/relay-postgres
+        key: relay-postgres-v1-noble-${{ runner.arch }}-16.14-f6d0771427379208
+    - name: Build PostgreSQL test tools
+      if: steps.postgres.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        RELAY_POSTGRES_HOME: ${{ runner.temp }}/relay-postgres
+      run: bash .github/scripts/build-test-postgres.sh
+    - name: Verify PostgreSQL test tools
+      shell: bash
+      env:
+        RELAY_POSTGRES_HOME: ${{ runner.temp }}/relay-postgres
+      run: |
+        test "$("$RELAY_POSTGRES_HOME/bin/postgres" --version)" = 'postgres (PostgreSQL) 16.14'
+        echo "RELAY_POSTGRES_BIN=$RELAY_POSTGRES_HOME/bin" >> "$GITHUB_ENV"

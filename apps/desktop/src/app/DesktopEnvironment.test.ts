@@ -50,7 +50,7 @@ describe("DesktopEnvironment", () => {
     });
     assert.equal(branding.displayName, displayName);
     assert.equal(branding.baseName, "Arcwright Code");
-    assert.equal(branding.stageLabel, appVersion === "0.0.45" ? "Alpha" : "Nightly");
+    assert.equal(branding.stageLabel, appVersion === "0.0.45" ? "Beta" : "Nightly");
   });
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {

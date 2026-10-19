@@ -56,6 +56,13 @@ function executionOwner() {
   let rejected = 0;
   const execution = Workers.fromExecutionContext({
     props: {},
+    exports: {},
+    get tracing(): never {
+      throw new CanaryFixtureFailure();
+    },
+    abort: () => {
+      throw new CanaryFixtureFailure();
+    },
     passThroughOnException: () => {},
     waitUntil: (promise: Promise<unknown>) => {
       pending.push(promise);

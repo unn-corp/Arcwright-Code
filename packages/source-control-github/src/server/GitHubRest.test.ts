@@ -316,11 +316,11 @@ describe("GitHubRest", () => {
         : json({ ok: true }),
     );
     return Effect.gen(function* () {
-      const api = yield* GitHubApi.GitHubApi;
+      const api = yield* GitHubRest.GitHubRest;
       const refused = yield* Effect.flip(
         api.rest({ host: "github.com", operation: "project", path: "user" }),
       ).pipe(
-        Effect.provideService(GitHubApi.PinnedGitHubCredential, {
+        Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
           host: "github.com",
           token: Redacted.make("project-pat"),
           credentialFingerprint: "github.com:project-account-digest",

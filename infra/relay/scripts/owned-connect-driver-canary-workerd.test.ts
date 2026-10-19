@@ -1,3 +1,4 @@
+import * as NodeModule from "node:module";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -27,6 +28,9 @@ class WorkerdFixtureFailed extends Schema.TaggedError<WorkerdFixtureFailed>()(
   "WorkerdFixtureFailed",
   {},
 ) {}
+
+const require = NodeModule.createRequire(import.meta.url);
+const workerd = require("workerd") as { readonly default: string };
 
 const TOKEN = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const SYNTHETIC_URL = "postgres://fixture:fixture@192.0.2.1:5432/fixture";
@@ -127,9 +131,7 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
           { mode: 0o600 },
         );
         const socket = path.join(root, "http.sock");
-        const binary = path.resolve(
-          "node_modules/.pnpm/@cloudflare+workerd-linux-64@1.20260918.1/node_modules/@cloudflare/workerd-linux-64/bin/workerd",
-        );
+        const binary = workerd.default;
         yield* Effect.scoped(
           Effect.gen(function* () {
             const child = yield* spawner.spawn(
@@ -303,9 +305,7 @@ it.live(
           ),
         ).toBe(true);
         const socketPath = path.join(root, "http.sock");
-        const binary = path.resolve(
-          "node_modules/.pnpm/@cloudflare+workerd-linux-64@1.20260918.1/node_modules/@cloudflare/workerd-linux-64/bin/workerd",
-        );
+        const binary = workerd.default;
         expect(
           (yield* spawner.string(
             ChildProcess.make(binary, ["--version"], {

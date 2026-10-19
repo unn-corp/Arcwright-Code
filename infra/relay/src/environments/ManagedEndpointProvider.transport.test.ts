@@ -10,6 +10,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
 import type * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as Redacted from "effect/Redacted";
 
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
 
@@ -105,7 +106,8 @@ function info(total: number, page = 1) {
 }
 function url(request: HttpClientRequest.HttpClientRequest) {
   const value = new URL(request.url);
-  for (const [key, param] of request.urlParams) value.searchParams.append(key, param);
+  for (const [key, param] of request.urlParams)
+    value.searchParams.append(key, Redacted.isRedacted(param) ? Redacted.value(param) : param);
   return value;
 }
 const mutations = [

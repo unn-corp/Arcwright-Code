@@ -20,6 +20,7 @@ const key = { threadId: "thread-1", tabId: "tab-1" };
 const makeDebuggee = (
   debuggerInsert?: (text: string) => void,
   debuggerKey?: (key: string) => void,
+  focused = true,
 ) => {
   const emitter = new NodeEvents.EventEmitter();
   const pending: Array<() => void> = [];
@@ -28,6 +29,7 @@ const makeDebuggee = (
     params: Record<string, unknown> | undefined;
     sessionId: string | undefined;
   }> = [];
+  const inputEvents: Electron.InputEvent[] = [];
   let text = "";
   const debuggee = Object.assign(emitter, {
     sendCommand: (method: string, params?: Record<string, unknown>, sessionId?: string) =>
@@ -35,6 +37,12 @@ const makeDebuggee = (
         commands.push({ method, params, sessionId });
         if (method === "Target.getTargetInfo") {
           resolve({ targetInfo: { targetId: "GUEST" } });
+          return;
+        }
+        if (method === "Runtime.evaluate") {
+          resolve({
+            result: { value: String(params?.["expression"]).endsWith("!== null") ? true : 0 },
+          });
           return;
         }
         if (method === "Input.insertText") {
@@ -55,6 +63,8 @@ const makeDebuggee = (
     getTitle: () => "Page",
     getUserAgent: () => "Electron",
     isFocused: () => true,
+    focusedFrame: focused ? {} : null,
+    sendInputEvent: (event: Electron.InputEvent) => inputEvents.push(event),
     insertText: async (inserted: string) => {
       text += inserted;
     },
@@ -71,6 +81,7 @@ const makeDebuggee = (
     release: () => pending.splice(0).forEach((resolve) => resolve()),
     text: () => text,
     commands,
+    inputEvents,
   };
 };
 
@@ -82,12 +93,11 @@ const takeEvents = (host: DesktopBrowserHost.DesktopBrowserHost["Service"], coun
   );
 
 describe("DesktopBrowserHost", () => {
-  it.effect("rejects a key press while another guest has desktop focus", () =>
+  it.effect("routes a key press to the requested guest while another guest has desktop focus", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;
       const activeKeys: Array<string> = [];
-      const requested = makeDebuggee(undefined, (pressed) => activeKeys.push(pressed));
-      requested.tab.webContents.isFocused = () => false;
+      const requested = makeDebuggee(undefined, (pressed) => activeKeys.push(pressed), false);
       host.attach(key, requested.tab);
       host.attach({ ...key, tabId: "tab-2" }, makeDebuggee().tab);
       const reader = yield* takeEvents(host, 3).pipe(Effect.forkScoped);
@@ -107,9 +117,14 @@ describe("DesktopBrowserHost", () => {
       const reply = (yield* Fiber.join(reader)).at(-1) as { message: string };
       expect(JSON.parse(reply.message)).toMatchObject({
         id: 1,
-        error: { message: expect.stringContaining("requested Browser tab must have focus") },
+        result: {},
       });
-      expect(requested.commands).toEqual([]);
+      expect(requested.inputEvents).toEqual([
+        { type: "rawKeyDown", keyCode: "Enter", modifiers: [] },
+      ]);
+      expect(requested.commands.some(({ method }) => method === "Input.dispatchKeyEvent")).toBe(
+        false,
+      );
       expect(activeKeys).toEqual([]);
     }).pipe(Effect.scoped),
   );
@@ -163,7 +178,11 @@ describe("DesktopBrowserHost", () => {
       const host = yield* DesktopBrowserHost.make;
       const active = makeDebuggee();
       // CDP input can follow the embedder's focused guest instead of its target.
-      const requested = makeDebuggee((text) => void active.tab.webContents.insertText(text));
+      const requested = makeDebuggee(
+        (text) => void active.tab.webContents.insertText(text),
+        undefined,
+        false,
+      );
       const otherKey = { ...key, tabId: "tab-2" };
       host.attach(key, requested.tab);
       host.attach(otherKey, active.tab);
@@ -196,9 +215,13 @@ describe("DesktopBrowserHost", () => {
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;
       let retried = false;
-      const debuggee = makeDebuggee(() => {
-        retried = true;
-      });
+      const debuggee = makeDebuggee(
+        () => {
+          retried = true;
+        },
+        undefined,
+        false,
+      );
       debuggee.tab.webContents.insertText = async () => {
         throw new Error("Guest renderer was disposed.");
       };

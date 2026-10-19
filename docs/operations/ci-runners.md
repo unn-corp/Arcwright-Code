@@ -78,6 +78,17 @@ such as `/_work/_temp`, and create it for the runner user before accepting work.
 pool's `/tmp` is mounted with `noexec`; compiler fixtures and native helper tests must use the
 executable per-job temporary directory instead. Keep its lifecycle tied to the worker.
 
+Relay account-deletion SQL tests use a disposable PostgreSQL 16.14 cluster owned by the
+test job, with TCP disabled and a private Unix socket. `setup-test-postgres` caches only
+native tools built from the checksummed upstream source; compilation uses the image's
+existing toolchain without sudo, Docker, or a system install. `with-relay-postgres.py`
+creates the cluster, runs the test command, then stops and removes its owned resources,
+including after command failure or cancellation. Database state and credentials never
+enter the cache. The relay suite runs files serially because these tests reset shared
+test schemas. Fixture admission verifies directory/socket ownership and the connected
+database's data directory before allowing either schema reset; ambient database URLs
+are never accepted. The existing separately authorized Docker fixture remains supported.
+
 Android workers must provide SDK command-line tools, `ANDROID_HOME`, and a writable SDK directory.
 The workflows use that existing `sdkmanager` to install SDK packages; they do not bootstrap it.
 Emulator workers additionally need an accessible `/dev/kvm`, virtualization support, and

@@ -191,6 +191,10 @@ jobs:
         run: node --test .github/scripts/check-nightly-release.test.cjs
 
       # `changes` lists the affected packages, or nothing when all of them are.
+      - name: Setup relay PostgreSQL fixture tools
+        if: needs.changes.outputs.test_packages == '' || contains(format(' {0} ', needs.changes.outputs.test_packages), ' t3code-relay ')
+        uses: ./.github/actions/setup-test-postgres
+
       - name: Test
         env:
           TEST_PACKAGES: ${{ needs.changes.outputs.test_packages }}
@@ -200,7 +204,12 @@ jobs:
             filters=()
             for package in $TEST_PACKAGES; do filters+=(--filter "$package"); done
           fi
-          vp run --parallel --concurrency-limit 4 "${filters[@]}" test
+          if [[ -z "$TEST_PACKAGES" || " $TEST_PACKAGES " == *" t3code-relay "* ]]; then
+            python3 .github/scripts/with-relay-postgres.py -- \
+              vp run --parallel --concurrency-limit 4 "${filters[@]}" test
+          else
+            vp run --parallel --concurrency-limit 4 "${filters[@]}" test
+          fi
 
   # The web suite is the largest outside the server. In the shared Test job it
   # started last and ran alone for about 40s after everything else finished.
