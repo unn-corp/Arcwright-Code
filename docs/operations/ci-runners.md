@@ -1,62 +1,53 @@
 # Organization CI runners
 
-Every GitHub Actions job in `unn-corp/Arcwright-Code` requires `self-hosted`, `unn`, `unn-isolated`, and
-`t3-ci`, plus its operating system and CPU architecture. This covers checks, releases,
-diagnostics, screenshots, and repository automation, including retained upstream workflows
-that are guarded off in this fork. There is no GitHub-hosted or Blacksmith fallback: enabled
-jobs wait for a matching dedicated T3 worker.
+All jobs use the shared organization pool on Mothership. There is no GitHub-hosted
+or Blacksmith fallback. The dedicated T3 runner group and its two Linux workers
+and Windows VM supervisor are retired; do not provision replacement `t3-ci` workers.
 
-`unn-isolated` is a provisioning contract. Apply it only to disposable workers with a fresh
-workspace and home, no persistent credentials, and no access to production or developer data.
-Destroy the worker after its job. Public pull requests execute dependency scripts and tests;
-shared persistent organization workers must not receive this label. Signing and publishing
-jobs also need isolated workers, with secrets supplied only to the authorized job.
+| Pool    | Required labels                               | Capacity and prerequisites                                                                                                                                 |
+| ------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux   | `self-hosted, linux, x64, unn, unn-isolated`  | Three Dokploy slots: `unn-isolated-1`, `unn-isolated-2`, `unn-isolated-3`. Each has 8 CPUs, 16 GiB, a fresh workspace/home per job, private DinD, and KVM. |
+| Windows | `self-hosted, windows, x64, unn, unn-windows` | The organization-wide `unn-runner-win` service on the existing `win2022` VM, with MSVC, Git Bash, PowerShell 7, Node, Python, and GitHub CLI.              |
 
-## Capacity and repository access
+`unn-isolated` describes disposable Linux containers. The Windows VM also hosts IIS
+and unrelated workloads and is persistent; it must not carry that label. External
+pull-request documentation checks select Linux only. Windows jobs run trusted pushes,
+manual diagnostics, and release workflows. Review any change that adds a public PR
+Windows job before enabling it. Never reset the shared VM or remove its existing data.
 
-The fork supports **Linux x64 and Windows x64 workers**. It has no macOS or hardware ARM64
-capacity. Repository guards disable macOS native analysis and its change detector, the complete
-macOS preview pipeline, iOS screenshot capture, and native ARM64 desktop/CLI jobs on this fork.
-The retained upstream paths remain available outside `unn-corp/Arcwright-Code`. `Check` accepts the
-fork's two deliberately skipped mobile native jobs; every enabled prerequisite must still pass.
+The `Default` runner group admits organization repositories, including the public
+`unn-corp/Arcwright-Code` and `unn-corp/Arcwright-AI` repositories. The Windows service keeps
+organization scope. `unn-windows` selects this VM without pretending it is disposable.
 
-Android APK builds and emulator checks remain enabled on Linux x64. This hardware policy does
-not remove ARM64 APK support: Android target ABIs and the runner's CPU architecture are separate.
+Dokploy's Services project owns the three Linux supervisors. They use the existing
+T3 Ubuntu 24.04 toolchain image, pinned by image ID
+`sha256:0a477a294b01590de1fddddface30213798fb4eba28c3d6706b01c5ed594d6de`,
+for prepare, registration, and job containers. The image source and immutable SDK/VM
+seeds remain under [infra/ci/linux](../../infra/ci/linux/README.md). This source is
+retained for shared image maintenance; its old dedicated-slot provisioning examples
+must not recreate a separate fleet. Preserve nonroot UID/GID 1001:121, read-only root,
+no-new-privileges, empty capabilities, and isolation from host Docker/registration
+secrets. Private DinD provides Docker; only infrastructure supervisors see the host socket.
 
-Use the dedicated `T3 Code` organization runner group, restricted to the explicitly selected `unn-corp/Arcwright-Code` and `unn-corp/Arcwright-AI` repositories. The
-`t3-ci` label prevents these jobs from landing on the existing three Mothership organization
-workers. Those workers use a hardened Ubuntu 20.04 image, UID 1001, a read-only root filesystem,
-and no sudo; keep their image, storage, and workloads unchanged. Provision dedicated T3 workers
-instead of relabeling shared workers or relaxing their controls.
+The shared Linux image supplies Java 17, Android API 36 SDK/emulator, QEMU, the C/C++
+toolchain, pkg-config, libsecret/Wayland headers, ImageMagick, and desktop runtime
+libraries. KVM and its supplemental group are passed through by the slot definition.
+Do not add sudo or make the root filesystem writable. The infrastructure-owned
+`t3-ci-start-runner` and `t3-ci-preflight` names remain toolchain entrypoints; they do
+not require dedicated T3 runner registrations or labels.
 
-| Required labels in addition to `self-hosted, unn, unn-isolated, t3-ci` | Jobs and worker prerequisites                                                                                                                                                                                                                                                        |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `linux, x64`                                                           | General checks, Linux desktop builds, Android builds, and emulator validation. Bake Git, GitHub CLI, jq, curl, unzip, Python, a C/C++ toolchain, pkg-config, libsecret development headers, ImageMagick, and desktop runtime libraries into a dedicated Ubuntu 24.04 isolated image. |
-| `windows, x64`                                                         | Windows tests, desktop packaging, recovery helpers, and safety/receipt validation. Use a clean disposable Windows CI template with Git Bash, PowerShell, and MSVC build tools.                                                                                                       |
+The fork supports Linux x64 and Windows x64. It has no macOS or hardware ARM64 capacity.
+Preserve guards on macOS native analysis, the macOS preview pipeline, iOS screenshots,
+and native ARM64 desktop/CLI jobs. Android target ABIs are independent of host CPU
+architecture, so Android ARM64 APK support remains enabled on Linux x64.
 
-The shared `win2022` VM hosts IIS, other repository runner data, and unrelated workloads. It is
-not an eligible T3 CI worker. Prepare a separate clean template and destroy each job's VM,
-workspace, and runner registration rather than executing T3 jobs on that shared machine.
-
-The dedicated infrastructure lives on **Mothership**, reached through the configured
-`mothership` SSH alias. Dokploy's **T3 Code CI** project owns two Linux slot supervisors and
-one Windows VM supervisor in its production environment. Each job receives a new worker;
-the organization runner names therefore change or re-register between jobs.
-
-Linux slots each have 8 CPUs and 16 GiB RAM, a private workspace, executable temporary storage,
-and KVM access. Their job containers have no Docker daemon or host socket. See the
-[Linux image and supervisor setup](../../infra/ci/linux/README.md) for immutable image builds,
-rendering, network controls, and cleanup. Windows uses a separate `t3-ci-windows-base` template
-and fresh 8-CPU, 16-GiB overlays; see the
-[Windows provisioning and admission procedure](../../infra/ci/windows/README.md).
-
-The `T3 Code` group admits only these two selected repositories. The shared `Default` group retains its original
-all-private-repository access and does not admit this public fork.
+The former dedicated Windows base image remains recovery material only. Do not start
+its retired supervisor or reset the organization Windows VM from that template.
 
 Use a current GitHub Actions runner compatible with the workflows' Node-based action versions.
 Tool-cache and package-cache directories must be writable. Vite+, Java, Rust, and Gradle setup
 remain in the workflows; these do not supply native OS compilers or emulator hardware.
-Native package dependencies must be present in the dedicated isolated image. CI and release jobs verify the C/C++ toolchain and libsecret headers with
+Native package dependencies must be present in the shared isolated image. CI and release jobs verify the C/C++ toolchain and libsecret headers with
 `verify-native-build-deps`; they do not install packages or wait for background APT work. The APT mirror
 helper skips hardened workers; on writable Ubuntu workers it uses architecture-specific HTTPS
 mirrors without assuming a hosted image's `ubuntu.sources` file. Do not add sudo or make the
@@ -108,7 +99,7 @@ guard. Native CLI smoke tests must run on their matching architecture.
 Before admitting the fleet, run workflow lint and the focused `scripts/ci-runners.test.ts` and
 `scripts/fork-release-workflows.test.ts` suites. The policy checks every runner matrix and
 reusable caller, the unsupported-platform guards, and Check's actual shell gate. Hosted selectors,
-missing dedicated-pool labels, or unexpected skipped prerequisites fail it. Then run representative
+missing shared-pool labels, or unexpected skipped prerequisites fail it. Then run representative
 Linux, Windows x64, and Android jobs on actual workers before claiming those capabilities ready.
 Queued enabled jobs indicate missing labels, capacity, or group access; disabled macOS/ARM64 jobs
 must appear skipped instead.

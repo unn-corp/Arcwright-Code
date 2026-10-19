@@ -31,7 +31,7 @@ jobs:
     name: Build preview JS bundle
     # The fork has no macOS builders, so it does not produce preview bundles.
     if: (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && github.event.label.name == 'preview:mac'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 30
     steps:
       # This repository is public, so Git needs no credentials. checkout's

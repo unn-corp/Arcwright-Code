@@ -1,5 +1,10 @@
 # Disposable Windows CI workers
 
+> The dedicated T3 fleet was retired on 2026-10-19. Use the shared organization
+> runners described in [the current runbook](../../../docs/operations/ci-runners.md).
+> These image sources are retained for toolchain maintenance and recovery; do not
+> recreate dedicated supervisors from the historical provisioning examples.
+
 This pool uses a clean Windows Server 2022 x64 base and creates a new VM,
 qcow2 overlay, network, home, and workspace for each GitHub Actions job. It
 does not reuse the shared `win2022` VM or its registered Squidhub/FCM runners.

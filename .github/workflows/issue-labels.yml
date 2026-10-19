@@ -15,7 +15,7 @@ permissions:
 jobs:
   sync:
     name: Sync issue labels
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     steps:
       - name: Ensure managed issue labels exist
         uses: actions/github-script@v7

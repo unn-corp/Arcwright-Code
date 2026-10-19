@@ -16,7 +16,7 @@ permissions:
 jobs:
   forward:
     name: POST to Cursor
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     steps:
       - name: POST to Cursor
         env:

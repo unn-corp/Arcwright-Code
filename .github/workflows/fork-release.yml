@@ -68,7 +68,7 @@ jobs:
   plan:
     name: Plan release
     if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.FORK_RELEASES_ENABLED == 'true')
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -209,7 +209,7 @@ jobs:
     name: Reserve Android codes
     needs: [plan]
     if: needs.plan.outputs.skip == 'false'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 15
     permissions:
       contents: write
@@ -266,7 +266,7 @@ jobs:
     name: Build JS bundle
     needs: [plan]
     if: needs.plan.outputs.skip == 'false'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -406,7 +406,7 @@ jobs:
     name: Android APKs
     needs: [plan, reserve_android_codes]
     if: needs.plan.outputs.skip == 'false'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -625,7 +625,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.reserve_android_codes.outputs.recovery_matrix) }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -763,7 +763,14 @@ jobs:
             runner: linux
           - platform: windows-x64
             runner: windows
-    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
+    runs-on:
+      [
+        self-hosted,
+        "${{ matrix.runner }}",
+        x64,
+        unn,
+        "${{ matrix.runner == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -846,7 +853,7 @@ jobs:
         recovery_helper,
       ]
     if: "!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip == 'false' && needs.reserve_android_codes.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.android.result == 'success' && needs.recovery_helper.result == 'success' && (needs.android_recovery_extras.result == 'success' || needs.android_recovery_extras.result == 'skipped')"
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -963,7 +970,14 @@ jobs:
             runner: windows
           - target: android
             runner: linux
-    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
+    runs-on:
+      [
+        self-hosted,
+        "${{ matrix.runner }}",
+        x64,
+        unn,
+        "${{ matrix.runner == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     timeout-minutes: 150
     permissions:
       contents: read
@@ -1086,7 +1100,14 @@ jobs:
           - { suite: desktop-updater, target: windows-x64, runner: windows }
           - { suite: client-updates, target: linux-x64, runner: linux }
           - { suite: native-android, target: android, runner: linux }
-    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
+    runs-on:
+      [
+        self-hosted,
+        "${{ matrix.runner }}",
+        x64,
+        unn,
+        "${{ matrix.runner == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     timeout-minutes: 120
     permissions:
       contents: read
@@ -1173,7 +1194,7 @@ jobs:
     name: Compose manifest
     needs: [plan, assemble, validate, suites]
     if: "!cancelled() && needs.plan.result == 'success' && needs.assemble.result == 'success' && needs.validate.result == 'success' && needs.suites.result == 'success' && needs.plan.outputs.skip == 'false'"
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1239,7 +1260,7 @@ jobs:
       group: fork-release-state
       cancel-in-progress: false
       queue: max
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 60
     permissions:
       contents: write
@@ -1297,7 +1318,7 @@ jobs:
     needs: [plan, assemble, validate, suites, manifest, publish]
     # Status functions prevent an intentionally skipped optional recovery matrix from skipping this gate.
     if: "!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip == 'false'"
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 5
     permissions:
       contents: read

@@ -31,7 +31,14 @@ jobs:
         include:
           - { target: linux-x64, runner: linux }
           - { target: windows-x64, runner: windows }
-    runs-on: [self-hosted, "${{ matrix.runner }}", x64, unn, unn-isolated, t3-ci]
+    runs-on:
+      [
+        self-hosted,
+        "${{ matrix.runner }}",
+        x64,
+        unn,
+        "${{ matrix.runner == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     timeout-minutes: 35
     steps:
       - name: Checkout diagnostic tooling
@@ -99,7 +106,7 @@ jobs:
 
   android:
     if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && inputs.scope != 'desktop'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 25
     steps:
       - name: Checkout diagnostic tooling

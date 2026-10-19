@@ -36,10 +36,13 @@ Arcwright Code has 3 key app surfaces: **web**, **desktop**, and **mobile**.
 
 ### Self-hosted CI
 
-Every GitHub Actions job uses isolated organization self-hosted runners. Require
-`self-hosted`, `unn`, `unn-isolated`, and `t3-ci`, plus its native OS and architecture.
-Never substitute GitHub-hosted or Blacksmith runners. Preserve unsupported-platform
-guards and follow [runner capacity and access](docs/operations/ci-runners.md).
+Every GitHub Actions job uses shared organization self-hosted runners. Require
+`self-hosted`, `unn`, and native OS/architecture labels; Linux additionally requires
+`unn-isolated`, Windows requires `unn-windows` and uses `unn-runner-win`.
+The shared Windows VM is persistent and must never be labeled `unn-isolated`.
+Dedicated `t3-ci` workers are retired. Never substitute GitHub-hosted or Blacksmith
+runners. Preserve unsupported-platform guards, run external PRs only on disposable
+Linux, and follow [runner capacity and access](docs/operations/ci-runners.md).
 
 ### Arcwright Code app delivery — scheduled releases and explicit manual builds
 

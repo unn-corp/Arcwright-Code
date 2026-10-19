@@ -2,4 +2,4 @@ self-hosted-runner:
   labels:
     - unn
     - unn-isolated
-    - t3-ci
+    - unn-windows

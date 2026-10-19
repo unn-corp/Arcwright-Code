@@ -51,7 +51,7 @@ jobs:
   resolve_commit:
     if: github.repository == 'pingdotgg/t3code'
     name: Resolve release commit
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 5
     outputs:
       ref: ${{ steps.resolve.outputs.ref }}
@@ -105,7 +105,7 @@ jobs:
     if: |
       needs.resolve_commit.result == 'success' &&
       (github.event_name != 'schedule' || needs.resolve_commit.outputs.has_changes == 'true')
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     outputs:
       release_channel: ${{ steps.release_meta.outputs.release_channel }}
@@ -235,7 +235,7 @@ jobs:
     name: Release quality checks
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -269,7 +269,7 @@ jobs:
     name: Release tests
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -305,7 +305,7 @@ jobs:
     name: Release server tests ${{ matrix.shard }}
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -345,7 +345,7 @@ jobs:
     if: |
       needs.resolve_commit.result == 'success' &&
       (github.event_name != 'schedule' || needs.resolve_commit.outputs.has_changes == 'true')
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 5
     environment:
       name: production
@@ -457,7 +457,7 @@ jobs:
     # this runs alongside preflight. See the condition comment there.
     needs: [preflight, relay_public_config]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 30
     env:
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
@@ -717,7 +717,7 @@ jobs:
         desktop_win_arm64,
       ]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 30
     permissions:
       contents: write
@@ -912,7 +912,7 @@ jobs:
     name: Publish CLI to npm
     needs: [preflight, release]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -967,7 +967,7 @@ jobs:
     name: Build hosted web app
     needs: [preflight, relay_public_config]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     outputs:
       deployment_url: ${{ steps.deploy.outputs.deployment_url }}
@@ -1066,7 +1066,7 @@ jobs:
     name: Deploy hosted web app
     needs: [preflight, build_web, release, publish_cli]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_web.result == 'success' && needs.release.result == 'success' && needs.publish_cli.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     env:
       DEPLOYMENT_URL: ${{ needs.build_web.outputs.deployment_url }}
@@ -1140,7 +1140,7 @@ jobs:
     name: Build marketing site
     needs: [preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     outputs:
       deployment_url: ${{ steps.deploy.outputs.deployment_url }}
@@ -1204,7 +1204,7 @@ jobs:
     name: Deploy marketing site
     needs: [preflight, build_marketing, release]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_marketing.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     env:
       DEPLOYMENT_URL: ${{ needs.build_marketing.outputs.deployment_url }}
@@ -1249,7 +1249,7 @@ jobs:
     name: Finalize release
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'stable' }}
     needs: [preflight, release]
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
       - id: app_token
@@ -1335,7 +1335,7 @@ jobs:
       needs.deploy_web.result == 'success' &&
       (needs.finalize.result == 'success' || needs.finalize.result == 'skipped')
     needs: [preflight, relay_public_config, release, deploy_web, finalize]
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
       - name: Checkout

@@ -119,7 +119,13 @@ jobs:
       (inputs.platform == 'linux' || inputs.platform == 'win') &&
       inputs.arch == 'x64')
     runs-on:
-      [self-hosted, "${{ inputs.runner }}", "${{ inputs.runner_arch }}", unn, unn-isolated, t3-ci]
+      [
+        self-hosted,
+        "${{ inputs.runner }}",
+        "${{ inputs.runner_arch }}",
+        unn,
+        "${{ inputs.runner == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     # Windows waits for the Linux CLI archive inside its own budget (see
     # "Wait for Linux CLI archive"), so it gets that wait on top of the usual 30.
     timeout-minutes: ${{ inputs.platform == 'win' && 70 || 30 }}
