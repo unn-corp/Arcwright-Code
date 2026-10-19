@@ -99,7 +99,7 @@ guard. Native CLI smoke tests must run on their matching architecture.
 Before admitting the fleet, run workflow lint and the focused `scripts/ci-runners.test.ts` and
 `scripts/fork-release-workflows.test.ts` suites. The policy checks every runner matrix and
 reusable caller, the unsupported-platform guards, and Check's actual shell gate. Hosted selectors,
-missing dedicated-pool labels, or unexpected skipped prerequisites fail it. Then run representative
+missing shared-pool labels, or unexpected skipped prerequisites fail it. Then run representative
 Linux, Windows x64, and Android jobs on actual workers before claiming those capabilities ready.
 Queued enabled jobs indicate missing labels, capacity, or group access; disabled macOS/ARM64 jobs
 must appear skipped instead.
