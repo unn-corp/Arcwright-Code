@@ -1,5 +1,10 @@
 # T3 Code Linux runner image
 
+> The dedicated T3 fleet was retired on 2026-10-19. Use the shared organization
+> runners described in [the current runbook](../../../docs/operations/ci-runners.md).
+> These image sources are retained for toolchain maintenance and recovery; do not
+> recreate dedicated supervisors from the historical provisioning examples.
+
 Build from the repository root with `docker build -f infra/ci/linux/Dockerfile .`.
 The base image digest, Ubuntu archive snapshot, and Android archives/checksums are
 pinned. Publish the result under a new immutable digest before updating the dedicated

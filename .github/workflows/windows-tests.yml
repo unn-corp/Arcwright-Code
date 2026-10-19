@@ -26,7 +26,7 @@ permissions:
 jobs:
   test:
     name: Test (${{ inputs.package || 'all non-server' }})
-    runs-on: [self-hosted, windows, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, windows, x64, unn, unn-windows]
     timeout-minutes: 45
     steps:
       - name: Checkout

@@ -16,7 +16,7 @@ jobs:
   mirror:
     if: github.repository == 'pingdotgg/t3code'
     name: Mirror beta APK
-    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated", "t3-ci"]
+    runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     permissions:
       contents: write

@@ -20,7 +20,7 @@ permissions:
 jobs:
   collect-targets:
     name: Collect PR targets
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     outputs:
       targets: ${{ steps.collect.outputs.targets }}
     steps:
@@ -66,7 +66,7 @@ jobs:
     name: Label PR ${{ matrix.target.number }}
     needs: collect-targets
     if: ${{ needs.collect-targets.outputs.targets != '[]' }}
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     concurrency:
       group: pr-vouch-${{ matrix.target.number }}
       cancel-in-progress: true

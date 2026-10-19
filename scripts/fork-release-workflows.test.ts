@@ -283,7 +283,7 @@ describe("fork-release.yml structure", () => {
     );
   });
 
-  it("pins every third-party action and requires isolated organization runners", () => {
+  it("pins every third-party action and requires shared organization runners", () => {
     for (const file of ["fork-release.yml", "fork-release-withdraw.yml"]) {
       for (const match of text(file).matchAll(/uses: ([^\s]+)/g)) {
         const target = match[1]!;
@@ -294,7 +294,7 @@ describe("fork-release.yml structure", () => {
         if (job["runs-on"] === undefined) continue;
         if (!Array.isArray(job["runs-on"]))
           throw new Error(`${file}: runner labels must be an array`);
-        assert.includeMembers(job["runs-on"], ["self-hosted", "unn", "unn-isolated", "t3-ci"]);
+        assert.includeMembers(job["runs-on"], ["self-hosted", "unn"]);
       }
     }
   });
@@ -905,14 +905,7 @@ describe("manual Windows CLI diagnostics", () => {
     assert.deepEqual(Object.keys(diagnostic.on), ["workflow_dispatch"]);
     assert.deepEqual(diagnostic.permissions, { contents: "read", actions: "read" });
     const job = diagnostic.jobs.windows_cli!;
-    assert.deepEqual(job["runs-on"], [
-      "self-hosted",
-      "windows",
-      "x64",
-      "unn",
-      "unn-isolated",
-      "t3-ci",
-    ]);
+    assert.deepEqual(job["runs-on"], ["self-hosted", "windows", "x64", "unn", "unn-windows"]);
     assert.include(job.if!, "github.ref == 'refs/heads/main'");
     const download = stepNamed(job, "Download the failed Windows archive");
     assert.include(download.run!, "--name diagnostic-cli-win-x64");

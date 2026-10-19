@@ -21,7 +21,7 @@ permissions:
 jobs:
   retain:
     if: github.repository == 'unn-corp/t3code'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 30
     concurrency:
       group: fork-release-state

@@ -14,7 +14,7 @@ jobs:
   publish:
     name: Publish PR comment
     if: github.event.workflow_run.event == 'pull_request'
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     concurrency:
       group: thread-transfer-report-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
       cancel-in-progress: true

@@ -29,8 +29,16 @@ jobs:
   documentation:
     strategy:
       matrix:
-        os: [linux, windows]
-    runs-on: [self-hosted, "${{ matrix.os }}", x64, unn, unn-isolated, t3-ci]
+        # External PRs use disposable Linux only; the shared Windows VM is persistent.
+        os: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["linux","windows"]' || '["linux"]') }}
+    runs-on:
+      [
+        self-hosted,
+        "${{ matrix.os }}",
+        x64,
+        unn,
+        "${{ matrix.os == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

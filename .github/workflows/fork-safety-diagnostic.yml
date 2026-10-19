@@ -15,7 +15,14 @@ permissions:
 jobs:
   safety:
     if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'helper'
-    runs-on: [self-hosted, "${{ matrix.platform.runner }}", x64, unn, unn-isolated, t3-ci]
+    runs-on:
+      [
+        self-hosted,
+        "${{ matrix.platform.runner }}",
+        x64,
+        unn,
+        "${{ matrix.platform.runner == 'windows' && 'unn-windows' || 'unn-isolated' }}",
+      ]
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -77,7 +84,7 @@ jobs:
 
   helper:
     if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'desktop-updater' && inputs.scope != 'host-runtime'
-    runs-on: [self-hosted, windows, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, windows, x64, unn, unn-windows]
     timeout-minutes: 15
     steps:
       - name: Checkout helper source

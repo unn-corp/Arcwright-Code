@@ -25,7 +25,7 @@ interface Workflow {
   on?: { workflow_call?: unknown };
   jobs: Record<string, Job>;
 }
-const requiredLabels = ["self-hosted", "unn", "unn-isolated", "t3-ci"];
+const requiredLabels = ["self-hosted", "unn"];
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -85,6 +85,15 @@ function resolve(
   inputs: Record<string, unknown>,
 ): unknown {
   if (typeof value !== "string" || !value.includes("${{")) return value;
+  const pool =
+    /^\$\{\{\s*((?:matrix|inputs)\.[\w.]+) == 'windows' && 'unn-windows' \|\| 'unn-isolated' \}\}$/.exec(
+      value,
+    );
+  if (pool) {
+    return resolve(`\${{ ${pool[1]} }}`, matrix, inputs) === "windows"
+      ? "unn-windows"
+      : "unn-isolated";
+  }
   const match = /^\$\{\{\s*(matrix|inputs)\.([\w.]+)\s*\}\}$/.exec(value);
   if (!match) throw new Error(`Unverifiable runner expression: ${value}`);
   let resolved: unknown = match[1] === "matrix" ? matrix : inputs;
@@ -133,6 +142,13 @@ function verifyRunners(workflows: Record<string, Workflow>) {
         const architectures = labels.filter((label) => ["x64", "arm64"].includes(label));
         if (operatingSystems.length !== 1 || architectures.length !== 1) {
           throw new Error(`${file}/${name}: runner needs one native OS and architecture`);
+        }
+        const windows = operatingSystems[0] === "windows";
+        if (!labels.includes(windows ? "unn-windows" : "unn-isolated")) {
+          throw new Error(`${file}/${name}: missing shared runner pool label`);
+        }
+        if (labels.includes("t3-ci") || (windows && labels.includes("unn-isolated"))) {
+          throw new Error(`${file}/${name}: dedicated or falsely isolated runner`);
         }
         const target =
           matrix.target ?? (record(matrix.platform) ? matrix.platform.target : undefined);
@@ -186,8 +202,11 @@ const labels = (os = "linux", arch = "x64") => [
   os,
   arch,
   "unn",
-  "unn-isolated",
-  "t3-ci",
+  os.includes("${{")
+    ? `\${{ ${os.slice(3, -2).trim()} == 'windows' && 'unn-windows' || 'unn-isolated' }}`
+    : os.toLowerCase() === "windows"
+      ? "unn-windows"
+      : "unn-isolated",
 ];
 function loadWorkflows(): Record<string, Workflow> {
   const directory = NodePath.join(root, ".github/workflows");
@@ -261,13 +280,15 @@ describe("organization self-hosted CI policy", () => {
     }
   });
 
-  it("rejects hosted selectors and missing fleet or isolation labels", () => {
+  it("rejects hosted selectors, dedicated runners, and false Windows isolation", () => {
     for (const selection of [
       "ubuntu-latest",
       labels().filter((label) => label !== "self-hosted"),
       labels().filter((label) => label !== "unn"),
       labels().filter((label) => label !== "unn-isolated"),
-      labels().filter((label) => label !== "t3-ci"),
+      [...labels(), "t3-ci"],
+      labels("windows").filter((label) => label !== "unn-windows"),
+      [...labels("windows"), "unn-isolated"],
     ]) {
       expect(() =>
         verifyRunners({ "ci.yml": { jobs: { test: { "runs-on": selection } } } }),

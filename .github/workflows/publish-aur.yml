@@ -38,7 +38,7 @@ jobs:
   publish:
     if: github.repository == 'pingdotgg/t3code'
     name: Validate and publish
-    runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
     timeout-minutes: 30
     container:
       image: archlinux:base-devel

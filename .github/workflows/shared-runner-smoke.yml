@@ -1,0 +1,44 @@
+name: Shared runner smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: [self-hosted, linux, x64, unn, unn-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Verify isolated build, Android, KVM, and Docker prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          t3-ci-preflight --runtime
+          docker info --format '{{.ServerVersion}}'
+          test ! -S /var/run/docker.sock
+          printf 'int main() { return 0; }\n' > "$RUNNER_TEMP/shared-smoke.cpp"
+          g++ "$RUNNER_TEMP/shared-smoke.cpp" -o "$RUNNER_TEMP/shared-smoke"
+          "$RUNNER_TEMP/shared-smoke"
+  windows:
+    runs-on: [self-hosted, windows, x64, unn, unn-windows]
+    timeout-minutes: 10
+    steps:
+      - name: Verify shared Windows tools and native compilation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -ne 'unn-runner-win') { throw 'Expected organization Windows VM' }
+          if ([int]((& node -p 'process.versions.node.split(".")[0]')) -lt 24) { throw 'Node 24+ required' }
+          & git --version
+          & bash --version
+          & python --version
+          & gh --version
+          if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 required' }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'MSVC missing' }
+          $source = Join-Path $env:RUNNER_TEMP 'shared-smoke.cpp'
+          $binary = Join-Path $env:RUNNER_TEMP 'shared-smoke.exe'
+          Set-Content $source 'int main() { return 0; }'
+          $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          & cmd.exe /d /s /c "`"`"$devcmd`" -arch=x64 && cl /nologo `"$source`" /Fe:`"$binary`" && `"$binary`"`""
+          if ($LASTEXITCODE -ne 0) { throw "Native compilation failed: $LASTEXITCODE" }
