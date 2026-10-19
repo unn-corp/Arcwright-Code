@@ -562,8 +562,8 @@ function transcriptIdentity(filePath: string, stats: FileSystem.File.Info) {
 
 function metadataIdentity(stats: FileSystem.File.Info): string {
   return JSON.stringify([
-    stats.dev,
-    Option.getOrNull(stats.ino),
+    String(stats.dev),
+    Option.getOrNull(Option.map(stats.ino, String)),
     String(stats.size),
     Option.map(stats.mtime, (date) => date.getTime()),
     Option.map(stats.birthtime, (date) => date.getTime()),

@@ -216,6 +216,7 @@ const CLEARED_TABLES: ReadonlyArray<string> = [
 ];
 
 const PROVIDER_SESSIONS_TABLE = "orchestration_v2_projection_provider_sessions";
+const MESSAGE_SEARCH_TABLE = "orchestration_v2_message_search";
 
 const rootIsVisible = (sql: SqlClient.SqlClient) => sql`
   root.deleted_at IS NULL
@@ -232,7 +233,10 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
   yield* sql`ATTACH DATABASE ${`${NodeURL.pathToFileURL(sourcePath).href}?mode=ro`} AS src`;
   const schema = yield* sql<{ type: string; name: string; sql: string }>`
     SELECT type, name, sql FROM src.sqlite_master
-    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'`;
+    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+      AND name NOT IN (
+        SELECT name FROM pragma_table_list WHERE schema = 'src' AND type = 'shadow'
+      )`;
   const threadColumns = yield* sql<{ name: string; notnull: number }>`
     SELECT m.name, c."notnull" FROM src.sqlite_master m, pragma_table_info(m.name, 'src') c
     WHERE m.type = 'table' AND c.name = 'thread_id'`;
@@ -252,7 +256,7 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
           WHERE ${rootIsVisible(sql)}`;
       }
       for (const { name } of tables) {
-        if (CLEARED_TABLES.includes(name)) continue;
+        if (CLEARED_TABLES.includes(name) || name === MESSAGE_SEARCH_TABLE) continue;
         const nullable = threadIdNullable.get(name);
         const filter = !filtered
           ? ""
@@ -266,6 +270,14 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
               : `WHERE thread_id IN (SELECT thread_id FROM copied_threads)${nullable ? " OR thread_id IS NULL" : ""}`;
         yield* sql.unsafe(`INSERT INTO main."${name}" SELECT * FROM src."${name}" ${filter}`)
           .unprepared;
+      }
+      // SQLite owns FTS shadow tables. Rebuild search against the copied rowids
+      // so filtered histories are excluded and message links survive the copy.
+      if (tables.some((table) => table.name === MESSAGE_SEARCH_TABLE)) {
+        yield* sql`INSERT INTO main.orchestration_v2_message_search(rowid, text)
+          SELECT rowid, lower(json_extract(payload_json, '$.text'))
+          FROM main.orchestration_v2_projection_messages
+          WHERE streaming = 0 AND role IN ('user', 'assistant')`;
       }
       yield* sql`DELETE FROM main.sqlite_sequence`;
       yield* sql`INSERT INTO main.sqlite_sequence SELECT name, seq FROM src.sqlite_sequence`;

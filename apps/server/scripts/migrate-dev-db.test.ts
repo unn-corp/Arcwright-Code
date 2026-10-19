@@ -74,6 +74,12 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
       yield* sql`INSERT INTO orchestration_v2_projection_context_transfers
         (context_transfer_id, source_thread_id, target_thread_id, type, status, updated_at, payload_json)
         VALUES ('transfer-1', 'settled-thread', 'stopped-thread', 'provider_handoff', 'completed', '2026-08-01', '{}')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_messages
+        (rowid, message_id, thread_id, role, streaming, created_at, updated_at, payload_json)
+        VALUES
+          (10, 'settled-message', 'settled-thread', 'user', 0, '2026-08-01', '2026-08-01', '{"text":"Private settled history"}'),
+          (30, 'kept-message', 'stopped-thread', 'assistant', 0, '2026-08-01', '2026-08-01', '{"text":"Searchable kept history"}'),
+          (50, 'running-message', 'running-thread', 'user', 0, '2026-08-01', '2026-08-01', '{"text":"Active running history"}')`;
       yield* sql`INSERT INTO scheduled_tasks
         (task_id, title, prompt, enabled, schedule_json, project_id, workspace_strategy_json,
           model_selection_json, runtime_mode, interaction_mode, created_by, creation_source,
@@ -167,11 +173,19 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
               AS count`;
           const [sequence] = yield* sql<{ seq: number }>`
             SELECT seq FROM sqlite_sequence WHERE name = 'orchestration_events'`;
-          return { settledRows: settledRows?.count, sequence: sequence?.seq };
+          const search = yield* sql<{ text: string }>`
+            SELECT text FROM orchestration_v2_message_search ORDER BY rowid`;
+          const found = yield* sql<{ message_id: string }>`
+            SELECT message.message_id FROM orchestration_v2_projection_messages message
+            JOIN orchestration_v2_message_search search ON search.rowid = message.rowid
+            WHERE orchestration_v2_message_search MATCH '"kept"'`;
+          return { settledRows: settledRows?.count, sequence: sequence?.seq, search, found };
         }),
       );
       assert.equal(copied.settledRows, 0);
       assert.equal(copied.sequence, sourceSequence?.seq);
+      assert.deepStrictEqual(copied.search, [{ text: "searchable kept history" }]);
+      assert.deepStrictEqual(copied.found, [{ message_id: "kept-message" }]);
     }),
   );
 

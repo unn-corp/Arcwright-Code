@@ -110,7 +110,10 @@ it.effect.each([
       ).pipe(Layer.provideMerge(NodeHttpServer.layerTest), Layer.provide(auth.layer)),
     );
     const server = Context.get(services, HttpServer.HttpServer);
-    const origin = HttpServer.formatAddress(server.address).replace(/^http/, "ws");
+    const serverUrl = new URL(HttpServer.formatAddress(server.address));
+    // Clients connect to loopback, not the wildcard listen address on IPv4-only hosts.
+    serverUrl.hostname = "127.0.0.1";
+    const origin = serverUrl.origin.replace(/^http/, "ws");
     const resource = `/api/preview-stream/ws?threadId=thread&tabId=tab&wsTicket=one-use-ticket${interactive ? "" : "&interactive=false"}`;
     const received = Promise.withResolvers<void>();
     const socket = yield* Effect.acquireRelease(
@@ -339,7 +342,9 @@ it.effect.each([
       ),
     );
     const server = Context.get(services, HttpServer.HttpServer);
-    const origin = HttpServer.formatAddress(server.address).replace(/^http/, "ws");
+    const serverUrl = new URL(HttpServer.formatAddress(server.address));
+    serverUrl.hostname = "127.0.0.1";
+    const origin = serverUrl.origin.replace(/^http/, "ws");
     const closed = Promise.withResolvers<{ code: number; reason: string }>();
     yield* Effect.acquireRelease(
       Effect.sync(() => {

@@ -60,9 +60,12 @@ it.effect("preserves binary input and admission frames through the real socket p
         ),
       ),
     );
-    const origin = HttpServer.formatAddress(
-      Context.get(services, HttpServer.HttpServer).address,
-    ).replace(/^http/, "ws");
+    const serverUrl = new URL(
+      HttpServer.formatAddress(Context.get(services, HttpServer.HttpServer).address),
+    );
+    // Clients connect to loopback, not the wildcard listen address on IPv4-only hosts.
+    serverUrl.hostname = "127.0.0.1";
+    const origin = serverUrl.origin.replace(/^http/, "ws");
     const client = yield* Effect.acquireRelease(
       Effect.sync(
         () =>
