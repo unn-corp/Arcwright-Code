@@ -40,5 +40,14 @@ jobs:
           $binary = Join-Path $env:RUNNER_TEMP 'shared-smoke.exe'
           Set-Content $source 'int main() { return 0; }'
           $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
-          & cmd.exe /d /s /c "`"`"$devcmd`" -arch=x64 && cl /nologo `"$source`" /Fe:`"$binary`" && `"$binary`"`""
+          $batch = Join-Path $env:RUNNER_TEMP 'shared-smoke.cmd'
+          @(
+            '@echo off',
+            "call `"$devcmd`" -arch=x64",
+            'if errorlevel 1 exit /b 1',
+            "cl /nologo `"$source`" /Fe:`"$binary`"",
+            'if errorlevel 1 exit /b 1',
+            "`"$binary`""
+          ) | Set-Content $batch
+          & cmd.exe /d /c $batch
           if ($LASTEXITCODE -ne 0) { throw "Native compilation failed: $LASTEXITCODE" }
