@@ -36,20 +36,68 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
       ]);
       const archive = await NodeFSP.readFile(NodePath.join(root, archiveName));
       const checksum = NodeCrypto.createHash("sha256").update(archive).digest("hex");
+      const manifest = JSON.stringify({
+        format: 1,
+        repository: "unn-corp/t3code",
+        version,
+        checks: { build: true, install: true, update: true, recovery: true },
+        assets: [{ name: archiveName, kind: "server", bytes: archive.length, sha256: checksum }],
+      });
+      const release = {
+        tag_name: `fork-v${version}`,
+        draft: false,
+        published_at: "2026-10-01T00:00:00Z",
+        assets: [
+          { name: archiveName, size: archive.length },
+          { name: "fork-release.json", size: Buffer.byteLength(manifest) },
+          { name: "SHA256SUMS", size: Buffer.byteLength(`${checksum}  ${archiveName}\n`) },
+        ],
+      };
       const server = NodeHttp.createServer((request, response) => {
-        if (request.url?.endsWith("/SHA256SUMS")) {
+        if (request.url === "/release.json") {
+          response.end(JSON.stringify(release));
+        } else if (request.url?.endsWith("/fork-release.json")) {
+          response.end(manifest);
+        } else if (request.url?.endsWith("/SHA256SUMS")) {
           response.end(`${checksum}  ${archiveName}\n`);
-        } else if (fail) {
-          response.writeHead(500).end();
+        } else if (request.url?.endsWith(`/${archiveName}`)) {
+          if (fail) response.writeHead(500).end();
+          else {
+            response.writeHead(200, { "Content-Length": archive.length });
+            resumeDownload = () => response.end(archive.subarray(Math.floor(archive.length / 2)));
+            response.write(archive.subarray(0, Math.floor(archive.length / 2)));
+          }
         } else {
-          response.writeHead(200, { "Content-Length": archive.length });
-          resumeDownload = () => response.end(archive.subarray(Math.floor(archive.length / 2)));
-          response.write(archive.subarray(0, Math.floor(archive.length / 2)));
+          response.writeHead(404).end();
         }
       });
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+      const baseUrl = `http://127.0.0.1:${address.port}`;
+      const fixtureBin = NodePath.join(root, "fixture-bin");
+      await NodeFSP.mkdir(fixtureBin);
+      await NodeFSP.writeFile(NodePath.join(fixtureBin, "package.json"), '{"type":"commonjs"}\n');
+      const curl = NodeChildProcess.execFileSync("sh", ["-c", "command -v curl"], {
+        encoding: "utf8",
+      }).trim();
+      // Keep the real eligibility and checksum checks, routing every request to
+      // this fixture. An unexpected URL must fail instead of reaching GitHub.
+      await NodeFSP.writeFile(
+        NodePath.join(fixtureBin, "curl"),
+        `#!${process.execPath}
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2).map((arg) => {
+  if (arg === ${JSON.stringify(`https://api.github.com/repos/unn-corp/t3code/releases/tags/fork-v${version}`)})
+    return ${JSON.stringify(`${baseUrl}/release.json`)};
+  if (/^https?:/.test(arg) && !arg.startsWith(${JSON.stringify(`${baseUrl}/`)})) process.exit(2);
+  return arg;
+});
+const result = spawnSync(${JSON.stringify(curl)}, args, { stdio: "inherit" });
+process.exit(result.status ?? 1);
+`,
+        { mode: 0o755 },
+      );
       const installer = NodePath.resolve(import.meta.dirname, "install.sh").replaceAll(
         "'",
         "'\\''",
@@ -57,12 +105,13 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
       const child = NodeChildProcess.spawn("script", ["-qec", `sh '${installer}'`, "/dev/null"], {
         env: {
           ...process.env,
+          PATH: `${fixtureBin}${NodePath.delimiter}${process.env.PATH}`,
           TERM: "xterm",
           NO_COLOR: "1",
           T3CODE_VERSION: version,
           T3CODE_HOME: NodePath.join(root, "home"),
           T3CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
-          T3CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
+          T3CODE_RELEASE_BASE_URL: baseUrl,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
