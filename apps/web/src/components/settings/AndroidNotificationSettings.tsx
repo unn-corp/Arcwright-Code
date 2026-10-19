@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import {
   androidNotificationRequest,
   type AndroidNotificationStatus,
@@ -11,7 +11,7 @@ import { searchableSetting } from "./settingsSearch";
 
 export function AndroidNotificationSettings() {
   const preferences = useClientSettings((settings) => settings.agentNotifications);
-  const update = useUpdateClientSettings();
+  const update = updateClientSettings;
   const [status, setStatus] = useState<AndroidNotificationStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

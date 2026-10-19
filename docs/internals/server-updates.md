@@ -117,6 +117,12 @@ background service, development servers). Constraints that are easy to get wrong
   refuse a held fence; manual settlement and provider work retain active leases. Each storage-cleanup sweep takes an active lease at execution time, so
   evidence and worktree removal cannot overlap snapshots or restoration. Maintenance methods are exempt so a fenced device can be observed and recovered.
 
+The prepared deadline is long because migrations can scale with the database
+and block the trial's main thread, so it cannot report progress. A missed
+deadline restores the snapshot, and the retry pays the same cost again. A
+crashed trial is caught when it exits; the deadline bounds only a stuck one.
+Client update waits must outlast the deadline, or a slow update shows as failed.
+
 Server-scoped autonomous work uses this coordinator through the runtime dependency context.
 `WorkAdmission` has a no-op default for isolated domain tests, so production loops must receive the
 singleton runtime context and must not rely on the reference default. Durable review queues wait at

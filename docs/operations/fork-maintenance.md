@@ -1,6 +1,6 @@
 # Maintaining this fork
 
-This guide owns the retained behavior of `unn-corp/t3code`. Follow the linked user guides for
+This guide owns the retained behavior of `unn-corp/Arcwright-Code`. Follow the linked user guides for
 operation and the implementation links when changing a feature. Upstream mobile in `apps/mobile`
 is a separate Expo/store client; it does not build or update our APK.
 
@@ -10,6 +10,14 @@ An upstream merge is not evidence that every fork feature shipped upstream. Rech
 or a moving remote branch as the current divergence.
 
 ## Integrating upstream
+
+The fork repository is `unn-corp/Arcwright-Code`. Release discovery, installers,
+and documentation use that name. Keep the old `unn-corp/t3code` slug available
+through GitHub's rename redirect: installed format-1 updater clients require that
+literal repository identity. New readers accept both slugs, and format-1 manifests
+continue emitting the original slug until those clients have a supported upgrade
+path. Package IDs, signing identities, profile directories, and published artifact
+names remain compatibility identities.
 
 Follow the [mandatory merge rules](../../AGENTS.md#mandatory-rules-for-upstream-merges). Record the
 pre-merge fork commit and pin the incoming upstream commit before resolving conflicts. Use the

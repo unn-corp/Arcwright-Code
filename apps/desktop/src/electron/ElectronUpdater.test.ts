@@ -166,14 +166,14 @@ describe("ElectronUpdater", () => {
       const updater = yield* ElectronUpdater.ElectronUpdater;
       yield* updater.setFeedURL({
         provider: "generic",
-        url: "https://github.com/unn-corp/t3code/releases/download/fork-v1.0.1/",
+        url: "https://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.1/",
         expectedArtifact: fixture.artifact,
       });
       autoUpdaterMock.downloadUpdate.mockResolvedValueOnce([fixture.file]);
       yield* updater.downloadUpdate;
       yield* updater.setFeedURL({
         provider: "generic",
-        url: "https://github.com/unn-corp/t3code/releases/download/fork-v1.0.2/",
+        url: "https://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.2/",
         expectedArtifact: { ...fixture.artifact, sha256: "f".repeat(64) },
       });
       yield* updater.checkForUpdates;
@@ -188,7 +188,7 @@ describe("ElectronUpdater", () => {
       const updater = yield* ElectronUpdater.ElectronUpdater;
       yield* updater.setFeedURL({
         provider: "generic",
-        url: "https://github.com/unn-corp/t3code/releases/download/fork-v1.0.1/",
+        url: "https://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.1/",
         expectedArtifact: fixture.artifact,
       });
       autoUpdaterMock.downloadUpdate.mockResolvedValueOnce([fixture.file]);

@@ -108,7 +108,7 @@ export function AppUpdateSettings({ desktopControls }: { desktopControls: ReactN
           control={
             <a
               className="text-xs underline"
-              href="https://github.com/unn-corp/t3code/blob/main/docs/user/updating.md"
+              href="https://github.com/unn-corp/Arcwright-Code/blob/main/docs/user/updating.md"
               target="_blank"
               rel="noreferrer"
             >

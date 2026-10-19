@@ -380,6 +380,11 @@ const unlinkRelayEnvironment = Effect.fn("cloud.cli.unlink_relay_environment")(f
     : ({ status: "not-linked" } satisfies RelayUnlinkResult);
 });
 
+/**
+ * Prints the local disconnect outcome, then whether the relay record was revoked.
+ * A missing CLI login or a failed relay DELETE leaves that record registered, so
+ * those outcomes warn to deregister it from the Arcwright Connect account page.
+ */
 export const reportCloudDisconnectResults = Effect.fn("cloud.cli.report_disconnect_results")(
   function* (input: {
     readonly clearAuthorization: boolean;
@@ -408,12 +413,13 @@ export const reportCloudDisconnectResults = Effect.fn("cloud.cli.report_disconne
       yield* Console.warn(
         input.clearAuthorization
           ? "Could not revoke the relay-side environment record before signing out.\nThe stored CLI authorization was still removed locally."
-          : "Could not revoke the relay-side environment record yet.\nRun `t3 connect unlink` again when the relay is reachable.",
+          : "Could not revoke the relay-side environment record yet.\nRun `t3 connect unlink` again when the relay is reachable, or deregister it from the Arcwright Connect page of your T3 account.",
       );
-    } else if (
-      input.relayResult.value.status === "authority-blocked" ||
-      input.relayResult.value.status === "not-authenticated"
-    ) {
+    } else if (input.relayResult.value.status === "not-authenticated") {
+      yield* Console.warn(
+        "The relay-side environment record was not revoked.\nDeregister it from the Arcwright Connect page of your T3 account, or run `t3 connect login` and retry.",
+      );
+    } else if (input.relayResult.value.status === "authority-blocked") {
       yield* Console.warn(
         "The old relay record may still exist; remote cleanup is pending. Select its original Connect profile and sign in deliberately to remove it.",
       );
@@ -583,7 +589,7 @@ const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(functi
   yield* CliState.setCliDesiredCloudLink(true, publishOnly ? "publish_only" : "managed");
   if (yield* CliState.dropRevokedCloudLink) {
     yield* Console.log(
-      "Removed the link T3 Connect no longer accepts. The next start links this environment again.",
+      "Removed the link Arcwright Connect no longer accepts. The next start links this environment again.",
     );
   }
   if (publishOnly) {

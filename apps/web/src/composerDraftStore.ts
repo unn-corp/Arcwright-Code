@@ -82,6 +82,8 @@ import {
   toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
+
+const isElementContextDetails = Schema.is(ElementContextDetails);
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
@@ -1804,7 +1806,7 @@ function normalizePersistedDraftsByThreadId(
         : [];
     for (const element of legacyElements) {
       if (
-        !Schema.is(ElementContextDetails)(element) ||
+        !isElementContextDetails(element) ||
         !("id" in element) ||
         typeof element.id !== "string" ||
         !("pickedAt" in element) ||

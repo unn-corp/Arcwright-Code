@@ -525,7 +525,7 @@ describe("fork-release.yml gating", () => {
 
   it("skips scheduled runs until commissioned and never runs off main or off this repository", () => {
     const condition = release.jobs.plan!.if ?? "";
-    assert.include(condition, "github.repository == 'unn-corp/t3code'");
+    assert.include(condition, "github.repository == 'unn-corp/Arcwright-Code'");
     assert.include(condition, "github.ref == 'refs/heads/main'");
     assert.match(
       condition,
@@ -582,7 +582,7 @@ describe("reusable desktop workflow contract", () => {
     const diagnostic = stepNamed(job, "Upload failed Windows CLI for diagnosis");
     assert.include(diagnostic.if!, "failure()");
     assert.include(diagnostic.if!, "steps.cli_smoke.outcome == 'failure'");
-    assert.include(diagnostic.if!, "github.repository == 'unn-corp/t3code'");
+    assert.include(diagnostic.if!, "github.repository == 'unn-corp/Arcwright-Code'");
     assert.equal(diagnostic.with!.name, "diagnostic-cli-win-${{ inputs.arch }}");
     assert.equal(diagnostic.with!["retention-days"], 1);
     assert.notInclude(Object.values(ARTIFACT_DIRS), "diagnostic-cli-win-x64");

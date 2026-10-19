@@ -1,6 +1,8 @@
-"use client";
+import { useCallback } from "react";
+("use client");
 
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { isAndroidPwa } from "~/env";
 import { AndroidPreviewView } from "~/android/AndroidPreviewView";
 import { previewStreamDownloadUrl } from "@t3tools/client-runtime/preview/server-browser-stream";
@@ -18,8 +20,13 @@ import {
   PREVIEW_ZOOM_LEVELS,
   type PreviewAdjustInput,
 } from "@t3tools/contracts";
-import { normalizePreviewUrl, resolveAddressBarInput } from "@t3tools/shared/preview";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  normalizePreviewUrl,
+  resolveAddressBarInput,
+  previewPdfAssetUrl,
+  resolveSearchUrlTemplate,
+} from "@t3tools/shared/preview";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT,
@@ -30,6 +37,7 @@ import {
 } from "~/browserHistoryStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
 import { ensureLocalApi } from "~/localApi";
+import { getClientSettings } from "~/hooks/useSettings";
 import {
   rememberPreviewUrl,
   updatePreviewServerSnapshot,
@@ -161,6 +169,8 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   // instead of the thread object, which is recreated on every update.
   const threadRefRef = useRef(threadRef);
   threadRefRef.current = threadRef;
+  const pickActiveRef = useRef<{ cancelled: boolean } | null>(null);
+  const isMountedRef = useRef(true);
   const previewState = useThreadPreviewState(threadRef);
   const recentHistoryEntries = useThreadRecentHistory(
     threadRef,
@@ -240,151 +250,139 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const navUrl = navStatus._tag === "Success" ? navStatus.url : null;
   const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
   const latestHistoryUrl = recentHistoryEntries[0]?.url;
-  const threadKey = scopedThreadKey(threadRef);
+  // Keyed on the ids rather than threadRef, which is recreated on every update.
+  const { environmentId: threadEnvironmentId, threadId } = threadRef;
   useEffect(() => {
     if (!navUrl || !navTitle || !latestHistoryUrl) return;
-    setTitleForThreadUrl(threadRefRef.current, navUrl, navTitle, environmentHostname);
-  }, [environmentHostname, latestHistoryUrl, navTitle, navUrl, threadKey]);
+    setTitleForThreadUrl(
+      scopeThreadRef(threadEnvironmentId, threadId),
+      navUrl,
+      navTitle,
+      environmentHostname,
+    );
+  }, [environmentHostname, latestHistoryUrl, navTitle, navUrl, threadEnvironmentId, threadId]);
 
-  const navigateToResolvedUrl = useCallback(
-    async (resolvedUrl: string) => {
-      if (isServerTab && serverSurfaceRef.current) {
-        if (serverInputDisabled) return false;
-        serverSurfaceRef.current.navigate(resolvedUrl);
-        rememberPreviewUrl(threadRef, resolvedUrl);
-        return true;
+  const navigateToResolvedUrl = async (resolvedUrl: string) => {
+    if (isServerTab && serverSurfaceRef.current) {
+      if (serverInputDisabled) return false;
+      serverSurfaceRef.current.navigate(resolvedUrl);
+      rememberPreviewUrl(threadRef, resolvedUrl);
+      return true;
+    }
+    if (runtimeTabId && previewBridge) {
+      await previewBridge.navigate(runtimeTabId, resolvedUrl);
+      rememberPreviewUrl(threadRef, resolvedUrl);
+      return true;
+    }
+    const result = await openPreviewSession({ openPreview: open, threadRef, url: resolvedUrl });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      if (error instanceof BrowserSettingsReadError) {
+        toastManager.add({
+          type: "error",
+          title: "Unable to open browser",
+          description: error.message,
+        });
       }
-      if (runtimeTabId && previewBridge) {
-        await previewBridge.navigate(runtimeTabId, resolvedUrl);
-        rememberPreviewUrl(threadRef, resolvedUrl);
-        return true;
+    }
+    return result._tag === "Success";
+  };
+
+  const handleSubmitUrl = async (next: string) => {
+    try {
+      const resolved = resolveAddressBarInput(next, resolveSearchUrlTemplate(getClientSettings()));
+      if (await navigateToResolvedUrl(resolved)) {
+        recordVisitForThread(threadRef, resolved);
       }
-      const result = await openPreviewSession({ openPreview: open, threadRef, url: resolvedUrl });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        if (error instanceof BrowserSettingsReadError) {
-          toastManager.add({
-            type: "error",
-            title: "Unable to open browser",
-            description: error.message,
-          });
-        }
+    } catch {}
+  };
+
+  const handleOpenServerUrl = async (next: string) => {
+    try {
+      const resolved =
+        isServerTab || !previewBridge
+          ? normalizePreviewUrl(next)
+          : resolveDiscoveredServerUrl(threadRef.environmentId, next);
+      if (await navigateToResolvedUrl(resolved)) {
+        recordVisitForThread(threadRef, next);
       }
-      return result._tag === "Success";
-    },
-    [isServerTab, open, runtimeTabId, serverInputDisabled, threadRef],
-  );
+    } catch {}
+  };
 
-  const handleSubmitUrl = useCallback(
-    async (next: string) => {
-      try {
-        const resolved = resolveAddressBarInput(next);
-        if (await navigateToResolvedUrl(resolved)) {
-          recordVisitForThread(threadRef, resolved);
-        }
-      } catch {}
-    },
-    [navigateToResolvedUrl, threadRef],
-  );
-
-  const handleOpenServerUrl = useCallback(
-    async (next: string) => {
-      try {
-        const resolved =
-          isServerTab || !previewBridge
-            ? normalizePreviewUrl(next)
-            : resolveDiscoveredServerUrl(threadRef.environmentId, next);
-        if (await navigateToResolvedUrl(resolved)) {
-          recordVisitForThread(threadRef, next);
-        }
-      } catch {}
-    },
-    [isServerTab, navigateToResolvedUrl, threadRef],
-  );
-
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = () => {
     if (isServerTab) serverSurfaceRef.current?.reload();
     else if (previewBridge && runtimeTabId) void previewBridge.refresh(runtimeTabId);
-  }, [isServerTab, runtimeTabId]);
+  };
 
-  const adjustServerTab = useCallback(
-    async (change: Omit<PreviewAdjustInput, "threadId" | "tabId">) => {
-      if (!tabId) return;
-      const result = await adjust({
-        environmentId: threadRef.environmentId,
-        input: { threadId: threadRef.threadId, tabId, ...change },
+  const adjustServerTab = async (change: Omit<PreviewAdjustInput, "threadId" | "tabId">) => {
+    if (!tabId) return;
+    const result = await adjust({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, tabId, ...change },
+    });
+    if (result._tag === "Failure") {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Unable to change the browser tab",
+        description: error instanceof Error ? error.message : "An error occurred.",
       });
-      if (result._tag === "Failure") {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Unable to change the browser tab",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-        return;
-      }
-      updatePreviewServerSnapshot(threadRef, result.value);
-    },
-    [adjust, tabId, threadRef],
-  );
+      return;
+    }
+    updatePreviewServerSnapshot(threadRef, result.value);
+  };
 
   const serverZoomFactor = snapshot?.zoomFactor ?? DEFAULT_PREVIEW_ZOOM_FACTOR;
-  const stepServerZoom = useCallback(
-    (direction: -1 | 0 | 1) => {
-      const index = PREVIEW_ZOOM_LEVELS.indexOf(serverZoomFactor);
-      const next =
-        direction === 0
-          ? DEFAULT_PREVIEW_ZOOM_FACTOR
-          : PREVIEW_ZOOM_LEVELS[
-              Math.min(
-                Math.max((index < 0 ? 7 : index) + direction, 0),
-                PREVIEW_ZOOM_LEVELS.length - 1,
-              )
-            ]!;
-      if (next !== serverZoomFactor) void adjustServerTab({ zoomFactor: next });
-    },
-    [adjustServerTab, serverZoomFactor],
-  );
+  const stepServerZoom = (direction: -1 | 0 | 1) => {
+    const index = PREVIEW_ZOOM_LEVELS.indexOf(serverZoomFactor);
+    const next =
+      direction === 0
+        ? DEFAULT_PREVIEW_ZOOM_FACTOR
+        : PREVIEW_ZOOM_LEVELS[
+            Math.min(
+              Math.max((index < 0 ? 7 : index) + direction, 0),
+              PREVIEW_ZOOM_LEVELS.length - 1,
+            )
+          ]!;
+    if (next !== serverZoomFactor) void adjustServerTab({ zoomFactor: next });
+  };
 
-  const handleZoomIn = useCallback(() => {
+  const handleZoomIn = () => {
     if (serverOwnsRendering) stepServerZoom(1);
     else if (previewBridge && runtimeTabId) void previewBridge.zoomIn(runtimeTabId);
-  }, [runtimeTabId, serverOwnsRendering, stepServerZoom]);
+  };
 
-  const handleZoomOut = useCallback(() => {
+  const handleZoomOut = () => {
     if (serverOwnsRendering) stepServerZoom(-1);
     else if (previewBridge && runtimeTabId) void previewBridge.zoomOut(runtimeTabId);
-  }, [runtimeTabId, serverOwnsRendering, stepServerZoom]);
+  };
 
-  const handleResetZoom = useCallback(() => {
+  const handleResetZoom = () => {
     if (serverOwnsRendering) stepServerZoom(0);
     else if (previewBridge && runtimeTabId) void previewBridge.resetZoom(runtimeTabId);
-  }, [runtimeTabId, serverOwnsRendering, stepServerZoom]);
+  };
 
-  const handleViewportChange = useCallback(
-    async (nextViewport: PreviewViewportSetting) => {
-      if (!tabId) return;
-      const result = await resize({
-        environmentId: threadRef.environmentId,
-        input: {
-          threadId: threadRef.threadId,
-          tabId,
-          viewport: nextViewport,
-        },
+  const handleViewportChange = async (nextViewport: PreviewViewportSetting) => {
+    if (!tabId) return;
+    const result = await resize({
+      environmentId: threadRef.environmentId,
+      input: {
+        threadId: threadRef.threadId,
+        tabId,
+        viewport: nextViewport,
+      },
+    });
+    if (result._tag === "Failure") {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Unable to resize browser viewport",
+        description: error instanceof Error ? error.message : "An error occurred.",
       });
-      if (result._tag === "Failure") {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Unable to resize browser viewport",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-        throw error;
-      }
-      updatePreviewServerSnapshot(threadRef, result.value);
-    },
-    [resize, tabId, threadRef],
-  );
+      throw error;
+    }
+    updatePreviewServerSnapshot(threadRef, result.value);
+  };
 
   const handleToggleDeviceToolbar = () => {
     if (!runtimeTabId) return;
@@ -403,25 +401,28 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     ).catch(() => undefined);
   };
 
+  const onViewportChange = useEffectEvent(handleViewportChange);
   useEffect(() => {
     if (!runtimeTabId) return;
-    return subscribeBrowserViewportChange(runtimeTabId, handleViewportChange);
-  }, [handleViewportChange, runtimeTabId]);
+    return subscribeBrowserViewportChange(runtimeTabId, (nextViewport) =>
+      onViewportChange(nextViewport),
+    );
+  }, [runtimeTabId]);
 
-  const handleBack = useCallback(() => {
+  const handleBack = () => {
     if (isServerTab) serverSurfaceRef.current?.history(-1);
     else if (previewBridge && runtimeTabId) void previewBridge.goBack(runtimeTabId);
-  }, [isServerTab, runtimeTabId]);
+  };
 
-  const handleForward = useCallback(() => {
+  const handleForward = () => {
     if (isServerTab) serverSurfaceRef.current?.history(1);
     else if (previewBridge && runtimeTabId) void previewBridge.goForward(runtimeTabId);
-  }, [isServerTab, runtimeTabId]);
+  };
 
-  const handleOpenInBrowser = useCallback(() => {
+  const handleOpenInBrowser = () => {
     if (!localApi || !url) return;
     void localApi.shell.openExternal(url).catch(() => undefined);
-  }, [url]);
+  };
 
   const moveTarget = alternatePreviewRuntime(
     threadRef.environmentId,
@@ -431,7 +432,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   );
   const moveLabel =
     moveTarget === "server" ? `Open in ${environmentLabel}'s browser` : "Open on this computer";
-  const handleMoveTab = useCallback(async () => {
+  const handleMoveTab = async () => {
     if (!moveTarget || !tabId || !snapshot) return;
     const result = await openPreviewSession({
       openPreview: open,
@@ -460,9 +461,9 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     }
     useRightPanelStore.getState().openBrowser(threadRef, result.value.tabId);
     await closePreviewSession({ closePreview, snapshot, tabId, threadRef });
-  }, [closePreview, moveTarget, open, snapshot, tabId, threadRef, url, viewport]);
+  };
 
-  const handlePictureInPicture = useCallback(() => {
+  const handlePictureInPicture = () => {
     if (!tabId) return;
     if (miniPlayerTabId === tabId) {
       usePreviewMiniPlayerStore.getState().close(threadRef);
@@ -470,7 +471,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     }
     usePreviewMiniPlayerStore.getState().open(threadRef, browserMiniPlayerSource(tabId));
     useRightPanelStore.getState().close(threadRef);
-  }, [miniPlayerTabId, tabId, threadRef]);
+  };
 
   const desktopCall = (op: ((tabId: string) => Promise<void>) | undefined) => () => {
     if (op && runtimeTabId) void op(runtimeTabId).catch(() => undefined);
@@ -514,7 +515,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         }
       : null;
 
-  const handleNativePictureInPicture = useCallback(() => {
+  const handleNativePictureInPicture = () => {
     if (!previewBridge || !runtimeTabId) return;
     const operation = desktopOverlay?.pictureInPicture
       ? previewBridge.pictureInPicture.close
@@ -526,168 +527,28 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     });
-  }, [desktopOverlay?.pictureInPicture, runtimeTabId]);
+  };
 
-  const handleCapture = useCallback(
-    (record: boolean) => {
-      if (!previewBridge || !runtimeTabId || !tabId) return;
-      const bridge = previewBridge;
-      if (recordingRuntimeTabId) {
-        void stopBrowserRecording(recordingRuntimeTabId).then(
-          (artifact) => {
-            if (!artifact) return;
-            let pathCopied = false;
-            let toastId: ReturnType<typeof toastManager.add>;
-
-            const copyPath = () => {
-              if (!navigator.clipboard?.writeText) {
-                toastManager.update(
-                  toastId,
-                  stackedThreadToast({
-                    type: "error",
-                    title: "Unable to copy recording path",
-                    description: "Clipboard API unavailable.",
-                    actionProps: revealAction,
-                  }),
-                );
-                return;
-              }
-
-              void navigator.clipboard.writeText(artifact.path).then(
-                () => {
-                  pathCopied = true;
-                  updateRecordingToast();
-                  window.setTimeout(() => {
-                    pathCopied = false;
-                    updateRecordingToast();
-                  }, 2_000);
-                },
-                (error) => {
-                  toastManager.update(
-                    toastId,
-                    stackedThreadToast({
-                      type: "error",
-                      title: "Unable to copy recording path",
-                      description: error instanceof Error ? error.message : "An error occurred.",
-                      actionProps: revealAction,
-                    }),
-                  );
-                },
-              );
-            };
-
-            const revealAction = {
-              children: revealInFileExplorerLabel(navigator.platform),
-              onClick: () => void bridge.revealArtifact(artifact.path),
-            };
-            const updateRecordingToast = () => {
-              toastManager.update(
-                toastId,
-                stackedThreadToast({
-                  type: "success",
-                  title: "Recording saved",
-                  actionProps: revealAction,
-                  data: {
-                    secondaryActionProps: {
-                      children: pathCopied ? "Copied!" : "Copy path",
-                      disabled: pathCopied,
-                      onClick: copyPath,
-                    },
-                    secondaryActionVariant: "outline",
-                  },
-                }),
-              );
-            };
-
-            toastId = toastManager.add(
-              stackedThreadToast({
-                type: "success",
-                title: "Recording saved",
-                actionProps: revealAction,
-                data: {
-                  secondaryActionProps: {
-                    children: "Copy path",
-                    onClick: copyPath,
-                  },
-                  secondaryActionVariant: "outline",
-                },
-              }),
-            );
-          },
-          (error) => {
-            toastManager.add({
-              type: "error",
-              title: "Unable to stop recording",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            });
-          },
-        );
-        return;
-      }
-      if (record) {
-        void startBrowserRecording(runtimeTabId, threadRef, tabId).catch((error) => {
-          const description = error instanceof Error ? error.message : "An error occurred.";
-          if (isBrowserRecordingStartCancelledError(error)) return;
-          toastManager.add({
-            type: "error",
-            title: "Unable to start recording",
-            description,
-          });
-        });
-        return;
-      }
-      void bridge.captureScreenshot(runtimeTabId).then(
+  const handleCapture = (record: boolean) => {
+    if (!previewBridge || !runtimeTabId || !tabId) return;
+    const bridge = previewBridge;
+    if (recordingRuntimeTabId) {
+      void stopBrowserRecording(recordingRuntimeTabId).then(
         (artifact) => {
-          const revealAction = {
-            children: revealInFileExplorerLabel(navigator.platform),
-            onClick: () => void bridge.revealArtifact(artifact.path),
-          };
+          if (!artifact) return;
           let pathCopied = false;
-          let imageCopied = false;
           let toastId: ReturnType<typeof toastManager.add>;
-
-          const updateScreenshotToast = (
-            type: "success" | "error" = "success",
-            title = "Screenshot saved",
-            description?: string,
-          ) => {
-            toastManager.update(
-              toastId,
-              stackedThreadToast({
-                type,
-                title,
-                description,
-                actionProps: {
-                  children: imageCopied ? "Copied!" : "Copy image",
-                  disabled: imageCopied,
-                  onClick: copyImage,
-                },
-                data: {
-                  additionalActions: [
-                    {
-                      id: "copy-path",
-                      props: {
-                        children: pathCopied ? "Copied!" : "Copy path",
-                        disabled: pathCopied,
-                        onClick: copyPath,
-                      },
-                    },
-                  ],
-                  secondaryActionProps: {
-                    ...revealAction,
-                  },
-                  secondaryActionVariant: "outline",
-                },
-              }),
-            );
-          };
 
           const copyPath = () => {
             if (!navigator.clipboard?.writeText) {
-              updateScreenshotToast(
-                "error",
-                "Unable to copy screenshot path",
-                "Clipboard API unavailable.",
+              toastManager.update(
+                toastId,
+                stackedThreadToast({
+                  type: "error",
+                  title: "Unable to copy recording path",
+                  description: "Clipboard API unavailable.",
+                  actionProps: revealAction,
+                }),
               );
               return;
             }
@@ -695,48 +556,110 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
             void navigator.clipboard.writeText(artifact.path).then(
               () => {
                 pathCopied = true;
-                updateScreenshotToast();
+                updateRecordingToast();
                 window.setTimeout(() => {
                   pathCopied = false;
-                  updateScreenshotToast();
+                  updateRecordingToast();
                 }, 2_000);
               },
               (error) => {
-                updateScreenshotToast(
-                  "error",
-                  "Unable to copy screenshot path",
-                  error instanceof Error ? error.message : "An error occurred.",
+                toastManager.update(
+                  toastId,
+                  stackedThreadToast({
+                    type: "error",
+                    title: "Unable to copy recording path",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                    actionProps: revealAction,
+                  }),
                 );
               },
             );
           };
 
-          const copyImage = () => {
-            void bridge.copyArtifactToClipboard(artifact.path).then(
-              () => {
-                imageCopied = true;
-                updateScreenshotToast();
-                window.setTimeout(() => {
-                  imageCopied = false;
-                  updateScreenshotToast();
-                }, 2_000);
-              },
-              (error) => {
-                updateScreenshotToast(
-                  "error",
-                  "Unable to copy screenshot",
-                  error instanceof Error ? error.message : "An error occurred.",
-                );
-              },
+          const revealAction = {
+            children: revealInFileExplorerLabel(navigator.platform),
+            onClick: () => void bridge.revealArtifact(artifact.path),
+          };
+          const updateRecordingToast = () => {
+            toastManager.update(
+              toastId,
+              stackedThreadToast({
+                type: "success",
+                title: "Recording saved",
+                actionProps: revealAction,
+                data: {
+                  secondaryActionProps: {
+                    children: pathCopied ? "Copied!" : "Copy path",
+                    disabled: pathCopied,
+                    onClick: copyPath,
+                  },
+                  secondaryActionVariant: "outline",
+                },
+              }),
             );
           };
 
           toastId = toastManager.add(
             stackedThreadToast({
               type: "success",
-              title: "Screenshot saved",
+              title: "Recording saved",
+              actionProps: revealAction,
+              data: {
+                secondaryActionProps: {
+                  children: "Copy path",
+                  onClick: copyPath,
+                },
+                secondaryActionVariant: "outline",
+              },
+            }),
+          );
+        },
+        (error) => {
+          toastManager.add({
+            type: "error",
+            title: "Unable to stop recording",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          });
+        },
+      );
+      return;
+    }
+    if (record) {
+      void startBrowserRecording(runtimeTabId, threadRef, tabId).catch((error) => {
+        const description = error instanceof Error ? error.message : "An error occurred.";
+        if (isBrowserRecordingStartCancelledError(error)) return;
+        toastManager.add({
+          type: "error",
+          title: "Unable to start recording",
+          description,
+        });
+      });
+      return;
+    }
+    void bridge.captureScreenshot(runtimeTabId).then(
+      (artifact) => {
+        const revealAction = {
+          children: revealInFileExplorerLabel(navigator.platform),
+          onClick: () => void bridge.revealArtifact(artifact.path),
+        };
+        let pathCopied = false;
+        let imageCopied = false;
+        let toastId: ReturnType<typeof toastManager.add>;
+
+        const updateScreenshotToast = (
+          type: "success" | "error" = "success",
+          title = "Screenshot saved",
+          description?: string,
+        ) => {
+          toastManager.update(
+            toastId,
+            stackedThreadToast({
+              type,
+              title,
+              description,
               actionProps: {
-                children: "Copy image",
+                children: imageCopied ? "Copied!" : "Copy image",
+                disabled: imageCopied,
                 onClick: copyImage,
               },
               data: {
@@ -744,7 +667,8 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
                   {
                     id: "copy-path",
                     props: {
-                      children: "Copy path",
+                      children: pathCopied ? "Copied!" : "Copy path",
+                      disabled: pathCopied,
                       onClick: copyPath,
                     },
                   },
@@ -756,18 +680,92 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
               },
             }),
           );
-        },
-        (error) => {
-          toastManager.add({
-            type: "error",
-            title: "Unable to capture screenshot",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          });
-        },
-      );
-    },
-    [recordingRuntimeTabId, runtimeTabId, tabId, threadRef],
-  );
+        };
+
+        const copyPath = () => {
+          if (!navigator.clipboard?.writeText) {
+            updateScreenshotToast(
+              "error",
+              "Unable to copy screenshot path",
+              "Clipboard API unavailable.",
+            );
+            return;
+          }
+
+          void navigator.clipboard.writeText(artifact.path).then(
+            () => {
+              pathCopied = true;
+              updateScreenshotToast();
+              window.setTimeout(() => {
+                pathCopied = false;
+                updateScreenshotToast();
+              }, 2_000);
+            },
+            (error) => {
+              updateScreenshotToast(
+                "error",
+                "Unable to copy screenshot path",
+                error instanceof Error ? error.message : "An error occurred.",
+              );
+            },
+          );
+        };
+
+        const copyImage = () => {
+          void bridge.copyArtifactToClipboard(artifact.path).then(
+            () => {
+              imageCopied = true;
+              updateScreenshotToast();
+              window.setTimeout(() => {
+                imageCopied = false;
+                updateScreenshotToast();
+              }, 2_000);
+            },
+            (error) => {
+              updateScreenshotToast(
+                "error",
+                "Unable to copy screenshot",
+                error instanceof Error ? error.message : "An error occurred.",
+              );
+            },
+          );
+        };
+
+        toastId = toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: "Screenshot saved",
+            actionProps: {
+              children: "Copy image",
+              onClick: copyImage,
+            },
+            data: {
+              additionalActions: [
+                {
+                  id: "copy-path",
+                  props: {
+                    children: "Copy path",
+                    onClick: copyPath,
+                  },
+                },
+              ],
+              secondaryActionProps: {
+                ...revealAction,
+              },
+              secondaryActionVariant: "outline",
+            },
+          }),
+        );
+      },
+      (error) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to capture screenshot",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      },
+    );
+  };
 
   /**
    * Picking for a viewer that has no page of its own. The desktop injects an
@@ -859,9 +857,8 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
 
   // Subscribe only while visible; `toggle-panel` is owned by ChatView's
   // URL-aware handler regardless of whether the panel is currently mounted.
-  useEffect(() => {
-    if (!visible) return;
-    return subscribePreviewAction((action) => {
+  const onPreviewAction = useEffectEvent(
+    (action: Parameters<Parameters<typeof subscribePreviewAction>[0]>[0]) => {
       switch (action) {
         case "refresh":
           handleRefresh();
@@ -881,8 +878,12 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         case "toggle-panel":
           return;
       }
-    });
-  }, [handleRefresh, handleResetZoom, handleZoomIn, handleZoomOut, visible]);
+    },
+  );
+  useEffect(() => {
+    if (!visible) return;
+    return subscribePreviewAction((action) => onPreviewAction(action));
+  }, [visible]);
 
   return (
     <div
@@ -998,6 +999,11 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
                 environmentId={threadRef.environmentId}
                 threadId={threadRef.threadId}
                 tabId={snapshot.tabId}
+                pdfUrl={
+                  navStatus._tag === "Success"
+                    ? previewPdfAssetUrl(url, environmentHttpBaseUrl)
+                    : null
+                }
                 visible={visible}
                 onFirstFrame={() => setServerFrameTabId(runtimeTabId)}
                 onControl={(control) =>

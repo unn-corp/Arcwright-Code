@@ -194,6 +194,7 @@ export function GlanceRail() {
       : scopeProjectRef(activeProjectTarget.environmentId, activeProjectTarget.projectId),
   );
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const providersByEnvironment = useAtomValue(environmentPresentations.providersByEnvironmentAtom);
   const activeServerConfig =
     activeProjectTarget === null
       ? null
@@ -209,7 +210,10 @@ export function GlanceRail() {
       : (store.getComposerDraft(activeProjectTarget.threadRef)?.activeProvider ?? null),
   );
   const providerForInstance = (instanceId: string | null | undefined) =>
-    activeServerConfig?.providers.find((provider) => provider.instanceId === instanceId) ?? null;
+    (activeProjectTarget === null
+      ? []
+      : (providersByEnvironment.get(activeProjectTarget.environmentId) ?? [])
+    ).find((provider) => provider.instanceId === instanceId) ?? null;
   const activeProvider =
     providerForInstance(composerActiveProvider) ??
     providerForInstance(activeThreadShell?.runtime?.providerInstanceId) ??

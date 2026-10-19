@@ -30,7 +30,7 @@ jobs:
   build:
     name: Build preview JS bundle
     # The fork has no macOS builders, so it does not produce preview bundles.
-    if: github.repository != 'unn-corp/t3code' && github.event.label.name == 'preview:mac'
+    if: (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && github.event.label.name == 'preview:mac'
     runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 30
     steps:
@@ -93,7 +93,10 @@ jobs:
             exit 1
           }
 
+      # desktop-macos-preview-publish.yml packages this bundle as the preview channel.
       - name: Build JS bundle
+        env:
+          T3CODE_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && 'preview' || 'dev' }}
         run: vp run build:desktop
 
       # Same layout as release.yml's js-bundle so release-desktop.yml can

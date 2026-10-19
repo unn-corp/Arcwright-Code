@@ -84,7 +84,7 @@ async function releaseWithRecovery(version: string): Promise<ForkReleaseRecord> 
   const sourceCommit = commit("2");
   const manifest = {
     format: 1,
-    repository: "unn-corp/t3code",
+    repository: "unn-corp/Arcwright-Code",
     version,
     commit: sourceCommit,
     channel: "stable",

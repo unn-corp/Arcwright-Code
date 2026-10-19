@@ -40,6 +40,7 @@ function layerElectronApp(
     name: Effect.succeed("Arcwright Code"),
     systemLocale: Effect.succeed("en-US"),
     whenReady: Effect.void,
+    requestSingleInstanceLock: Effect.succeed(true),
     quit,
     exit: controls.exit ?? (() => Effect.void),
     relaunch: controls.relaunch ?? (() => Effect.void),

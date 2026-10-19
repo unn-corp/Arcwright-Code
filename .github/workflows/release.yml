@@ -294,6 +294,10 @@ jobs:
       - name: Verify native build dependencies
         uses: ./.github/actions/verify-native-build-deps
 
+      # The web package's browser project runs React tests in headless Chromium.
+      - name: Install Chromium for web browser tests
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
 
@@ -518,7 +522,11 @@ jobs:
       # Runs t3#build (which depends on @t3tools/web#build) and
       # @t3tools/desktop#build, so apps/server/dist holds the server bundle
       # plus the web client and apps/desktop/dist-electron the Electron main.
+      # The release channel is already stable, nightly, or preview. Builds in
+      # other repositories report "dev" telemetry.
       - name: Build JS bundle
+        env:
+          T3CODE_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && needs.preflight.outputs.release_channel || 'dev' }}
         run: vp run build:desktop
 
       # Two paths under apps/ so the artifact root is apps/; consumers download
@@ -543,7 +551,7 @@ jobs:
   desktop_mac_arm64:
     name: Desktop macOS arm64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ github.repository != 'unn-corp/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -567,7 +575,7 @@ jobs:
   desktop_mac_x64:
     name: Desktop macOS x64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ github.repository != 'unn-corp/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -620,7 +628,7 @@ jobs:
   desktop_linux_arm64:
     name: Desktop Linux arm64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ github.repository != 'unn-corp/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -671,7 +679,7 @@ jobs:
   desktop_win_arm64:
     name: Desktop Windows arm64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ github.repository != 'unn-corp/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:

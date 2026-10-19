@@ -75,8 +75,6 @@
       "ignoreDependencies": ["playwright-core", "electron-builder"],
     },
     "apps/web": {
-      // Vitest loads this through the per-file @vitest-environment directive.
-      "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly.
       "entry": ["scripts/warm-dep-cache.ts", "public/sw.js", "src/test/ForkUpdateFixture.tsx"],
       // UI component modules are copied and adapted as cohesive sets. Keep their

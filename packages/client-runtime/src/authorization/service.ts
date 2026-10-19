@@ -263,6 +263,15 @@ export const make = Effect.gen(function* () {
       detail: "Your cloud sign-in changed. Sign in again to authorize the environment.",
     });
 
+  // A missing identity before the attempt captures one means the cloud session
+  // is still loading, not a sign-out. Only a captured identity that goes away
+  // or changes is evidence of one.
+  const sessionPending = () =>
+    new ConnectionTransientError({
+      reason: "session-pending",
+      detail: "Waiting for the T3 Connect sign-in to load.",
+    });
+
   const assertSession = Effect.fnUntraced(function* (
     identity: ClientCapabilities.CloudSessionIdentity,
   ) {
@@ -410,7 +419,7 @@ export const make = Effect.gen(function* () {
   ) {
     const session = yield* cloudSession.identity;
     if (Option.isNone(session)) {
-      return yield* sessionChanged();
+      return yield* sessionPending();
     }
     const identity = session.value;
     const thumbprint = yield* signer.thumbprint.pipe(
@@ -567,6 +576,7 @@ export const make = Effect.gen(function* () {
       if (endpoint !== undefined && cachedSocket.failure._tag !== "EnvironmentAuthInvalidError") {
         return yield* mapDpopSocketError(cachedSocket.failure);
       }
+      yield* assertSession(selected.identity);
       selected = yield* getDpopToken({
         ...input,
         rejectedAccessToken: selected.token.accessToken,

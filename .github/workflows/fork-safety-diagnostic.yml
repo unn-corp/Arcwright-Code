@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   safety:
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'helper'
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && inputs.scope != 'helper'
     runs-on: [self-hosted, "${{ matrix.platform.runner }}", x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 35
     strategy:
@@ -76,7 +76,7 @@ jobs:
           retention-days: 3
 
   helper:
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'desktop-updater' && inputs.scope != 'host-runtime'
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && inputs.scope != 'desktop-updater' && inputs.scope != 'host-runtime'
     runs-on: [self-hosted, windows, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 15
     steps:

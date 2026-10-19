@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, type ComponentRef } from "react";
 import { TextInput, View } from "react-native";
 
-import { useFontFamily } from "../lib/useFontFamily";
+import { FONT_FAMILIES } from "../lib/fontFamilies";
 import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
 import type { ComposerEditorProps } from "./T3ComposerEditor.types";
 
@@ -45,7 +45,7 @@ export function ComposerEditor({
   const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const wrapperRef = useRef<ComponentRef<typeof View>>(null);
   const bodyText = useScaledTextRole("body");
-  const fontFamily = useFontFamily("regular");
+  const fontFamily = FONT_FAMILIES.regular;
 
   useEffect(() => {
     const element = wrapperRef.current as unknown as HTMLElement | null;

@@ -148,7 +148,7 @@ Keep the repository's existing setup. Install Python 3, curl or wget, tar,
 and sha256sum or shasum. Install Codex CLI using its supported installer.
 Install Claude Code only if the user explicitly requested it for this environment.
 Place matching trusted copies of cloud-environment.py and install.sh from
-unn-corp/t3code in /opt/t3-cloud-tools, creating that directory if permitted,
+unn-corp/Arcwright-Code in /opt/t3-cloud-tools, creating that directory if permitted,
 or use a writable tool directory and record its actual path instead.
 Use the reviewed helper files supplied by the operator; do not invent a
 download URL or assume an unpublished file exists on GitHub.

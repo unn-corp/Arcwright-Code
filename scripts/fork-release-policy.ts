@@ -1,4 +1,4 @@
-// Pure release policy for unn-corp/t3code fork releases: versions, candidate selection,
+// Pure release policy for unn-corp/Arcwright-Code fork releases: versions, candidate selection,
 // release eligibility, and Android installation-code allocation. Nothing here touches the
 // network or the filesystem, so every rule is covered by fork-release-policy.test.ts.
 import { FORK_RELEASE_MANIFEST_ASSET, type ForkReleaseManifest } from "./fork-release-contract.ts";

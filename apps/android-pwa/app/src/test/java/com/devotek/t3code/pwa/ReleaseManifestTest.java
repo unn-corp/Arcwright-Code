@@ -14,6 +14,12 @@ public final class ReleaseManifestTest {
         catch (ReleaseManifest.Invalid expected) { /* fail closed */ }
     }
 
+    @Test public void acceptsBothRepositoryNamesAfterRename() throws Exception {
+        for (String repository : new String[]{"unn-corp/Arcwright-Code", "unn-corp/t3code"}) {
+            JSONObject json = Fixtures.manifestJson().put("repository", repository);
+            assertEquals(Fixtures.NORMAL_CODE, ReleaseManifest.parse(json.toString()).normal.versionCode);
+        }
+    }
     @Test public void parsesTheExactContractShape() throws Exception {
         ReleaseManifest manifest = Fixtures.manifest();
         assertEquals("nightly", manifest.channel);

@@ -1,7 +1,7 @@
 # Updating this fork
 
 Our Android APK, desktop installers, and managed server archives come from
-[unn-corp/t3code releases](https://github.com/unn-corp/t3code/releases). They are
+[unn-corp/Arcwright-Code releases](https://github.com/unn-corp/Arcwright-Code/releases). They are
 separate from upstream T3 distribution and its Expo/store mobile application.
 The fork release pipeline must first be commissioned with a verified updater
 baseline; a scheduled workflow being present does not mean a new release is available.

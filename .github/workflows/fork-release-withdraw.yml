@@ -40,7 +40,7 @@ permissions:
 jobs:
   withdrawal:
     name: ${{ inputs.action }} ${{ inputs.version }}
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main'
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main'
     concurrency:
       group: fork-release-state
       cancel-in-progress: false

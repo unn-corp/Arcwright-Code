@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { ParticipantProfileSettings } from "./ParticipantProfileSettings";
 import { ClientBuildIdentity } from "./ClientBuildIdentity";
 import { AppUpdateSettings } from "./AppUpdateSettings";
@@ -15,7 +16,7 @@ import { SettingsGroup } from "./SettingsGroup";
 import { resolvePrivacyPolicy } from "../../legalLinks";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   type AgentNotificationEvent,
   type AgentNotificationKind,
@@ -63,6 +64,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
+import { MobileAppSettingsRow } from "./MobileAppSettingsRow";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
@@ -79,7 +81,7 @@ import {
   useTheme,
 } from "../../hooks/useTheme";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import {
   useScopedSettings,
   useScopedSettingsMixed,
@@ -101,9 +103,10 @@ import {
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
+import { useEnvironmentProviders } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
-import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { RelativeTime } from "../RelativeTime";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { DraftInput } from "../ui/draft-input";
@@ -236,223 +239,151 @@ export function useSettingsRestore(onRestored?: () => void) {
   );
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
-  const changedSettingLabels = useMemo(
-    () => [
-      ...(theme !== "system" ? ["Theme"] : []),
-      ...(!followSystem ? ["Follow system"] : []),
-      ...(themeHalves !== null ? ["Theme mix"] : []),
-      ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
-        ? ["Contrast"]
-        : []),
-      ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
-      ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
-        ? ["Diff colors"]
-        : []),
-      ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
-      ...(settings.alwaysCompactComposer !== DEFAULT_UNIFIED_SETTINGS.alwaysCompactComposer
-        ? ["Always compact composer"]
-        : []),
-      ...(settings.assistantMessageBubbles !== DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles
-        ? ["AI message bubbles"]
-        : []),
-      ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
-        ? ["Panel animations"]
-        : []),
-      ...(settings.environmentIdentificationMode !==
-      DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
-        ? ["Environment identification"]
-        : []),
-      ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
-        ? ["Time format"]
-        : []),
-      ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
-        ? ["Visible threads"]
-        : []),
-      ...(settings.sidebarProjectGroupingMode !==
-      DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
-        ? ["Project Grouping"]
-        : []),
-      ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
-        ? ["Project order"]
-        : []),
-      ...(settings.sidebarWorkingShelfEnabled !==
-      DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
-        ? ["Working section"]
-        : []),
-      ...(settings.sidebarAutoSettleAfterDays !==
-      DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
-        ? ["Auto-settle inactive threads"]
-        : []),
-      ...(settings.sidebarAutoSettleKeepPullRequests !==
-      DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests
-        ? ["Keep threads with a PR"]
-        : []),
-      ...(settings.sidebarAutoSettleOnMerge !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge
-        ? ["Auto-settle merged threads"]
-        : []),
-      ...(settings.autoResumeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads
-        ? ["Auto-resume limited threads"]
-        : []),
-      ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
-        ? ["Snooze limited threads"]
-        : []),
-      ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
-      ...(settings.persistComposerContextStrip !==
-      DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
-        ? ["Composer context"]
-        : []),
-      ...getChangedTypographySettingLabels(settings),
-      ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
-        ? ["Diff whitespace changes"]
-        : []),
-      ...(settings.dictationMicrophoneDeviceId !==
-      DEFAULT_UNIFIED_SETTINGS.dictationMicrophoneDeviceId
-        ? ["Microphone"]
-        : []),
-      ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
-        ? ["Auto-open task panel"]
-        : []),
-      ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
-        ? ["Show skills in slash menu"]
-        : []),
-      ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
-        ? ["Collapse composer on scroll"]
-        : []),
-      ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
-        ? ["Rich text composer"]
-        : []),
-      ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut ? ["Send shortcut"] : []),
-      ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
-        ? ["Follow-up behavior"]
-        : []),
-      ...(settings.contextWindowMeterEnabled !== DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled
-        ? ["Context window indicator"]
-        : []),
-      ...(settings.enableLegacyTokenStreaming !==
-      DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
-        ? ["Stream token by token"]
-        : []),
-      ...(settings.enableProviderUpdateChecks !==
-      DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
-        ? ["Provider update checks"]
-        : []),
-      ...(!Equal.equals(
-        settings.continuousImprovement,
-        DEFAULT_UNIFIED_SETTINGS.continuousImprovement,
-      )
-        ? ["Continuous Improvement Mode"]
-        : []),
-      ...(!Equal.equals(settings.pullRequestRollup, DEFAULT_UNIFIED_SETTINGS.pullRequestRollup)
-        ? ["Pull request rollup"]
-        : []),
-      ...(!Equal.equals(settings.repositoryReview, DEFAULT_UNIFIED_SETTINGS.repositoryReview)
-        ? ["Repository review model"]
-        : []),
-      ...(settings.continueThreadsAfterServerUpdate !==
-      DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
-        ? ["Continue threads after restarts"]
-        : []),
-      ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
-        ? ["New thread mode"]
-        : []),
-      ...(settings.newWorktreesStartFromOrigin !==
-      DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
-        ? ["New worktrees start from origin"]
-        : []),
-      ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
-        ? ["Add project base directory"]
-        : []),
-      ...(settings.confirmThreadUnpin !== DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin
-        ? ["Unpin confirmation"]
-        : []),
-      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
-        ? ["Archive confirmation"]
-        : []),
-      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
-        ? ["Delete confirmation"]
-        : []),
-      ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
-      ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
-      ...getChangedBrowserSettingLabels(settings),
-      ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
-        ? ["Agent browser access"]
-        : []),
-    ],
-    [
-      isTextGenerationModelDirty,
-      isBackgroundActivityDirty,
-      settings.browserDefaultViewport,
-      settings.browserDefaultZoomFactor,
-      settings.browserDefaultAppearance,
-      settings.browserRecordingFrameRate,
-      settings.browserRecordingShowKeyPresses,
-      settings.browserRecordingShowMousePresses,
-      settings.browserLinkTarget,
-      settings.browserAutoShowFloatingPreview,
-      settings.pullRequestLinksOpenInApp,
-      settings.appearanceContrast,
-      settings.diffColorScheme,
-      settings.chatWidth,
-      settings.alwaysCompactComposer,
-      settings.assistantMessageBubbles,
-      settings.enableAgentBrowserAccess,
-      settings.confirmQuit,
-      settings.confirmThreadArchive,
-      settings.confirmThreadDelete,
-      settings.confirmThreadUnpin,
-      settings.composerCollapseOnScroll,
-      settings.composerRichTextEnabled,
-      settings.sendShortcut,
-      settings.followUpBehavior,
-      settings.addProjectBaseDirectory,
-      settings.defaultThreadEnvMode,
-      settings.newWorktreesStartFromOrigin,
-      settings.diffIgnoreWhitespace,
-      settings.diffLayout,
-      settings.proactivePanelsEnabled,
-      settings.environmentIdentificationMode,
-      settings.contextWindowMeterEnabled,
-      settings.fontFamilyCode,
-      settings.fontFamilyComposer,
-      settings.fontFamilySans,
-      settings.fontFamilyTerminal,
-      settings.fontSizeCode,
-      settings.fontSizeInterface,
-      settings.fontSizePrompt,
-      settings.fontSizeTerminal,
-      settings.glassOpacity,
-      settings.autoOpenPlanSidebar,
-      settings.dictationMicrophoneDeviceId,
-      settings.dictationStartKeybinds,
-      settings.dictationEndKeybinds,
-      settings.enableLegacyTokenStreaming,
-      settings.panelAnimationDurationMs,
-      settings.responseStreamingMode,
-      settings.persistComposerContextStrip,
-      settings.enableProviderUpdateChecks,
+  const changedSettingLabels = [
+    ...(theme !== "system" ? ["Theme"] : []),
+    ...(!followSystem ? ["Follow system"] : []),
+    ...(themeHalves !== null ? ["Theme mix"] : []),
+    ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
+      ? ["Contrast"]
+      : []),
+    ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
+    ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
+      ? ["Diff colors"]
+      : []),
+    ...(settings.alwaysCompactComposer !== DEFAULT_UNIFIED_SETTINGS.alwaysCompactComposer
+      ? ["Always compact composer"]
+      : []),
+    ...(settings.assistantMessageBubbles !== DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles
+      ? ["AI message bubbles"]
+      : []),
+    ...(!Equal.equals(
       settings.continuousImprovement,
-      settings.pullRequestRollup,
-      settings.repositoryReview,
-      settings.sidebarAutoSettleAfterDays,
-      settings.sidebarAutoSettleKeepPullRequests,
-      settings.sidebarAutoSettleOnMerge,
-      settings.autoResumeLimitedThreads,
-      settings.snoozeLimitedThreads,
-      settings.sidebarProjectGroupingMode,
-      settings.sidebarProjectSortOrder,
-      settings.sidebarWorkingShelfEnabled,
-      settings.sidebarThreadPreviewCount,
-      settings.showSkillsInSlashMenu,
-      settings.timestampFormat,
-      settings.wordWrap,
-      followSystem,
-      theme,
-      themeHalves,
-    ],
-  );
+      DEFAULT_UNIFIED_SETTINGS.continuousImprovement,
+    )
+      ? ["Continuous Improvement Mode"]
+      : []),
+    ...(!Equal.equals(settings.pullRequestRollup, DEFAULT_UNIFIED_SETTINGS.pullRequestRollup)
+      ? ["Pull request rollup"]
+      : []),
+    ...(!Equal.equals(settings.repositoryReview, DEFAULT_UNIFIED_SETTINGS.repositoryReview)
+      ? ["Repository review model"]
+      : []),
+    ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+    ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
+      ? ["Panel animations"]
+      : []),
+    ...(settings.environmentIdentificationMode !==
+    DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
+      ? ["Environment identification"]
+      : []),
+    ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
+      ? ["Time format"]
+      : []),
+    ...(settings.notificationMode !== DEFAULT_UNIFIED_SETTINGS.notificationMode
+      ? ["Thread notifications"]
+      : []),
+    ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
+      ? ["In-app notifications"]
+      : []),
+    ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
+      ? ["Visible threads"]
+      : []),
+    ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
+      ? ["Project Grouping"]
+      : []),
+    ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
+      ? ["Project order"]
+      : []),
+    ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
+      ? ["Working section"]
+      : []),
+    ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
+      ? ["Auto-settle inactive threads"]
+      : []),
+    ...(settings.sidebarAutoSettleKeepPullRequests !==
+    DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests
+      ? ["Keep threads with a PR"]
+      : []),
+    ...(settings.sidebarAutoSettleOnMerge !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge
+      ? ["Auto-settle merged threads"]
+      : []),
+    ...(settings.autoResumeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads
+      ? ["Auto-resume limited threads"]
+      : []),
+    ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
+      ? ["Snooze limited threads"]
+      : []),
+    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+    ...(settings.persistComposerContextStrip !==
+    DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
+      ? ["Composer context"]
+      : []),
+    ...getChangedTypographySettingLabels(settings),
+    ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
+      ? ["Default diff file state"]
+      : []),
+    ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
+      ? ["Diff whitespace changes"]
+      : []),
+    ...(settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? ["Diff layout"] : []),
+    ...(settings.proactivePanelsEnabled !== DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled
+      ? ["Proactive panels"]
+      : []),
+    ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
+      ? ["Show skills in slash menu"]
+      : []),
+    ...(settings.composerCollapseOnScroll !== DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll
+      ? ["Collapse composer on scroll"]
+      : []),
+    ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
+      ? ["Rich text composer"]
+      : []),
+    ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut ? ["Send shortcut"] : []),
+    ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
+      ? ["Follow-up behavior"]
+      : []),
+    ...(settings.contextWindowMeterEnabled !== DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled
+      ? ["Context window indicator"]
+      : []),
+    ...(settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode
+      ? ["Response streaming"]
+      : []),
+    ...(settings.enableProviderUpdateChecks !== DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
+      ? ["Provider update checks"]
+      : []),
+    ...(settings.continueThreadsAfterServerUpdate !==
+    DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
+      ? ["Continue threads after restarts"]
+      : []),
+    ...(isBackgroundActivityDirty ? ["Background activity"] : []),
+    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ? ["New thread mode"]
+      : []),
+    ...(settings.newWorktreesStartFromOrigin !==
+    DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
+      ? ["New worktrees start from origin"]
+      : []),
+    ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
+      ? ["Add project base directory"]
+      : []),
+    ...(settings.confirmThreadUnpin !== DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin
+      ? ["Unpin confirmation"]
+      : []),
+    ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
+      ? ["Archive confirmation"]
+      : []),
+    ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
+      ? ["Delete confirmation"]
+      : []),
+    ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
+    ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
+    ...getChangedBrowserSettingLabels(settings),
+    ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
+      ? ["Agent browser access"]
+      : []),
+  ];
 
-  const restoreDefaults = useCallback(async () => {
+  const restoreDefaults = async () => {
     if (changedSettingLabels.length === 0) return;
     const api = readLocalApi();
     const confirmed = await (api ?? ensureLocalApi()).dialogs.confirm(
@@ -576,22 +507,14 @@ export function useSettingsRestore(onRestored?: () => void) {
       browserRecordingShowKeyPresses: DEFAULT_UNIFIED_SETTINGS.browserRecordingShowKeyPresses,
       browserRecordingShowMousePresses: DEFAULT_UNIFIED_SETTINGS.browserRecordingShowMousePresses,
       browserLinkTarget: DEFAULT_UNIFIED_SETTINGS.browserLinkTarget,
+      browserSearchEngine: DEFAULT_UNIFIED_SETTINGS.browserSearchEngine,
+      browserCustomSearchUrl: DEFAULT_UNIFIED_SETTINGS.browserCustomSearchUrl,
       browserAutoShowFloatingPreview: DEFAULT_UNIFIED_SETTINGS.browserAutoShowFloatingPreview,
       pullRequestLinksOpenInApp: DEFAULT_UNIFIED_SETTINGS.pullRequestLinksOpenInApp,
       enableAgentBrowserAccess: DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess,
     });
     onRestored?.();
-  }, [
-    changedSettingLabels,
-    clearThemeHalves,
-    onRestored,
-    setFollowSystem,
-    setTheme,
-    setThemeHalf,
-    theme,
-    themeHalves,
-    updateSettings,
-  ]);
+  };
 
   return {
     changedSettingLabels,
@@ -1043,13 +966,10 @@ export function AppearanceSettingsPanel() {
 
 function useFontDefaultFamilies() {
   const settings = useScopedSettings();
-  const defaults = useMemo(
-    () => ({
-      sans: resolveDefaultFamilyLabel(DEFAULT_SANS_FONT_STACK) ?? "System default",
-      code: resolveDefaultFamilyLabel(DEFAULT_CODE_FONT_STACK) ?? "System monospace",
-    }),
-    [],
-  );
+  const [defaults] = useState(() => ({
+    sans: resolveDefaultFamilyLabel(DEFAULT_SANS_FONT_STACK) ?? "System default",
+    code: resolveDefaultFamilyLabel(DEFAULT_CODE_FONT_STACK) ?? "System monospace",
+  }));
   return {
     sans: defaults.sans,
     code: defaults.code,
@@ -1378,22 +1298,25 @@ function FontFamilySettingsRow({
   const trimmed = value.trim();
   const [draft, setDraft] = useState(value);
   const [draftSettled, setDraftSettled] = useState(true);
-  const commitTimerRef = useRef<number | null>(null);
-  const lastValueRef = useRef(value);
-  if (lastValueRef.current !== value) {
-    // The committed value changed externally (hydration, reset, picker
-    // selection); adopt it and drop any pending commit of a stale draft.
-    lastValueRef.current = value;
-    if (commitTimerRef.current !== null) {
-      window.clearTimeout(commitTimerRef.current);
-      commitTimerRef.current = null;
-    }
+  // Each pending commit remembers the value it was typed against, so one that outlives
+  // an external change (hydration, reset, picker selection) drops its stale draft.
+  const commitTimerRef = useRef<{ readonly id: number; readonly value: string } | null>(null);
+  const cancelPendingCommit = () => {
+    if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current.id);
+    commitTimerRef.current = null;
+  };
+  // Bumped on every external value change, so a pending commit typed before one never lands,
+  // even if the value has since changed back to what it was typed against.
+  const [adopted, setAdopted] = useState({ value, generation: 0 });
+  if (adopted.value !== value) {
+    setAdopted({ value, generation: adopted.generation + 1 });
     setDraft(value);
     setDraftSettled(true);
   }
+  const readAdoptedGeneration = useEffectEvent(() => adopted.generation);
   useEffect(
     () => () => {
-      if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current);
+      if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current.id);
     },
     [],
   );
@@ -1406,18 +1329,14 @@ function FontFamilySettingsRow({
     }
   };
   const flushDraft = () => {
-    if (commitTimerRef.current === null) return;
-    window.clearTimeout(commitTimerRef.current);
-    commitTimerRef.current = null;
-    commitDraft(draft);
+    const pending = commitTimerRef.current;
+    cancelPendingCommit();
+    if (pending !== null && pending.value === value) commitDraft(draft);
   };
   const draftTrimmed = draft.trim();
   const draftPending = draftSettled && draftTrimmed.length > 0 && draftTrimmed !== trimmed;
   const resetToDefault = () => {
-    if (commitTimerRef.current !== null) {
-      window.clearTimeout(commitTimerRef.current);
-      commitTimerRef.current = null;
-    }
+    cancelPendingCommit();
     setDraft(defaultValue);
     setDraftSettled(true);
     onReset();
@@ -1427,7 +1346,7 @@ function FontFamilySettingsRow({
       <SettingResetButton label={title.toLowerCase()} onClick={resetToDefault} />
     ) : null;
   const fontEnumeration = useFontEnumeration();
-  const inputFocusedRef = useRef(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const familyControl =
     fontEnumeration.status === "granted" ? (
       <FontFamilyPicker
@@ -1435,7 +1354,7 @@ function FontFamilySettingsRow({
         defaultFamily={defaultFamily}
         selectedFamily={trimmed}
         requireMonospace={requireMonospace}
-        initialOpen={inputFocusedRef.current}
+        initialOpen={inputFocused}
         onSelect={onValueChange}
       />
     ) : (
@@ -1448,24 +1367,27 @@ function FontFamilySettingsRow({
         className="min-w-0 flex-1"
         maxLength={200}
         onFocus={() => {
-          inputFocusedRef.current = true;
+          setInputFocused(true);
           discoverInstalledFonts();
         }}
         onBlur={() => {
-          inputFocusedRef.current = false;
+          setInputFocused(false);
           flushDraft();
         }}
         onChange={(event) => {
           const next = event.currentTarget.value;
           setDraft(next);
           setDraftSettled(false);
-          if (commitTimerRef.current !== null) {
-            window.clearTimeout(commitTimerRef.current);
-          }
-          commitTimerRef.current = window.setTimeout(() => {
-            commitTimerRef.current = null;
-            commitDraft(next);
-          }, 400);
+          cancelPendingCommit();
+          const typedAgainst = value;
+          const typedInGeneration = adopted.generation;
+          commitTimerRef.current = {
+            id: window.setTimeout(() => {
+              commitTimerRef.current = null;
+              if (readAdoptedGeneration() === typedInGeneration) commitDraft(next);
+            }, 400),
+            value: typedAgainst,
+          };
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter") flushDraft();
@@ -1474,10 +1396,7 @@ function FontFamilySettingsRow({
             // which is what an unhandled Escape does.
             event.preventDefault();
             event.stopPropagation();
-            if (commitTimerRef.current !== null) {
-              window.clearTimeout(commitTimerRef.current);
-              commitTimerRef.current = null;
-            }
+            cancelPendingCommit();
             setDraft(value);
             setDraftSettled(true);
           }
@@ -1538,9 +1457,11 @@ function AutoSettleDaysInput({
   onCommit: (days: number) => void;
 }) {
   const [draft, setDraft] = useState(String(value));
-  useEffect(() => {
+  const [draftSource, setDraftSource] = useState(value);
+  if (draftSource !== value) {
+    setDraftSource(value);
     setDraft(String(value));
-  }, [value]);
+  }
 
   return (
     <Input
@@ -1699,7 +1620,6 @@ export function GeneralSettingsPanel() {
   const hasServerTargets = connectedEnvironments.length > 0;
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const notificationPreferences = useClientSettings((value) => value.agentNotifications);
-  const updateClientSettings = useUpdateClientSettings();
   const sendNotificationTest = useCallback(() => {
     const bridge = window.desktopBridge;
     if (!bridge || typeof bridge.showAgentNotification !== "function") return;
@@ -1756,7 +1676,11 @@ export function GeneralSettingsPanel() {
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
   );
-  const serverProviders = environment?.serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
+  const providersByEnvironment = useEnvironmentProviders();
+  const serverProviders =
+    (environment?.serverConfig
+      ? providersByEnvironment.get(environment.environmentId)
+      : undefined) ?? EMPTY_SERVER_PROVIDERS;
   const supportsAutoSettlement =
     connectedEnvironments.length > 0 &&
     connectedEnvironments.every(
@@ -3083,6 +3007,7 @@ export function GeneralSettingsPanel() {
           }
         />
         {isElectron ? <CliCommandSettingsRow /> : null}
+        <MobileAppSettingsRow />
         <SettingsRow
           {...searchableSetting("privacy-policy")}
           description={
@@ -3151,7 +3076,7 @@ export function ArchivedThreadsPanel() {
     refresh: refreshArchivedThreads,
   } = useArchivedThreadSnapshots(scope.environmentIds);
 
-  const { groups: archivedGroups, hasMultipleEnvironments } = useMemo(() => {
+  const { groups: archivedGroups, hasMultipleEnvironments } = (() => {
     const selectedProjectKeys =
       scope.kind === "project" || scope.kind === "checkout"
         ? new Set(scope.members.map((member) => `${member.environmentId}:${member.id}`))
@@ -3241,55 +3166,55 @@ export function ArchivedThreadsPanel() {
       }),
     }));
     return { groups: sortedGroups, hasMultipleEnvironments };
-  }, [archivedSnapshots, environments, projectGroups, scope]);
+  })();
 
-  const handleArchivedThreadContextMenu = useCallback(
-    async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
-      const api = readLocalApi();
-      if (!api) return;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "unarchive", label: "Unarchive" },
-          { id: "delete", label: "Delete", destructive: true },
-        ],
-        position,
-      );
+  const handleArchivedThreadContextMenu = async (
+    threadRef: ScopedThreadRef,
+    position: { x: number; y: number },
+  ) => {
+    const api = readLocalApi();
+    if (!api) return;
+    const clicked = await api.contextMenu.show(
+      [
+        { id: "unarchive", label: "Unarchive" },
+        { id: "delete", label: "Delete", destructive: true },
+      ],
+      position,
+    );
 
-      if (clicked === "unarchive") {
-        const result = await unarchiveThread(threadRef);
-        if (result._tag === "Success") {
-          refreshArchivedThreads();
-        } else if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to unarchive thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-        return;
+    if (clicked === "unarchive") {
+      const result = await unarchiveThread(threadRef);
+      if (result._tag === "Success") {
+        refreshArchivedThreads();
+      } else if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to unarchive thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
       }
+      return;
+    }
 
-      if (clicked === "delete") {
-        const result = await confirmAndDeleteThread(threadRef);
-        if (result._tag === "Success") {
-          refreshArchivedThreads();
-        } else if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to delete thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
+    if (clicked === "delete") {
+      const result = await confirmAndDeleteThread(threadRef);
+      if (result._tag === "Success") {
+        refreshArchivedThreads();
+      } else if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to delete thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
       }
-    },
-    [confirmAndDeleteThread, refreshArchivedThreads, unarchiveThread],
-  );
+    }
+  };
 
   return (
     <SettingsPageContainer>
@@ -3360,16 +3285,16 @@ export function ArchivedThreadsPanel() {
                 description={
                   <span className={hasMultipleEnvironments ? "block truncate" : undefined}>
                     {hasMultipleEnvironments ? `${thread.environmentLabel} · ` : null}
-                    Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
+                    Archived <RelativeTime timestamp={thread.archivedAt ?? thread.createdAt} />
                     {" \u00b7 Created "}
-                    {formatRelativeTimeLabel(thread.createdAt)}
+                    <RelativeTime timestamp={thread.createdAt} />
                   </span>
                 }
                 control={
                   <Button
                     type="button"
                     variant="outline"
-                    size="xs"
+                    size="sm"
                     className="shrink-0"
                     onClick={() => {
                       void (async () => {

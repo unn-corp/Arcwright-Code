@@ -4,7 +4,8 @@ import {
   classifyRelease as publisherClassify,
   selectUpdateCandidate as publisherSelect,
 } from "../../../scripts/fork-release-policy.ts";
-import type { ForkReleaseManifest } from "@t3tools/contracts";
+import { ForkReleaseManifest } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import {
   classifyForkRelease,
   compareForkVersions,
@@ -79,7 +80,7 @@ function release(
   ];
   const manifest: ForkReleaseManifest = {
     format: 1,
-    repository: "unn-corp/t3code",
+    repository: "unn-corp/Arcwright-Code",
     version,
     commit: sourceCommit,
     channel,
@@ -472,24 +473,42 @@ describe("recovery assets", () => {
 });
 
 describe("release origin", () => {
+  it("accepts both names of the same renamed repository and rejects foreign manifests", () => {
+    const manifest = release("1.0.1").manifest!;
+    const decode = Schema.decodeUnknownSync(ForkReleaseManifest);
+    for (const repository of ["unn-corp/Arcwright-Code", "unn-corp/t3code"]) {
+      expect(decode({ ...manifest, repository }).repository).toBe(repository);
+      expect(
+        isForkReleaseUrl(`https://github.com/${repository}/releases/download/fork-v1.0.1/app.exe`),
+      ).toBe(true);
+    }
+    expect(() => decode({ ...manifest, repository: "someone/t3code" })).toThrow();
+    expect(
+      isForkReleaseUrl("https://github.com/unn-corp/t3code.evil/releases/download/fork-v1/app.exe"),
+    ).toBe(false);
+  });
   it("builds download URLs only from fork tags and plain asset names, and accepts only that origin", () => {
     expect(forkAssetUrl("fork-v1.0.1", "app.exe")).toBe(
-      "https://github.com/unn-corp/t3code/releases/download/fork-v1.0.1/app.exe",
+      "https://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.1/app.exe",
     );
     expect(() => forkAssetUrl("v1.0.1", "app.exe")).toThrow();
     expect(() => forkAssetUrl("fork-v1.0.1", "../app.exe")).toThrow();
     expect(
-      isForkReleaseUrl("https://github.com/unn-corp/t3code/releases/download/fork-v1.0.1/a"),
+      isForkReleaseUrl(
+        "https://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.1/a",
+      ),
     ).toBe(true);
     expect(
-      isForkReleaseUrl("http://github.com/unn-corp/t3code/releases/download/fork-v1.0.1/a"),
+      isForkReleaseUrl("http://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.1/a"),
     ).toBe(false);
     expect(
-      isForkReleaseUrl("https://github.com.evil.example/unn-corp/t3code/releases/download/x"),
+      isForkReleaseUrl(
+        "https://github.com.evil.example/unn-corp/Arcwright-Code/releases/download/x",
+      ),
     ).toBe(false);
-    expect(isForkReleaseUrl("https://user@github.com/unn-corp/t3code/releases/download/x")).toBe(
-      false,
-    );
+    expect(
+      isForkReleaseUrl("https://user@github.com/unn-corp/Arcwright-Code/releases/download/x"),
+    ).toBe(false);
   });
 });
 

@@ -7,6 +7,13 @@
       "upstreamSha256": "dfe597889b0e45c9efd11f4c61361c660abf4982f6689691782b9cd8ad4e0e86",
       "forkSha256": "9c4a2a0c296ba1a6007eda9d4ae34349f7dd58969d6d8dd0c9a5a117bd5dcf08",
       "reason": "Preserve project GitHub account, icon, favicon, environment mode, and auto-pull preferences when migrating historical project events. Review both versions when either source changes."
+    },
+    {
+      "upstreamPath": "apps/server/src/persistence/Migrations/063_DropUnusedV1Projections.ts",
+      "localPath": "apps/server/src/persistence/Migrations/063_DropUnusedV1Projections.ts",
+      "upstreamSha256": "7b07c04d2c3d370f18242f741530799015fe6a72f6ca0e813d4fb03355444ff8",
+      "forkSha256": "bd626fca549b10472c46afb2bbbad6d54ca5c057aedb43833cd1f99d28ed194f",
+      "reason": "Preserve V1 activity archives and checkpoint recovery data still read by the fork; upstream cleanup cannot discard installed history."
     }
   ]
 }

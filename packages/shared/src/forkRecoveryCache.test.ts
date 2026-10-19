@@ -59,7 +59,7 @@ const helperScript = (line = "recovery-helper-protocol=1") =>
 function manifest(version: string, helper: Uint8Array, node: Uint8Array): ForkReleaseManifest {
   const base = {
     format: 1 as const,
-    repository: "unn-corp/t3code" as const,
+    repository: "unn-corp/Arcwright-Code" as const,
     version,
     commit: "a".repeat(40),
     channel: "stable" as const,

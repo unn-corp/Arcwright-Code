@@ -2,7 +2,8 @@ import * as Schema from "effect/Schema";
 import { ForkUpdateChannel } from "./maintenance.ts";
 
 export const FORK_RELEASE_MANIFEST_ASSET = "fork-release.json";
-export const FORK_RELEASE_REPOSITORY = "unn-corp/t3code";
+export const FORK_RELEASE_REPOSITORY = "unn-corp/Arcwright-Code";
+export const FORK_LEGACY_RELEASE_REPOSITORY = "unn-corp/t3code";
 export const FORK_ANDROID_PACKAGE = "com.devotek.t3code.pwa";
 const FORK_ANDROID_MAX_VERSION_CODE = 2_147_483_647;
 export const ForkArtifactDigest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
@@ -40,7 +41,7 @@ export const ForkReleaseManifest = Schema.Struct({
   upstreamVersion: Schema.optionalKey(Schema.String),
   upstreamCommit: Schema.optionalKey(ForkSourceCommit),
   forkBuildNumber: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
-  repository: Schema.Literal(FORK_RELEASE_REPOSITORY),
+  repository: Schema.Literals([FORK_RELEASE_REPOSITORY, FORK_LEGACY_RELEASE_REPOSITORY]),
   version: Schema.String,
   commit: ForkSourceCommit,
   channel: ForkUpdateChannel,

@@ -80,7 +80,7 @@ export const protectedResourceMetadata = (
   authorization_servers: [urls.issuer],
   scopes_supported: MCP_OAUTH_SCOPES,
   bearer_methods_supported: ["header"],
-  resource_name: "T3 Code",
+  resource_name: "Arcwright Code",
 });
 
 export const authorizationServerMetadata = (

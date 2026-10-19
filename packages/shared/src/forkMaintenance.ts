@@ -15,8 +15,9 @@ import {
 
 const FORK_TAG_PREFIX = "fork-v";
 export const FORK_MANIFEST_ASSET = "fork-release.json";
-export const FORK_RELEASES_API = "https://api.github.com/repos/unn-corp/t3code/releases";
-export const FORK_RELEASE_DOWNLOAD_ORIGIN = "https://github.com/unn-corp/t3code/releases/download/";
+export const FORK_RELEASES_API = "https://api.github.com/repos/unn-corp/Arcwright-Code/releases";
+export const FORK_RELEASE_DOWNLOAD_ORIGIN =
+  "https://github.com/unn-corp/Arcwright-Code/releases/download/";
 /** Managed hosts check at this cadence. The desktop keeps its existing check cadence. */
 export const FORK_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 /** Desktop and standalone hosts install only after this much input and upload inactivity. */
@@ -403,7 +404,8 @@ export const isForkReleaseUrl = (value: string): boolean => {
     const url = new URL(value);
     return (
       url.protocol === "https:" &&
-      value.startsWith(FORK_RELEASE_DOWNLOAD_ORIGIN) &&
+      (value.startsWith(FORK_RELEASE_DOWNLOAD_ORIGIN) ||
+        value.startsWith("https://github.com/unn-corp/t3code/releases/download/")) &&
       url.username === "" &&
       url.password === ""
     );

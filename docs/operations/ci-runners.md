@@ -1,6 +1,6 @@
 # Organization CI runners
 
-Every GitHub Actions job in `unn-corp/t3code` requires `self-hosted`, `unn`, `unn-isolated`, and
+Every GitHub Actions job in `unn-corp/Arcwright-Code` requires `self-hosted`, `unn`, `unn-isolated`, and
 `t3-ci`, plus its operating system and CPU architecture. This covers checks, releases,
 diagnostics, screenshots, and repository automation, including retained upstream workflows
 that are guarded off in this fork. There is no GitHub-hosted or Blacksmith fallback: enabled
@@ -17,13 +17,13 @@ jobs also need isolated workers, with secrets supplied only to the authorized jo
 The fork supports **Linux x64 and Windows x64 workers**. It has no macOS or hardware ARM64
 capacity. Repository guards disable macOS native analysis and its change detector, the complete
 macOS preview pipeline, iOS screenshot capture, and native ARM64 desktop/CLI jobs on this fork.
-The retained upstream paths remain available outside `unn-corp/t3code`. `Check` accepts the
+The retained upstream paths remain available outside `unn-corp/Arcwright-Code`. `Check` accepts the
 fork's two deliberately skipped mobile native jobs; every enabled prerequisite must still pass.
 
 Android APK builds and emulator checks remain enabled on Linux x64. This hardware policy does
 not remove ARM64 APK support: Android target ABIs and the runner's CPU architecture are separate.
 
-Use the dedicated `T3 Code` organization runner group, restricted to the explicitly selected `unn-corp/t3code` and `unn-corp/Arcwright-AI` repositories. The
+Use the dedicated `T3 Code` organization runner group, restricted to the explicitly selected `unn-corp/Arcwright-Code` and `unn-corp/Arcwright-AI` repositories. The
 `t3-ci` label prevents these jobs from landing on the existing three Mothership organization
 workers. Those workers use a hardened Ubuntu 20.04 image, UID 1001, a read-only root filesystem,
 and no sudo; keep their image, storage, and workloads unchanged. Provision dedicated T3 workers

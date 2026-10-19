@@ -114,6 +114,8 @@ export type BrowserDefaultSettings = Pick<
   | "browserRecordingShowKeyPresses"
   | "browserRecordingShowMousePresses"
   | "browserLinkTarget"
+  | "browserSearchEngine"
+  | "browserCustomSearchUrl"
   | "browserAutoShowFloatingPreview"
   | "pullRequestLinksOpenInApp"
 >;
@@ -152,12 +154,16 @@ export function getChangedBrowserSettingLabels(settings: BrowserDefaultSettings)
     ...(settings.browserLinkTarget !== DEFAULT_UNIFIED_SETTINGS.browserLinkTarget
       ? ["Open links in"]
       : []),
+    ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ||
+    settings.browserCustomSearchUrl !== DEFAULT_UNIFIED_SETTINGS.browserCustomSearchUrl
+      ? ["Search engine"]
+      : []),
     ...(settings.browserAutoShowFloatingPreview !==
     DEFAULT_UNIFIED_SETTINGS.browserAutoShowFloatingPreview
       ? ["Floating preview"]
       : []),
     ...(settings.pullRequestLinksOpenInApp !== DEFAULT_UNIFIED_SETTINGS.pullRequestLinksOpenInApp
-      ? ["Open pull requests in T3 Code"]
+      ? ["Open pull requests in Arcwright Code"]
       : []),
   ];
 }

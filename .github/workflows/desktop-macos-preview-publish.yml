@@ -284,7 +284,7 @@ jobs:
   build:
     name: Package and sign macOS arm64 preview
     needs: resolve
-    if: github.repository != 'unn-corp/t3code' && needs.resolve.outputs.eligible == 'true'
+    if: (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && needs.resolve.outputs.eligible == 'true'
     concurrency:
       group: desktop-macos-preview-${{ needs.resolve.outputs.pr_number }}-build
       cancel-in-progress: true
@@ -326,7 +326,7 @@ jobs:
   publish:
     name: Publish anonymous download
     needs: [resolve, build]
-    if: github.repository != 'unn-corp/t3code' && needs.resolve.outputs.eligible == 'true' && needs.build.result == 'success'
+    if: (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && needs.resolve.outputs.eligible == 'true' && needs.build.result == 'success'
     runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     # Its own group, so a publish never cancels a newer commit's signing job

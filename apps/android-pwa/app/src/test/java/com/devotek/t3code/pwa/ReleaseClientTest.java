@@ -7,8 +7,8 @@ import org.junit.Test;
 
 public final class ReleaseClientTest {
     @Test public void staysOnGitHubReleaseHostsOverHttps() {
-        assertTrue(ReleaseClient.allowed(HttpUrl.get("https://github.com/unn-corp/t3code/releases/download/v1/app.apk")));
-        assertTrue(ReleaseClient.allowed(HttpUrl.get("https://api.github.com/repos/unn-corp/t3code/releases")));
+        assertTrue(ReleaseClient.allowed(HttpUrl.get("https://github.com/unn-corp/Arcwright-Code/releases/download/v1/app.apk")));
+        assertTrue(ReleaseClient.allowed(HttpUrl.get("https://api.github.com/repos/unn-corp/Arcwright-Code/releases")));
         assertTrue(ReleaseClient.allowed(HttpUrl.get("https://objects.githubusercontent.com/github-production-release-asset/abc")));
         assertTrue(ReleaseClient.allowed(HttpUrl.get("https://release-assets.githubusercontent.com/x")));
     }
@@ -18,7 +18,7 @@ public final class ReleaseClientTest {
             assertFalse(url, ReleaseClient.allowed(HttpUrl.get(url)));
     }
     @Test public void buildsAssetUrlsFromValidatedPartsOnly() {
-        assertEquals("https://github.com/unn-corp/t3code/releases/download/v1.0.1-nightly.1/fork-release.json",
+        assertEquals("https://github.com/unn-corp/Arcwright-Code/releases/download/v1.0.1-nightly.1/fork-release.json",
             ReleaseClient.assetUrl("v1.0.1-nightly.1", ReleaseManifest.ASSET_NAME).toString());
         assertNull(ReleaseClient.assetUrl("../v1", "a.apk"));
         assertNull(ReleaseClient.assetUrl("v1/evil", "a.apk"));

@@ -31,7 +31,7 @@ final class Fixtures {
         JSONArray assets = new JSONArray()
             .put(new JSONObject().put("name", NORMAL_ASSET).put("sha256", NORMAL_SHA).put("bytes", 1000).put("kind", "android").put("platform", "android"))
             .put(new JSONObject().put("name", RECOVERY_ASSET).put("sha256", RECOVERY_SHA).put("bytes", 2000).put("kind", "android-recovery").put("platform", "android"));
-        return new JSONObject().put("format", 1).put("repository", "unn-corp/t3code").put("version", "1.0.1").put("commit", COMMIT)
+        return new JSONObject().put("format", 1).put("repository", "unn-corp/Arcwright-Code").put("version", "1.0.1").put("commit", COMMIT)
             .put("channel", "nightly").put("releasedAt", Iso8601.format(NOW - 3_600_000L)).put("assets", assets)
             .put("android", new JSONObject().put("normal", artifact(NORMAL_ASSET, NORMAL_CODE, "1.0.1", COMMIT))
                 .put("recovery", artifact(RECOVERY_ASSET, RECOVERY_CODE, "1.0.0", PREVIOUS_COMMIT)))

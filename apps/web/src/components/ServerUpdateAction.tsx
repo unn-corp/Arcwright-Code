@@ -19,6 +19,7 @@ import type {
 import type { ServerUpdateStage, ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import {
   isAtomCommandInterrupted,
+  settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { CircleArrowUpIcon } from "lucide-react";
@@ -145,7 +146,7 @@ export function ServerUpdatesAction({
     if (pending.current) return;
     pending.current = true;
     setIsPending(true);
-    try {
+    await settlePromise(async () => {
       const available = eligible.filter(
         (target) => !pendingUpdateEnvironmentIds.has(target.environmentId),
       );
@@ -156,10 +157,9 @@ export function ServerUpdatesAction({
           title: result.label,
           description: result.message,
         });
-    } finally {
-      pending.current = false;
-      setIsPending(false);
-    }
+    });
+    pending.current = false;
+    setIsPending(false);
   };
   return (
     <Button
@@ -235,7 +235,7 @@ export function ServerUpdateAction({
     return (
       <a
         className="text-xs underline"
-        href="https://github.com/unn-corp/t3code/blob/main/docs/user/updating.md"
+        href="https://github.com/unn-corp/Arcwright-Code/blob/main/docs/user/updating.md"
         target="_blank"
         rel="noreferrer"
       >
@@ -323,25 +323,26 @@ export function OutdatedServerUpdateAction({
     )
       return;
     pendingUpdateEnvironmentIds.add(environmentId);
-    try {
-      const result = await update({
-        environmentId,
-        input: { targetVersion },
-        ...(fromVersion === undefined ? {} : { fromVersion }),
-      });
-      if (result._tag === "Failure") {
-        if (isAtomCommandInterrupted(result)) return;
-        throw squashAtomCommandFailure(result);
-      }
-    } catch (error) {
+    const result = await update({
+      environmentId,
+      input: { targetVersion },
+      ...(fromVersion === undefined ? {} : { fromVersion }),
+    });
+    pendingUpdateEnvironmentIds.delete(environmentId);
+    if (result._tag === "Failure") {
+      if (isAtomCommandInterrupted(result)) return;
       toastManager.add({
         type: "error",
         title: `${serverLabel}: updater bootstrap required`,
-        description: updateFailureMessage(error),
+        description: updateFailureMessage(squashAtomCommandFailure(result)),
       });
-    } finally {
-      pendingUpdateEnvironmentIds.delete(environmentId);
+      return;
     }
+    toastManager.add({
+      type: "success",
+      title: `${serverLabel} updated`,
+      description: `Reconnected on t3@${result.value.targetVersion}.`,
+    });
   };
   return (
     <Button

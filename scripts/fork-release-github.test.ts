@@ -691,7 +691,7 @@ describe("GitHub REST client", () => {
       }));
     const api = createGitHubApi({
       token: "tok",
-      repository: "unn-corp/t3code",
+      repository: "unn-corp/Arcwright-Code",
       fetch: respond((url) => ({
         status: 200,
         body: url.endsWith("&page=1") ? page(100) : page(7),
@@ -703,7 +703,7 @@ describe("GitHub REST client", () => {
     assert.equal(recorded[0]!.headers.Authorization, "Bearer tok");
     assert.include(
       recorded[0]!.url,
-      "https://api.github.com/repos/unn-corp/t3code/releases?per_page=100&page=1",
+      "https://api.github.com/repos/unn-corp/Arcwright-Code/releases?per_page=100&page=1",
     );
   });
 
@@ -715,7 +715,7 @@ describe("GitHub REST client", () => {
       }));
       const api = createGitHubApi({
         token: "tok",
-        repository: "unn-corp/t3code",
+        repository: "unn-corp/Arcwright-Code",
         fetch: respond(() => ({
           status: recorded.length === 1 ? 200 : 500,
           body: refs,
@@ -728,7 +728,7 @@ describe("GitHub REST client", () => {
       assert.equal(recorded.length, 1);
       assert.equal(
         recorded[0]!.url,
-        "https://api.github.com/repos/unn-corp/t3code/git/matching-refs/tags/fork-android-code-",
+        "https://api.github.com/repos/unn-corp/Arcwright-Code/git/matching-refs/tags/fork-android-code-",
       );
     },
   );
@@ -736,7 +736,7 @@ describe("GitHub REST client", () => {
   it("treats a duplicate ref as a lost race and a missing tag as absent, but surfaces real errors", async () => {
     const api = createGitHubApi({
       token: "tok",
-      repository: "unn-corp/t3code",
+      repository: "unn-corp/Arcwright-Code",
       fetch: respond((url, method) => {
         if (method === "POST")
           return { status: 422, body: { message: "Reference already exists" } };
@@ -755,7 +755,7 @@ describe("GitHub REST client", () => {
   it("creates drafts pinned to the exact commit and publishes with the intended latest flag", async () => {
     const api = createGitHubApi({
       token: "tok",
-      repository: "unn-corp/t3code",
+      repository: "unn-corp/Arcwright-Code",
       fetch: respond(() => ({
         status: 200,
         body: { id: 5, tag_name: "fork-v1.0.0", assets: [] },

@@ -45,7 +45,7 @@ jobs:
   ios:
     name: iPhone 6.9, iPhone 6.5, and iPad 13
     # The fork has no macOS capacity; Android capture remains available.
-    if: github.repository != 'unn-corp/t3code' && (inputs.platform == 'all' || inputs.platform == 'ios')
+    if: (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') && (inputs.platform == 'all' || inputs.platform == 'ios')
     runs-on: [self-hosted, macOS, arm64, unn, unn-isolated, t3-ci]
     # Capturing every palette multiplies the device matrix by six, and only the
     # one native build is shared between them.

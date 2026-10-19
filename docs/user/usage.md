@@ -81,8 +81,9 @@ the dialog.
 **Usage → Limits** pools subscription accounts per provider on the selected connection, so with several Codex
 or Claude accounts and hubs you read one number per window rather than a
 list. Each window card shows how much of the pool is left and a bar with one segment per account,
-kept in the same column across windows. Accounts are ordered by their 5-hour reset, soonest
-first, or by the first available window when no account reports a 5-hour limit. A gap means the
+kept in the same column across windows. Accounts are ordered by their next 5-hour refill, soonest
+first. For an account with no weekly quota left, this is when its session becomes usable again.
+The first available window is used when no account reports a 5-hour limit. A gap means the
 account does not report that window. When the provider reports reset times, the card also says
 when the next reset lands and how much it hands back. The hatched
 part of a segment is what that reset restores. Tap a segment or account row for the account's plan,
@@ -101,7 +102,13 @@ Actual errors from the current connection remain visible.
 The same account reported by both a provider and a hub on that connection counts once.
 The upstream React Native mobile client retains its separate environment-pooling view.
 
-Opening Limits checks the current connection automatically when it is connected. Each client waits at
+When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
+shows 0% left. The next refill depends on both reset times: an exhausted session must also reset,
+and a partly spent session may only regain its unused portion when the week resets. Missing or
+stale reset times have no refill estimate; refresh Limits for a new reading. Claude's
+model-specific weekly allowances keep their reported values.
+
+Opening Limits checks the current connection automatically. Each client waits at
 least five minutes between automatic checks of an environment, including after a failed check.
 If a window still looks stale, refresh Limits to re-check its providers and hubs.
 

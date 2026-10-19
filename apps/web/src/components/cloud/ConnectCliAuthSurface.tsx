@@ -1,6 +1,6 @@
 import { useAuth, useClerk } from "@clerk/react";
 import { readConnectAuthorizeRequest } from "@t3tools/shared/connectAuth";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
   buildConnectCliClerkAuthorizeUrl,
@@ -58,7 +58,7 @@ function HostedConnectCliAuthorizeSurface() {
   const signInOpened = useRef(false);
   const redirecting = useRef(false);
 
-  const openSignIn = useCallback(() => {
+  const openSignIn = () => {
     if (!request) {
       return;
     }
@@ -68,7 +68,8 @@ function HostedConnectCliAuthorizeSurface() {
         isElectron,
       ),
     );
-  }, [clerk, request]);
+  };
+  const openSignInOnLoad = useEffectEvent(openSignIn);
 
   useEffect(() => {
     if (!request || !isLoaded || redirecting.current) {
@@ -77,7 +78,7 @@ function HostedConnectCliAuthorizeSurface() {
     if (!isSignedIn) {
       if (!signInOpened.current) {
         signInOpened.current = true;
-        openSignIn();
+        openSignInOnLoad();
       }
       return;
     }
@@ -87,7 +88,7 @@ function HostedConnectCliAuthorizeSurface() {
     }
     redirecting.current = true;
     window.location.assign(authorizeUrl);
-  }, [isLoaded, isSignedIn, openSignIn, request]);
+  }, [isLoaded, isSignedIn, request]);
 
   if (!request) {
     return (

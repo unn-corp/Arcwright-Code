@@ -3,7 +3,7 @@
 > For maintainers. Using Arcwright Code? See [docs/user](../user/).
 
 This document covers the retained upstream release workflow, which is guarded off in
-`unn-corp/t3code`. The fork uses the [fork release pipeline](./fork-releases.md), with dedicated
+`unn-corp/Arcwright-Code`. The fork uses the [fork release pipeline](./fork-releases.md), with dedicated
 isolated Linux x64 and Windows x64 workers plus Android validation on Linux x64. macOS and
 hardware ARM64 jobs are disabled on this fork; upstream platform paths described below remain
 intact. All enabled jobs use [organization self-hosted runners](./ci-runners.md).
@@ -65,7 +65,7 @@ the version.
 
 ## Pull request macOS previews
 
-The complete preview producer and consumer are disabled on `unn-corp/t3code`, including
+The complete preview producer and consumer are disabled on `unn-corp/Arcwright-Code`, including
 publication and cleanup, because the fork has no macOS workers. The following describes the
 retained upstream flow.
 

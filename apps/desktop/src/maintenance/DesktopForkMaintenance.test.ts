@@ -106,7 +106,7 @@ function releaseOf(
   ];
   const manifest: ForkReleaseManifest = {
     format: 1,
-    repository: "unn-corp/t3code",
+    repository: "unn-corp/Arcwright-Code",
     version,
     commit: sourceCommit,
     channel,

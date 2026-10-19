@@ -392,7 +392,7 @@ describe("fork CI platform capacity", () => {
           );
           if (!host.has("macos") && !host.has("arm64")) continue;
           unsupported.push(`${file}/${name}`);
-          expect(admitsJob(job, "unn-corp/t3code", job.with)).toBe(false);
+          expect(admitsJob(job, "unn-corp/Arcwright-Code", job.with)).toBe(false);
           expect(admitsJob(job, "pingdotgg/t3code", job.with)).toBe(true);
         }
       }
@@ -407,13 +407,13 @@ describe("fork CI platform capacity", () => {
     const workflows = loadWorkflows();
     // Upstream consolidated native change detection into the shared changes job.
     const analysis = workflows["ci.yml"]!.jobs.mobile_native_static_analysis!;
-    expect(admitsJob(analysis, "unn-corp/t3code")).toBe(false);
+    expect(admitsJob(analysis, "unn-corp/Arcwright-Code")).toBe(false);
     expect(admitsJob(analysis, "pingdotgg/t3code")).toBe(true);
     for (const [file, workflow] of Object.entries(workflows)) {
       if (!file.startsWith("desktop-macos-preview")) continue;
       for (const [name, job] of Object.entries(workflow.jobs)) {
         const event = name === "cleanup" ? "pull_request_target" : "workflow_run";
-        expect(admitsJob(job, "unn-corp/t3code", {}, event)).toBe(false);
+        expect(admitsJob(job, "unn-corp/Arcwright-Code", {}, event)).toBe(false);
         expect(admitsJob(job, "pingdotgg/t3code", {}, event)).toBe(true);
       }
     }
@@ -431,7 +431,7 @@ describe("fork CI platform capacity", () => {
       ["windows", "x64", "mac", "x64"],
     ]) {
       const inputs = { runner, runner_arch, platform, arch };
-      expect(admitsJob(build, "unn-corp/t3code", inputs)).toBe(false);
+      expect(admitsJob(build, "unn-corp/Arcwright-Code", inputs)).toBe(false);
       expect(admitsJob(build, "pingdotgg/t3code", inputs)).toBe(true);
     }
     for (const [runner, platform] of [
@@ -439,7 +439,7 @@ describe("fork CI platform capacity", () => {
       ["windows", "win"],
     ]) {
       expect(
-        admitsJob(build, "unn-corp/t3code", {
+        admitsJob(build, "unn-corp/Arcwright-Code", {
           runner,
           runner_arch: "x64",
           platform,
@@ -453,18 +453,21 @@ describe("fork CI platform capacity", () => {
     const workflows = loadWorkflows();
     for (const file of ["fork-release.yml", "fork-baseline.yml"]) {
       for (const name of ["desktop_linux_x64", "desktop_win_x64", "android"]) {
-        expect(admitsJob(workflows[file]!.jobs[name]!, "unn-corp/t3code")).toBe(true);
+        expect(admitsJob(workflows[file]!.jobs[name]!, "unn-corp/Arcwright-Code")).toBe(true);
       }
     }
     expect(
-      admitsJob(workflows["mobile-showcase-screenshots.yml"]!.jobs.android!, "unn-corp/t3code"),
+      admitsJob(
+        workflows["mobile-showcase-screenshots.yml"]!.jobs.android!,
+        "unn-corp/Arcwright-Code",
+      ),
     ).toBe(true);
     const android: Job = {
       "runs-on": labels(),
       strategy: { matrix: { apk_abi: ["arm64-v8a", "armeabi-v7a", "x86_64"] } },
     };
     verifyRunners({ "android.yml": { jobs: { apk: android } } });
-    expect(admitsJob(android, "unn-corp/t3code")).toBe(true);
+    expect(admitsJob(android, "unn-corp/Arcwright-Code")).toBe(true);
   });
 
   it("uses preinstalled browser OS libraries instead of privileged runtime installation", () => {
@@ -509,13 +512,15 @@ describe("fork CI platform capacity", () => {
         encoding: "utf8",
       });
     };
-    const admitted = runGate("unn-corp/t3code", fork);
+    const admitted = runGate("unn-corp/Arcwright-Code", fork);
     expect(admitted.error).toBeUndefined();
     expect(admitted.status, admitted.stderr).toBe(0);
     for (const name of check.needs) {
       for (const result of ["failure", "cancelled", "skipped"]) {
         if (result === "skipped" && disabled.has(name)) continue;
-        expect(runGate("unn-corp/t3code", { ...fork, [name]: { result } }).status).not.toBe(0);
+        expect(runGate("unn-corp/Arcwright-Code", { ...fork, [name]: { result } }).status).not.toBe(
+          0,
+        );
       }
     }
     expect(runGate("pingdotgg/t3code", fork).status).not.toBe(0);

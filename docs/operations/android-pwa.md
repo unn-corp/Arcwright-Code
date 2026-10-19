@@ -338,7 +338,7 @@ before phone localhost sharing can be used.
 
 ## In-app updates and recovery
 
-The APK updates itself from `unn-corp/t3code` GitHub releases. The native updater is
+The APK updates itself from `unn-corp/Arcwright-Code` GitHub releases. The native updater is
 [UpdateEngine.java](../../apps/android-pwa/app/src/main/java/com/devotek/t3code/pwa/UpdateEngine.java);
 the shell reaches it through `NativeUpdateController` (the origin-restricted `t3Updates` bridge)
 and the web adapter [updates.ts](../../apps/web/src/android/updates.ts). Android is a device of its

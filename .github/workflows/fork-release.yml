@@ -1,6 +1,6 @@
 name: Fork release
 
-# Fork-owned nightly and stable releases of unn-corp/t3code. This is deliberately separate from
+# Fork-owned nightly and stable releases of unn-corp/Arcwright-Code. This is deliberately separate from
 # release.yml, which publishes upstream's npm, web, relay, AUR, and announcement targets and is
 # guarded off in this fork. Nothing here publishes anywhere but this repository's GitHub releases.
 #
@@ -67,7 +67,7 @@ jobs:
   # Fixes every identity the run needs. Later jobs read these outputs and never re-select.
   plan:
     name: Plan release
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.FORK_RELEASES_ENABLED == 'true')
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.FORK_RELEASES_ENABLED == 'true')
     runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 15
     permissions:

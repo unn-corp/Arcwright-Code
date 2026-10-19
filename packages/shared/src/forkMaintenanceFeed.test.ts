@@ -63,7 +63,7 @@ describe("GitHub release feed cooldown", () => {
                         name: "fork-release.json",
                         size: 1,
                         browser_download_url:
-                          "https://github.com/unn-corp/t3code/releases/download/fork-v1.0.1/fork-release.json",
+                          "https://github.com/unn-corp/Arcwright-Code/releases/download/fork-v1.0.1/fork-release.json",
                       },
                     ],
                   },

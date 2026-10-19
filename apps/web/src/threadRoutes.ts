@@ -24,7 +24,7 @@ type DraftThreadRouteState = {
 export type ThreadRouteRenderState = "loading" | "ready" | "missing";
 
 export function isThreadRouteSnapshotAuthoritative(
-  status: EnvironmentShellStatus | undefined,
+  status: EnvironmentShellStatus | null | undefined,
 ): boolean {
   return status === "live";
 }
@@ -52,6 +52,12 @@ export function buildThreadRouteParams(ref: ScopedThreadRef): {
     environmentId: ref.environmentId,
     threadId: ref.threadId,
   };
+}
+
+/** Whether a (decoded) location pathname is `ref`'s own thread route, `/$environmentId/$threadId`. */
+export function isThreadRoutePathname(pathname: string, ref: ScopedThreadRef): boolean {
+  const { environmentId, threadId } = buildThreadRouteParams(ref);
+  return pathname.replace(/\/$/, "") === `/${environmentId}/${threadId}`;
 }
 
 export function buildDraftThreadRouteParams(draftId: DraftId): {

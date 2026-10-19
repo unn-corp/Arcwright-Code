@@ -19,13 +19,13 @@ launch Arcwright Code and configure providers afterwards.
 ## Command line
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unn-corp/t3code/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/unn-corp/Arcwright-Code/main/scripts/install.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/unn-corp/t3code/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/unn-corp/Arcwright-Code/main/scripts/install.ps1 | iex
 ```
 
 These require a commissioned fork updater baseline and an eligible published fork release.
@@ -65,7 +65,7 @@ upstream Arcwright Code, with its own release/update behavior.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/unn-corp/t3code/releases),
+Download a release from [GitHub Releases](https://github.com/unn-corp/Arcwright-Code/releases),
 or use a package manager:
 
 | Platform           | Install                            |
@@ -117,7 +117,8 @@ Install Arcwright Code from the
 The phone connects to a server on another machine. Follow
 [remote access](./remote-access.md) to link it through Arcwright Connect or a pairing URL.
 
-The store apps work with both stable and Nightly servers. Test builds are optional:
+Store links and QR codes are also available in **Settings → General → Mobile app**
+on web and desktop. The store apps work with both stable and Nightly servers. Test builds are optional:
 
 - **iPhone and iPad:** TestFlight is invite-only.
 - **Android:** download an APK from the

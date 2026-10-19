@@ -38,7 +38,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
       const checksum = NodeCrypto.createHash("sha256").update(archive).digest("hex");
       const manifest = JSON.stringify({
         format: 1,
-        repository: "unn-corp/t3code",
+        repository: "unn-corp/Arcwright-Code",
         version,
         checks: { build: true, install: true, update: true, recovery: true },
         assets: [{ name: archiveName, kind: "server", bytes: archive.length, sha256: checksum }],
@@ -88,7 +88,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
         `#!${process.execPath}
 const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2).map((arg) => {
-  if (arg === ${JSON.stringify(`https://api.github.com/repos/unn-corp/t3code/releases/tags/fork-v${version}`)})
+  if (arg === ${JSON.stringify(`https://api.github.com/repos/unn-corp/Arcwright-Code/releases/tags/fork-v${version}`)})
     return ${JSON.stringify(`${baseUrl}/release.json`)};
   if (/^https?:/.test(arg) && !arg.startsWith(${JSON.stringify(`${baseUrl}/`)})) process.exit(2);
   return arg;

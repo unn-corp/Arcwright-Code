@@ -13,7 +13,7 @@ import org.json.JSONObject;
  * so a malformed release can never become an eligible update.
  */
 final class ReleaseManifest {
-    static final String REPOSITORY = "unn-corp/t3code";
+    static final String REPOSITORY = "unn-corp/Arcwright-Code";
     static final String PACKAGE = "com.devotek.t3code.pwa";
     /** Release asset that carries this JSON. Both the release workflow and this client use it. */
     static final String ASSET_NAME = BuildConfig.FORK_RELEASE_MANIFEST_ASSET;
@@ -90,7 +90,7 @@ final class ReleaseManifest {
         try {
             JSONObject root = new JSONObject(json);
             if (integer(root, "format") != 1) throw new Invalid("Unsupported release format");
-            if (!REPOSITORY.equals(string(root, "repository"))) throw new Invalid("Release belongs to another repository");
+            if (!REPOSITORY.equals(string(root, "repository")) && !"unn-corp/t3code".equals(string(root, "repository"))) throw new Invalid("Release belongs to another repository");
             String channel = string(root, "channel");
             if (!"stable".equals(channel) && !"nightly".equals(channel)) throw new Invalid("Unknown release channel");
             String releasedAt = string(root, "releasedAt");

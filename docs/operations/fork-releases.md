@@ -7,7 +7,7 @@
 > recovery described below apply to native Android/service maintenance and legacy
 > transactions. This does not authorize an agent to install over a running chat.
 
-How `unn-corp/t3code` builds, validates, publishes, withdraws, and recovers its own nightly and
+How `unn-corp/Arcwright-Code` builds, validates, publishes, withdraws, and recovers its own nightly and
 stable releases. Upstream's [release process](./release.md) publishes npm, web, relay, AUR, and
 announcement targets and is guarded off in this fork. The fork pipeline publishes only GitHub
 releases in this repository. Device behavior (what an installation does with a release) is in the
@@ -176,7 +176,7 @@ nightlies but take a stable that outranks them. The rules live in
 ## GitHub build storage retention
 
 **Hard rule:** keep only the newest **five published nightlies** and newest **five
-stable/main releases** in `unn-corp/t3code`. If a channel has fewer than five, keep
+stable/main releases** in `unn-corp/Arcwright-Code`. If a channel has fewer than five, keep
 all of them. Release assets are the retained build copies. Completed Actions
 artifacts, including candidate/predecessor/final archives and platform packages,
 are intermediates and are removed after their workflow completes. Active workflow

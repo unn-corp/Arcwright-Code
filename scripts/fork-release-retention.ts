@@ -10,7 +10,7 @@ import {
 } from "./fork-release-policy.ts";
 
 export const RETAINED_BUILDS_PER_CHANNEL = 5;
-export const RETENTION_REPOSITORY = "unn-corp/t3code";
+export const RETENTION_REPOSITORY = "unn-corp/Arcwright-Code";
 export interface RetentionRun {
   readonly id: number;
   readonly status: string;

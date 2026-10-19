@@ -2,7 +2,7 @@ import { useManagedAuth } from "../../auth/managedAuthContext";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogPanel } from "../ui/dialog";
 import { ServerIcon, SmartphoneIcon } from "lucide-react";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MobileClientsUserProfilePage } from "./MobileClientsUserProfilePage";
@@ -39,7 +39,7 @@ export function useT3ConnectAccountPage(): {
   const [nativePage, setNativePage] = useState<string>("t3-connect");
   const [targets, setTargets] = useState<PortalTargets>({});
 
-  const open = useCallback(() => {
+  const open = () => {
     if (surface === "android") {
       setNativePage("t3-connect");
       setNativeOpen(true);
@@ -58,7 +58,7 @@ export function useT3ConnectAccountPage(): {
       })),
       "/t3-connect",
     );
-  }, [openAccountPages, surface]);
+  };
 
   const portals = T3_CONNECT_ACCOUNT_PAGES.flatMap((page) => {
     const content = targets[`content:${page.url}`];

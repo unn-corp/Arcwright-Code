@@ -113,7 +113,7 @@ jobs:
     name: Build ${{ inputs.label }}
     # Fork releases support Linux/Windows x64 only, including the host architecture.
     if: >-
-      github.repository != 'unn-corp/t3code' ||
+      (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') ||
       ((inputs.runner == 'linux' || inputs.runner == 'windows') &&
       inputs.runner_arch == 'x64' &&
       (inputs.platform == 'linux' || inputs.platform == 'win') &&
@@ -564,6 +564,9 @@ jobs:
           # the runner, and only exact versions have a dist directory. Keep in
           # step with SEA_NODE_VERSION in apps/server/vite.config.ts.
           VP_NODE_VERSION: "26.8.2"
+          # The executable bundles the server again, so it needs the same stamp
+          # as release.yml's JS bundle.
+          T3CODE_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && inputs.release_channel || 'dev' }}
         run: node apps/server/scripts/cli.ts build-exe --verbose
 
       - name: Import macOS signing certificate for the CLI archive
@@ -646,7 +649,7 @@ jobs:
       # Keep a failing Windows SEA available for diagnosis on real hardware. This name is
       # excluded from assembly; the failed smoke step still blocks normal artifact publication.
       - name: Upload failed Windows CLI for diagnosis
-        if: failure() && github.repository == 'unn-corp/t3code' && inputs.platform == 'win' && steps.cli_smoke.outcome == 'failure'
+        if: failure() && (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && inputs.platform == 'win' && steps.cli_smoke.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: diagnostic-cli-win-${{ inputs.arch }}

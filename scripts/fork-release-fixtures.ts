@@ -66,7 +66,7 @@ export const makeManifest = (options: ManifestOptions): ForkReleaseManifest => {
   const normalCode = options.normalCode ?? 29_853_679;
   return {
     format: 1,
-    repository: "unn-corp/t3code",
+    repository: "unn-corp/Arcwright-Code",
     version: options.version,
     commit,
     channel,

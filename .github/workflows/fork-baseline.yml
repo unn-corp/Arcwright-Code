@@ -25,7 +25,7 @@ permissions:
 jobs:
   plan:
     name: Pin manual baseline
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main'
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 10
     permissions:

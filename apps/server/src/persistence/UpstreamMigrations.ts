@@ -62,6 +62,9 @@ import Migration0105 from "./Migrations/060_ThreadSnapshotWindowIndexes.ts";
 import Migration0106 from "./Migrations/061_PullRequestReviewGuides.ts";
 import Migration0108 from "./Migrations/062_ThreadFailureLookupIndex.ts";
 
+import Migration0110 from "./Migrations/063_DropUnusedV1Projections.ts";
+import Migration0111 from "./Migrations/064_CanonicalizeThreadPullRequestLinks.ts";
+
 export const upstreamMigrationEntries = [
   [1, 1, "OrchestrationEvents", Migration0001],
   [2, 2, "OrchestrationCommandReceipts", Migration0002],
@@ -125,4 +128,6 @@ export const upstreamMigrationEntries = [
   [60, 105, "ThreadSnapshotWindowIndexes", Migration0105],
   [61, 106, "PullRequestReviewGuides", Migration0106],
   [62, 108, "ThreadFailureLookupIndex", Migration0108],
+  [63, 110, "DropUnusedV1Projections", Migration0110],
+  [64, 111, "CanonicalizeThreadPullRequestLinks", Migration0111],
 ] as const;

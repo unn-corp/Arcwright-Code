@@ -7,6 +7,7 @@ import { Command, GlobalFlag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import * as ServerConfig from "../config.ts";
+import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { runServer } from "../server.ts";
 import { ensureOrganizationScopeLaunchBroker } from "../organizations/OrganizationScopeLaunchBrokerBootstrap.ts";
 import { OrganizationScopeRecoveryError } from "../organizations/OrganizationScopeRecoveryStore.ts";
@@ -40,7 +41,15 @@ const runServerCommand = (
         }),
       ),
     );
-    return yield* runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
+    const run = runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
+    if (config.mode !== "desktop" || config.desktopBootstrapToken === undefined) return yield* run;
+    return yield* Effect.raceFirst(
+      run,
+      awaitLauncherLoss().pipe(
+        // End like SIGTERM does (interrupt-only exit, so the runtime forces process exit).
+        Effect.andThen(Effect.interrupt),
+      ),
+    );
   });
 
 export const runDefaultServerCommand = (flags: CliServerFlags) =>

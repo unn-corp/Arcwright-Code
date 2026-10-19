@@ -31,7 +31,7 @@ function makeRelease(version: string): ForkReleaseRecord & { manifest: ForkRelea
   });
   const manifest: ForkReleaseManifest = {
     format: 1,
-    repository: "unn-corp/t3code",
+    repository: "unn-corp/Arcwright-Code",
     version,
     commit,
     channel: version.includes("nightly") ? "nightly" : "stable",

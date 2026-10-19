@@ -16,7 +16,7 @@
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "unn-corp/t3code"
+$repo = "unn-corp/Arcwright-Code"
 $baseUrl = if ($env:T3CODE_RELEASE_BASE_URL) { $env:T3CODE_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
 $t3Home = if ($env:T3CODE_HOME) { $env:T3CODE_HOME } else { Join-Path $HOME ".t3" }
 $binDir = if ($env:T3CODE_INSTALL_BIN_DIR) { $env:T3CODE_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }
@@ -182,7 +182,7 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
     Fetch "$baseUrl/fork-v$version/fork-release.json" (Join-Path $staging "fork-release.json")
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/fork-v$version" -Headers @{ "User-Agent" = "t3-install" }
     $manifest = Get-Content (Join-Path $staging "fork-release.json") -Raw | ConvertFrom-Json
-    if ($release.draft -or -not $release.published_at -or $release.body -match "(?m)^<!-- t3-fork-release:withdrawn" -or $manifest.format -ne 1 -or $manifest.repository -ne $repo -or $manifest.version -ne $version) { Fail "fork release is withdrawn or ineligible" }
+    if ($release.draft -or -not $release.published_at -or $release.body -match "(?m)^<!-- t3-fork-release:withdrawn" -or $manifest.format -ne 1 -or ($manifest.repository -ne $repo -and $manifest.repository -ne "unn-corp/t3code") -or $manifest.version -ne $version) { Fail "fork release is withdrawn or ineligible" }
     foreach ($check in @("build", "install", "update", "recovery")) { if ($manifest.checks.$check -ne $true) { Fail "fork release has not passed $check checks" } }
     $names = @($manifest.assets.name)
     if (($names | Select-Object -Unique).Count -ne $names.Count) { Fail "duplicate fork manifest assets" }

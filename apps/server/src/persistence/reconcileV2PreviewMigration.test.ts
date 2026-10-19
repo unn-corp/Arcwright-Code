@@ -90,82 +90,147 @@ describe("V2 preview upgrade", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("remaps pinned upstream history and applies every fork-only migration once", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 35 });
-      const migrationByName = new Map(
-        migrationEntries.map(([, name, migration]) => [name, migration]),
-      );
-      const upstreamHistory = [
-        [36, "ProjectionThreadsPinned"],
-        [37, "ProjectionTurnsKeysetIndex"],
-        [38, "ProjectionThreadsPinOrderKey"],
-        [39, "ProjectionProjectsDefaultThreadEnvMode"],
-        [40, "ProjectionProjectFaviconPath"],
-        [41, "AuthSessionClientConnection"],
-        [42, "ProjectionThreadLinkedPullRequest"],
-        [43, "ProjectionThreadsUnsettledAt"],
-        [44, "ClearAutomaticProjectModelDefaults"],
-        [45, "ProjectionProjectsAutoPull"],
-        [46, "RepairAutomaticSettlementTimestamps"],
-        [47, "ProjectionProjectIcon"],
-        [48, "ProjectionThreadBranchPullRequest"],
-        [49, "ProjectionThreadsActiveOrderKey"],
-        [50, "ProjectionThreadPullRequests"],
-        [51, "ProjectionThreadMessageContext"],
-        [52, "ProjectionThreadTitleState"],
-        [53, "PullRequestFilesViewed"],
-        [54, "ProjectionThreadsAutoSettleDisabledAt"],
-        [55, "OrchestrationV2"],
-        [56, "RemoveRedundantProjectionIndexes"],
-        [57, "ScheduledTaskWebhooks"],
-        [58, "WebhookRelayDeliveries"],
-        [59, "McpAppModelContext"],
-        [60, "ThreadSnapshotWindowIndexes"],
-        [61, "PullRequestReviewGuides"],
-      ] as const;
-      yield* Migrator.make({})({
-        loader: Migrator.fromRecord(
-          Object.fromEntries(
-            upstreamHistory.map(([id, name]) => [`${id}_${name}`, migrationByName.get(name)!]),
+  it.effect.each([61, 64])(
+    "remaps upstream history through %s and applies fork-only migrations once",
+    (latestId) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 35 });
+        const migrationByName = new Map(
+          migrationEntries.map(([, name, migration]) => [name, migration]),
+        );
+        const upstreamHistory = [
+          [36, "ProjectionThreadsPinned"],
+          [37, "ProjectionTurnsKeysetIndex"],
+          [38, "ProjectionThreadsPinOrderKey"],
+          [39, "ProjectionProjectsDefaultThreadEnvMode"],
+          [40, "ProjectionProjectFaviconPath"],
+          [41, "AuthSessionClientConnection"],
+          [42, "ProjectionThreadLinkedPullRequest"],
+          [43, "ProjectionThreadsUnsettledAt"],
+          [44, "ClearAutomaticProjectModelDefaults"],
+          [45, "ProjectionProjectsAutoPull"],
+          [46, "RepairAutomaticSettlementTimestamps"],
+          [47, "ProjectionProjectIcon"],
+          [48, "ProjectionThreadBranchPullRequest"],
+          [49, "ProjectionThreadsActiveOrderKey"],
+          [50, "ProjectionThreadPullRequests"],
+          [51, "ProjectionThreadMessageContext"],
+          [52, "ProjectionThreadTitleState"],
+          [53, "PullRequestFilesViewed"],
+          [54, "ProjectionThreadsAutoSettleDisabledAt"],
+          [55, "OrchestrationV2"],
+          [56, "RemoveRedundantProjectionIndexes"],
+          [57, "ScheduledTaskWebhooks"],
+          [58, "WebhookRelayDeliveries"],
+          [59, "McpAppModelContext"],
+          [60, "ThreadSnapshotWindowIndexes"],
+          [61, "PullRequestReviewGuides"],
+          [62, "ThreadFailureLookupIndex"],
+          [63, "DropUnusedV1Projections"],
+          [64, "CanonicalizeThreadPullRequestLinks"],
+        ] as const;
+        yield* Migrator.make({})({
+          loader: Migrator.fromRecord(
+            Object.fromEntries(
+              upstreamHistory
+                .filter(([id]) => id <= latestId)
+                .map(([id, name]) => [
+                  `${id}_${name}`,
+                  id === 63
+                    ? Effect.gen(function* () {
+                        for (const table of [
+                          "projection_thread_activities",
+                          "projection_turns",
+                          "projection_thread_proposed_plans",
+                          "projection_pending_approvals",
+                          "projection_state",
+                          "checkpoint_diff_blobs",
+                        ]) {
+                          yield* sql.unsafe(`DROP TABLE ${table}`);
+                        }
+                      })
+                    : migrationByName.get(name)!,
+                ]),
+            ),
           ),
-        ),
-      });
-      yield* sql`UPDATE effect_sql_migrations SET created_at = '2026-10-01 00:00:00' WHERE migration_id = 55`;
+        });
+        yield* sql`UPDATE effect_sql_migrations SET created_at = '2026-10-01 00:00:00' WHERE migration_id = 55`;
 
-      const executed = yield* runMigrations();
-      const alreadyApplied = new Set([
-        38, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 94, 104, 105, 106,
-      ]);
-      assert.deepStrictEqual(
-        executed,
-        migrationManifest.filter(
-          ([id]) => ((id >= 36 && id <= 94) || id >= 99) && !alreadyApplied.has(id),
-        ),
-      );
-      assert.deepStrictEqual(yield* runMigrations(), []);
-      const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        if (latestId === 64) {
+          assert.deepStrictEqual(
+            yield* sql`SELECT name FROM sqlite_master WHERE name = 'projection_thread_activities'`,
+            [],
+          );
+          yield* sql`INSERT INTO orchestration_v2_legacy_imports
+          (thread_id, source_updated_at, shell_imported_at, transcript_imported_at, imported_message_count)
+          VALUES ('retained-v2', '2026-10-01', '2026-10-01', '2026-10-01', 42)`;
+        }
+        const executed = yield* runMigrations();
+        if (latestId === 64) {
+          assert.deepStrictEqual(yield* sql`SELECT * FROM projection_thread_activities`, []);
+          assert.deepStrictEqual(
+            yield* sql`SELECT imported_message_count FROM orchestration_v2_legacy_imports WHERE thread_id = 'retained-v2'`,
+            [{ imported_message_count: 42 }],
+          );
+          assert.deepStrictEqual(
+            yield* sql`SELECT state FROM arcwright_storage_migrations WHERE version = 1`,
+            [{ state: "complete" }],
+          );
+        }
+        const alreadyApplied = new Set([
+          38,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          94,
+          104,
+          105,
+          106,
+          ...(latestId === 64 ? [108, 110, 111] : []),
+        ]);
+        assert.deepStrictEqual(
+          executed,
+          migrationManifest.filter(
+            ([id]) => ((id >= 36 && id <= 94) || id >= 99) && !alreadyApplied.has(id),
+          ),
+        );
+        assert.deepStrictEqual(yield* runMigrations(), []);
+        const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
         SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
       `;
-      assert.deepStrictEqual(
-        history.map((row) => [row.migration_id, row.name] as const),
-        migrationManifest,
-      );
-      assert.deepStrictEqual(
-        yield* sql`SELECT created_at FROM effect_sql_migrations WHERE migration_id = 95`,
-        [{ created_at: "2026-10-01 00:00:00" }],
-      );
-      assert.deepStrictEqual(
-        yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'`,
-        [{ name: "scheduled_tasks" }],
-      );
-      assert.ok(
-        (yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`).some(
-          (column) => column.name === "active_order_key",
-        ),
-      );
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+        assert.deepStrictEqual(
+          history.map((row) => [row.migration_id, row.name] as const),
+          migrationManifest,
+        );
+        assert.deepStrictEqual(
+          yield* sql`SELECT created_at FROM effect_sql_migrations WHERE migration_id = 95`,
+          [{ created_at: "2026-10-01 00:00:00" }],
+        );
+        assert.deepStrictEqual(
+          yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_tasks'`,
+          [{ name: "scheduled_tasks" }],
+        );
+        assert.ok(
+          (yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`).some(
+            (column) => column.name === "active_order_key",
+          ),
+        );
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
   it.effect.each([36, 52, 54])(

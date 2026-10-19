@@ -7,7 +7,7 @@
 
 Arcwright Code is an "agent harness control surface" for agents running on your computers.
 
-This is the [unn-corp fork](https://github.com/unn-corp/t3code) of
+This is the [unn-corp fork](https://github.com/unn-corp/Arcwright-Code) of
 [T3 Code](https://github.com/pingdotgg/t3code). It includes its own Android app in
 [`apps/android-pwa`](./apps/android-pwa), packaged as `com.devotek.t3code.pwa`. It bundles this fork's
 web interface and native phone features, and primarily connects to your environments over Tailscale.
@@ -27,7 +27,7 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 ## Installation
 
-Use [this fork's releases](https://github.com/unn-corp/t3code/releases) for Android,
+Use [this fork's releases](https://github.com/unn-corp/Arcwright-Code/releases) for Android,
 Windows x64, and Linux x64. The [update guide](./docs/user/updating.md) explains
 channels, stopped-work checks, and recovery. The [release runbook](./docs/operations/fork-releases.md)
 owns baseline commissioning and nightly/stable publishing. Build the standalone
@@ -49,14 +49,14 @@ Expo/store mobile distribution is separate.
 After the fork updater baseline and its first eligible release are commissioned:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unn-corp/t3code/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/unn-corp/Arcwright-Code/main/scripts/install.sh | sh
 ```
 
 The Linux installer needs Python 3 to validate release metadata. On Windows,
 run in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/unn-corp/t3code/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/unn-corp/Arcwright-Code/main/scripts/install.ps1 | iex
 ```
 
 These install the fork's server archives, not the upstream npm package. Stop all
@@ -66,7 +66,7 @@ the supported CLI and [read the update guide](./docs/user/updating.md) before ma
 ### Desktop and Android
 
 Use the Windows NSIS installer or Linux AppImage/`.deb` from
-[this fork's releases](https://github.com/unn-corp/t3code/releases). Steam Deck
+[this fork's releases](https://github.com/unn-corp/Arcwright-Code/releases). Steam Deck
 uses AppImage. Installing a `.deb` can require Linux administrator authorization.
 Use the fork APK and keep its package/signing identity when updating Android;
 never uninstall or clear storage to update saved connections.
@@ -128,6 +128,6 @@ vp i
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before reporting a bug or opening a PR.
 
-Have a feature request? Start an [Ideas discussion](https://github.com/pingdotgg/t3code/discussions/categories/ideas).
+Have a feature request? Start an [Ideas discussion](https://github.com/unn-corp/Arcwright-Code/discussions/categories/ideas).
 
 Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).

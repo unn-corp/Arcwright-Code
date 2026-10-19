@@ -17,7 +17,7 @@
 # instead of fetching the release again.
 set -eu
 
-repo="unn-corp/t3code"
+repo="unn-corp/Arcwright-Code"
 base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 t3_home="${T3CODE_HOME:-$HOME/.t3}"
 bin_dir="${T3CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"
@@ -236,7 +236,7 @@ release = json.loads((folder / "release.json").read_text())
 manifest = json.loads((folder / "fork-release.json").read_text())
 assert release.get("tag_name") == "fork-v" + version and not release.get("draft", True) and release.get("published_at")
 assert not re.search(r"^<!-- t3-fork-release:withdrawn\b", release.get("body") or "", re.M)
-assert manifest.get("format") == 1 and manifest.get("repository") == "unn-corp/t3code" and manifest.get("version") == version
+assert manifest.get("format") == 1 and manifest.get("repository") in ("unn-corp/Arcwright-Code", "unn-corp/t3code") and manifest.get("version") == version
 assert all(manifest.get("checks", {}).get(key) is True for key in ("build", "install", "update", "recovery"))
 assets = manifest.get("assets", [])
 names = [item["name"] for item in assets]

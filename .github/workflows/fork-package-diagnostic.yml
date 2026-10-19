@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   package:
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'android'
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && inputs.scope != 'android'
     strategy:
       fail-fast: false
       matrix:
@@ -98,7 +98,7 @@ jobs:
           exit "$failed"
 
   android:
-    if: github.repository == 'unn-corp/t3code' && github.ref == 'refs/heads/main' && inputs.scope != 'desktop'
+    if: (github.repository == 'unn-corp/Arcwright-Code' || github.repository == 'unn-corp/t3code') && github.ref == 'refs/heads/main' && inputs.scope != 'desktop'
     runs-on: [self-hosted, linux, x64, unn, unn-isolated, t3-ci]
     timeout-minutes: 25
     steps:

@@ -181,7 +181,7 @@ export const layer = Layer.effect(
         electronDialog
           .showErrorBox(
             "This T3 home is unavailable",
-            "Another T3 Code server, such as the background service, is using this data directory. Stop that server and reopen T3 Code, or set a separate T3CODE_HOME and pair with the running server.",
+            "Another Arcwright Code server, such as the background service, is using this data directory. Stop that server and reopen Arcwright Code, or set a separate T3CODE_HOME and pair with the running server.",
           )
           .pipe(Effect.andThen(electronApp.quit)),
     });
@@ -220,12 +220,14 @@ export const layer = Layer.effect(
               ] as const);
             }
             return Effect.gen(function* () {
-              // Provide the captured factory services first, then the child scope
-              // last so instance finalizers are owned by the unregisterable scope.
+              // Provide the child scope after the captured factory context. That
+              // context also holds the pool layer's Scope, so providing it last
+              // would let it shadow the child scope and leave the instance's
+              // stop finalizer and restart fibers running after unregister.
               const instanceScope = yield* Scope.fork(layerScope, "sequential");
               const instance = yield* DesktopBackendManager.makeBackendInstance(spec).pipe(
-                Effect.provide(factoryContext),
                 Scope.provide(instanceScope),
+                Effect.provide(factoryContext),
               );
               const next = new Map(current);
               next.set(spec.id, {

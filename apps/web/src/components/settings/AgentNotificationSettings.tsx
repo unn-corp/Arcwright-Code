@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { PlayIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import { usePrimaryEnvironment } from "../../state/environments";
 import {
   agentNotificationSoundLabel,
@@ -56,7 +56,6 @@ export const AGENT_NOTIFICATION_SOUND_ROWS: readonly {
 export function PwaNotificationSettings() {
   const primaryEnvironment = usePrimaryEnvironment();
   const notificationPreferences = useClientSettings((value) => value.agentNotifications);
-  const updateClientSettings = useUpdateClientSettings();
   const [status, setStatus] = useState<BrowserNotificationStatus>(() =>
     getBrowserNotificationStatus(),
   );

@@ -3,6 +3,7 @@ import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlError from "effect/sql/SqlError";
 import * as Schema from "effect/Schema";
+import { expectedSchemaObjects } from "./SchemaFingerprint.ts";
 import { upstreamMigrationEntries } from "./UpstreamMigrations.ts";
 
 type MigrationRow = {
@@ -74,6 +75,31 @@ export const reconcileV2PreviewMigration = Effect.fn("reconcileV2PreviewMigratio
             kind: "BadState",
             message: "Cannot upgrade upstream migration history with unexpected later migrations.",
           });
+        }
+        if (
+          upstreamRows.some(
+            (row) => row.migration_id === 63 && row.name === "DropUnusedV1Projections",
+          )
+        ) {
+          // Upstream has already discarded these rows. Restore only the missing
+          // empty schema needed by fork archive readers and gap migrations.
+          const dropped = new Set([
+            "projection_thread_activities",
+            "projection_turns",
+            "projection_thread_proposed_plans",
+            "projection_pending_approvals",
+            "projection_state",
+            "checkpoint_diff_blobs",
+          ]);
+          const present = new Set(
+            (yield* sql<{ name: string }>`SELECT name FROM sqlite_master`).map((row) => row.name),
+          );
+          const objects = expectedSchemaObjects.filter((object) => dropped.has(object.tbl_name));
+          for (const type of ["table", "index"]) {
+            for (const object of objects) {
+              if (object.type === type && !present.has(object.name)) yield* sql.unsafe(object.sql);
+            }
+          }
         }
         return yield* migrateForkGap(sql, upstreamRows, upstreamRows, migrations);
       }

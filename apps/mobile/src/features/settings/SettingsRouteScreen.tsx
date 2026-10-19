@@ -32,7 +32,7 @@ import {
 import { refreshManagedRelayEnvironments } from "../cloud/managedRelayState";
 import { hasCloudPublicConfig, resolveRelayClerkTokenOptions } from "../cloud/publicConfig";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { runtime } from "../../lib/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { serverEnvironment } from "../../state/server";
