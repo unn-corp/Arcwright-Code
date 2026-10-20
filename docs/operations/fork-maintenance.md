@@ -49,6 +49,11 @@ The [2026-10-13 Connect integration record](connect-main-integration-20261013.md
 records its pinned main merge, native participant adapter, focused checks and remaining
 relay/runtime and device gates.
 
+Desktop update configuration recognizes both `unn-corp/Arcwright-Code` and the historical
+`unn-corp/t3code` slug. Both use the canonical Arcwright release API and verified artifact feeds;
+renamed installations must not fall through to electron-updater's raw GitHub tag discovery.
+Historical format-1 manifest identity remains accepted for existing installations.
+
 ## Lossless data storage
 
 Normal event and tool-projection writes use upstream-compatible inline JSON. Each subagent

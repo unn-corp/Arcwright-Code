@@ -44,6 +44,7 @@ export interface UpdatesHarnessOptions {
   readonly platform?: NodeJS.Platform;
   readonly packageType?: string | undefined;
   readonly installRecord?: string | undefined;
+  readonly appUpdateYml?: string;
 }
 
 const PENDING_DOWNLOAD_DIRECTORY = "/cache/t3code-updater/pending";
@@ -242,6 +243,11 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const packageTypePath = nativePath.join("/missing/resources", "package-type");
   const stubFileSystem = FileSystem.layerNoop({
     readFileString: (path) => {
+      if (
+        path === nativePath.join("/missing/resources", "app-update.yml") &&
+        options.appUpdateYml !== undefined
+      )
+        return Effect.succeed(options.appUpdateYml);
       const installRecord = isInstallRecord(path)
         ? (installRecords.get(path) ?? previousInstallRecord)
         : undefined;

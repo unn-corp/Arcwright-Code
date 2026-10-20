@@ -1,6 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off -- release-integrity tests hash fixture bytes.
 import * as NodeCrypto from "node:crypto";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as DesktopUpdates from "./DesktopUpdates.ts";
+import { makeHarness } from "./updatesTestHarness.ts";
 import type { ForkReleaseManifest } from "@t3tools/contracts";
 import type { ForkReleaseRecord } from "@t3tools/shared/forkMaintenance";
 import { resolveForkDesktopFeed, verifyForkDesktopFeed } from "./forkDesktopFeed.ts";
@@ -67,18 +71,20 @@ function makeRelease(version: string): ForkReleaseRecord & { manifest: ForkRelea
   };
 }
 
-function release(version: string) {
+function release(version: string, platform: "win32" | "linux" = "linux") {
   const record = makeRelease(version);
   const manifest = record.manifest!;
-  const asset = manifest.assets.find((a) => a.name.endsWith(".AppImage"))!;
+  const asset = manifest.assets.find((a) =>
+    a.name.endsWith(platform === "linux" ? ".AppImage" : ".exe"),
+  )!;
   const feedBytes = new TextEncoder().encode(
     `version: ${version}\nfiles:\n  - url: ${asset.name}\n    size: ${asset.bytes}\n    sha512: fixture\n`,
   );
-  const name = version.includes("nightly") ? "nightly-linux.yml" : "latest-linux.yml";
+  const name = `${version.includes("nightly") ? "nightly" : "latest"}${platform === "linux" ? "-linux" : ""}.yml`;
   const feed = {
     name,
     kind: "feed" as const,
-    platform: "linux-x64" as const,
+    platform: platform === "linux" ? ("linux-x64" as const) : ("windows-x64" as const),
     bytes: feedBytes.length,
     sha256: NodeCrypto.createHash("sha256").update(feedBytes).digest("hex"),
   };
@@ -107,6 +113,81 @@ describe("owned desktop release feed", () => {
     expect(selected?.url).toContain("/fork-v1.0.1-nightly.20261016.125/");
     expect(() => verifyForkDesktopFeed(selected!, nightly.feedBytes)).not.toThrow();
   });
+
+  it.effect.each([
+    { repo: "Arcwright-Code", platform: "win32", channel: "nightly" },
+    { repo: "t3code", platform: "linux", channel: "latest" },
+  ] as const)(
+    "routes packaged unn-corp/$repo installations through the verified canonical feed",
+    ({ repo, platform, channel }) => {
+      const { record, feedBytes } = release(
+        channel === "nightly" ? "2.0.0-nightly.20261020.150" : "2.0.0",
+        platform,
+      );
+      const feedName = `${channel}${platform === "linux" ? "-linux" : ""}.yml`;
+      const origin = `https://github.com/unn-corp/Arcwright-Code/releases/download/${record.tagName}/`;
+      const requests: string[] = [];
+      const fetcher = vi.fn<typeof fetch>(async (input) => {
+        const url = String(input);
+        requests.push(url);
+        if (url === "https://api.github.com/repos/unn-corp/Arcwright-Code/releases?per_page=15")
+          return new Response(
+            JSON.stringify([
+              {
+                id: record.id,
+                tag_name: record.tagName,
+                draft: false,
+                body: "",
+                created_at: record.createdAt,
+                published_at: record.publishedAt,
+                assets: record.assets.map((asset) => ({
+                  ...asset,
+                  browser_download_url: origin + asset.name,
+                })),
+              },
+            ]),
+          );
+        if (url === origin + "fork-release.json")
+          return new Response(JSON.stringify(record.manifest));
+        if (url === origin + feedName) return new Response(feedBytes);
+        throw new Error(`Unexpected update request: ${url}`);
+      });
+      const harness = makeHarness({
+        platform,
+        env: { T3CODE_DESKTOP_MOCK_UPDATES: "false", APPIMAGE: "/fixture/app.AppImage" },
+        appUpdateYml: `provider: github\nowner: unn-corp\nrepo: ${repo}\n`,
+      });
+      return Effect.scoped(
+        Effect.gen(function* () {
+          vi.stubGlobal("fetch", fetcher);
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          if (channel === "nightly") yield* updates.setChannel(channel);
+          else yield* updates.check("manual");
+          expect(harness.feedUrls()).toEqual([
+            {
+              provider: "generic",
+              url: origin,
+              channel,
+              expectedArtifact: record.manifest.assets.find(
+                (asset) =>
+                  asset.name === (platform === "linux" ? "desktop.AppImage" : "desktop.exe"),
+              ),
+            },
+          ]);
+          expect(requests).toEqual([
+            "https://api.github.com/repos/unn-corp/Arcwright-Code/releases?per_page=15",
+            origin + "fork-release.json",
+            origin + feedName,
+          ]);
+          expect(harness.checkCount()).toBe(1);
+        }),
+      ).pipe(
+        Effect.provide(harness.layer),
+        Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals())),
+      );
+    },
+  );
 
   it("rejects withdrawn, failed and older installers", () => {
     const { record } = release("1.0.1-nightly.20261016.125");

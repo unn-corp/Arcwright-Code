@@ -1,6 +1,7 @@
 // @effect-diagnostics globalFetchInEffect:off -- fork release discovery uses the shared bounded GitHub HTTPS adapter.
 import {
   DESKTOP_UPDATE_RESTART_MARKER_FILE,
+  FORK_RELEASE_REPOSITORY,
   DesktopUpdateChannelSchema,
   type DesktopRuntimeInfo,
   type DesktopUpdateActionResult,
@@ -548,7 +549,10 @@ export const make = Effect.gen(function* () {
         const feedConfig = yield* Ref.get(appUpdateYmlConfigRef);
         if (config.mockUpdates || Option.isNone(feedConfig)) return;
         const feed = feedConfig.value;
-        if (feed.provider !== "github" || feed.owner !== "unn-corp" || feed.repo !== "t3code")
+        if (
+          feed.provider !== "github" ||
+          ![FORK_RELEASE_REPOSITORY, "unn-corp/t3code"].includes(`${feed.owner}/${feed.repo}`)
+        )
           return;
         const selected = yield* Effect.tryPromise({
           try: async () => {
