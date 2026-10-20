@@ -25,7 +25,7 @@ export function runStorageWorker(
         ...(NodeSea.isSea() ? [] : [entry]),
         "maintenance",
         "home",
-        "optimize-storage",
+        "normalize-storage",
         "--home",
         host.home,
         "--transaction",
@@ -72,7 +72,7 @@ export function runStorageWorker(
       else
         reject(
           new Error(
-            `Storage optimization did not complete (${code ?? "signal"}): ${output || errors}`,
+            `Storage normalization did not complete (${code ?? "signal"}): ${output || errors}`,
           ),
         );
     });

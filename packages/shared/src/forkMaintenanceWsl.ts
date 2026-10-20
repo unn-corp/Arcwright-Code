@@ -118,7 +118,7 @@ const homeOperationArgs = (home: string, operation: HomeOperation): ReadonlyArra
         "--after",
         operation.after,
       ];
-    case "optimize-storage":
+    case "normalize-storage":
       return [
         ...base,
         "--transaction",

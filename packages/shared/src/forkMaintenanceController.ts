@@ -372,7 +372,8 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       () => [],
     );
     const result: ForkUpdateStatus = {
-      storageOptimization:
+      storageOptimization: false,
+      storageNormalization:
         installer.packaging !== null &&
         ((await installer.storageOptimizationUnavailable?.()) ?? null) === null,
       storageMigrationPending:
@@ -509,8 +510,8 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     target: ForkTargetSelection | null,
     kind: MaintenanceJournal["kind"],
     snapshots?: Readonly<Record<string, string>>,
-    optimizeStorage = false,
     manualInstallation = false,
+    normalizeStorage = false,
   ) => {
     const initial = newJournal({
       id: transactionId,
@@ -534,7 +535,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     });
     const journal = {
       ...initial,
-      ...(optimizeStorage ? { storageOptimization: true } : {}),
+      ...(normalizeStorage ? { storageNormalization: true } : {}),
       ...(manualInstallation ? { manualInstallation: true } : {}),
     };
     try {
@@ -623,7 +624,9 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
               ...new Set([
                 ...policy.failedArtifactSha256,
                 failedDigest,
-                ...(journal.storageOptimization === true ? [journal.previous.artifactSha256] : []),
+                ...(journal.storageOptimization === true || journal.storageNormalization === true
+                  ? [journal.previous.artifactSha256]
+                  : []),
               ]),
             ],
             automationReviewRequired: true,
@@ -668,11 +671,19 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
 
   const runInstall = async (
     expectedSha256: string,
-    automatic: boolean,
-    optimizeStorage = false,
-    currentBuildMaintenance = false,
-    interruptActiveWork = false,
+    options: {
+      readonly automatic: boolean;
+      readonly currentBuildMaintenance?: boolean;
+      readonly interruptActiveWork?: boolean;
+      readonly normalizeStorage?: boolean;
+    },
   ) => {
+    const {
+      automatic,
+      currentBuildMaintenance = false,
+      interruptActiveWork = false,
+      normalizeStorage = false,
+    } = options;
     await loadPolicy();
     const unavailable = await installer.unavailableReason?.();
     if (unavailable !== null && unavailable !== undefined) throw fail(unavailable);
@@ -716,12 +727,12 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       phase = fresh === null ? "idle" : "available";
       throw fail("The release was withdrawn or replaced. Check for updates again.");
     }
-    if (optimizeStorage && fresh.manifest.storageOptimizationProtocol !== 1)
-      throw fail("This target build does not support verified storage optimization.");
+    if (normalizeStorage && fresh.manifest.storageNormalizationProtocol !== 1)
+      throw fail("This target build does not support verified plain JSON restoration.");
     if (!(await installer.recoveryReady(fresh))) throw fail("Recovery assets are not cached.");
     const homes = await installer.affectedHomes();
     if (homes.length === 0) throw fail("No data home is registered for this update.");
-    if (optimizeStorage) {
+    if (normalizeStorage) {
       const reason = await installer.storageOptimizationUnavailable?.();
       if (reason) throw fail(reason);
     }
@@ -757,8 +768,8 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
         fresh,
         "update",
         undefined,
-        optimizeStorage,
         !automatic,
+        normalizeStorage,
       );
     } catch (cause) {
       activeTransactionId = null;
@@ -794,13 +805,17 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
   };
 
   const install = (expectedSha256: string, optimizeStorage = false, interruptActiveWork = false) =>
-    serialized(() =>
-      runInstall(expectedSha256, false, optimizeStorage, false, interruptActiveWork),
-    );
+    serialized(async () => {
+      if (optimizeStorage)
+        throw fail(
+          "Storage compression is retired. Use normalize-storage on a supported installed build.",
+        );
+      return runInstall(expectedSha256, { automatic: false, interruptActiveWork });
+    });
 
-  const runStorageOptimization = async (expectedSha256: string) => {
+  const runStorageNormalization = async (expectedSha256: string) => {
     await loadPolicy();
-    if ((await status()).storageOptimization !== true)
+    if ((await status()).storageNormalization !== true)
       throw fail("The launcher cannot safely run the database storage upgrade yet.");
     if (activeTransactionId !== null) throw fail("An update is already in progress.");
     if (expectedSha256 !== installer.currentBuild.artifactSha256)
@@ -814,7 +829,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
           artifactDigest(candidate.manifest) === expectedSha256) &&
         classifyForkRelease(candidate, releases).eligible,
     );
-    if (record?.manifest?.storageOptimizationProtocol !== 1)
+    if (record?.manifest?.storageNormalizationProtocol !== 1)
       throw fail("The installed build is not a verified storage-capable fork release.");
     const selection = { record, manifest: record.manifest };
     const savedTarget = target,
@@ -826,14 +841,24 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     target = selection;
     stagedSha256 = staged.artifactSha256;
     try {
-      return await runInstall(staged.artifactSha256, false, true, true);
+      return await runInstall(staged.artifactSha256, {
+        automatic: false,
+        currentBuildMaintenance: true,
+        normalizeStorage: true,
+      });
     } finally {
       target = savedTarget;
       stagedSha256 = savedStaged;
     }
   };
-  const optimizeStorage = (expectedSha256: string) =>
-    serialized(() => runStorageOptimization(expectedSha256));
+  const optimizeStorage = (_expectedSha256: string) =>
+    serialized(async () => {
+      throw fail(
+        "Storage compression is retired. Use normalize-storage on a supported installed build.",
+      );
+    });
+  const normalizeStorage = (expectedSha256: string) =>
+    serialized(() => runStorageNormalization(expectedSha256));
 
   const tick = () =>
     serialized(async () => {
@@ -866,7 +891,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
       else countdown = null;
       if (gate.state === "install") {
         try {
-          return await runInstall(stagedSha256, true);
+          return await runInstall(stagedSha256, { automatic: true });
         } catch (cause) {
           lastError = messageOf(cause);
           countdown = null;
@@ -1020,6 +1045,7 @@ export function createForkMaintenanceController(ports: ForkControllerPorts) {
     stage,
     install,
     optimizeStorage,
+    normalizeStorage,
     tick,
     cancelCountdown,
     updatePolicy,

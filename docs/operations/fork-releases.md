@@ -219,7 +219,7 @@ Actions build archives.
 Linux binary handoffs restore normal foreground scheduling before Electron creates its
 threads, so an idle/background recovery helper cannot leave the new app in idle scheduling.
 
-Local storage optimization is a separate, explicitly admitted operation; see
+Local plain JSON restoration is a separate, explicitly admitted operation; see
 [database storage](database-storage.md). It does not extend the remote build window
 or authorize stopping working chats.
 

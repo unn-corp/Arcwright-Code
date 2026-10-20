@@ -1126,6 +1126,10 @@ export function createDesktopMaintenance(input: DesktopMaintenanceInput): Deskto
                 action.interruptActiveWork,
               ),
           );
+        case "normalize-storage":
+          return shared(`normalize-storage:${action.targetArtifactSha256}`, () =>
+            requireController().normalizeStorage(action.targetArtifactSha256),
+          );
         case "optimize-storage":
           return shared(`storage:${action.targetArtifactSha256}`, () =>
             requireController().optimizeStorage(action.targetArtifactSha256),

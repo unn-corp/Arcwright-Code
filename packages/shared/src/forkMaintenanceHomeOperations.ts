@@ -9,7 +9,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 import { HISTORY_SOURCES, readArchivedRow, type HistorySource } from "./forkStorageArchive.ts";
-import { optimizeStorageHome } from "./forkStorageMaintenance.ts";
+import { normalizeStorageHome } from "./forkStorageMaintenance.ts";
 import { readStorageMigrationStatus } from "./forkStorageMigration.ts";
 import {
   assertCapacity,
@@ -36,7 +36,7 @@ export type HomeOperation =
   | { readonly op: "list" }
   | { readonly op: "storage-status" }
   | {
-      readonly op: "optimize-storage";
+      readonly op: "normalize-storage";
       readonly transactionId: string;
       readonly parentParticipantId?: string;
     }
@@ -66,9 +66,9 @@ export async function runHomeOperation(
     switch (operation.op) {
       case "storage-status":
         return { ok: true, value: readStorageMigrationStatus(home) };
-      case "optimize-storage":
+      case "normalize-storage":
         if (options.store === undefined)
-          throw new Error("Storage optimization requires the native coordinator.");
+          throw new Error("Storage normalization requires the native coordinator.");
         if (operation.parentParticipantId !== undefined) {
           let handshake = "";
           for await (const chunk of process.stdin) {
@@ -80,7 +80,7 @@ export async function runHomeOperation(
         }
         return {
           ok: true,
-          value: await optimizeStorageHome({
+          value: await normalizeStorageHome({
             home,
             transactionId: operation.transactionId,
             store: options.store,
@@ -204,7 +204,7 @@ export function parseHomeOperation(
   if (home === undefined) return { error: "--home is required." };
   const need = (name: string) => flags.get(name);
   switch (op) {
-    case "optimize-storage": {
+    case "normalize-storage": {
       const transactionId = need("transaction");
       return transactionId === undefined
         ? { error: "--transaction is required." }

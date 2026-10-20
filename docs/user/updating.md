@@ -317,20 +317,24 @@ to enable that channel. Native recovery offers the same route when the bundled i
 
 ## Storage maintenance
 
-Storage cleanup is optional and requires an explicit request. Existing history remains readable;
-app startup, idle polling, and ordinary binary updates do not automatically rewrite your history.
+Historical storage can be restored to plain JSON while keeping Arcwright features. This is an
+explicit maintenance operation. Startup, idle polling, and ordinary app updates do not rewrite
+history. New writes already use plain JSON.
 
-Explicit storage optimization retains verified restore points, native maintenance admission,
-capacity checks and recovery. Running chats continue and block replacement. Legacy optimization
-can compress data again; it is a separate choice from creating an upstream-compatible database
-copy. See the [storage runbook](../operations/database-storage.md#create-an-upstream-compatible-copy).
+Update to a published build supporting plain JSON restoration, review `t3 maintenance status
+--json`, then run:
 
-Your installed version and pin remain unchanged by a same-build storage operation. If a managed
-server needs a newer service launcher, refresh it during an authorized maintenance window before
-requesting storage work. Operating-system authorization is never requested automatically.
+```bash
+t3 maintenance normalize-storage --digest '<installed-artifact-sha256>'
+```
 
-For a manual retry on a supported numbered nightly, use `t3 maintenance optimize-storage
---digest <installed-artifact-sha256>`. An update can also request `--optimize-storage`
-when both controller and target support it. Read the
-[storage runbook](../operations/database-storage.md) for exact commands, limits and
-old-history access. Savings are measured after the admitted run.
+The operation keeps your installed version and pin, snapshots every affected home, and waits
+for running chats and other work to finish. It restores archived history and expands compressed
+payloads and prompt references. It can require substantial additional disk space. Legacy
+compression is retired; `optimize-storage` is no longer available.
+
+A failed operation keeps the normal maintenance recovery safeguards. Older compressed data and
+restore points remain readable. If a managed server requires a newer launcher, refresh it during
+an authorized maintenance window first. See the [storage runbook](../operations/database-storage.md#requesting-plain-json-restoration)
+for requirements and recovery. This preserves Arcwright's database schema and features; it does
+not turn the database into a stock T3 Code database.

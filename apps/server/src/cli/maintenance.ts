@@ -97,9 +97,7 @@ const installCommand = Command.make("install", {
   ),
   optimizeStorage: Flag.Boolean("optimize-storage").pipe(
     Flag.withDefault(false),
-    Flag.withDescription(
-      "Losslessly archive legacy history, compress payloads, deduplicate evidence and repack during this admitted update.",
-    ),
+    Flag.withDescription("Retired compression option. Use normalize-storage after updating."),
   ),
 }).pipe(
   Command.withDescription(
@@ -115,41 +113,36 @@ const installCommand = Command.make("install", {
             "This controller cannot interrupt sessions for the reviewed update. Review maintenance status.",
           );
       }
-      if (optimizeStorage) {
-        const current = await callOperator(target, "status", {});
-        if (!current.ok) return current;
-        if (current.status.storageOptimization !== true)
-          throw new Error(
-            "The running controller predates storage optimization. Update through its normal admitted installation path first.",
-          );
-      }
+      if (optimizeStorage)
+        throw new Error(
+          "Storage compression is retired. Update the installed build, then use normalize-storage.",
+        );
       return callOperator(target, "action", {
         action: "install",
         targetArtifactSha256: digest,
-        ...(optimizeStorage ? { optimizeStorage: true } : {}),
         ...(interruptActiveWork ? { interruptActiveWork: true } : {}),
       });
     }),
   ),
 );
-const optimizeStorageCommand = Command.make("optimize-storage", {
+const normalizeStorageCommand = Command.make("normalize-storage", {
   baseDir: baseDirFlag,
   json: jsonFlag,
   digest: Flag.String("digest"),
 }).pipe(
   Command.withDescription(
-    "Restart the exact installed build through admitted, snapshotted maintenance to optimize data without allocating a new build.",
+    "Restore historical database payloads to plain JSON through admitted, snapshotted maintenance on this exact installed build.",
   ),
   Command.withHandler(({ baseDir: flag, json, digest }) =>
     operate(flag, json, async (target) => {
       const current = await callOperator(target, "status", {});
       if (!current.ok) return current;
-      if (current.status.storageOptimization !== true)
+      if (current.status.storageNormalization !== true)
         throw new Error(
-          "The running controller does not support storage optimization for this cohort.",
+          "The running controller does not support plain JSON restoration. Update it through its normal installation path first.",
         );
       return callOperator(target, "action", {
-        action: "optimize-storage",
+        action: "normalize-storage",
         targetArtifactSha256: digest,
       });
     }),
@@ -364,7 +357,7 @@ export const maintenanceCommand = Command.make("maintenance").pipe(
       action: "check",
     }),
     installCommand,
-    optimizeStorageCommand,
+    normalizeStorageCommand,
     simple(
       "cancel-countdown",
       "Cancel the automatic installation countdown for the staged build.",

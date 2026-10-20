@@ -423,7 +423,7 @@ export function createDesktopInstaller(input: DesktopInstallerInput) {
       return awaitReceipt(() => input.readReceipt(transactionId, home, "trial"), {
         timeoutMs:
           input.trialTimeoutMs ??
-          (journal.storageOptimization === true ? 2 * 60 * 60_000 : 5 * 60_000),
+          (journal.storageNormalization === true ? 2 * 60 * 60_000 : 5 * 60_000),
         pollMs: 1000,
         sleep: input.sleep,
         now: input.now,

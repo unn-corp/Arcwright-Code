@@ -29,7 +29,7 @@ if (
   ) {
     if (
       process.argv[3] === "home" &&
-      process.argv[4] === "optimize-storage" &&
+      process.argv[4] === "normalize-storage" &&
       process.argv.includes("--parent-participant")
     )
       process.title = "arcwright-storage-maintenance";

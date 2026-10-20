@@ -710,6 +710,8 @@ describe("manifest", () => {
   it("decodes under the exact contract schema and carries the real digests and sizes", () => {
     const manifest = compose({ build: true, install: true, update: true, recovery: true });
     assert.equal(manifest.repository, "unn-corp/t3code");
+    assert.equal(manifest.storageNormalizationProtocol, 1);
+    assert.equal(manifest.storageOptimizationProtocol, undefined);
     assert.equal(manifest.android.normal.packageName, FORK_ANDROID_PACKAGE);
     const exe = manifest.assets.find(
       (asset) => asset.kind === "desktop" && asset.platform === "windows-x64",

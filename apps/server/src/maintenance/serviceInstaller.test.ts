@@ -257,41 +257,56 @@ describe("launcher-managed service installer", () => {
     expect(d.events).toEqual([]);
   });
 
-  it("asks the launcher for the update with a one-use capability for this home, and a launcher refusal aborts as unchanged", async () => {
-    const d = await device();
-    const installer = createServiceInstaller(d.input);
-    const journal = {
-      ...(await import("@t3tools/shared/forkMaintenanceJournal")).newJournal({
-        id: "tx-1",
-        kind: "update",
-        homes: [d.canonical],
-        previous: { version: "1.0.0", artifactSha256: sha("1") },
-        target: { version: "1.0.1", artifactSha256: sha("2") },
-        now: 0,
-      }),
-    };
-    await d.store.freeze("tx-1", d.clock.value, { intent: journal });
-    await installer.startTrial(journal);
-    expect(d.events).toEqual(["launcher:1.0.1:tx-1"]);
-    const fence = await d.store.fenceSnapshot();
-    expect(fence?.trials[d.canonical]).toMatchObject({ consumed: false });
-    const refusing = createServiceInstaller({
-      ...d.input,
-      launcher: {
-        supportsMaintenanceTrial: true,
-        requestUpdate: async () => {
-          throw new Error("Another server update is already pending.");
-        },
-      },
-    });
-    await expect(refusing.startTrial(journal)).rejects.toThrow("already pending");
-    await expect(
-      createServiceInstaller({
+  it.each([false, true])(
+    "asks the launcher for a one-use capability and the normalization timeout flag only when requested (%s)",
+    async (normalization) => {
+      const d = await device();
+      const journal = {
+        ...(await import("@t3tools/shared/forkMaintenanceJournal")).newJournal({
+          id: "tx-1",
+          kind: "update",
+          homes: [d.canonical],
+          previous: { version: "1.0.0", artifactSha256: sha("1") },
+          target: { version: "1.0.1", artifactSha256: sha("2") },
+          now: 0,
+        }),
+      };
+      const requested = { ...journal, ...(normalization ? { storageNormalization: true } : {}) };
+      await d.store.freeze("tx-1", d.clock.value, { intent: requested });
+      let handedOff: Parameters<ServiceInstallerInput["launcher"]["requestUpdate"]>[0] | undefined;
+      const capturing = createServiceInstaller({
         ...d.input,
-        launcher: { ...d.input.launcher, supportsMaintenanceTrial: false },
-      }).startTrial(journal),
-    ).rejects.toThrow("cannot carry a maintenance capability");
-  });
+        launcher: {
+          ...d.input.launcher,
+          requestUpdate: async (request) => {
+            handedOff = request;
+            return d.input.launcher.requestUpdate(request);
+          },
+        },
+      });
+      await capturing.startTrial(requested);
+      expect(handedOff?.trial.storageOptimization).toBe(normalization ? true : undefined);
+      expect(d.events).toEqual(["launcher:1.0.1:tx-1"]);
+      const fence = await d.store.fenceSnapshot();
+      expect(fence?.trials[d.canonical]).toMatchObject({ consumed: false });
+      const refusing = createServiceInstaller({
+        ...d.input,
+        launcher: {
+          supportsMaintenanceTrial: true,
+          requestUpdate: async () => {
+            throw new Error("Another server update is already pending.");
+          },
+        },
+      });
+      await expect(refusing.startTrial(journal)).rejects.toThrow("already pending");
+      await expect(
+        createServiceInstaller({
+          ...d.input,
+          launcher: { ...d.input.launcher, supportsMaintenanceTrial: false },
+        }).startTrial(journal),
+      ).rejects.toThrow("cannot carry a maintenance capability");
+    },
+  );
 
   it("verifies the trial only from the receipt the trial runtime itself recorded, and never restores in-process", async () => {
     const d = await device();

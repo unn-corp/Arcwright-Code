@@ -96,6 +96,7 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "src/nodeSqliteClient.test.ts",
       "src/forkStorageBlocks.test.ts",
       "src/forkStorageMigration.test.ts",
+      "src/upstreamStorageCopy.test.ts",
       "src/forkEvidenceDedup.test.ts",
     ],
     timeoutMinutes: 30,

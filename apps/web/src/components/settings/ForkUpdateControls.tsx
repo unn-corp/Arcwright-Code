@@ -251,8 +251,8 @@ export function ForkUpdateControls({
       />
       {status.storageMigrationPending ? (
         <SettingsRow
-          title="Optional database cleanup"
-          description="Storage optimization requires a manual request and preserves chats and history. It does not run automatically."
+          title="Historical database storage"
+          description="Historical data remains readable. Plain JSON restoration requires a supported build and an explicit maintenance request."
         />
       ) : null}
       {status.countdown ? (

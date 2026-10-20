@@ -44,7 +44,7 @@ describe("storage worker invocation", () => {
       ...(linux ? ["-c", "3", "/usr/bin/nice", "-n", "19", process.execPath] : []),
       "maintenance",
       "home",
-      "optimize-storage",
+      "normalize-storage",
       "--home",
       host.home,
       "--transaction",

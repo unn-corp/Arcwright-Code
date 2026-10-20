@@ -286,6 +286,8 @@ const make = Effect.gen(function* () {
               input.interruptActiveWork,
             ),
           );
+        case "normalize-storage":
+          return attempt(() => controller.normalizeStorage(input.targetArtifactSha256));
         case "optimize-storage":
           return attempt(() => controller.optimizeStorage(input.targetArtifactSha256));
         case "cancel-countdown":

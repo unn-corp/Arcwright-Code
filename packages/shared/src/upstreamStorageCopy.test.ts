@@ -6,7 +6,13 @@ import * as NodeSqlite from "node:sqlite";
 import * as NodeCrypto from "node:crypto";
 import { describe, expect, it } from "vite-plus/test";
 import { createUpstreamStorageCopy } from "./upstreamStorageCopy.ts";
-import { compressText, payloadReference, storageSchema } from "./forkStorageCodec.ts";
+import {
+  compressText,
+  payloadReference,
+  storageSchema,
+  historyBlockSchema,
+} from "./forkStorageCodec.ts";
+import { compactHistoryBlocks } from "./forkStorageBlocks.ts";
 import { archiveRow } from "./forkStorageArchive.ts";
 
 async function fixture(run: (source: string, root: string) => Promise<void>) {
@@ -118,6 +124,84 @@ describe("upstream storage copy", () => {
       } finally {
         copy.close();
       }
+    });
+  });
+
+  it("restores Brotli archives with compressed event payloads and can normalize the result again", async () => {
+    await fixture(async (source, root) => {
+      const db = new NodeSqlite.DatabaseSync(source);
+      db.exec(historyBlockSchema);
+      const json = JSON.stringify({ output: "Exact 🧰 tool output\n".repeat(1000) });
+      const blob = compressText(json);
+      db.prepare("INSERT INTO arcwright_payload_blobs VALUES(?,?,?)").run(
+        blob.digest,
+        blob.rawBytes,
+        blob.compressed,
+      );
+      for (let sequence = 1; sequence <= 80; sequence++) {
+        archiveRow(db, "orchestration_events", String(sequence), "thread", {
+          sequence,
+          stream_id: "thread",
+          event_type: "tool",
+          payload_json: payloadReference(blob),
+          payload_bytes: blob.rawBytes,
+        });
+      }
+      expect((await compactHistoryBlocks(db, async () => {})).blocks).toBeGreaterThan(0);
+      db.close();
+      const original = await fileHash(source);
+      const converted = await createUpstreamStorageCopy({
+        source,
+        destinationDirectory: NodePath.join(root, "output"),
+      });
+      expect(converted.archiveRowsRestored.orchestration_events).toBe(80);
+      const copy = new NodeSqlite.DatabaseSync(converted.output, { readOnly: true });
+      try {
+        expect(
+          copy
+            .prepare("SELECT DISTINCT payload_json,payload_bytes FROM orchestration_events")
+            .all(),
+        ).toEqual([{ payload_json: json, payload_bytes: Buffer.byteLength(json) }]);
+      } finally {
+        copy.close();
+      }
+      const repeated = await createUpstreamStorageCopy({
+        source: converted.output,
+        destinationDirectory: NodePath.join(root, "again"),
+      });
+      expect(repeated.archiveRowsRestored).toEqual({});
+      expect(repeated.payloadsExpanded.orchestration_events).toBe(0);
+      expect(await fileHash(source)).toBe(original);
+    });
+  });
+
+  it("does not certify malformed payload references that exceed the historical reference limit", async () => {
+    await fixture(async (source, root) => {
+      const db = new NodeSqlite.DatabaseSync(source);
+      db.prepare("INSERT INTO orchestration_events VALUES(1,'thread','tool',?,NULL)").run(
+        "arcwright:payload:v1:" + "x".repeat(200),
+      );
+      db.close();
+      const original = await fileHash(source);
+      await expect(
+        createUpstreamStorageCopy({ source, destinationDirectory: NodePath.join(root, "output") }),
+      ).rejects.toThrow("unsupported reference");
+      expect(await fileHash(source)).toBe(original);
+    });
+  });
+
+  it("rejects chained prompt anchors before an earlier expansion can hide the chain", async () => {
+    await fixture(async (source, root) => {
+      const db = new NodeSqlite.DatabaseSync(source);
+      db.exec(`INSERT INTO orchestration_events VALUES(1,'thread','subagent.updated','{"prompt":"Exact original prompt"}',NULL);
+        INSERT INTO orchestration_events VALUES(2,'thread','subagent.updated','{"prompt":"","promptSequence":1}',NULL);
+        INSERT INTO orchestration_events VALUES(3,'thread','subagent.updated','{"prompt":"","promptSequence":2}',NULL)`);
+      db.close();
+      const original = await fileHash(source);
+      await expect(
+        createUpstreamStorageCopy({ source, destinationDirectory: NodePath.join(root, "output") }),
+      ).rejects.toThrow("recursive");
+      expect(await fileHash(source)).toBe(original);
     });
   });
 

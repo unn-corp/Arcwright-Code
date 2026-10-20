@@ -862,7 +862,8 @@ export class CoordinatorStore {
         !this.owns(participant.owner) ||
         participant.trialFor !== transactionId ||
         journal?.phase !== "trial" ||
-        journal.storageOptimization !== true
+        journal.storageNormalization !== true ||
+        journal.storageOptimization === true
       )
         throw new Error("Storage child registration requires the owning authorized trial backend.");
       const started = await this.identity(pid);

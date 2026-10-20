@@ -58,10 +58,14 @@ cold rows and compact blocks, preserving paired clients, replay budgets and hist
 The fork's storage migrations and fingerprint tables remain compatibility identities. They are
 not renumbered, dropped or automatically converted during startup.
 
-Legacy compression and archival are manual maintenance operations. Pending storage markers
-remain visible, but controller ticks and ordinary binary updates never automatically shrink or
-recompress a database. Explicit maintenance retains exact-artifact admission, verified restore
-points, process ownership, fencing, capacity checks and health receipts. Worker ownership
+Legacy compression and archival are retired. `normalize-storage` restores archived source rows,
+expands payloads and materializes prompt anchors as plain JSON in one SQLite transaction with
+its completion receipt. It preserves schema, historical migration identities, fork features and
+retained recovery data. A separate release capability and journal action prevent old compression
+authorization from authorizing restoration. Pending legacy markers remain informational; startup,
+controller ticks and ordinary updates never perform a bulk rewrite. Explicit restoration retains
+exact-artifact admission, verified restore points, process ownership, fencing, capacity checks and
+health receipts. Worker ownership
 survives an unexpected parent exit; recovery must not race a recorded storage worker.
 
 The worker invokes a packaged SEA executable directly, without repeating its

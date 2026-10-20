@@ -72,7 +72,7 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
     storageOptimizationUnavailable: async () =>
       input.launcher.supportsStorageOptimization === true
         ? null
-        : "The service launcher must be upgraded before manual database storage optimization can run safely. Run `t3 service install` to refresh it.",
+        : "The service launcher must be upgraded before plain JSON restoration can run safely. Run `t3 service install` to refresh it.",
     unavailableReason: async () => {
       if (input.platform === null) return "Fork builds are not published for this platform.";
       if (!input.launcher.supportsMaintenanceTrial) {
@@ -149,11 +149,13 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
       if (journal.target === null) throw new Error("The transaction has no target version.");
       const capability = await store.issueTrial(journal.id, home);
       // After the launcher accepts, it stops this process and starts the target as a trial child.
+      // The legacy launcher flag authorizes a same-build handoff and longer timeout only.
+      // The journal binds the separate normalize-storage action before the worker may write.
       await input.launcher.requestUpdate({
         targetVersion: journal.target.version,
         dbPath: input.dbPath,
         trial:
-          journal.storageOptimization === true
+          journal.storageNormalization === true
             ? { ...capability, storageOptimization: true }
             : capability,
       });
@@ -163,7 +165,7 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
       awaitReceipt(() => store.readReceipt(transactionId, target, "trial"), {
         timeoutMs:
           input.trialTimeoutMs ??
-          ((await store.readJournal(transactionId))?.storageOptimization === true
+          ((await store.readJournal(transactionId))?.storageNormalization === true
             ? 2 * 60 * 60_000
             : 5 * 60_000),
         pollMs: 1000,

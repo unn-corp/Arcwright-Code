@@ -91,8 +91,14 @@ export const layerConfig = Layer.unwrap(
       const journal = yield* Effect.promise(() =>
         host.store.readJournal(host.trial!.transactionId),
       );
-      if (journal?.storageOptimization === true) {
-        // Close the migration connection before the one-shot optimizer opens the database.
+      if (journal?.storageOptimization === true)
+        return yield* Effect.die(
+          new Error(
+            "Storage compression is retired; recover this transaction before retrying plain JSON restoration.",
+          ),
+        );
+      if (journal?.storageNormalization === true) {
+        // Close the migration connection before the one-shot normalizer opens the database.
         yield* Effect.scoped(Layer.build(layerFromPath(dbPath)));
         yield* Effect.promise(() => runStorageWorker(host, journal.id));
       }

@@ -1,8 +1,12 @@
 # Database storage and performance
 
-This guide records the measured audit and the lossless storage implementation introduced by
-migration 101. The measurements below describe the pre-optimization database, not claimed
-production savings. Historical rewrites require an explicitly requested, admitted update.
+Normal writes use plain JSON. To restore previously compressed installations while retaining
+Arcwright features, use [plain JSON restoration](#requesting-plain-json-restoration) after upgrading
+to a supporting published release. Compression is retired. This change is source development;
+no installed user database has been converted or extra release commissioned.
+
+The historical measurements below record the audit and storage implementation introduced by
+migration 101. They are fixture results, not production conversion or current savings claims.
 
 The first full-data isolated rehearsal reduced the 26.49 GiB recovery database to **16.48 GiB**
 (37.79%). SHA-256 comparisons preserved all 32 projects, 1,503 conversations, 120,862 messages,
@@ -83,20 +87,18 @@ launch. Menu updates must never trigger another database copy.
 ## Implemented storage policy
 
 Migration 101 adds the archive, content-addressed payload, legacy baseline and maintenance-run
-schemas. Admitted maintenance removes the unused correlation-id and receipt
-aggregate/sequence indexes; the command-ID uniqueness and event stream/sequence
-indexes remain. Removing large index trees can take tens of seconds on old databases,
-so it happens in the maintenance worker, not the startup schema migration. Startup does not scan or
-rewrite historical bodies. Normal new event and tool-projection writes now store ordinary JSON,
+schemas. Earlier compression maintenance removed unused correlation-id and receipt
+aggregate/sequence indexes. Plain JSON restoration preserves the current schema and does not
+drop or recreate indexes. Startup does not scan or rewrite historical bodies. Normal new event and tool-projection writes now store ordinary JSON,
 including the full prompt on each subagent update. Historical compressed bodies and prompt-anchor
 references remain readable through the compatibility layer, and replay budgets still count original
 UTF-8 bytes. Existing web, desktop, mobile and Android wire payloads remain compatible.
 
 Migration 102's historical pending/complete records remain intact. Pending markers are informational:
 normal controller ticks and binary updates no longer automatically compress or archive history.
-Explicit admitted legacy storage optimization still supports the prior compressed format. It can
-reduce space, but reintroduces fork-specific on-disk references; use the copy-only path below when
-upstream-compatible JSON is the goal.
+Legacy compression requests are rejected. Plain JSON restoration uses a distinct action and
+release capability, so an earlier compression confirmation cannot authorize a different rewrite.
+The copy-only converter below remains available for isolated rehearsal.
 
 Migration 107 adds compact history blocks and storage migration version 2. Both earlier
 populated databases and homes that already completed the original shrink can upgrade.
@@ -104,7 +106,7 @@ Startup creates the small schema and records pending work, without scanning or r
 history. Empty homes start complete. A matching schema/ledger fingerprint and completed
 version-2 marker skip repeated migration and cleanup on later launches.
 
-During admitted maintenance, related cold rows share Brotli-compressed blocks targeting
+Earlier compression maintenance stored related cold rows in Brotli-compressed blocks targeting
 256 KiB of original data. A larger record occupies its own block within the existing 64 MiB
 record limit. The row-key and thread indexes remain intact; each row retains its original
 SHA-256 and byte length and points to a checksummed block. Ordinary SQLite rowid storage
@@ -177,56 +179,55 @@ files stay in a private directory on the data-home disk rather than inheriting a
 possibly RAM-backed system temporary directory. The original restore point and running
 home were untouched.
 
-## Requesting optimization
+## Requesting plain JSON restoration
 
-Restore-point status listings cache only their small summary after reading a manifest once.
-File identity, size, modification time and change time invalidate that cache. This avoids
-repeatedly parsing this PC's 85 MiB file manifest during polling: an isolated read-only listing
-measured 321 ms and a 642 MiB peak RSS. With the cache, subsequent listings of the same
-unchanged point in that process measured 0.30 ms and 0.18 ms. Recovery and storage maintenance still verify the
-complete manifest and every file afresh; listing metadata is never a health or recovery proof.
+First upgrade through the normal confirmed installation path to a published release advertising
+`storageNormalizationProtocol: 1`. The release producer no longer advertises the retired
+`storageOptimizationProtocol`. New controllers reject both the old optimization action and
+`install --optimize-storage`. Do not reuse a compression journal for restoration.
 
-Use the running environment's native controller. Review `maintenance status --json` and its
-exact staged digest, then request:
+Review the running environment's `t3 maintenance status --json`, including its exact installed
+digest, affected homes and `storageNormalization` capability, then request:
 
 ```bash
-t3 maintenance install --digest <reviewed-artifact-sha256> --optimize-storage
+t3 maintenance normalize-storage --digest '<installed-artifact-sha256>'
 ```
 
-Storage rewriting requires an explicit request on supported desktop and managed-service
-installations, including WSL homes. Running chats and other activity still block native admission.
-Ordinary binary updates do not implicitly request storage optimization, even if an old migration
-marker remains pending. The explicit operation preserves the installed version pin and retains
-its verified snapshot, capacity, fencing, authorization and recovery requirements.
+This is an explicit same-build operation for supported desktop and managed-service installations,
+including WSL homes. It verifies the published version, commit and artifact, preserves pins and
+saved update preferences, and allocates no new build or counter. Running chats and unknown
+activity block admission. Older managed launchers may require `t3 service install` during an
+authorized maintenance window first; no refresh or OS authorization happens automatically.
 
-Older service launchers may need `t3 service install` during an authorized maintenance window
-before explicit storage work is available. No launcher refresh or operating-system authorization
-is requested automatically.
+The journal binds restoration to the exact artifact, transaction, homes and snapshots. Every home
+is snapshotted before trial; the dedicated low-priority worker runs before the backend's application
+connection opens. It verifies its live parent, recorded process ownership, fence and restore point.
+Windows and WSL use their native homes and the existing cohort health/recovery receipts. The
+launcher transport's historical storage flag requests only a same-build handoff and longer trial
+timeout; the new journal action authorizes the actual conversion. The trial allows up to two hours.
 
-For a manually admitted retry, use the reviewed **installed** digest:
+The worker restores all four archived source tables, expands gzip payload references and historical
+Brotli blocks, and materializes prompt anchors. Decoded payload bytes, row identities, row counts,
+schema and migration ledger are checked, followed by SQLite integrity and foreign-key checks.
+Converted rows and their durable completion receipt commit in one SQLite transaction. Interrupted,
+corrupt or conflicting input rolls the conversion back and leaves admission fenced for normal
+recovery. No partial conversion is admitted. A repeated completed transaction checks the matching
+format and snapshot before returning its receipt.
 
-```bash
-t3 maintenance optimize-storage --digest <installed-artifact-sha256>
-```
+Plan for the expanded data plus rollback/WAL growth, retained snapshots and at least 8 GiB spare
+space on each data disk. Capacity is rechecked before individual expansions and at progress
+boundaries; this reserve is not an estimate of total decompressed size. A low-space failure rolls
+back and requires more space before retry. The operation does not vacuum, deduplicate evidence,
+remove archives or blobs, alter feature tables, or reset the migration ledger. Database size can
+grow substantially. Legacy readers and recovery assets remain for late upgrades and rollback.
+This is Arcwright with ordinary JSON, not a stock T3 Code downgrade.
 
-It verifies the published manifest and retained artifact for that exact installed version,
-commit and digest, then uses the same native snapshot/trial/recovery path. It restarts the
-verified installed binary; no new build or counter is allocated, and a version pin stays set.
-
-The request is persisted in the exact update journal before fencing. Every affected home is
-snapshotted and normal update/recovery health receipts still govern admission. The trial
-backend closes its migration connection and invokes the packaged CLI in a separate worker
-before opening its application database. The worker records its own process creation identity under the live trial parent and keeps
-that ownership visible if the parent exits. It checks the
-exact fence, trial journal, home ownership, restore-point integrity and repack capacity.
-On Linux CPU/I/O priority is set before Node creates its filesystem threads; it runs with
-low CPU priority and idle I/O priority; foreground app priorities are
-unaffected. The explicit maintenance trial permits up to two hours for large homes.
-
-Running chats block admission and continue. Do not stop agents, forge an idle window, issue
-manual SQL against live userdata, or bypass the native controller to obtain this cleanup.
-A failure leaves the transaction fenced for the existing verification/recovery paths. Local
-production savings and startup latency require measurement after a successfully admitted run.
+Do not stop agents, forge an idle window, execute live SQL, or bypass native admission. Never
+restore an older database silently after writes have been admitted. Use the normal explicit
+recovery flow and preserve rescue copies. This source change does not install or convert any
+user's home. Roll out a verified published build to a representative installation, verify its
+receipt and history, then proceed in bounded batches. Offline and blocked installations remain
+pending; users who have not upgraded retain compatibility readers and their existing data.
 
 ## Reading cold history
 

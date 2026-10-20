@@ -37,6 +37,7 @@ export const ForkAndroidReleaseArtifact = Schema.Struct({
 });
 export const ForkReleaseManifest = Schema.Struct({
   storageOptimizationProtocol: Schema.optionalKey(Schema.Literal(1)),
+  storageNormalizationProtocol: Schema.optionalKey(Schema.Literal(1)),
   format: Schema.Literal(1),
   upstreamVersion: Schema.optionalKey(Schema.String),
   upstreamCommit: Schema.optionalKey(ForkSourceCommit),

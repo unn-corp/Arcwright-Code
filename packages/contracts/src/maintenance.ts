@@ -121,6 +121,8 @@ export const ForkUpdateStatus = Schema.Struct({
   interruptible: Schema.optionalKey(Schema.Boolean),
   /** Explicit storage optimization support; older controllers omit this capability. */
   storageOptimization: Schema.optionalKey(Schema.Boolean),
+  /** Snapshot-backed plain JSON restoration, independent of retired compression. */
+  storageNormalization: Schema.optionalKey(Schema.Boolean),
   /** Durable historical conversion requested by the database upgrade, independent of binary auto-update policy. */
   storageMigrationPending: Schema.optionalKey(Schema.Boolean),
   /** Homes (Windows and each WSL distribution, or this host's home) that installation snapshots and replaces. */
@@ -159,6 +161,10 @@ export const ForkMaintenanceActionInput = Schema.Union([
   /** Restart this exact verified installed build for data maintenance; allocates no new build identity. */
   Schema.Struct({
     action: Schema.Literal("optimize-storage"),
+    targetArtifactSha256: Schema.String,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("normalize-storage"),
     targetArtifactSha256: Schema.String,
   }),
   Schema.Struct({ action: Schema.Literal("cancel-countdown") }),

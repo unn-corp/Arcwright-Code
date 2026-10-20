@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off preferSchemaOverJson:off
-import { afterEach, describe, expect, it, vi } from "@effect/vitest";
+import { afterEach, describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
@@ -13,11 +14,21 @@ import { layerFromPath } from "./Sqlite.ts";
 import { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 import { newJournal } from "@t3tools/shared/forkMaintenanceJournal";
 import { createSnapshot, restoreSnapshot } from "@t3tools/shared/forkMaintenanceSnapshot";
-import { optimizeStorageHome } from "@t3tools/shared/forkStorageMaintenance";
-import { archiveRow, readArchivedRow } from "@t3tools/shared/forkStorageArchive";
-import { registerStorageFunctions } from "@t3tools/shared/forkStorageCodec";
+import { normalizeStorageHome } from "@t3tools/shared/forkStorageMaintenance";
+import {
+  archiveLegacyHistory,
+  recordLegacyBaselines,
+  compressEventHistory,
+  compressTurnItemHistory,
+} from "@t3tools/shared/forkStorageArchive";
+import { PAYLOAD_PREFIX, registerStorageFunctions } from "@t3tools/shared/forkStorageCodec";
+import { compactHistoryBlocks } from "../../../../packages/shared/src/forkStorageBlocks.ts";
 import { runStorageWorker } from "../maintenance/storageWorker.ts";
-import { readStorageMigrationStatus } from "@t3tools/shared/forkStorageMigration";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, statfs: vi.fn(actual.statfs) };
+});
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -87,6 +98,12 @@ function fixture() {
       db.prepare(`INSERT INTO projection_thread_messages(message_id,thread_id,role,text,is_streaming,created_at,updated_at)
     VALUES('reasoning','complete','reasoning','preserved reasoning',0,'2026-01-01','2026-01-01')`).run();
       db.exec("UPDATE arcwright_storage_migrations SET state='pending'");
+      registerStorageFunctions(db);
+      recordLegacyBaselines(db, "2026-01-01");
+      await archiveLegacyHistory(db, "2026-07-01", async () => {});
+      await compactHistoryBlocks(db, async () => {});
+      await compressEventHistory(db, async () => {});
+      await compressTurnItemHistory(db, async () => {});
       db.close();
       const store = await CoordinatorStore.open(NodePath.join(root, "coordinator"));
       await store.register(
@@ -111,13 +128,25 @@ function fixture() {
           target: { version: "new", artifactSha256: "new" },
           now,
         }),
-        storageOptimization: true,
+        storageNormalization: true,
       };
       await store.freeze(journal.id, now, { intent: journal });
       await store.unregister("fixture");
       const snapshot = await createSnapshot(home, journal.id);
       await store.writeJournal({ ...journal, phase: "trial", snapshots: { [home]: snapshot } });
-      return { root, home, database, store, journal, snapshot };
+      const trial = await store.issueTrial(journal.id, home);
+      await store.register(
+        {
+          id: "backend",
+          label: "Fixture backend",
+          kind: "standalone",
+          homes: [home],
+          updateTarget: false,
+        },
+        now,
+        { trial },
+      );
+      return { root, home, database, store, journal, snapshot, trial };
     });
   });
 }
@@ -134,90 +163,105 @@ function storageTest(
   );
 }
 
-describe("admitted lossless storage optimization", () => {
+const normalize = (
+  f: Effect.Success<ReturnType<typeof fixture>>,
+  progress?: (p: { stage: string; rows: number }) => void | Promise<void>,
+) =>
+  normalizeStorageHome({
+    home: f.home,
+    transactionId: f.journal.id,
+    store: f.store,
+    participantId: "backend",
+    ...(progress === undefined ? {} : { progress }),
+  });
+
+describe("admitted plain JSON storage restoration", () => {
   storageTest(
-    "archives across batch boundaries using a resumable row scan without repeated history sorts",
+    "restores legacy history and exact retry responses, retains recovery data, and resumes idempotently",
     async (f) => {
-      let db = new NodeSqlite.DatabaseSync(f.database);
-      const insert = db.prepare(
-        `INSERT INTO projection_thread_activities(activity_id,thread_id,turn_id,tone,kind,summary,payload_json,created_at) VALUES(?,'complete',NULL,'info','tool','batch boundary','{}','2026-01-01')`,
-      );
-      for (let n = 0; n < 300; n++) insert.run(`reverse-${300 - n}`);
-      db.close();
-      const snapshot = await createSnapshot(f.home, f.journal.id);
-      await f.store.writeJournal({
-        ...f.journal,
-        phase: "trial",
-        snapshots: { [f.home]: snapshot },
+      const report = await normalize(f);
+      expect(report).toMatchObject({
+        storageNormalizationVersion: 1,
+        schemaUnchanged: true,
+        ledgerUnchanged: true,
+        integrity: "ok",
+        snapshotId: f.snapshot,
+        archiveRowsRestored: {
+          projection_thread_activities: 1,
+          orchestration_events: 1,
+          orchestration_command_receipts: 1,
+          projection_thread_messages: 1,
+        },
       });
-      const queries = new Set<string>();
-      let baselineQuery = "";
-      const prepare = NodeSqlite.DatabaseSync.prototype.prepare;
-      const spy = vi
-        .spyOn(NodeSqlite.DatabaseSync.prototype, "prepare")
-        .mockImplementation(function (this: NodeSqlite.DatabaseSync, sql: string) {
-          if (sql.includes("SELECT rowid AS position")) queries.add(sql);
-          if (sql.includes("INSERT INTO arcwright_legacy_baselines")) baselineQuery = sql;
-          return prepare.call(this, sql);
-        });
+      expect(await normalize(f)).toEqual(report);
+      const db = new NodeSqlite.DatabaseSync(f.database);
       try {
-        const result = await optimizeStorageHome({
-          home: f.home,
-          transactionId: f.journal.id,
-          store: f.store,
-        });
-        expect(result.archived).toMatchObject({ projection_thread_activities: 301 });
-      } finally {
-        spy.mockRestore();
-      }
-      db = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
-      try {
-        expect(queries.size).toBe(5);
-        expect(baselineQuery).not.toBe("");
-        const baselinePlan = db
-          .prepare(`EXPLAIN QUERY PLAN ${baselineQuery}`)
-          .all("2026-10-12") as { detail: string }[];
         expect(
-          baselinePlan.some((row) =>
-            /SEARCH event .*aggregate_kind=\? AND stream_id=\?/.test(row.detail),
-          ),
-        ).toBe(true);
-        for (const sql of queries) {
-          const parameters = sql.includes("accepted_at < ?") ? [0, "2026-07-01"] : [0];
-          const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters) as {
-            detail: string;
-          }[];
-          expect(plan.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(false);
-          expect(plan.some((row) => row.detail.includes("INTEGER PRIMARY KEY (rowid>?)"))).toBe(
-            true,
-          );
-        }
+          db
+            .prepare("SELECT payload_json FROM projection_thread_activities ORDER BY activity_id")
+            .all(),
+        ).toEqual([
+          { payload_json: JSON.stringify({ output: "old output\n".repeat(100_000) }) },
+          { payload_json: JSON.stringify({ output: "old output\n".repeat(100_000) }) },
+        ]);
         expect(
-          db.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
-        ).toMatchObject({ count: 1 });
-        expect(readArchivedRow(db, "projection_thread_activities", "reverse-1")?.summary).toBe(
-          "batch boundary",
-        );
+          db.prepare("SELECT payload_json FROM orchestration_events ORDER BY sequence").all(),
+        ).toEqual([
+          { payload_json: JSON.stringify({ output: "event output\n".repeat(100_000) }) },
+          { payload_json: JSON.stringify({ output: "event output\n".repeat(100_000) }) },
+        ]);
+        expect(
+          db
+            .prepare(
+              "SELECT error,status FROM orchestration_command_receipts WHERE command_id='receipt-complete'",
+            )
+            .get(),
+        ).toEqual({ error: "historical receipt detail ".repeat(1000), status: "accepted" });
+        expect(
+          db
+            .prepare("SELECT text FROM projection_thread_messages WHERE message_id='reasoning'")
+            .get(),
+        ).toEqual({ text: "preserved reasoning" });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM arcwright_history_rows").get()!.n).toBe(4);
+        expect(
+          Number(db.prepare("SELECT COUNT(*) AS n FROM arcwright_payload_blobs").get()!.n),
+        ).toBeGreaterThan(0);
+        expect(
+          db.prepare("SELECT state FROM arcwright_storage_migrations ORDER BY version").all(),
+        ).toEqual([{ state: "pending" }, { state: "pending" }]);
+        // Restoring archived events must retain SQLite's stream clock high water.
+        expect(
+          db
+            .prepare(
+              `INSERT INTO orchestration_events(event_id,aggregate_kind,stream_id,stream_version,event_type,occurred_at,actor_kind,payload_json,metadata_json,application_event_version) VALUES('after-normalization','thread','complete',41,'legacy.fixture','2026-01-01','server','{}','{}',1) RETURNING sequence`,
+            )
+            .get(),
+        ).toMatchObject({ sequence: 3 });
       } finally {
         db.close();
       }
+      await f.store.unregister("backend");
+      await restoreSnapshot(f.home, f.snapshot, "fixture-restore");
+      const restored = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
+      try {
+        expect(
+          restored.prepare("SELECT COUNT(*) AS n FROM projection_thread_activities").get(),
+        ).toEqual({ n: 1 });
+        expect(
+          restored.prepare("SELECT payload_json FROM orchestration_events").get()!.payload_json,
+        ).toEqual(expect.stringContaining(PAYLOAD_PREFIX));
+        expect(restored.prepare("SELECT COUNT(*) AS n FROM arcwright_storage_runs").get()).toEqual({
+          n: 0,
+        });
+      } finally {
+        restored.close();
+      }
     },
   );
+
   storageTest(
-    "runs the real CLI as the trial backend's low-priority child and waits for its completed rewrite",
+    "runs the real packaged CLI child and waits for its durable completion before returning",
     async (f) => {
-      const trial = await f.store.issueTrial(f.journal.id, f.home);
-      await f.store.register(
-        {
-          id: "backend",
-          label: "Fixture backend",
-          kind: "desktop",
-          homes: [f.home],
-          updateTarget: true,
-        },
-        Date.now(),
-        { trial },
-      );
       const status = await f.store.status(Date.now());
       await runStorageWorker(
         {
@@ -226,121 +270,148 @@ describe("admitted lossless storage optimization", () => {
           participantId: "backend",
           coordinatorId: status.coordinatorId,
           home: f.home,
-          kind: "desktop",
-          updateTarget: true,
-          trial,
+          kind: "standalone",
+          updateTarget: false,
+          trial: f.trial,
           successorOf: null,
         },
         f.journal.id,
         NodeURL.fileURLToPath(new URL("../bin.ts", import.meta.url)),
       );
       const db = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
-      expect(
-        db
-          .prepare("SELECT completed_at FROM arcwright_storage_runs WHERE transaction_id=?")
-          .get(f.journal.id),
-      ).toMatchObject({ completed_at: expect.any(String) });
-      expect(
-        db.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
-      ).toMatchObject({ count: 1 });
-      db.close();
-    },
-  );
-  storageTest(
-    "preserves old history, stream clocks, incomplete imports and exact retry responses, then restores the original home",
-    async (f) => {
-      const report = await optimizeStorageHome({
-        home: f.home,
-        transactionId: f.journal.id,
-        store: f.store,
-      });
-      expect(report.archived).toMatchObject({
-        projection_thread_activities: 1,
-        orchestration_events: 1,
-        orchestration_command_receipts: 1,
-        projection_thread_messages: 1,
-      });
-      expect(Number(report.afterBytes)).toBeLessThan(Number(report.beforeBytes));
-      expect(readStorageMigrationStatus(f.home)).toMatchObject({
-        state: "complete",
-        beforeBytes: report.beforeBytes,
-        afterBytes: report.afterBytes,
-      });
-      const db = new NodeSqlite.DatabaseSync(f.database);
-      registerStorageFunctions(db);
-      expect(
-        db.prepare("SELECT state FROM arcwright_storage_migrations ORDER BY version").all(),
-      ).toEqual([{ state: "complete" }, { state: "complete" }]);
-      expect(
-        db
-          .prepare(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_orch_events_correlation_id','idx_orch_command_receipts_aggregate','idx_orch_command_receipts_sequence')",
-          )
-          .all(),
-      ).toEqual([]);
-      expect(readArchivedRow(db, "projection_thread_messages", "reasoning")?.text).toBe(
-        "preserved reasoning",
-      );
-      expect(
-        readArchivedRow(db, "orchestration_command_receipts", "receipt-complete")?.status,
-      ).toBe("accepted");
-      expect(
-        db
-          .prepare(
-            "SELECT stream_version FROM arcwright_legacy_baselines WHERE thread_id='complete'",
-          )
-          .get(),
-      ).toMatchObject({ stream_version: 40 });
-      expect(
-        db.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
-      ).toMatchObject({ count: 1 });
-      expect(
-        await optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
-      ).toEqual(report);
-      // VACUUM must retain AUTOINCREMENT's high water even when the last legacy event was retired.
-      const clock = db
-        .prepare(`INSERT INTO orchestration_events(event_id,aggregate_kind,stream_id,stream_version,event_type,occurred_at,actor_kind,payload_json,metadata_json,application_event_version)
-      VALUES('after-compaction','thread','complete',41,'legacy.fixture','2026-01-01','server','{}','{}',1) RETURNING sequence`)
-        .get();
-      expect(clock).toMatchObject({ sequence: 3 });
-      db.close();
-      await restoreSnapshot(f.home, f.snapshot, "fixture-restore");
-      const restored = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
-      expect(
-        restored.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
-      ).toMatchObject({ count: 2 });
-      expect(readStorageMigrationStatus(f.home).state).toBe("pending");
-      expect(
-        restored
-          .prepare("SELECT text FROM projection_thread_messages WHERE message_id='reasoning'")
-          .get(),
-      ).toMatchObject({ text: "preserved reasoning" });
-      restored.close();
+      try {
+        expect(
+          db
+            .prepare(
+              "SELECT json_extract(report_json,'$.storageNormalizationVersion') AS version FROM arcwright_storage_runs WHERE transaction_id=?",
+            )
+            .get(f.journal.id),
+        ).toEqual({ version: 1 });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM projection_thread_activities").get()).toEqual({
+          n: 2,
+        });
+      } finally {
+        db.close();
+      }
     },
   );
 
   storageTest(
-    "refuses an unbound request, a registered active owner and a damaged restore point before rewriting anything",
+    "rolls back restored rows and the completion receipt on interruption, then retries successfully",
     async (f) => {
       await expect(
-        optimizeStorageHome({ home: f.home, transactionId: "other", store: f.store }),
+        normalize(f, () => {
+          throw new Error("fixture interruption");
+        }),
+      ).rejects.toThrow("fixture interruption");
+      const db = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
+      try {
+        expect(db.prepare("SELECT COUNT(*) AS n FROM projection_thread_activities").get()).toEqual({
+          n: 1,
+        });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM arcwright_storage_runs").get()).toEqual({
+          n: 0,
+        });
+      } finally {
+        db.close();
+      }
+      expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+      expect(await normalize(f)).toMatchObject({ storageNormalizationVersion: 1 });
+    },
+  );
+
+  storageTest(
+    "rolls back if the transaction changes its authorized snapshot during conversion",
+    async (f) => {
+      const replacement = await createSnapshot(f.home, f.journal.id);
+      await expect(
+        normalize(f, async () => {
+          await f.store.writeJournal({
+            ...f.journal,
+            phase: "trial",
+            snapshots: { [f.home]: replacement },
+          });
+        }),
+      ).rejects.toThrow("authorization changed");
+      const db = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
+      try {
+        expect(db.prepare("SELECT COUNT(*) AS n FROM projection_thread_activities").get()).toEqual({
+          n: 1,
+        });
+        expect(db.prepare("SELECT COUNT(*) AS n FROM arcwright_storage_runs").get()).toEqual({
+          n: 0,
+        });
+      } finally {
+        db.close();
+      }
+      expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+    },
+  );
+
+  storageTest(
+    "refuses corrupt compressed data without admitting writes or leaving partial restoration",
+    async (f) => {
+      const db = new NodeSqlite.DatabaseSync(f.database);
+      db.exec("UPDATE arcwright_payload_blobs SET compressed=x'00'");
+      db.close();
+      await expect(normalize(f)).rejects.toThrow();
+      const retained = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
+      try {
+        expect(
+          retained.prepare("SELECT COUNT(*) AS n FROM projection_thread_activities").get(),
+        ).toEqual({ n: 1 });
+        expect(retained.prepare("SELECT COUNT(*) AS n FROM arcwright_storage_runs").get()).toEqual({
+          n: 0,
+        });
+      } finally {
+        retained.close();
+      }
+      expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+    },
+  );
+
+  storageTest(
+    "requires the exact action, participant, snapshot and home, and blocks another runtime",
+    async (f) => {
+      await expect(
+        normalizeStorageHome({
+          home: f.home,
+          transactionId: "other",
+          store: f.store,
+          participantId: "backend",
+        }),
       ).rejects.toThrow("exact authorized");
-      const capability = await f.store.issueTrial(f.journal.id, f.home);
+      await expect(
+        normalizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
+      ).rejects.toThrow("does not own");
+      await f.store.writeJournal({
+        ...f.journal,
+        phase: "trial",
+        storageNormalization: false,
+        storageOptimization: true,
+        snapshots: { [f.home]: f.snapshot },
+      });
+      await expect(normalize(f)).rejects.toThrow("exact authorized");
+      await f.store.writeJournal({
+        ...f.journal,
+        phase: "trial",
+        snapshots: { [f.home]: f.snapshot },
+      });
+      const trial = await f.store.issueTrial(f.journal.id, f.home);
       await f.store.register(
         {
-          id: "owner",
-          label: "Active trial",
-          kind: "standalone",
+          id: "other",
+          parentId: "backend",
+          label: "Other owner",
+          kind: "wsl",
           homes: [f.home],
           updateTarget: false,
         },
         Date.now(),
-        { trial: capability },
+        { trial },
       );
-      await expect(
-        optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
-      ).rejects.toThrow("still owns");
-      await f.store.unregister("owner");
+      await expect(normalize(f)).rejects.toThrow("still owns");
+      await f.store.unregister("other");
       await NodeFSP.writeFile(
         NodePath.join(
           f.home,
@@ -352,20 +423,12 @@ describe("admitted lossless storage optimization", () => {
         ),
         "damaged",
       );
-      await expect(
-        optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
-      ).rejects.toThrow();
-      const db = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
-      expect(
-        db.prepare("SELECT COUNT(*) AS count FROM projection_thread_activities").get(),
-      ).toMatchObject({ count: 2 });
-      expect(readStorageMigrationStatus(f.home).state).toBe("pending");
-      db.close();
+      await expect(normalize(f)).rejects.toThrow();
     },
   );
 
   storageTest(
-    "binds a WSL rewrite to the exact distribution home and its native restore point",
+    "binds a WSL conversion to the exact distribution and its native snapshot",
     async (f) => {
       const journalHome = `wsl:StorageFixture:${f.home}`;
       await f.store.writeJournal({
@@ -374,61 +437,42 @@ describe("admitted lossless storage optimization", () => {
         homes: [journalHome],
         snapshots: { [journalHome]: f.snapshot },
       });
-      const savedDistro = process.env.WSL_DISTRO_NAME;
+      const saved = process.env.WSL_DISTRO_NAME;
       try {
         process.env.WSL_DISTRO_NAME = "WrongFixture";
-        await expect(
-          optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
-        ).rejects.toThrow("exact authorized");
+        await expect(normalize(f)).rejects.toThrow("exact authorized");
         process.env.WSL_DISTRO_NAME = "StorageFixture";
-        const report = await optimizeStorageHome({
-          home: f.home,
-          transactionId: f.journal.id,
-          store: f.store,
-        });
-        expect(Number(report.afterBytes)).toBeLessThan(Number(report.beforeBytes));
-        expect(readStorageMigrationStatus(f.home).state).toBe("complete");
+        expect(await normalize(f)).toMatchObject({ storageNormalizationVersion: 1 });
       } finally {
-        if (savedDistro === undefined) delete process.env.WSL_DISTRO_NAME;
-        else process.env.WSL_DISTRO_NAME = savedDistro;
+        if (saved === undefined) delete process.env.WSL_DISTRO_NAME;
+        else process.env.WSL_DISTRO_NAME = saved;
       }
     },
   );
 
-  storageTest("requires a fresh admitted transaction for a newer storage migration", async (f) => {
-    const db = new NodeSqlite.DatabaseSync(f.database);
-    db.prepare(
-      "INSERT INTO arcwright_storage_runs(transaction_id,started_at,completed_at,report_json) VALUES(?,?,?,?)",
-    ).run(
-      f.journal.id,
-      "2026-01-01",
-      "2026-01-01",
-      JSON.stringify({ beforeBytes: 10000, afterBytes: 5000 }),
-    );
-    db.close();
-    await expect(
-      optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
-    ).rejects.toThrow("fresh admitted transaction");
-    expect(readStorageMigrationStatus(f.home).state).toBe("pending");
-  });
-  storageTest("detects a conflicting archive before deleting its source row", async (f) => {
-    const db = new NodeSqlite.DatabaseSync(f.database);
-    archiveRow(db, "projection_thread_activities", "activity-complete", "complete", {
-      wrong: "row",
-    });
-    db.close();
-    await expect(
-      optimizeStorageHome({ home: f.home, transactionId: f.journal.id, store: f.store }),
-    ).rejects.toThrow("archive verification");
-    const retained = new NodeSqlite.DatabaseSync(f.database, { readOnly: true });
-    expect(
-      retained
-        .prepare(
-          "SELECT activity_id FROM projection_thread_activities WHERE activity_id='activity-complete'",
-        )
-        .get(),
-    ).toBeDefined();
-    retained.close();
-    expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+  storageTest(
+    "refuses a completed compression receipt in place of JSON conversion authorization",
+    async (f) => {
+      const db = new NodeSqlite.DatabaseSync(f.database);
+      db.prepare("INSERT INTO arcwright_storage_runs VALUES(?,?,?,?)").run(
+        f.journal.id,
+        "2026-01-01",
+        "2026-01-01",
+        JSON.stringify({ storageMigrationVersion: 2 }),
+      );
+      db.close();
+      await expect(normalize(f)).rejects.toThrow("fresh admitted transaction");
+    },
+  );
+
+  storageTest("refuses insufficient expansion space before changing rows", async (f) => {
+    const probe = vi
+      .mocked(NodeFSP.statfs)
+      .mockResolvedValueOnce({ bavail: 1, bsize: 1 } as Awaited<ReturnType<typeof NodeFSP.statfs>>);
+    try {
+      await expect(normalize(f)).rejects.toThrow("Insufficient free space");
+    } finally {
+      probe.mockClear();
+    }
   });
 });

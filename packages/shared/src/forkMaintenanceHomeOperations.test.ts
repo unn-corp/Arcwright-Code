@@ -118,6 +118,23 @@ describe("home operations (the WSL control channel's verbs)", () => {
         "10",
       ]),
     ).toEqual({ home: "/h", operation: { op: "capacity", rescue: true, artifactBytes: 10 } });
+    expect(
+      parseHomeOperation([
+        "normalize-storage",
+        "--home",
+        "/h",
+        "--transaction",
+        "t",
+        "--parent-participant",
+        "backend",
+      ]),
+    ).toEqual({
+      home: "/h",
+      operation: { op: "normalize-storage", transactionId: "t", parentParticipantId: "backend" },
+    });
+    expect(parseHomeOperation(["optimize-storage", "--home", "/h", "--transaction", "t"])).toEqual({
+      error: "Unknown home operation optimize-storage.",
+    });
     expect(parseHomeOperation(["snapshot", "--home", "/h"])).toEqual({
       error: "--transaction is required.",
     });

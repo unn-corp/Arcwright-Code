@@ -801,7 +801,7 @@ export const composeManifest = (input: {
 }): ForkReleaseManifest =>
   decodeForkReleaseManifest({
     format: 1,
-    storageOptimizationProtocol: 1,
+    storageNormalizationProtocol: 1,
     // Format 1 is read by installed clients that require the original repository slug.
     // GitHub redirects that slug to Arcwright-Code; changing it strands those updaters.
     repository: "unn-corp/t3code",

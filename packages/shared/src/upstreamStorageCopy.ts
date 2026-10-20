@@ -66,6 +66,45 @@ function archivedRow(value: unknown): Row {
   return row;
 }
 
+function restorePrompt(db: NodeSqlite.DatabaseSync, json: string, streamId: string) {
+  const value = JSON.parse(json) as { promptSequence?: unknown };
+  if (!Number.isInteger(value.promptSequence)) return json;
+  const anchor = db
+    .prepare(
+      "SELECT arcwright_payload_json(payload_json) AS payload_json,stream_id FROM orchestration_events WHERE sequence=?",
+    )
+    .get(value.promptSequence as number) as { payload_json: string; stream_id: string } | undefined;
+  const prompt =
+    anchor === undefined
+      ? undefined
+      : (JSON.parse(anchor.payload_json) as { prompt?: unknown; promptSequence?: unknown });
+  if (
+    anchor === undefined ||
+    anchor.stream_id !== streamId ||
+    typeof prompt?.prompt !== "string" ||
+    prompt.promptSequence !== undefined
+  )
+    throw new Error("Prompt anchor is missing, cross-thread, or recursive; conversion blocked.");
+  return (
+    db
+      .prepare("SELECT json_set(json_remove(?,'$.promptSequence'),'$.prompt',?) AS json")
+      .get(json, prompt.prompt) as { json: string }
+  ).json;
+}
+
+function comparableField(db: NodeSqlite.DatabaseSync, source: string, row: Row, column: string) {
+  const original = row[column];
+  if (column !== "payload_json" || typeof original !== "string") return original;
+  const decoded = (
+    db.prepare("SELECT arcwright_payload_json(?) AS json").get(original) as { json: string }
+  ).json;
+  return source === "orchestration_events" &&
+    (row.event_type === "subagent.updated" || row.event_type === "turn-item.updated") &&
+    typeof row.stream_id === "string"
+    ? restorePrompt(db, decoded, row.stream_id)
+    : decoded;
+}
+
 async function restoreArchives(
   db: NodeSqlite.DatabaseSync,
   progress: UpstreamStorageCopyOptions["progress"],
@@ -78,17 +117,22 @@ async function restoreArchives(
     visited = 0;
   for (;;) {
     const rows = db
-      .prepare(`SELECT source,row_key,digest,raw_bytes,compressed FROM arcwright_history_rows
-      WHERE source>? OR (source=? AND row_key>?) ORDER BY source,row_key LIMIT 64`)
-      .all(sourceCursor, sourceCursor, keyCursor) as Array<{
-      source: string;
-      row_key: string;
-      digest: string;
-      raw_bytes: number;
-      compressed: Uint8Array;
-    }>;
+      .prepare(`SELECT source,row_key FROM arcwright_history_rows
+      WHERE (source,row_key)>(?,?) ORDER BY source,row_key LIMIT 64`)
+      .all(sourceCursor, keyCursor) as Array<{ source: string; row_key: string }>;
     if (rows.length === 0) break;
-    for (const entry of rows) {
+    for (const key of rows) {
+      const entry = db
+        .prepare(
+          "SELECT source,row_key,digest,raw_bytes,compressed FROM arcwright_history_rows WHERE source=? AND row_key=?",
+        )
+        .get(key.source, key.row_key) as {
+        source: string;
+        row_key: string;
+        digest: string;
+        raw_bytes: number;
+        compressed: Uint8Array;
+      };
       if (!HISTORY_SOURCES.some((source) => source === entry.source))
         throw new Error("Unknown historical source; copy retained for inspection.");
       const source = entry.source as keyof typeof keys;
@@ -114,7 +158,13 @@ async function restoreArchives(
         )
         .get(row[keys[source]]!) as Row | undefined;
       if (current !== undefined) {
-        if (columns.some((column) => current[column] !== row[column]))
+        if (
+          columns.some(
+            (column) =>
+              comparableField(db, source, current, column) !==
+              comparableField(db, source, row, column),
+          )
+        )
           throw new Error(
             "Historical row conflicts with an existing row; neither was overwritten.",
           );
@@ -187,36 +237,38 @@ async function expandPrompts(
   progress: UpstreamStorageCopyOptions["progress"],
   reserve: (bytes: number) => Promise<void>,
 ) {
+  // Validate the original graph before any expansion can turn an invalid chain into a valid anchor.
+  if (
+    db
+      .prepare(`SELECT 1 FROM orchestration_events AS candidate
+      LEFT JOIN orchestration_events AS anchor ON anchor.sequence=json_extract(candidate.payload_json,'$.promptSequence')
+      WHERE candidate.event_type IN ('subagent.updated','turn-item.updated')
+        AND json_type(candidate.payload_json,'$.promptSequence') IS NOT NULL
+        AND (json_type(candidate.payload_json,'$.promptSequence') IS NOT 'integer'
+          OR anchor.sequence IS NULL OR anchor.stream_id IS NOT candidate.stream_id
+          OR json_type(anchor.payload_json,'$.prompt') IS NOT 'text'
+          OR json_type(anchor.payload_json,'$.promptSequence') IS NOT NULL) LIMIT 1`)
+      .get()
+  )
+    throw new Error(
+      "Prompt anchor is missing, cross-thread, recursive, or malformed; conversion blocked.",
+    );
   let cursor = 0,
     expanded = 0;
   for (;;) {
     const rows = db
-      .prepare(`SELECT sequence,payload_json,stream_id FROM orchestration_events
+      .prepare(`SELECT sequence FROM orchestration_events
       WHERE sequence>? AND event_type IN ('subagent.updated','turn-item.updated')
         AND json_type(payload_json,'$.promptSequence')='integer' ORDER BY sequence LIMIT 64`)
-      .all(cursor) as Array<{ sequence: number; payload_json: string; stream_id: string }>;
+      .all(cursor) as Array<{ sequence: number }>;
     if (rows.length === 0) break;
-    for (const row of rows) {
-      const anchorId = (JSON.parse(row.payload_json) as { promptSequence: number }).promptSequence;
-      const anchor = db
-        .prepare("SELECT payload_json,stream_id FROM orchestration_events WHERE sequence=?")
-        .get(anchorId) as { payload_json: string; stream_id: string } | undefined;
-      const prompt =
-        anchor === undefined
-          ? undefined
-          : (JSON.parse(anchor.payload_json) as { prompt?: unknown; promptSequence?: unknown });
-      if (
-        anchor === undefined ||
-        anchor.stream_id !== row.stream_id ||
-        typeof prompt?.prompt !== "string" ||
-        prompt.promptSequence !== undefined
-      )
-        throw new Error(
-          "Prompt anchor is missing, cross-thread, or recursive; copy retained for inspection.",
-        );
-      const restored = db
-        .prepare("SELECT json_set(json_remove(?,'$.promptSequence'),'$.prompt',?) AS json")
-        .get(row.payload_json, prompt.prompt) as { json: string };
+    for (const key of rows) {
+      const row = db
+        .prepare(
+          "SELECT sequence,payload_json,stream_id FROM orchestration_events WHERE sequence=?",
+        )
+        .get(key.sequence) as { sequence: number; payload_json: string; stream_id: string };
+      const restored = { json: restorePrompt(db, row.payload_json, row.stream_id) };
       await reserve(Buffer.byteLength(restored.json) * 2);
       db.prepare("UPDATE orchestration_events SET payload_json=? WHERE sequence=?").run(
         restored.json,
@@ -233,6 +285,79 @@ async function expandPrompts(
     await progress?.("prompts", expanded);
   }
   return expanded;
+}
+
+/** Caller holds the write transaction, including its durable completion receipt. */
+export async function normalizeStorageJson(
+  db: NodeSqlite.DatabaseSync,
+  progress: UpstreamStorageCopyOptions["progress"],
+  reserve: (bytes: number) => Promise<void>,
+) {
+  if (!db.isTransaction)
+    throw new Error("Storage normalization requires a caller-held write transaction.");
+  registerStorageFunctions(db);
+  const beforeSchema = hash(schema(db)),
+    beforeLedger = hash(ledger(db));
+  const tables = (
+    db
+      .prepare(
+        "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+      )
+      .all() as Array<{ name: string }>
+  ).map((row) => row.name);
+  const before = Object.fromEntries(tables.map((table) => [table, readRows(db, table)]));
+  const restored = tables.includes("arcwright_history_rows")
+    ? await restoreArchives(db, progress, reserve)
+    : {};
+  const payloads: Record<string, number> = {};
+  for (const table of tables) {
+    const hasPayload = (
+      db.prepare(`PRAGMA table_xinfo(${quote(table)})`).all() as Array<{ name: string }>
+    ).some((column) => column.name === "payload_json");
+    if (hasPayload) {
+      payloads[table] = await expandPayloads(db, table, progress, reserve);
+      if (
+        db
+          .prepare(
+            `SELECT 1 FROM ${quote(table)} WHERE payload_json GLOB ? OR (payload_json IS NOT NULL AND json_valid(payload_json)=0) LIMIT 1`,
+          )
+          .get(PAYLOAD_PREFIX + "*")
+      )
+        throw new Error("A payload still contains an unsupported reference or invalid JSON.");
+    }
+  }
+  const prompts = await expandPrompts(db, progress, reserve);
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM orchestration_events WHERE event_type IN ('subagent.updated','turn-item.updated') AND json_type(payload_json,'$.promptSequence') IS NOT NULL LIMIT 1",
+      )
+      .get()
+  )
+    throw new Error("A prompt still contains an unsupported anchor reference.");
+  const after = Object.fromEntries(tables.map((table) => [table, readRows(db, table)]));
+  if (tables.some((table) => after[table] !== before[table]! + (restored[table] ?? 0)))
+    throw new Error("Table row counts changed outside verified archive restoration.");
+  if (beforeSchema !== hash(schema(db)) || beforeLedger !== hash(ledger(db)))
+    throw new Error("Schema or historical migration ledger changed.");
+  await progress?.("integrity", 0);
+  const integrity = db.prepare("PRAGMA quick_check").all();
+  if (
+    integrity.length !== 1 ||
+    Object.values(integrity[0]!)[0] !== "ok" ||
+    db.prepare("PRAGMA foreign_key_check").all().length !== 0
+  )
+    throw new Error("Converted copy failed SQLite integrity or foreign-key verification.");
+  return {
+    schemaUnchanged: true as const,
+    ledgerUnchanged: true as const,
+    tableRowsBefore: before,
+    tableRowsAfter: after,
+    archiveRowsRestored: restored,
+    payloadsExpanded: payloads,
+    promptsExpanded: prompts,
+    integrity: "ok" as const,
+  };
 }
 
 /** A failed attempt leaves an explicitly incomplete private copy; the original is never altered. */
@@ -293,54 +418,15 @@ export async function createUpstreamStorageCopy(options: UpstreamStorageCopyOpti
     db.exec(
       "PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA cache_size=-8192",
     );
-    registerStorageFunctions(db);
-    const beforeSchema = hash(schema(db)),
-      beforeLedger = hash(ledger(db));
-    const tables = (
-      db
-        .prepare(
-          "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' ORDER BY name",
-        )
-        .all() as Array<{ name: string }>
-    ).map((row) => row.name);
-    const before = Object.fromEntries(tables.map((table) => [table, readRows(db, table)]));
-    const restored = tables.includes("arcwright_history_rows")
-      ? await restoreArchives(db, progress, reserve)
-      : {};
-    const payloads: Record<string, number> = {};
-    for (const table of tables) {
-      const hasPayload = (
-        db.prepare(`PRAGMA table_xinfo(${quote(table)})`).all() as Array<{ name: string }>
-      ).some((column) => column.name === "payload_json");
-      if (hasPayload) payloads[table] = await expandPayloads(db, table, progress, reserve);
-    }
-    const prompts = await expandPrompts(db, progress, reserve);
-    const after = Object.fromEntries(tables.map((table) => [table, readRows(db, table)]));
-    if (tables.some((table) => after[table] !== before[table]! + (restored[table] ?? 0)))
-      throw new Error("Table row counts changed outside verified archive restoration.");
-    if (beforeSchema !== hash(schema(db)) || beforeLedger !== hash(ledger(db)))
-      throw new Error("Schema or historical migration ledger changed.");
-    await options.progress?.("integrity", 0);
-    const integrity = db.prepare("PRAGMA quick_check").all();
-    if (
-      integrity.length !== 1 ||
-      Object.values(integrity[0]!)[0] !== "ok" ||
-      db.prepare("PRAGMA foreign_key_check").all().length !== 0
-    )
-      throw new Error("Converted copy failed SQLite integrity or foreign-key verification.");
+    db.exec("BEGIN IMMEDIATE");
+    const normalized = await normalizeStorageJson(db, progress, reserve);
+    db.exec("COMMIT");
     const report = {
       status: "complete",
       source: sourcePath,
       sourceOpenedReadOnly: true,
       output,
-      schemaUnchanged: true,
-      ledgerUnchanged: true,
-      tableRowsBefore: before,
-      tableRowsAfter: after,
-      archiveRowsRestored: restored,
-      payloadsExpanded: payloads,
-      promptsExpanded: prompts,
-      integrity: "ok",
+      ...normalized,
       sourceBytes: sourceStat.size,
       outputBytes: (await NodeFSP.stat(output)).size,
     };

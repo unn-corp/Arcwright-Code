@@ -401,6 +401,7 @@ describe("fork maintenance controller", () => {
       (entry) => entry.phase === "committed",
     )!;
     expect(journal.manualInstallation).toBe(true);
+    expect(journal.storageOptimization).toBeUndefined();
     expect(Object.keys(journal.snapshots)).toHaveLength(2);
     expect(Object.keys(journal.receipts)).toHaveLength(2);
     await h.admitting();
@@ -486,31 +487,47 @@ describe("fork maintenance controller", () => {
     },
   );
 
-  it("rejects storage optimization on an older target before taking admission", async () => {
+  it("rejects retired compression before taking admission", async () => {
     const h = await harness();
     await h.ready();
-    await expect(h.controller.install(sha("2"), true)).rejects.toThrow(
-      "does not support verified storage",
-    );
+    await expect(h.controller.install(sha("2"), true)).rejects.toThrow("compression is retired");
     expect(h.events).not.toContain("startTrial");
     expect((await h.controllerStore.status(h.clock.value)).fence).toBeNull();
+  });
+
+  it("refuses compression-capable releases and old actions as authorization for plain JSON restoration", async () => {
+    const h = await harness();
+    const record = releaseRecord("1.0.0", { id: 1, digest: sha("1") });
+    h.setReleases([
+      { ...record, manifest: { ...record.manifest!, storageOptimizationProtocol: 1 } },
+    ]);
+    expect((await h.controller.status()).storageOptimization).toBe(false);
+    await expect(h.controller.optimizeStorage(CURRENT.artifactSha256)).rejects.toThrow(
+      "compression is retired",
+    );
+    await expect(h.controller.normalizeStorage(CURRENT.artifactSha256)).rejects.toThrow(
+      "not a verified storage-capable",
+    );
+    expect((await h.controllerStore.status(h.clock.value)).fence).toBeNull();
+    expect(h.events).not.toContain("startTrial");
   });
 
   it("binds same-build storage maintenance to the installed digest, preserves a pin and uses every native snapshot and receipt", async () => {
     const h = await harness();
     const record = releaseRecord("1.0.0", { id: 1, digest: sha("1") });
     h.setReleases([
-      { ...record, manifest: { ...record.manifest!, storageOptimizationProtocol: 1 } },
+      { ...record, manifest: { ...record.manifest!, storageNormalizationProtocol: 1 } },
     ]);
     await h.controller.updatePolicy({ pinnedBuild: CURRENT.artifactSha256 });
-    await expect(h.controller.optimizeStorage(sha("9"))).rejects.toThrow("exact installed");
-    const result = await h.controller.optimizeStorage(CURRENT.artifactSha256);
+    await expect(h.controller.normalizeStorage(sha("9"))).rejects.toThrow("exact installed");
+    const result = await h.controller.normalizeStorage(CURRENT.artifactSha256);
     expect(result.policy.pinnedBuild).toBe(CURRENT.artifactSha256);
     const journal = (await h.controllerStore.listJournals()).find(
-      (entry) => entry.storageOptimization === true,
+      (entry) => entry.storageNormalization === true,
     )!;
     expect(journal).toMatchObject({
       phase: "committed",
+      storageNormalization: true,
       previous: { version: "1.0.0", artifactSha256: sha("1") },
       target: { version: "1.0.0", artifactSha256: sha("1") },
     });
