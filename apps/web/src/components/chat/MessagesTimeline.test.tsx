@@ -421,6 +421,7 @@ describe("timeline tooltip scroll dismissal", () => {
 
 function buildProps() {
   return {
+    emptyPlaceholderInset: 0,
     feedStyle: "arcwright" as const,
     isWorking: false,
     activeTurnInProgress: false,

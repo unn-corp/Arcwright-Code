@@ -1,4 +1,7 @@
 import * as Retry from "@distilled.cloud/cloudflare/Retry";
+import * as CloudflareRetry from "@distilled.cloud/cloudflare/Retry";
+import * as Clock from "effect/Clock";
+import * as CloudflareApiPause from "./CloudflareApiPause.ts";
 import type { ResultInfo } from "@distilled.cloud/cloudflare/Pagination";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -10,6 +13,7 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Duration from "effect/Duration";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -436,6 +440,132 @@ const duplicateDns = (error: unknown) =>
 
 // The pinned tunnel-delete operation declares no terminal in-use error.
 // Generic message/code failures cannot establish external quiescence.
+export class CloudflareApiPaused extends Schema.TaggedError<CloudflareApiPaused>()(
+  "CloudflareApiPaused",
+  { retryAfterMillis: Schema.Number },
+) {
+  override get message(): string {
+    return `Cloudflare API calls are paused for ${this.retryAfterMillis}ms after a rate limit`;
+  }
+}
+
+export function isCloudflareRateLimited(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null) {
+    return false;
+  }
+  if (
+    "_tag" in cause &&
+    (cause._tag === "TooManyRequests" ||
+      cause._tag === "CloudflareRateLimited" ||
+      cause._tag === "CloudflareApiPaused")
+  ) {
+    return true;
+  }
+  if ("status" in cause && cause.status === 429) {
+    return true;
+  }
+  return "cause" in cause && isCloudflareRateLimited(cause.cause);
+}
+
+const CLOUDFLARE_DEFAULT_RATE_LIMIT_PAUSE = Duration.seconds(30);
+const CLOUDFLARE_MAX_RATE_LIMIT_PAUSE = Duration.minutes(2);
+
+function cloudflareRateLimitPauseMillis(cause: unknown): number {
+  const retryAfter =
+    typeof cause === "object" && cause !== null && "retryAfter" in cause
+      ? cause.retryAfter
+      : undefined;
+  const pause = Duration.isDuration(retryAfter) ? retryAfter : CLOUDFLARE_DEFAULT_RATE_LIMIT_PAUSE;
+  return Duration.toMillis(Duration.min(pause, CLOUDFLARE_MAX_RATE_LIMIT_PAUSE));
+}
+
+/**
+ * How long a caller should wait before retrying, when `cause` is a Cloudflare
+ * rate limit or a call refused during the pause that follows one.
+ */
+export function cloudflareRetryAfterMillis(cause: unknown): number | undefined {
+  for (let current = cause, depth = 0; depth < 8; depth++) {
+    if (typeof current !== "object" || current === null) return undefined;
+    if ("_tag" in current && current._tag === "CloudflareApiPaused") {
+      const retryAfterMillis: unknown = Reflect.get(current, "retryAfterMillis");
+      return typeof retryAfterMillis === "number" ? retryAfterMillis : undefined;
+    }
+    if (
+      ("_tag" in current &&
+        (current._tag === "TooManyRequests" || current._tag === "CloudflareRateLimited")) ||
+      ("status" in current && current.status === 429)
+    ) {
+      return cloudflareRateLimitPauseMillis(current);
+    }
+    if (!("cause" in current)) return undefined;
+    current = current.cause;
+  }
+  return undefined;
+}
+
+// The SDK's default policy sleeps through Retry-After inside the request, which
+// held every caller until its timeout and kept the account over its limit.
+// Rate limits surface at once instead; other transient failures still retry.
+const withoutRateLimitRetries: CloudflareRetry.Factory = (lastError) => {
+  const defaults = CloudflareRetry.makeDefault(lastError);
+  return {
+    ...defaults,
+    while: (error) => !isCloudflareRateLimited(error) && (defaults.while?.(error) ?? false),
+  };
+};
+
+// Every isolate rereads the shared pause at most this often, so a quiet
+// period costs one query per isolate rather than one per Cloudflare call.
+const CLOUDFLARE_PAUSE_REFRESH_MILLIS = 5_000;
+
+/**
+ * The rate limit is account-wide, so once one call is rejected every other
+ * call is too, from any isolate. Failing them without a request leaves the
+ * account room to recover instead of extending the limit.
+ */
+export const makeCloudflareApiGate = (alchemyRuntimeContext: Alchemy.BaseRuntimeContext) => {
+  let pausedUntilMillis = 0;
+  let checkedAtMillis = Number.NEGATIVE_INFINITY;
+  return (pause: CloudflareApiPause.CloudflareApiPause["Service"]) => {
+    const recordRateLimit = Effect.fn("relay.cloudflare_api_pause.rate_limited")(function* (
+      cause: unknown,
+    ) {
+      const pauseMillis = cloudflareRateLimitPauseMillis(cause);
+      const until = (yield* Clock.currentTimeMillis) + pauseMillis;
+      pausedUntilMillis = Math.max(pausedUntilMillis, until);
+      yield* Effect.annotateCurrentSpan({ "relay.cloudflare.pause_ms": pauseMillis });
+      yield* pause.pauseUntil(until);
+    });
+    return <A, E>(
+      call: Effect.Effect<A, E, Alchemy.RuntimeContext>,
+    ): Effect.Effect<A, E | CloudflareApiPaused | Cause.TimeoutError> =>
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        if (now >= pausedUntilMillis && now - checkedAtMillis >= CLOUDFLARE_PAUSE_REFRESH_MILLIS) {
+          checkedAtMillis = now;
+          // Read first: a 429 recorded while the read is in flight must win.
+          const shared = yield* pause.pausedUntilMillis;
+          pausedUntilMillis = Math.max(pausedUntilMillis, shared);
+        }
+        // A paused call never reaches Cloudflare, so it leaves no 429 behind.
+        // Its own span keeps a storm visible to the rate-limit monitors.
+        if (now < pausedUntilMillis) {
+          return yield* new CloudflareApiPaused({ retryAfterMillis: pausedUntilMillis - now }).pipe(
+            Effect.withSpan("relay.cloudflare_api_pause.rejected"),
+          );
+        }
+        return yield* call.pipe(
+          Effect.provideService(CloudflareRetry.Retry, withoutRateLimitRetries),
+          Effect.timeout("8 seconds"),
+          Effect.tapError((cause) =>
+            isCloudflareRateLimited(cause) ? recordRateLimit(cause) : Effect.void,
+          ),
+          Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+        );
+      });
+  };
+};
+
 class RuntimeConflict extends Schema.TaggedError<RuntimeConflict>()(
   "ManagedEndpointRuntimeConflict",
   {
@@ -589,7 +719,7 @@ export const make = Effect.gen(function* () {
   // This mask protects only finite durable boundaries. External effects are
   // restored and joined through their full Exit, including defects/interrupts.
   // Safe is cleared BEFORE each write, so an unknown COMMIT never releases ownership.
-  const owned = <A, E, R>(
+  const owned = Effect.fn("ManagedEndpointProvider.owned")(function* <A, E, R>(
     claim: Claim,
     restore: <B, F, S>(effect: Effect.Effect<B, F, S>) => Effect.Effect<B, F, S>,
     body: (owner: {
@@ -605,67 +735,66 @@ export const make = Effect.gen(function* () {
         F | RuntimeConflict | ManagedEndpointLifecycle.LifecyclePersistenceError
       >;
     }) => Effect.Effect<A, E, R>,
-  ) =>
-    Effect.gen(function* () {
-      let safe = true;
-      const durable = <B, F, S>(effect: Effect.Effect<B, F, S>) =>
-        Effect.gen(function* () {
-          safe = false;
-          const value = yield* effect;
-          safe = true;
-          return value;
-        });
-      const mutation = <B, F>(
-        action: MutationAction,
-        dispatch: () => Effect.Effect<B, F>,
-        validate: (value: B) => Effect.Effect<MutationOutcome, RuntimeConflict>,
-        rejected?: (error: F) => boolean,
-      ) =>
-        Effect.gen(function* () {
-          safe = false;
-          const intent = yield* lifecycle.beginMutation({ claim, mutation: action });
-          if (intent.status !== "Applied") {
-            safe = true;
-            return yield* conflict("Lifecycle mutation intent lost");
-          }
-          const exit = yield* Effect.exit(restore(Effect.suspend(dispatch)));
-          if (Exit.isFailure(exit)) {
-            const reason = exit.cause.reasons[0];
-            if (
-              exit.cause.reasons.length === 1 &&
-              reason !== undefined &&
-              Cause.isFailReason(reason) &&
-              rejected?.(reason.error)
-            ) {
-              yield* requireApplied(
-                yield* lifecycle.completeMutation({
-                  claim,
-                  stepId: intent.stepId,
-                  outcome: { action: "rejected_no_effect" },
-                }),
-              );
-              safe = true;
-              return null;
-            }
-            return yield* Effect.failCause(exit.cause);
-          }
-          const outcome = yield* validate(exit.value);
+  ) {
+    let safe = true;
+    const durable = Effect.fn("ManagedEndpointProvider.durable")(function* <B, F, S>(
+      effect: Effect.Effect<B, F, S>,
+    ) {
+      safe = false;
+      const value = yield* effect;
+      safe = true;
+      return value;
+    });
+    const mutation = Effect.fn("ManagedEndpointProvider.mutation")(function* <B, F>(
+      action: MutationAction,
+      dispatch: () => Effect.Effect<B, F>,
+      validate: (value: B) => Effect.Effect<MutationOutcome, RuntimeConflict>,
+      rejected?: (error: F) => boolean,
+    ) {
+      safe = false;
+      const intent = yield* lifecycle.beginMutation({ claim, mutation: action });
+      if (intent.status !== "Applied") {
+        safe = true;
+        return yield* conflict("Lifecycle mutation intent lost");
+      }
+      const exit = yield* Effect.exit(restore(Effect.suspend(dispatch)));
+      if (Exit.isFailure(exit)) {
+        const reason = exit.cause.reasons[0];
+        if (
+          exit.cause.reasons.length === 1 &&
+          reason !== undefined &&
+          Cause.isFailReason(reason) &&
+          rejected?.(reason.error)
+        ) {
           yield* requireApplied(
-            yield* lifecycle.completeMutation({ claim, stepId: intent.stepId, outcome }),
+            yield* lifecycle.completeMutation({
+              claim,
+              stepId: intent.stepId,
+              outcome: { action: "rejected_no_effect" },
+            }),
           );
           safe = true;
-          return exit.value;
-        });
-      const exit = yield* Effect.exit(body({ durable, read: restore, mutation }));
-      if (Exit.isFailure(exit)) {
-        // No finalizer ever guesses that an in-flight/unknown dispatch is gone.
-        yield* (safe ? lifecycle.finishIdle(claim) : lifecycle.retainUncertain(claim)).pipe(
-          Effect.ignore,
-        );
+          return null;
+        }
         return yield* Effect.failCause(exit.cause);
       }
+      const outcome = yield* validate(exit.value);
+      yield* requireApplied(
+        yield* lifecycle.completeMutation({ claim, stepId: intent.stepId, outcome }),
+      );
+      safe = true;
       return exit.value;
     });
+    const exit = yield* Effect.exit(body({ durable, read: restore, mutation }));
+    if (Exit.isFailure(exit)) {
+      // No finalizer ever guesses that an in-flight/unknown dispatch is gone.
+      yield* (safe ? lifecycle.finishIdle(claim) : lifecycle.retainUncertain(claim)).pipe(
+        Effect.ignore,
+      );
+      return yield* Effect.failCause(exit.cause);
+    }
+    return exit.value;
+  });
 
   const observe = (claim: Claim, observation: Observation) =>
     lifecycle.recordObservation({ claim, observation });
@@ -676,72 +805,73 @@ export const make = Effect.gen(function* () {
         () => new RuntimeConflict({ reason: "Allocation absent" }),
       ),
     );
-  const exactTunnels = (name: string) =>
-    Effect.gen(function* () {
-      const result: Array<ManagedEndpointTunnel & { readonly id: string; readonly name: string }> =
-        [];
-      const ids = new Set<string>();
-      let total: number | undefined;
-      for (let page = 1; page <= 10; page++) {
-        const response = yield* tunnels.list({ isDeleted: false, name, page, perPage: 100 });
-        const info = response.resultInfo;
-        const count = info?.count;
-        const totalCount = info?.totalCount;
-        if (
-          !info ||
-          typeof count !== "number" ||
-          typeof totalCount !== "number" ||
-          !Number.isSafeInteger(count) ||
-          !Number.isSafeInteger(totalCount) ||
-          totalCount < 0 ||
-          totalCount > 1_000 ||
-          info.page !== page ||
-          info.perPage !== 100 ||
-          count !== response.result.length ||
-          count !== Math.min(100, Math.max(0, totalCount - (page - 1) * 100)) ||
-          (info.totalPages != null &&
-            info.totalPages !== Math.ceil(totalCount / 100) &&
-            !(totalCount === 0 && info.totalPages === 1)) ||
-          info.cursor != null ||
-          info.cursors != null ||
-          (total !== undefined && total !== totalCount)
-        )
-          return yield* conflict("Incomplete tunnel inventory");
-        total = totalCount;
-        for (const item of response.result) {
-          const tunnel = yield* validateTunnel(item, name);
-          if (ids.has(tunnel.id)) return yield* conflict("Duplicate tunnel identity");
-          ids.add(tunnel.id);
-          result.push(tunnel);
-        }
-        if (page >= Math.max(1, Math.ceil(totalCount / 100))) return result;
+  const exactTunnels = Effect.fn("ManagedEndpointProvider.exactTunnels")(function* (name: string) {
+    const result: Array<ManagedEndpointTunnel & { readonly id: string; readonly name: string }> =
+      [];
+    const ids = new Set<string>();
+    let total: number | undefined;
+    for (let page = 1; page <= 10; page++) {
+      const response = yield* tunnels.list({ isDeleted: false, name, page, perPage: 100 });
+      const info = response.resultInfo;
+      const count = info?.count;
+      const totalCount = info?.totalCount;
+      if (
+        !info ||
+        typeof count !== "number" ||
+        typeof totalCount !== "number" ||
+        !Number.isSafeInteger(count) ||
+        !Number.isSafeInteger(totalCount) ||
+        totalCount < 0 ||
+        totalCount > 1_000 ||
+        info.page !== page ||
+        info.perPage !== 100 ||
+        count !== response.result.length ||
+        count !== Math.min(100, Math.max(0, totalCount - (page - 1) * 100)) ||
+        (info.totalPages != null &&
+          info.totalPages !== Math.ceil(totalCount / 100) &&
+          !(totalCount === 0 && info.totalPages === 1)) ||
+        info.cursor != null ||
+        info.cursors != null ||
+        (total !== undefined && total !== totalCount)
+      )
+        return yield* conflict("Incomplete tunnel inventory");
+      total = totalCount;
+      for (const item of response.result) {
+        const tunnel = yield* validateTunnel(item, name);
+        if (ids.has(tunnel.id)) return yield* conflict("Duplicate tunnel identity");
+        ids.add(tunnel.id);
+        result.push(tunnel);
       }
-      return yield* conflict("Tunnel inventory budget exhausted");
-    });
-  const readTunnel = (row: ManagedEndpointLifecycle.LifecycleAllocation) =>
-    Effect.gen(function* () {
-      if (row.tunnelId === null) return null;
-      return yield* tunnels.get(row.tunnelId).pipe(
-        Effect.flatMap((value) => validateTunnel(value, row.tunnelName, row.tunnelId ?? undefined)),
-        Effect.catchIf(
-          (error) => tunnelAbsent(error, "get"),
-          () => Effect.succeed(null),
-        ),
-      );
-    });
-  const readDns = (row: ManagedEndpointLifecycle.LifecycleAllocation) =>
-    Effect.gen(function* () {
-      if (row.dnsRecordId === null) return null;
-      const record = yield* dns.getRecord(row.dnsRecordId).pipe(
-        Effect.catchIf(
-          (error) => dnsAbsent(error, "get-record"),
-          () => Effect.succeed(null),
-        ),
-      );
-      if (record === null) return null;
-      if (row.dnsTargetTunnelId === null) return yield* conflict("Unresolved DNS target");
-      return yield* validateDns(record, row.hostname, row.dnsTargetTunnelId, row.dnsRecordId);
-    });
+      if (page >= Math.max(1, Math.ceil(totalCount / 100))) return result;
+    }
+    return yield* conflict("Tunnel inventory budget exhausted");
+  });
+  const readTunnel = Effect.fn("ManagedEndpointProvider.readTunnel")(function* (
+    row: ManagedEndpointLifecycle.LifecycleAllocation,
+  ) {
+    if (row.tunnelId === null) return null;
+    return yield* tunnels.get(row.tunnelId).pipe(
+      Effect.flatMap((value) => validateTunnel(value, row.tunnelName, row.tunnelId ?? undefined)),
+      Effect.catchIf(
+        (error) => tunnelAbsent(error, "get"),
+        () => Effect.succeed(null),
+      ),
+    );
+  });
+  const readDns = Effect.fn("ManagedEndpointProvider.readDns")(function* (
+    row: ManagedEndpointLifecycle.LifecycleAllocation,
+  ) {
+    if (row.dnsRecordId === null) return null;
+    const record = yield* dns.getRecord(row.dnsRecordId).pipe(
+      Effect.catchIf(
+        (error) => dnsAbsent(error, "get-record"),
+        () => Effect.succeed(null),
+      ),
+    );
+    if (record === null) return null;
+    if (row.dnsTargetTunnelId === null) return yield* conflict("Unresolved DNS target");
+    return yield* validateDns(record, row.hostname, row.dnsTargetTunnelId, row.dnsRecordId);
+  });
   const provisioningError =
     (key: AllocationKey, stage: ManagedEndpointProvisioningFailed["stage"]) => (cause: unknown) =>
       new ManagedEndpointProvisioningFailed({ ...key, stage, cause });
@@ -1492,10 +1622,15 @@ export const makeCloudflareTunnelClient = (
     "get" | "list" | "create" | "putConfiguration" | "getToken" | "delete"
   >,
   alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
+  gate: ReturnType<ReturnType<typeof makeCloudflareApiGate>> = (call) =>
+    call.pipe(
+      Effect.timeout("8 seconds"),
+      Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+    ),
 ): ManagedEndpointTunnelClient["Service"] =>
   ManagedEndpointTunnelClient.of({
     get: (tunnelId) =>
-      tunnelClient.get(tunnelId).pipe(
+      gate(tunnelClient.get(tunnelId)).pipe(
         Effect.timeout("8 seconds"),
         Effect.mapError(
           (cause) =>
@@ -1508,7 +1643,7 @@ export const makeCloudflareTunnelClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     list: (request) =>
-      tunnelClient.list(request).pipe(
+      gate(tunnelClient.list(request)).pipe(
         Effect.timeout("8 seconds"),
         Effect.mapError(
           (cause) =>
@@ -1521,7 +1656,7 @@ export const makeCloudflareTunnelClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     create: (request) =>
-      tunnelClient.create(request).pipe(
+      gate(tunnelClient.create(request).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1535,7 +1670,7 @@ export const makeCloudflareTunnelClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     putConfiguration: (tunnelId, config) =>
-      tunnelClient.putConfiguration(tunnelId, config).pipe(
+      gate(tunnelClient.putConfiguration(tunnelId, config).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1549,7 +1684,7 @@ export const makeCloudflareTunnelClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     getToken: (tunnelId) =>
-      tunnelClient.getToken(tunnelId).pipe(
+      gate(tunnelClient.getToken(tunnelId)).pipe(
         Effect.timeout("8 seconds"),
         Effect.mapError(
           (cause) =>
@@ -1562,7 +1697,7 @@ export const makeCloudflareTunnelClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     delete: (tunnelId) =>
-      tunnelClient.delete(tunnelId).pipe(
+      gate(tunnelClient.delete(tunnelId).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1583,9 +1718,14 @@ export const makeCloudflareDnsClient = (
     "getDnsRecord" | "listDnsRecords" | "createDnsRecord" | "updateDnsRecord" | "deleteDnsRecord"
   >,
   alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
+  gate: ReturnType<ReturnType<typeof makeCloudflareApiGate>> = (call) =>
+    call.pipe(
+      Effect.timeout("8 seconds"),
+      Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+    ),
 ): ManagedEndpointDnsClient["Service"] => {
   const getRecord: ManagedEndpointDnsClient["Service"]["getRecord"] = (dnsRecordId) =>
-    dnsClient.getDnsRecord(dnsRecordId).pipe(
+    gate(dnsClient.getDnsRecord(dnsRecordId)).pipe(
       Effect.timeout("8 seconds"),
       Effect.flatMap(decodeDnsRecord),
       Effect.mapError(
@@ -1606,13 +1746,13 @@ export const makeCloudflareDnsClient = (
         ) {
           return yield* new InvalidDnsResponse({ reason: "Invalid DNS page request" });
         }
-        const response = yield* dnsClient
-          .listDnsRecords({
+        const response = yield* gate(
+          dnsClient.listDnsRecords({
             name: { exact: hostname },
             page: request.page,
             perPage: request.perPage,
-          })
-          .pipe(Effect.timeout("8 seconds"));
+          }),
+        ).pipe(Effect.timeout("8 seconds"));
         if (response.result.length > request.perPage) {
           return yield* new InvalidDnsResponse({ reason: "DNS page exceeds requested size" });
         }
@@ -1645,7 +1785,7 @@ export const makeCloudflareDnsClient = (
     listRecordsPage,
     listExactRecords: (hostname) => listExactDnsRecords(listRecordsPage, hostname),
     listRecords: (hostname) =>
-      dnsClient.listDnsRecords({ search: hostname }).pipe(
+      gate(dnsClient.listDnsRecords({ search: hostname })).pipe(
         Effect.timeout("8 seconds"),
         Effect.map((response) =>
           response.result.filter(
@@ -1665,7 +1805,7 @@ export const makeCloudflareDnsClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     createRecord: (request) =>
-      dnsClient.createDnsRecord(request).pipe(
+      gate(dnsClient.createDnsRecord(request).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
         Effect.flatMap(decodeDnsRecord),
@@ -1680,7 +1820,7 @@ export const makeCloudflareDnsClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     updateRecord: (dnsRecordId, request) =>
-      dnsClient.updateDnsRecord(dnsRecordId, request).pipe(
+      gate(dnsClient.updateDnsRecord(dnsRecordId, request).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
         Effect.flatMap(decodeDnsRecord),
@@ -1696,7 +1836,7 @@ export const makeCloudflareDnsClient = (
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
     deleteRecord: (dnsRecordId) =>
-      dnsClient.deleteDnsRecord(dnsRecordId).pipe(
+      gate(dnsClient.deleteDnsRecord(dnsRecordId).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1716,12 +1856,21 @@ export const layerCloudflareBindings = (
   tunnelClient: Cloudflare.Tunnel.ReadWriteTunnelClient,
   dnsClient: Cloudflare.DNS.ReadWriteDnsClient,
   alchemyRuntimeContext: Alchemy.BaseRuntimeContext,
-) =>
-  layer.pipe(
+) => {
+  const cloudflare = makeCloudflareApiGate(alchemyRuntimeContext);
+  return layer.pipe(
     Layer.provideMerge(
-      Layer.mergeAll(
-        layerTunnelClient(makeCloudflareTunnelClient(tunnelClient, alchemyRuntimeContext)),
-        layerDnsClient(makeCloudflareDnsClient(dnsClient, alchemyRuntimeContext)),
+      Layer.unwrap(
+        Effect.gen(function* () {
+          const gate = cloudflare(yield* CloudflareApiPause.CloudflareApiPause);
+          return Layer.mergeAll(
+            layerTunnelClient(
+              makeCloudflareTunnelClient(tunnelClient, alchemyRuntimeContext, gate),
+            ),
+            layerDnsClient(makeCloudflareDnsClient(dnsClient, alchemyRuntimeContext, gate)),
+          );
+        }),
       ),
     ),
   );
+};

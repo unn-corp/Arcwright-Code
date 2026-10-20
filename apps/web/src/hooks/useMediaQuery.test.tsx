@@ -2,7 +2,7 @@ import { act, useLayoutEffect } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
-import { useIsMobile, useMediaQuery } from "./useMediaQuery";
+import { useMediaQuery } from "./useMediaQuery";
 
 type Listener = (event: MediaQueryListEvent) => void;
 
@@ -64,7 +64,7 @@ function setViewportWidth(width: number) {
 }
 
 function Probe() {
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery("max-md");
   const isSmall = useMediaQuery("max-sm");
   useLayoutEffect(() => {
     mobileValue = isMobile;

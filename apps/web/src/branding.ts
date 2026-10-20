@@ -35,3 +35,4 @@ export const APP_BUILD_IDENTITY: import("@t3tools/contracts").BuildIdentity = im
   builtAt: null,
   label: APP_BUILD_LABEL,
 };
+export const DESKTOP_DOWNLOAD_URL = "https://github.com/unn-corp/Arcwright-Code/releases";

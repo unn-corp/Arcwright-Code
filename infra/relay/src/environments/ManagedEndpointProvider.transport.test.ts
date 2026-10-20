@@ -5,6 +5,8 @@ import { dnsReadWriteClient } from "alchemy/Cloudflare/DNS";
 import type { DnsAuth } from "alchemy/Cloudflare/DNS";
 import { readWriteClient } from "alchemy/Cloudflare/Tunnel";
 import * as Effect from "effect/Effect";
+import * as TestClock from "effect/testing/TestClock";
+import * as Pause from "./CloudflareApiPause.ts";
 import * as Exit from "effect/Exit";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
@@ -532,3 +534,31 @@ function mutateErrorTag<A>(
       )
     : Effect.die("Expected terminal failure");
 }
+
+describe("Cloudflare account rate limit admission", () => {
+  it.effect("shares the pause between isolates and admits calls after its deadline", () =>
+    Effect.gen(function* () {
+      let until = 0;
+      let calls = 0;
+      const pause = Pause.CloudflareApiPause.of({
+        pausedUntilMillis: Effect.sync(() => until),
+        pauseUntil: (value) =>
+          Effect.sync(() => {
+            until = Math.max(until, value);
+          }),
+      });
+      const first = ManagedEndpointProvider.makeCloudflareApiGate(runtimeContext)(pause);
+      const second = ManagedEndpointProvider.makeCloudflareApiGate(runtimeContext)(pause);
+      const rejected = Effect.suspend(() => {
+        calls++;
+        return Effect.fail({ _tag: "TooManyRequests" });
+      });
+      yield* Effect.flip(first(rejected));
+      const error = yield* Effect.flip(second(rejected));
+      expect(error).toMatchObject({ _tag: "CloudflareApiPaused", retryAfterMillis: 30_000 });
+      expect(calls).toBe(1);
+      yield* TestClock.adjust("30 seconds");
+      expect(yield* second(Effect.succeed("ready"))).toBe("ready");
+    }),
+  );
+});

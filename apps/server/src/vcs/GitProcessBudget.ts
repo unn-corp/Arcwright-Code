@@ -18,24 +18,32 @@ const METADATA_COMMANDS = new Set([
   "version",
 ]);
 
-function isHeavy(args: ReadonlyArray<string>): boolean {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
-    if (arg === "-c" || arg === "-C" || arg === "--git-dir" || arg === "--work-tree") {
-      i++;
-    } else if (!arg.startsWith("-")) {
-      // Unknown commands and aliases may scan assets or write objects.
-      // Only listing worktrees is metadata; mutations retain the heavy write lock.
-      return !(METADATA_COMMANDS.has(arg) || (arg === "worktree" && args[i + 1] === "list"));
-    }
+function gitCommand(args: ReadonlyArray<string>): { name: string; index: number } | null {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (["-c", "-C", "--git-dir", "--work-tree"].includes(arg)) index++;
+    else if (!arg.startsWith("-")) return { name: arg, index };
   }
-  return false;
+  return null;
+}
+
+function isHeavy(args: ReadonlyArray<string>): boolean {
+  const command = gitCommand(args);
+  if (command === null) return false;
+  // Unknown commands and aliases may scan assets or write objects.
+  // Only listing worktrees is metadata; mutations retain the heavy write lock.
+  return !(
+    METADATA_COMMANDS.has(command.name) ||
+    (command.name === "worktree" && args[command.index + 1] === "list")
+  );
 }
 
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const processes = yield* Semaphore.make(8);
   const heavyProcesses = yield* Semaphore.make(2);
+  // A stalled network fetch must leave a heavy slot available for local reads.
+  const fetchProcesses = yield* Semaphore.make(1);
   const repositories = yield* KeyedLock.make<string>();
   return {
     withPermit: <A, E, R>(
@@ -46,9 +54,16 @@ export const make = Effect.gen(function* () {
       const bounded = processes.withPermit(effect);
       // Acquire the repository first: queued work for one busy checkout must
       // not consume the global permits needed by other repositories.
-      return isHeavy(args)
-        ? repositories.withLock(path.resolve(cwd), heavyProcesses.withPermit(bounded))
-        : bounded;
+      if (!isHeavy(args)) return bounded;
+      const heavy = heavyProcesses.withPermit(bounded);
+      // Status and divergence reads must finish while a detached status fetch owns the
+      // repository's writer lock. They still count toward the heavy process cap.
+      const command = gitCommand(args)?.name;
+      if (command === "rev-list" || command === "status" || command === "diff-index") return heavy;
+      return repositories.withLock(
+        path.resolve(cwd),
+        command === "fetch" ? fetchProcesses.withPermit(heavy) : heavy,
+      );
     },
   };
 });

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "565887ee8261fc45966cdcc39fe9d9ea66f032e90cd761d02667487a4945eba2",
+  "schemaSha256": "bf5cfd0c31a79521e130200eefbdabb52b080144aacf6f3ad77cd756d1de2779",
   "objects": [
     {
       "type": "index",
@@ -631,6 +631,12 @@
       "name": "orchestration_v2_projection_turn_items_user_message_idx",
       "tbl_name": "orchestration_v2_projection_turn_items",
       "sql": "CREATE INDEX orchestration_v2_projection_turn_items_user_message_idx\n    ON orchestration_v2_projection_turn_items(thread_id, ordinal, turn_item_id)\n    WHERE type = 'user_message'\n  "
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_provider_turns_codex_native_id_idx",
+      "tbl_name": "orchestration_v2_projection_provider_turns",
+      "sql": "CREATE INDEX orchestration_v2_provider_turns_codex_native_id_idx\n    ON orchestration_v2_projection_provider_turns (\n      json_extract(payload_json, '$.nativeTurnRef.nativeId')\n    )\n    WHERE json_extract(payload_json, '$.nativeTurnRef.driver') = 'codex'\n  "
     },
     {
       "type": "index",

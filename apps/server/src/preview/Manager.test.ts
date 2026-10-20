@@ -2,7 +2,11 @@ import { it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { type PreviewEvent, ThreadId } from "@t3tools/contracts";
 import { PreviewUrlNormalizationError } from "@t3tools/shared/preview";
-import { Effect, Layer, PubSub, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
+import * as TestClock from "effect/testing/TestClock";
+import * as Stream from "effect/Stream";
 import { expect } from "vite-plus/test";
 
 import * as PreviewManager from "./Manager.ts";
@@ -42,7 +46,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const manager = yield* PreviewManager.PreviewManager;
       const collector = yield* collectEvents;
 
-      const snapshot = yield* manager.open({ threadId, url: "localhost:5173" });
+      const snapshot = yield* manager.open({
+        threadId,
+        url: "localhost:5173",
+      });
       expect(snapshot.tabId.startsWith("tab_")).toBe(true);
       expect(snapshot.navStatus._tag).toBe("Loading");
       if (snapshot.navStatus._tag === "Loading") {
@@ -76,7 +83,11 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       yield* manager.reportStatus({
         threadId,
         tabId: opened.tabId,
-        navStatus: { _tag: "Success", url: "http://localhost:5173/", title: "Dev" },
+        navStatus: {
+          _tag: "Success",
+          url: "http://localhost:5173/",
+          title: "Dev",
+        },
         canGoBack: true,
         canGoForward: false,
       });
@@ -101,7 +112,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const collector = yield* collectEvents;
       const before = yield* manager.list({ threadId });
 
-      const opened = yield* manager.open({ threadId, url: "http://localhost:5173" });
+      const opened = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
       yield* manager.navigate({
         threadId,
         tabId: opened.tabId,
@@ -171,7 +185,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const manager = yield* PreviewManager.PreviewManager;
       const collector = yield* collectEvents;
 
-      const opened = yield* manager.open({ threadId, url: "http://localhost:5173" });
+      const opened = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
       const snapshot = yield* manager.navigate({
         threadId,
         tabId: opened.tabId,
@@ -209,14 +226,21 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
       const collector = yield* collectEvents;
-      const opened = yield* manager.open({ threadId, url: "http://localhost:5173" });
+      const opened = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
 
       const resized = yield* manager.resize({
         threadId,
         tabId: opened.tabId,
         viewport: { _tag: "freeform", width: 1024, height: 768 },
       });
-      expect(resized.viewport).toEqual({ _tag: "freeform", width: 1024, height: 768 });
+      expect(resized.viewport).toEqual({
+        _tag: "freeform",
+        width: 1024,
+        height: 768,
+      });
 
       const navigated = yield* manager.navigate({
         threadId,
@@ -228,7 +252,11 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       yield* manager.reportStatus({
         threadId,
         tabId: opened.tabId,
-        navStatus: { _tag: "Success", url: "http://localhost:5173/resized", title: "Resized" },
+        navStatus: {
+          _tag: "Success",
+          url: "http://localhost:5173/resized",
+          title: "Resized",
+        },
         canGoBack: true,
         canGoForward: false,
       });
@@ -265,7 +293,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const manager = yield* PreviewManager.PreviewManager;
       const collector = yield* collectEvents;
 
-      const opened = yield* manager.open({ threadId, url: "http://localhost:5173" });
+      const opened = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
       yield* manager.reportStatus({
         threadId,
         tabId: opened.tabId,
@@ -341,13 +372,23 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
-      const first = yield* manager.open({ threadId, url: "http://localhost:5173" });
-      const second = yield* manager.open({ threadId, url: "http://localhost:3000" });
+      const first = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
+      yield* TestClock.adjust("1 second");
+      const second = yield* manager.open({
+        threadId,
+        url: "http://localhost:3000",
+      });
+      yield* TestClock.adjust("1 second");
+      yield* manager.navigate({
+        threadId,
+        tabId: first.tabId,
+        url: "http://localhost:5173/next",
+      });
       const result = yield* manager.list({ threadId });
-      expect(result.sessions).toHaveLength(2);
-      const ids = result.sessions.map((s) => s.tabId);
-      expect(ids).toContain(first.tabId);
-      expect(ids).toContain(second.tabId);
+      expect(result.sessions.map((s) => s.tabId)).toEqual([second.tabId, first.tabId]);
     }),
   );
 
@@ -357,8 +398,14 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       const manager = yield* PreviewManager.PreviewManager;
       const collector = yield* collectEvents;
 
-      const a = yield* manager.open({ threadId, url: "http://localhost:5173" });
-      const b = yield* manager.open({ threadId, url: "http://localhost:3000/path" });
+      const a = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
+      const b = yield* manager.open({
+        threadId,
+        url: "http://localhost:3000/path",
+      });
 
       expect(a.tabId).not.toBe(b.tabId);
       const list = yield* manager.list({ threadId });
@@ -385,8 +432,14 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
-      const a = yield* manager.open({ threadId, url: "http://localhost:5173" });
-      const b = yield* manager.open({ threadId, url: "http://localhost:3000" });
+      const a = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
+      const b = yield* manager.open({
+        threadId,
+        url: "http://localhost:3000",
+      });
 
       yield* manager.close({ threadId, tabId: a.tabId });
 
@@ -416,7 +469,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
-      const session = yield* manager.open({ threadId, url: "http://localhost:5173" });
+      const session = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
       const demand: Array<number> = [];
       yield* Effect.forkScoped(
         manager.frameDemand.pipe(
@@ -429,7 +485,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       );
       yield* Effect.yieldNow;
 
-      const frames = yield* manager.attachFrames({ threadId, tabId: session.tabId });
+      const frames = yield* manager.attachFrames({
+        threadId,
+        tabId: session.tabId,
+      });
       // Taking one element opens the stream, then releases it on completion,
       // which is exactly an attach followed by a detach.
       const first = yield* Stream.runHead(frames);
@@ -444,7 +503,10 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
-      const session = yield* manager.open({ threadId, url: "http://localhost:5173" });
+      const session = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
 
       // No viewer, so this must be a no-op rather than an error or a buffer
       // that grows until someone attaches.
@@ -469,9 +531,18 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
-      const session = yield* manager.open({ threadId, url: "http://localhost:5173" });
-      const first = yield* manager.attachFrames({ threadId, tabId: session.tabId });
-      const second = yield* manager.attachFrames({ threadId, tabId: session.tabId });
+      const session = yield* manager.open({
+        threadId,
+        url: "http://localhost:5173",
+      });
+      const first = yield* manager.attachFrames({
+        threadId,
+        tabId: session.tabId,
+      });
+      const second = yield* manager.attachFrames({
+        threadId,
+        tabId: session.tabId,
+      });
       yield* Effect.forkScoped(Stream.runDrain(first));
       yield* Effect.forkScoped(Stream.runDrain(second));
       yield* Effect.yieldNow;

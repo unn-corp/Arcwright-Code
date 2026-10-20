@@ -286,7 +286,7 @@ describe("WSL runtime cache", () => {
 
     expect(script).toContain('runtime_parent="$HOME/.t3/wsl-runtime"');
     expect(script).toContain('  [ -f "$ready_marker" ] &&');
-    expect(script).toContain('    runtime_entry_runs "$runtime_root" &&');
+    expect(script).toContain('    runtime_entry_runs "$runtime_root" 2>/dev/null &&');
     expect(script).toContain("if runtime_is_ready; then");
     expect(script).not.toContain("bin.mjs");
     expect(script).not.toContain("node-pty");
@@ -366,7 +366,7 @@ describe("WSL runtime cache", () => {
       "b".repeat(64),
     );
 
-    expect(script).toContain('  [ -x "$1/t3" ] && "$1/t3" --version >/dev/null 2>&1');
+    expect(script).toContain('  [ -x "$1/t3" ] && "$1/t3" --version >/dev/null');
 
     const entryCheckDefined = script.indexOf("runtime_entry_runs() {");
     const readinessDefined = script.indexOf("runtime_is_ready() {");
@@ -478,14 +478,14 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     fixtures.length = 0;
   });
 
-  const createFixture = () => {
+  const createFixture = (serverEntry = SERVER_ENTRY_SOURCE) => {
     const result = runShell(
       [
         "set -eu",
         "work=$(mktemp -d)",
         'stage="$work/stage/t3-0.0.0-linux-x64"',
         'mkdir -p "$stage/node_modules/node-pty/build/Release" "$work/home"',
-        `printf '%s' ${sh(SERVER_ENTRY_SOURCE)} > "$stage/t3"`,
+        `printf '%s' ${sh(serverEntry)} > "$stage/t3"`,
         'chmod +x "$stage/t3"',
         `printf '%s' 'pty-native-payload' > "$stage/node_modules/node-pty/build/Release/pty.node"`,
         `tar -czf "$work/wsl-runtime.tar.gz" -C "$work/stage" t3-0.0.0-linux-x64`,
@@ -599,6 +599,18 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     expect(parseWslRuntimeRoot(warm.stdout)).toBe(fixture.runtimeRoot);
   });
 
+  it("retains the loader error when a bundled executable needs a missing system library", () => {
+    const fixture = createFixture(
+      '#!/bin/sh\nprintf "error while loading shared libraries: libatomic.so.1: cannot open shared object file\\n" >&2\nexit 127\n',
+    );
+
+    const result = fixture.install();
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("libatomic.so.1");
+    expect(parseWslRuntimeRoot(result.stdout)).toBeNull();
+  });
+
   it("reinstalls a cache whose executable was truncated", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
@@ -610,6 +622,28 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     expect(parseWslRuntimeRoot(repaired.stdout)).toBe(fixture.runtimeRoot);
     const restored = runShell(`set -eu\ncat ${sh(fixture.serverEntry)}`);
     expect(restored.stdout).toBe(SERVER_ENTRY_SOURCE);
+  });
+
+  it("reinstalls an executable that fails --version despite a matching recorded digest", () => {
+    const fixture = createFixture();
+    expect(fixture.install().status).toBe(0);
+    const brokenEntry = "#!/bin/sh\nexit 42\n";
+    const corrupt = runShell(
+      [
+        "set -eu",
+        `printf '%s' ${sh(brokenEntry)} > ${sh(fixture.serverEntry)}`,
+        `chmod +x ${sh(fixture.serverEntry)}`,
+        `sha256sum ${sh(fixture.serverEntry)} | cut -d ' ' -f 1 > ${sh(`${fixture.runtimeRoot}/.t3code-wsl-runtime-ready`)}`,
+      ].join("\n"),
+    );
+    expect(corrupt.status, corrupt.stderr).toBe(0);
+    expect(runShell(`${sh(fixture.serverEntry)} --version`).status).toBe(42);
+
+    const repaired = fixture.install();
+    expect(repaired.status, repaired.stderr).toBe(0);
+    expect(parseWslRuntimeRoot(repaired.stdout)).toBe(fixture.runtimeRoot);
+    expect(runShell(`cat ${sh(fixture.serverEntry)}`).stdout).toBe(SERVER_ENTRY_SOURCE);
+    expect(runShell(`${sh(fixture.serverEntry)} --version`).status).toBe(0);
   });
 
   it("falls back instead of launching a corrupted cache it cannot reinstall", () => {

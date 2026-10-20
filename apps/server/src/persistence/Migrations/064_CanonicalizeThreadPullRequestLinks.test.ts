@@ -45,7 +45,11 @@ const thread = (id: string) => ({
   branch: null,
   worktreePath: null,
   activeProviderThreadId: null,
-  lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
+  lineage: {
+    parentThreadId: null,
+    relationshipToParent: null,
+    rootThreadId: id,
+  },
   forkedFrom: null,
   createdAt: updatedAt,
   updatedAt,
@@ -72,7 +76,9 @@ it.effect("upgrades compressed thread events and refreshes their replay byte cou
       title: "Saved 🧰 thread",
       linkedPullRequest: linked,
     });
-    const untouchedPayload = JSON.stringify({ title: "Unrelated compressed event" });
+    const untouchedPayload = JSON.stringify({
+      title: "Unrelated compressed event",
+    });
     const blobs = [compressText(payload), compressText(untouchedPayload)];
     for (const [index, blob] of blobs.entries()) {
       yield* sql`INSERT INTO arcwright_payload_blobs VALUES (${blob.digest}, ${blob.rawBytes}, ${blob.compressed})`;
@@ -83,7 +89,9 @@ it.effect("upgrades compressed thread events and refreshes their replay byte cou
         'thread.created', ${updatedAt}, 'user', ${payloadReference(blob)}, '{}', 2, ${blob.rawBytes})`;
     }
     const before = yield* sql`SELECT * FROM arcwright_payload_blobs ORDER BY digest`;
-    assert.deepEqual(yield* runMigrations(), [[111, "CanonicalizeThreadPullRequestLinks"]]);
+    assert.deepEqual(yield* runMigrations({ toMigrationInclusive: 111 }), [
+      [111, "CanonicalizeThreadPullRequestLinks"],
+    ]);
     const rows = yield* sql<{ payload_json: string; payload_bytes: number }>`
       SELECT payload_json, payload_bytes FROM orchestration_events ORDER BY event_id`;
     assert.deepEqual(JSON.parse(rows[0]!.payload_json), {
@@ -94,7 +102,7 @@ it.effect("upgrades compressed thread events and refreshes their replay byte cou
     assert.equal(rows[1]!.payload_json, payloadReference(blobs[1]!));
     assert.equal(rows[1]!.payload_bytes, blobs[1]!.rawBytes);
     assert.deepEqual(yield* sql`SELECT * FROM arcwright_payload_blobs ORDER BY digest`, before);
-    assert.deepEqual(yield* runMigrations(), []);
+    assert.deepEqual(yield* runMigrations({ toMigrationInclusive: 111 }), []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
@@ -107,7 +115,10 @@ layer("064_CanonicalizeThreadPullRequestLinks", (it) => {
         { ...thread("github"), linkedPullRequest: linked },
         {
           ...thread("forgejo"),
-          linkedPullRequest: { ...linked, url: "http://forge.example:3000/acme/web/pulls/42" },
+          linkedPullRequest: {
+            ...linked,
+            url: "http://forge.example:3000/acme/web/pulls/42",
+          },
         },
         {
           ...thread("azure"),
@@ -118,7 +129,11 @@ layer("064_CanonicalizeThreadPullRequestLinks", (it) => {
           },
         },
         { ...thread("empty"), linkedPullRequest: linked, pullRequests: [] },
-        { ...thread("current"), linkedPullRequest: linked, pullRequests: [currentLink] },
+        {
+          ...thread("current"),
+          linkedPullRequest: linked,
+          pullRequests: [currentLink],
+        },
         { ...thread("unlinked"), linkedPullRequest: null },
         ...Array.from({ length: 501 }, (_, index) => ({
           ...thread(`page-${String(index).padStart(3, "0")}`),
@@ -159,9 +174,14 @@ layer("064_CanonicalizeThreadPullRequestLinks", (it) => {
           'user', ${v1Payload}, '{}', 1)
       `;
 
-      assert.deepEqual(yield* runMigrations(), [[111, "CanonicalizeThreadPullRequestLinks"]]);
-      assert.deepEqual(yield* runMigrations(), []);
-      const rows = yield* sql<{ readonly thread_id: string; readonly payload_json: string }>`
+      assert.deepEqual(yield* runMigrations({ toMigrationInclusive: 111 }), [
+        [111, "CanonicalizeThreadPullRequestLinks"],
+      ]);
+      assert.deepEqual(yield* runMigrations({ toMigrationInclusive: 111 }), []);
+      const rows = yield* sql<{
+        readonly thread_id: string;
+        readonly payload_json: string;
+      }>`
         SELECT thread_id, payload_json FROM orchestration_v2_projection_threads
       `;
       const migrated = new Map(rows.map((row) => [row.thread_id, decodeThread(row.payload_json)]));
@@ -178,7 +198,10 @@ layer("064_CanonicalizeThreadPullRequestLinks", (it) => {
       assert.isTrue(
         [...migrated.values()].every((value) => DateTime.formatIso(value.updatedAt) === updatedAt),
       );
-      const events = yield* sql<{ readonly stream_id: string; readonly payload_json: string }>`
+      const events = yield* sql<{
+        readonly stream_id: string;
+        readonly payload_json: string;
+      }>`
         SELECT stream_id, payload_json FROM orchestration_events WHERE application_event_version = 2
       `;
       assert.deepEqual(
@@ -198,9 +221,11 @@ layer("064_CanonicalizeThreadPullRequestLinks", (it) => {
         ["dev.azure.com", "org/project/_git/web", "azure"],
       ] as const) {
         assert.deepEqual(
-          (yield* listLinkedPullRequestThreads({ host, repository, number: 42 })).threads.map(
-            (value) => value.id,
-          ),
+          (yield* listLinkedPullRequestThreads({
+            host,
+            repository,
+            number: 42,
+          })).threads.map((value) => value.id),
           [ThreadId.make(id)],
         );
       }

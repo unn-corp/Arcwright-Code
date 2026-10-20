@@ -334,8 +334,9 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
 
   const ingestNative = (snapshot: NativeTelemetryClient.NativeTelemetrySnapshot) =>
     rebuild({ nativeSnapshot: snapshot, updatePrevious: true });
-  const ingestDesktop = (snapshot: DesktopHostTelemetrySnapshot) =>
-    Effect.gen(function* () {
+  const ingestDesktop =
+    /* Desktop samples arrive continuously; avoid a span per telemetry sample. */
+    Effect.fnUntraced(function* (snapshot: DesktopHostTelemetrySnapshot) {
       const electronRoot = snapshot.electronProcesses.find(
         (process) => process.pid === snapshot.electronPid,
       );
@@ -365,7 +366,10 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
       Effect.gen(function* () {
         const current = yield* Ref.get(liveState);
         if (current.retainCount > 0) {
-          yield* Ref.set(liveState, { ...current, retainCount: current.retainCount + 1 });
+          yield* Ref.set(liveState, {
+            ...current,
+            retainCount: current.retainCount + 1,
+          });
           return;
         }
 
@@ -385,7 +389,10 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
           Effect.ignore,
           Effect.forkIn(scope),
         );
-        yield* Ref.set(liveState, { retainCount: 1, scope: Option.some(scope) });
+        yield* Ref.set(liveState, {
+          retainCount: 1,
+          scope: Option.some(scope),
+        });
       }),
     ),
   );
@@ -401,7 +408,10 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
         yield* desktopReceiver.setDiagnosticsDemand(false).pipe(Effect.ignore);
         return;
       }
-      yield* Ref.set(liveState, { ...current, retainCount: current.retainCount - 1 });
+      yield* Ref.set(liveState, {
+        ...current,
+        retainCount: current.retainCount - 1,
+      });
     }),
   );
 
@@ -413,39 +423,38 @@ export const make = Effect.fn("resourceTelemetry.resourceTelemetry.make")(functi
   );
   const liveChanges = Stream.unwrap(Effect.map(subscribe, ({ changes }) => changes));
 
-  const readHistoryUncached: ResourceTelemetry["Service"]["readHistory"] = (input) =>
-    Effect.gen(function* () {
-      const readAt = yield* DateTime.now;
-      const normalizedInput = normalizeResourceTelemetryHistoryInput(input);
-      const historyResult = yield* Effect.result(
-        nativeClient.readHistory(normalizedInput.windowMs),
-      );
-      if (Result.isFailure(historyResult)) {
-        yield* Effect.logWarning("Failed to read native resource telemetry history", {
-          cause: historyResult.failure.message,
-        });
-      }
-      const [nativeHealth, desktopHealth] = yield* Effect.all([
-        nativeClient.health,
-        desktopReceiver.health,
-      ]);
-      const current = yield* Ref.get(state);
-      return buildResourceTelemetryHistory({
-        readAt,
-        windowMs: normalizedInput.windowMs,
-        bucketMs: normalizedInput.bucketMs,
-        sampleIntervalMs: nativeHealth.sampleIntervalMs,
-        serverPid: process.pid,
-        sidecarPid: Option.map(nativeHealth.hello, (hello) => hello.sidecarPid),
-        desktopSnapshot: current.desktopSnapshot,
-        snapshots: Result.isSuccess(historyResult) ? historyResult.success : [],
-        health: buildHealth({
-          native: nativeHealth,
-          desktop: desktopHealth,
-          nativeSnapshot: current.nativeSnapshot,
-        }),
+  const readHistoryUncached: ResourceTelemetry["Service"]["readHistory"] = Effect.fn(
+    "ResourceTelemetry.readHistory",
+  )(function* (input) {
+    const readAt = yield* DateTime.now;
+    const normalizedInput = normalizeResourceTelemetryHistoryInput(input);
+    const historyResult = yield* Effect.result(nativeClient.readHistory(normalizedInput.windowMs));
+    if (Result.isFailure(historyResult)) {
+      yield* Effect.logWarning("Failed to read native resource telemetry history", {
+        cause: historyResult.failure.message,
       });
+    }
+    const [nativeHealth, desktopHealth] = yield* Effect.all([
+      nativeClient.health,
+      desktopReceiver.health,
+    ]);
+    const current = yield* Ref.get(state);
+    return buildResourceTelemetryHistory({
+      readAt,
+      windowMs: normalizedInput.windowMs,
+      bucketMs: normalizedInput.bucketMs,
+      sampleIntervalMs: nativeHealth.sampleIntervalMs,
+      serverPid: process.pid,
+      sidecarPid: Option.map(nativeHealth.hello, (hello) => hello.sidecarPid),
+      desktopSnapshot: current.desktopSnapshot,
+      snapshots: Result.isSuccess(historyResult) ? historyResult.success : [],
+      health: buildHealth({
+        native: nativeHealth,
+        desktop: desktopHealth,
+        nativeSnapshot: current.nativeSnapshot,
+      }),
     });
+  });
   // Share only in-flight reads. A subsequent request must observe fresh health,
   // desktop attribution and native samples, even after a sidecar restart.
   const historyReads = yield* Cache.make({

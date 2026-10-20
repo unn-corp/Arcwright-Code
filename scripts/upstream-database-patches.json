@@ -21,6 +21,13 @@
       "upstreamSha256": "f58eb0eaafc1b225129baefba5bb2bf62d37d58a20f9b1d4cd353419ad3b7345",
       "forkSha256": "1bf8a94d30835fa7e9f02848e65e7cf8d7b6796cce41158a2af1a12014e96701",
       "reason": "Decode retained compressed event payloads before pull request canonicalization and refresh replay byte counts; preserve unrelated archived events and their blobs during upgrade."
+    },
+    {
+      "upstreamPath": "apps/server/src/persistence/Migrations/066_RepairClientSettlementTimestamps.ts",
+      "localPath": "apps/server/src/persistence/Migrations/066_RepairClientSettlementTimestamps.ts",
+      "upstreamSha256": "12071d9678d33e3bc092234c6c250f690bf3e839fbdfdceff9dcfec70364c400",
+      "forkSha256": "ad1ae190abde4d2b21c09de2bc5380d8b64e81e21e4c0984bfa249de9b99730a",
+      "reason": "Decode retained compressed V1 and V2 history during settlement repair, preserve immutable V1 rows and blobs, and refresh replay byte counts on changed V2 events."
     }
   ]
 }

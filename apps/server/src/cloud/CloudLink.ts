@@ -8,6 +8,7 @@
 import * as NodeCrypto from "node:crypto";
 import {
   AuthStandardClientScopes,
+  EnvironmentAuthenticatedPrincipal,
   type EnvironmentCloudLinkStateResult,
   type EnvironmentCloudCleanupConfirmationRequest,
   type EnvironmentCloudPreferencesRequest,
@@ -77,6 +78,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as AgentAwarenessRelay from "../relay/AgentAwarenessRelay.ts";
 import { makeRelayEnvironmentClient } from "../relay/relayEnvironmentClient.ts";
+import { loopbackUrlHostForAddress } from "../startupAccess.ts";
 import {
   type CliDesiredLinkMode,
   readCliDesiredCloudLink,
@@ -188,7 +190,9 @@ export class CloudLinkOriginInvalidError extends Schema.TaggedError<CloudLinkOri
 
 export class CloudLinkAuthorityUnavailableError extends Schema.TaggedError<CloudLinkAuthorityUnavailableError>()(
   "CloudLinkAuthorityUnavailableError",
-  { status: Schema.Literals(["cloudless", "incompatible", "unavailable", "locally-disabled"]) },
+  {
+    status: Schema.Literals(["cloudless", "incompatible", "unavailable", "locally-disabled"]),
+  },
 ) {
   override get message(): string {
     return authorityMessage(this.status)!;
@@ -325,14 +329,22 @@ const isPermanentLinkError = Schema.is(
 );
 
 export const shouldRetryCloudLink = (error: unknown): boolean =>
-  shouldRetryRelayRequest(error) && !isPermanentLinkError(error);
+  shouldRetryRelayRequest(error) &&
+  !isPermanentLinkError(error) &&
+  !(CliTokenManager.isCloudCliCredentialRefreshError(error) && error.requiresLogin);
 
 const rollbackFailed = (cause: unknown) =>
-  Effect.logWarning("Could not roll back an Arcwright Connect preference", { cause });
+  Effect.logWarning("Could not roll back an Arcwright Connect preference", {
+    cause,
+  });
 
 const requireRelayUrl = relayUrlConfig.pipe(
   Effect.mapError(
-    (cause) => new CloudLinkInternalError({ operation: "relay-url-unconfigured", cause }),
+    (cause) =>
+      new CloudLinkInternalError({
+        operation: "relay-url-unconfigured",
+        cause,
+      }),
   ),
 );
 
@@ -367,7 +379,9 @@ export function consumeCloudReplayGuards(input: {
 function validateCloudMintPublicKey(
   publicKey: string,
 ): Effect.Effect<void, CloudLinkRelayConfigInvalidError> {
-  const invalid = new CloudLinkRelayConfigInvalidError({ field: "cloudMintPublicKey" });
+  const invalid = new CloudLinkRelayConfigInvalidError({
+    field: "cloudMintPublicKey",
+  });
   return Effect.try({
     try: () => NodeCrypto.createPublicKey(publicKey.replace(/\\n/g, "\n")),
     catch: () => invalid,
@@ -445,7 +459,10 @@ type CloudLinkBackgroundError =
 
 type ManagedTunnelRegistration =
   | { readonly status: "not_linked" | "superseded" | "revoked" }
-  | { readonly status: "recovery_required"; readonly config: RelayManagedEndpointRuntimeConfig }
+  | {
+      readonly status: "recovery_required";
+      readonly config: RelayManagedEndpointRuntimeConfig;
+    }
   | {
       readonly status: "ready";
       readonly endpointRuntimeStatus: ManagedEndpointRuntime.CloudManagedEndpointRuntimeStatus;
@@ -456,7 +473,8 @@ export class CloudLink extends Context.Service<
   {
     /**
      * Signs the proof the relay asks for to link this environment. The request
-     * must reach this server directly on the loopback origin it names.
+     * must reach this server directly. Desktop bootstrap sessions may use the
+     * WSL IP; all other sessions must use the loopback origin they name.
      */
     readonly linkProof: (
       request: RelayLinkProofRequest,
@@ -466,7 +484,8 @@ export class CloudLink extends Context.Service<
       | CloudLinkAuthorityUnavailableError
       | CloudLinkOriginInvalidError
       | CloudLinkInternalError
-      | EnvironmentAuth.ServerAuthInternalError
+      | EnvironmentAuth.ServerAuthInternalError,
+      EnvironmentAuthenticatedPrincipal
     >;
     readonly applyRelayConfig: (
       payload: RelayEnvironmentConfigRequest,
@@ -654,6 +673,7 @@ const make = Effect.gen(function* () {
   const makeCloudLinkProof = Effect.fn("environment.cloud.makeLinkProof")(function* (
     request: RelayLinkProofRequest,
     requestUrl: string,
+    allowNonLoopbackRequestHost = false,
   ) {
     yield* requireRelayAuthority(request.relayIssuer);
     if ((yield* hasPersistedLink) || authority.mode !== "owned") {
@@ -668,6 +688,7 @@ const make = Effect.gen(function* () {
       !isAllowedEndpointOrigin({
         origin: request.origin,
         requestUrl,
+        allowNonLoopbackRequestHost,
       })
     ) {
       return yield* new CloudLinkOriginInvalidError({ origin: "endpoint" });
@@ -711,8 +732,13 @@ const make = Effect.gen(function* () {
       if (requestUrl === null || hasForwardedAuthorityHeaders(httpRequest)) {
         return yield* new CloudLinkOriginInvalidError({ origin: "endpoint" });
       }
-      const proof = yield* makeCloudLinkProof(request, requestUrl);
-      return proof satisfies RelayEnvironmentLinkProof;
+      const principal = yield* EnvironmentAuthenticatedPrincipal;
+      // WSL desktop requests use the distro IP; only the server-issued bootstrap subject qualifies.
+      return yield* makeCloudLinkProof(
+        request,
+        requestUrl,
+        principal.subject === "desktop-bootstrap",
+      );
     },
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("generate-link-proof")),
     Effect.catchTags({ PlatformError: internalError("generate-link-proof") }),
@@ -913,7 +939,10 @@ const make = Effect.gen(function* () {
         origin: options.confirmedOrigin,
       });
       yield* secrets.set(CLOUD_ENDPOINT_CONFIRMED_ORIGIN, stringToBytes(marker));
-      return { ok: true, endpointRuntimeStatus } satisfies EnvironmentCloudRelayConfigResult;
+      return {
+        ok: true,
+        endpointRuntimeStatus,
+      } satisfies EnvironmentCloudRelayConfigResult;
     });
     return yield* options?.lockHeld ? apply : endpointRuntime.withLinkStateLock(apply);
   });
@@ -1063,7 +1092,11 @@ const make = Effect.gen(function* () {
       payload,
     }).pipe(
       Effect.mapError(
-        (cause) => new CloudLinkInternalError({ operation: "sign-recovery-proof", cause }),
+        (cause) =>
+          new CloudLinkInternalError({
+            operation: "sign-recovery-proof",
+            cause,
+          }),
       ),
     );
   });
@@ -1240,12 +1273,18 @@ const make = Effect.gen(function* () {
       ),
     );
     if (recovered.endpointRuntime.providerKind !== "cloudflare_tunnel") {
-      return yield* new CloudLinkInternalError({ operation: "unsupported-recovered-tunnel" });
+      return yield* new CloudLinkInternalError({
+        operation: "unsupported-recovered-tunnel",
+      });
     }
 
     const encoded = yield* encodeEndpointRuntimeConfigJson(recovered.endpointRuntime).pipe(
       Effect.mapError(
-        (cause) => new CloudLinkInternalError({ operation: "persist-recovered-tunnel", cause }),
+        (cause) =>
+          new CloudLinkInternalError({
+            operation: "persist-recovered-tunnel",
+            cause,
+          }),
       ),
     );
     const stored = yield* endpointRuntime.withLinkStateLock(
@@ -1277,14 +1316,18 @@ const make = Effect.gen(function* () {
 
   const applyRelayConfig = Effect.fn("environment.cloud.relayConfig")(
     function* (payload: RelayEnvironmentConfigRequest) {
-      const result = yield* applyCloudRelayConfig(payload, { reactivateLocallyDisabled: true });
+      const result = yield* applyCloudRelayConfig(payload, {
+        reactivateLocallyDisabled: true,
+      });
       if (payload.endpointRuntime?.providerKind === "cloudflare_tunnel") {
         const address = httpServer.address;
         if (typeof address === "string" || !("port" in address)) {
-          return yield* new CloudLinkInternalError({ operation: "resolve-server-origin" });
+          return yield* new CloudLinkInternalError({
+            operation: "resolve-server-origin",
+          });
         }
         const registration = yield* registerManagedTunnelRecovery(
-          `http://127.0.0.1:${address.port}`,
+          `http://${loopbackUrlHostForAddress(address)}:${address.port}`,
         ).pipe(
           Effect.retry({
             times: 2,
@@ -1498,7 +1541,10 @@ const make = Effect.gen(function* () {
               withRuntimeFiles,
               Effect.mapError(
                 (cause) =>
-                  new CloudLinkInternalError({ operation: "preserve-cleanup-reminder", cause }),
+                  new CloudLinkInternalError({
+                    operation: "preserve-cleanup-reminder",
+                    cause,
+                  }),
               ),
             );
           yield* Effect.all(
@@ -1552,7 +1598,11 @@ const make = Effect.gen(function* () {
     }).pipe(
       withRuntimeFiles,
       Effect.mapError(
-        (cause) => new CloudLinkInternalError({ operation: "remove-relay-config", cause }),
+        (cause) =>
+          new CloudLinkInternalError({
+            operation: "remove-relay-config",
+            cause,
+          }),
       ),
     );
     return { ok };
@@ -1682,7 +1732,10 @@ const make = Effect.gen(function* () {
         proofOption.value.environmentId !== environmentId ||
         proofOption.value.sub !== linkedCloudUserId ||
         !hasBoundedCloudProofLifetime({ ...proofOption.value, nowSeconds }) ||
-        !hasExactScope({ scopes: proofOption.value.scope, expected: "environment:status" })
+        !hasExactScope({
+          scopes: proofOption.value.scope,
+          expected: "environment:status",
+        })
       ) {
         return yield* new CloudLinkProofRejectedError({ request: "health" });
       }
@@ -1788,7 +1841,10 @@ const make = Effect.gen(function* () {
         proofOption.value.sub !== linkedCloudUserId ||
         proofOption.value.cnf.jkt !== proofOption.value.clientProofKeyThumbprint ||
         !hasBoundedCloudProofLifetime({ ...proofOption.value, nowSeconds }) ||
-        !hasExactScope({ scopes: proofOption.value.scope, expected: "environment:connect" })
+        !hasExactScope({
+          scopes: proofOption.value.scope,
+          expected: "environment:connect",
+        })
       ) {
         return yield* new CloudLinkProofRejectedError({ request: "mint" });
       }

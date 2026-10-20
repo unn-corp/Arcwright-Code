@@ -11,10 +11,12 @@ import {
   ProjectId,
   ProviderInstanceId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
 import { RelayAgentActivityState } from "@t3tools/contracts/relay";
+import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -25,6 +27,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Tracer from "effect/Tracer";
 import * as TestClock from "effect/testing/TestClock";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 
@@ -53,12 +56,19 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     projectId: PROJECT_ID,
     title: "Thread",
     providerInstanceId: ProviderInstanceId.make("codex"),
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test-model" },
+    modelSelection: {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "test-model",
+    },
     runtimeMode: "full-access",
     interactionMode: "default",
     worktreePath: null,
     activeProviderThreadId: null,
-    lineage: { rootThreadId: THREAD_ID, parentThreadId: null, relationshipToParent: null },
+    lineage: {
+      rootThreadId: THREAD_ID,
+      parentThreadId: null,
+      relationshipToParent: null,
+    },
     forkedFrom: null,
     createdBy: "user",
     creationSource: "web",
@@ -92,7 +102,9 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
   };
 }
 
-const PublishPayload = Schema.Struct({ state: Schema.NullOr(RelayAgentActivityState) });
+const PublishPayload = Schema.Struct({
+  state: Schema.NullOr(RelayAgentActivityState),
+});
 const decodePublishPayload = Schema.decodeUnknownSync(Schema.fromJsonString(PublishPayload));
 const unused = () => Effect.die("Unexpected test dependency call");
 
@@ -130,7 +142,10 @@ describe("startup agent activity", () => {
           latestRunCompletedAt: DateTime.makeUnsafe("2026-09-04T12:00:01.000Z"),
         }),
         shell({ id: ThreadId.make("idle"), status: "idle" }),
-        shell({ id: ThreadId.make("missing-project"), projectId: ProjectId.make("missing") }),
+        shell({
+          id: ThreadId.make("missing-project"),
+          projectId: ProjectId.make("missing"),
+        }),
       ],
     });
     assert.deepStrictEqual(ids, [THREAD_ID, newCompleted, newFailed]);
@@ -187,7 +202,12 @@ const makeTestRelay = Effect.fnUntraced(function* (
     getShellSnapshot: () =>
       Effect.sync(() => {
         catchUp.shellSnapshotReads += 1;
-        return { schemaVersion: 2, snapshotSequence: 1, threads: [], archivedThreads: [] };
+        return {
+          schemaVersion: 2,
+          snapshotSequence: 1,
+          threads: [],
+          archivedThreads: [],
+        };
       }),
     readShellSnapshot: unused,
     ensureLegacyTranscript: unused,
@@ -285,7 +305,15 @@ const makeTestRelay = Effect.fnUntraced(function* (
     Effect.provideService(FetchHttpClient.Fetch, fetch),
     Effect.provide(NodeCrypto.layer),
   );
-  return { relay, secrets, secretReads, currentShell, shellReads, publications, catchUp };
+  return {
+    relay,
+    secrets,
+    secretReads,
+    currentShell,
+    shellReads,
+    publications,
+    catchUp,
+  };
 });
 
 describe("AgentAwarenessRelay", () => {
@@ -324,7 +352,10 @@ describe("AgentAwarenessRelay", () => {
       }),
     );
     assert.isTrue(
-      AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({ type: "thread.created", payload: {} }),
+      AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({
+        type: "thread.created",
+        payload: {},
+      }),
     );
   });
 
@@ -402,6 +433,28 @@ describe("AgentAwarenessRelay", () => {
         ),
       ),
   );
+  it.effect("exports the publication span through the relay tracer", () => {
+    const relaySpans: string[] = [];
+    const localSpans: string[] = [];
+    const collectingTracer = (spans: string[]) =>
+      Tracer.make({
+        span: (options) => {
+          spans.push(options.name);
+          return new Tracer.NativeSpan(options);
+        },
+      });
+
+    return Effect.gen(function* () {
+      const { relay, publications } = yield* makeTestRelay();
+      yield* relay.publishThread(THREAD_ID);
+      assert.equal(publications.length, 1);
+      assert.include(relaySpans, "relay.agent_activity.publish");
+      assert.notInclude(localSpans, "relay.agent_activity.publish");
+    }).pipe(
+      Effect.provideService(RelayClientTracer, Option.some(collectingTracer(relaySpans))),
+      Effect.withTracer(collectingTracer(localSpans)),
+    );
+  });
 
   it.effect("deduplicates state and republishes title changes", () =>
     Effect.gen(function* () {
@@ -537,7 +590,9 @@ describe("AgentAwarenessRelay", () => {
         currentShell,
         shell({
           status: "completed",
-          latestRunCompletedAt: DateTime.add(yield* DateTime.now, { seconds: 1 }),
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
         }),
       );
       yield* relay.publishThread(THREAD_ID);
@@ -566,7 +621,9 @@ describe("AgentAwarenessRelay", () => {
         shell({
           status: "completed",
           title: "Final title",
-          latestRunCompletedAt: DateTime.add(yield* DateTime.now, { seconds: 1 }),
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
         }),
       );
       yield* secrets.set(
@@ -684,7 +741,9 @@ describe("AgentAwarenessRelay", () => {
         currentShell,
         shell({
           status: "completed",
-          latestRunCompletedAt: DateTime.add(yield* DateTime.now, { seconds: 1 }),
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
         }),
       );
       yield* relay.publishThread(THREAD_ID);
@@ -789,6 +848,123 @@ describe("AgentAwarenessRelay", () => {
     }),
   );
 
+  it.effect.each(["completed", "failed"] as const)(
+    "settling a %s thread publishes a tombstone without re-alerting on unsettle",
+    (status) =>
+      Effect.gen(function* () {
+        const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
+        const pulls = yield* Queue.unbounded<void>();
+        const { relay, currentShell, publications } = yield* makeTestRelay({
+          domainEvents: Stream.fromEffectRepeat(
+            Queue.offer(pulls, undefined).pipe(Effect.andThen(Queue.take(events))),
+          ),
+        });
+        yield* relay.start();
+        yield* Queue.take(pulls);
+        const finished = shell({
+          status,
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
+        });
+        yield* Ref.set(currentShell, finished);
+        yield* relay.publishThread(THREAD_ID);
+        yield* TestClock.adjust("5 seconds");
+        yield* relay.drain;
+        assert.deepEqual(
+          publications.map(({ state }) => state?.phase),
+          [status],
+        );
+
+        for (const type of ["thread.settled", "thread.unsettled"] as const) {
+          const updated = {
+            ...finished,
+            settledOverride: type === "thread.settled" ? ("settled" as const) : ("active" as const),
+            updatedAt: yield* DateTime.now,
+          };
+          yield* Ref.set(currentShell, updated);
+          yield* Queue.offer(events, {
+            id: EventId.make(type),
+            type,
+            threadId: THREAD_ID,
+            occurredAt: updated.updatedAt,
+            payload: {
+              ...updated,
+              lastVisitedAt: updated.lastVisitedAt ?? null,
+            },
+          });
+          yield* Queue.take(pulls);
+          yield* relay.drain;
+          yield* TestClock.adjust("5 seconds");
+          yield* relay.drain;
+          assert.deepEqual(
+            publications.map(({ state }) => state?.phase ?? null),
+            [status, null],
+          );
+        }
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect.each([
+    { work: "running", status: "running", phase: "running" },
+    { work: "user input", status: "completed", phase: "waiting_for_input" },
+    { work: "monitor", status: "completed", phase: "running" },
+    { work: "monitor", status: "failed", phase: "failed" },
+  ] as const)(
+    "keeps settled $work visible until it finishes ($status run)",
+    ({ work, status, phase }) =>
+      Effect.gen(function* () {
+        const { relay, currentShell, publications } = yield* makeTestRelay();
+        const active = shell({
+          status,
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
+          pendingRuntimeRequest:
+            work === "user input"
+              ? {
+                  id: RuntimeRequestId.make("waiting"),
+                  kind: "user_input",
+                  createdAt: yield* DateTime.now,
+                }
+              : null,
+          pendingBackgroundTasks: work === "monitor" ? [{ taskId: "watch", kind: "monitor" }] : [],
+        });
+        yield* Ref.set(currentShell, active);
+        yield* relay.publishThread(THREAD_ID);
+        yield* TestClock.adjust("5 seconds");
+        yield* relay.drain;
+        assert.deepEqual(
+          publications.map(({ state }) => state?.phase),
+          [phase],
+        );
+
+        yield* Ref.set(currentShell, { ...active, settledOverride: "settled" });
+        yield* relay.publishThread(THREAD_ID);
+        yield* TestClock.adjust("5 seconds");
+        yield* relay.drain;
+        assert.deepEqual(
+          publications.map(({ state }) => state?.phase),
+          [phase],
+        );
+
+        yield* Ref.set(currentShell, {
+          ...active,
+          settledOverride: "settled",
+          status: status === "running" ? "completed" : status,
+          pendingRuntimeRequest: null,
+          pendingBackgroundTasks: [],
+        });
+        yield* relay.publishThread(THREAD_ID);
+        yield* TestClock.adjust("5 seconds");
+        yield* relay.drain;
+        assert.deepEqual(
+          publications.map(({ state }) => state?.phase ?? null),
+          [phase, null],
+        );
+      }),
+  );
+
   it.effect("confirms a first completed state and respects disabling during confirmation", () =>
     Effect.gen(function* () {
       const { relay, secrets, currentShell, publications } = yield* makeTestRelay();
@@ -796,7 +972,9 @@ describe("AgentAwarenessRelay", () => {
         currentShell,
         shell({
           status: "completed",
-          latestRunCompletedAt: DateTime.add(yield* DateTime.now, { seconds: 1 }),
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
         }),
       );
       yield* relay.publishThread(THREAD_ID);
@@ -839,7 +1017,10 @@ describe("AgentAwarenessRelay", () => {
         threadId: THREAD_ID,
         ordinal: 1,
         providerInstanceId: ProviderInstanceId.make("codex"),
-        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test-model" },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "test-model",
+        },
         providerThreadId: null,
         userMessageId: MessageId.make("message:held-item"),
         rootNodeId: null,
@@ -855,7 +1036,11 @@ describe("AgentAwarenessRelay", () => {
         id: string,
         fields: Pick<OrchestrationV2TurnItem, "status"> &
           (
-            | { readonly type: "dynamic_tool"; readonly toolName: string; readonly input: unknown }
+            | {
+                readonly type: "dynamic_tool";
+                readonly toolName: string;
+                readonly input: unknown;
+              }
             | {
                 readonly type: "assistant_message";
                 readonly messageId: MessageId;
@@ -888,7 +1073,11 @@ describe("AgentAwarenessRelay", () => {
           occurredAt: now,
           payload,
         }) satisfies OrchestrationV2DomainEvent;
-      const background = { type: "dynamic_tool" as const, toolName: "watch", input: {} };
+      const background = {
+        type: "dynamic_tool" as const,
+        toolName: "watch",
+        input: {},
+      };
 
       yield* deliver({
         id: EventId.make("event:held-item:thread"),
@@ -902,13 +1091,20 @@ describe("AgentAwarenessRelay", () => {
           projectId: PROJECT_ID,
           title: "Thread",
           providerInstanceId: ProviderInstanceId.make("codex"),
-          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test-model" },
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "test-model",
+          },
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: null,
           worktreePath: null,
           activeProviderThreadId: null,
-          lineage: { rootThreadId: THREAD_ID, parentThreadId: null, relationshipToParent: null },
+          lineage: {
+            rootThreadId: THREAD_ID,
+            parentThreadId: null,
+            relationshipToParent: null,
+          },
           forkedFrom: null,
           createdAt: now,
           updatedAt: now,
@@ -989,7 +1185,9 @@ describe("startup catch-up", { concurrent: false }, () => {
 
   it.effect("checks an unlinked environment once a minute and still catches up once linked", () =>
     Effect.gen(function* () {
-      const { relay, secrets, secretReads, catchUp } = yield* makeTestRelay({ linked: false });
+      const { relay, secrets, secretReads, catchUp } = yield* makeTestRelay({
+        linked: false,
+      });
       yield* enablePublishing(secrets);
       yield* relay.start();
 
@@ -1007,7 +1205,9 @@ describe("startup catch-up", { concurrent: false }, () => {
 
   it.effect("publishes at once when this process links while the check is backed off", () =>
     Effect.gen(function* () {
-      const { relay, secrets, catchUp } = yield* makeTestRelay({ linked: false });
+      const { relay, secrets, catchUp } = yield* makeTestRelay({
+        linked: false,
+      });
       yield* enablePublishing(secrets);
       yield* relay.start();
 
@@ -1024,7 +1224,9 @@ describe("startup catch-up", { concurrent: false }, () => {
 
   it.effect("catches up within 5 s when another process enables publishing on a link", () =>
     Effect.gen(function* () {
-      const { relay, secrets, catchUp } = yield* makeTestRelay({ linked: false });
+      const { relay, secrets, catchUp } = yield* makeTestRelay({
+        linked: false,
+      });
       yield* link(secrets);
       yield* relay.start();
 

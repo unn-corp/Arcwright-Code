@@ -80,6 +80,11 @@ export interface EventSinkV2Shape {
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeWithEffects: (input: {
+    /**
+     * Rebuilds each run.updated from the stored row with only its delegatedCompletion replaced.
+     * The batch must not also change that run's lifecycle.
+     */
+    readonly updateDelegatedCompletionOnly?: boolean;
     readonly unlessNativeThreadOwned?: Pick<
       OrchestrationV2ProviderThread,
       "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
@@ -230,8 +235,9 @@ const layerBase: Layer.Layer<
       OrchestrationV2DomainEvent["type"],
       PubSub.PubSub<OrchestrationV2StoredEvent>
     >();
-    const publishLiveEvents = (events: ReadonlyArray<OrchestrationV2StoredEvent>) =>
-      Effect.gen(function* () {
+    const publishLiveEvents =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(function* (events: ReadonlyArray<OrchestrationV2StoredEvent>) {
         yield* PubSub.publishAll(liveEvents, events);
         for (const [type, pubsub] of liveEventsByType) {
           yield* PubSub.publishAll(
@@ -274,8 +280,9 @@ const layerBase: Layer.Layer<
 
     // A user can answer after terminal normalization reads the pending request.
     // Recheck inside the write transaction so stale cleanup cannot erase answers.
-    const guardUserInputCancellations = (events: ReadonlyArray<OrchestrationV2DomainEvent>) =>
-      Effect.gen(function* () {
+    const guardUserInputCancellations =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(function* (events: ReadonlyArray<OrchestrationV2DomainEvent>) {
         const staleRequests = new Set<RuntimeRequestId>();
         const staleNodes = new Set<NodeId>();
         for (const event of events) {
@@ -327,80 +334,77 @@ const layerBase: Layer.Layer<
       );
       const replies = new Map<MessageId, MessageReplyTarget | null>();
       const consumedReplies = new Map<RunId, OrchestrationV2DomainEvent>();
-      const assistantReply = (event: OrchestrationV2DomainEvent) =>
-        Effect.gen(function* () {
-          if (
-            !(
-              (event.type === "message.updated" && event.payload.role === "assistant") ||
-              (event.type === "turn-item.updated" && event.payload.type === "assistant_message")
-            ) ||
-            event.payload.runId === null
-          )
-            return event;
-          const message = event.payload;
-          let run = replyRuns.get(message.runId!);
-          if (!run) {
-            const projection = yield* projectionStore.getThreadRecords(event.threadId, ["runs"], {
-              runIds: [message.runId!],
-            });
-            run = projection.runs[0];
-            if (run) replyRuns.set(run.id, run);
-          }
-          if (!run) return event;
-          const messageId =
-            event.type === "message.updated"
-              ? event.payload.id
-              : event.type === "turn-item.updated" && event.payload.type === "assistant_message"
-                ? event.payload.messageId
-                : null;
-          let replyTo: MessageReplyTarget | undefined;
-          if (messageId !== null) {
-            if (replies.has(messageId)) replyTo = replies.get(messageId) ?? undefined;
-            else {
-              const existing = yield* projectionStore.getThreadRecords(
-                event.threadId,
-                ["messages"],
-                {
-                  messageIds: [messageId],
-                },
-              );
-              replyTo = existing.messages[0]?.context?.replyTo;
-              // Only the next new response consumes an explicit selection. Streaming updates
-              // retain that response's link; later progress messages return to normal chat.
-              if (existing.messages.length === 0 && run.replyTo) {
-                replyTo = run.replyTo;
-                const cleared = { ...run, replyTo: undefined };
-                replyRuns.set(run.id, cleared);
-                consumedReplies.set(run.id, {
-                  type: "run.updated",
-                  id: EventId.make(`${event.id}:reply-consumed`),
-                  threadId: event.threadId,
-                  providerInstanceId: run.providerInstanceId,
-                  occurredAt: event.occurredAt,
-                  payload: cleared,
-                });
-              }
-              replies.set(messageId, replyTo ?? null);
-            }
-          }
-          const context = {
-            ...(("context" in message ? message.context : undefined) ?? {
-              version: 1 as const,
-              records: [],
-            }),
-            ...(replyTo ? { replyTo } : {}),
-            agent: {
-              threadId: event.threadId,
-              providerInstanceId: run.providerInstanceId,
-              model: run.modelSelection.model,
-            },
-          };
-          if (event.type === "message.updated")
-            return { ...event, payload: { ...event.payload, context } };
-          if (event.type === "turn-item.updated")
-            return { ...event, payload: { ...event.payload, context } };
+      const assistantReply = Effect.fn("EventSink.assistantReply")(function* (
+        event: OrchestrationV2DomainEvent,
+      ) {
+        if (
+          !(
+            (event.type === "message.updated" && event.payload.role === "assistant") ||
+            (event.type === "turn-item.updated" && event.payload.type === "assistant_message")
+          ) ||
+          event.payload.runId === null
+        )
           return event;
-        });
+        const message = event.payload;
+        let run = replyRuns.get(message.runId!);
+        if (!run) {
+          const projection = yield* projectionStore.getThreadRecords(event.threadId, ["runs"], {
+            runIds: [message.runId!],
+          });
+          run = projection.runs[0];
+          if (run) replyRuns.set(run.id, run);
+        }
+        if (!run) return event;
+        const messageId =
+          event.type === "message.updated"
+            ? event.payload.id
+            : event.type === "turn-item.updated" && event.payload.type === "assistant_message"
+              ? event.payload.messageId
+              : null;
+        let replyTo: MessageReplyTarget | undefined;
+        if (messageId !== null) {
+          if (replies.has(messageId)) replyTo = replies.get(messageId) ?? undefined;
+          else {
+            const existing = yield* projectionStore.getThreadRecords(event.threadId, ["messages"], {
+              messageIds: [messageId],
+            });
+            replyTo = existing.messages[0]?.context?.replyTo;
+            // Only the next new response consumes an explicit selection. Streaming updates
+            // retain that response's link; later progress messages return to normal chat.
+            if (existing.messages.length === 0 && run.replyTo) {
+              replyTo = run.replyTo;
+              const cleared = { ...run, replyTo: undefined };
+              replyRuns.set(run.id, cleared);
+              consumedReplies.set(run.id, {
+                type: "run.updated",
+                id: EventId.make(`${event.id}:reply-consumed`),
+                threadId: event.threadId,
+                providerInstanceId: run.providerInstanceId,
+                occurredAt: event.occurredAt,
+                payload: cleared,
+              });
+            }
+            replies.set(messageId, replyTo ?? null);
+          }
+        }
+        const context = {
+          ...(("context" in message ? message.context : undefined) ?? {
+            version: 1 as const,
+            records: [],
+          }),
+          ...(replyTo ? { replyTo } : {}),
+          agent: {
+            threadId: event.threadId,
+            providerInstanceId: run.providerInstanceId,
+            model: run.modelSelection.model,
+          },
+        };
+        if (event.type === "message.updated")
+          return { ...event, payload: { ...event.payload, context } };
+        if (event.type === "turn-item.updated")
+          return { ...event, payload: { ...event.payload, context } };
+        return event;
+      });
       const runOrdinals = new Map(
         events.flatMap((event) =>
           event.type === "run.created" || event.type === "run.updated"
@@ -423,8 +427,9 @@ const layerBase: Layer.Layer<
       ).pipe(Effect.map((normalized) => [...normalized, ...consumedReplies.values()]));
     };
 
-    const applyStoredEvents = (storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>) =>
-      Effect.gen(function* () {
+    const applyStoredEvents =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(function* (storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>) {
         yield* Effect.forEach(storedEvents, (stored) => projectionStore.apply(stored.event), {
           concurrency: 1,
         });
@@ -478,10 +483,34 @@ const layerBase: Layer.Layer<
             `;
             if (owners.length > 0) return [];
           }
+          // Checkpoint capture can finish after a cohort writer reads its parent run.
+          // Merge in this transaction so the event log and projection keep that completion.
+          const events = input.updateDelegatedCompletionOnly
+            ? yield* Effect.forEach(input.events, (event) =>
+                Effect.gen(function* () {
+                  if (event.type !== "run.updated") return event;
+                  const { runs } = yield* projectionStore.getThreadRecords(
+                    event.threadId,
+                    ["runs"],
+                    { runIds: [event.payload.id] },
+                  );
+                  const current = runs[0];
+                  return current === undefined
+                    ? event
+                    : {
+                        ...event,
+                        payload: {
+                          ...current,
+                          delegatedCompletion: event.payload.delegatedCompletion,
+                        },
+                      };
+                }),
+              )
+            : input.events;
           const normalized = yield* normalizeEvents(
             input.guardPendingUserInputCancellations === true
-              ? yield* guardUserInputCancellations(input.events)
-              : input.events,
+              ? yield* guardUserInputCancellations(events)
+              : events,
           );
           const committed = yield* eventStore.append({
             ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
@@ -650,8 +679,9 @@ const layerBase: Layer.Layer<
       );
     });
 
-    const existingCommandResult = (commandId: CommandId) =>
-      Effect.gen(function* () {
+    const existingCommandResult =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(function* (commandId: CommandId) {
         const existing = yield* commandReceipts.getByCommandId(commandId);
         if (Option.isNone(existing)) {
           return yield* Effect.die(

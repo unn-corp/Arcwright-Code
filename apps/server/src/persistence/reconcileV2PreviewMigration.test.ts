@@ -35,7 +35,13 @@ describe("V2 preview upgrade", () => {
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(
         yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id = 95`,
-        [{ migration_id: 95, name: "OrchestrationV2", created_at: "2026-10-02 00:00:00" }],
+        [
+          {
+            migration_id: 95,
+            name: "OrchestrationV2",
+            created_at: "2026-10-02 00:00:00",
+          },
+        ],
       );
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -70,7 +76,10 @@ describe("V2 preview upgrade", () => {
       );
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
-      const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+      const history = yield* sql<{
+        readonly migration_id: number;
+        readonly name: string;
+      }>`
         SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
       `;
       assert.deepStrictEqual(
@@ -210,7 +219,10 @@ describe("V2 preview upgrade", () => {
           ),
         );
         assert.deepStrictEqual(yield* runMigrations(), []);
-        const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        const history = yield* sql<{
+          readonly migration_id: number;
+          readonly name: string;
+        }>`
         SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
       `;
         assert.deepStrictEqual(
@@ -226,7 +238,9 @@ describe("V2 preview upgrade", () => {
           [{ name: "scheduled_tasks" }],
         );
         assert.ok(
-          (yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`).some(
+          (yield* sql<{
+            readonly name: string;
+          }>`PRAGMA table_info(projection_threads)`).some(
             (column) => column.name === "active_order_key",
           ),
         );
@@ -332,7 +346,9 @@ describe("V2 preview upgrade", () => {
             "53_PullRequestFilesViewed": PullRequestFilesViewed,
             "54_OrchestrationV2": OrchestrationV2,
             ...(withIndexes
-              ? { "55_RemoveRedundantProjectionIndexes": RemoveRedundantProjectionIndexes }
+              ? {
+                  "55_RemoveRedundantProjectionIndexes": RemoveRedundantProjectionIndexes,
+                }
               : {}),
           }),
         });
@@ -372,7 +388,9 @@ describe("V2 preview upgrade", () => {
         [],
       );
       assert.ok(
-        !(yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`).some(
+        !(yield* sql<{
+          readonly name: string;
+        }>`PRAGMA table_info(projection_threads)`).some(
           (column) => column.name === "active_order_key",
         ),
       );

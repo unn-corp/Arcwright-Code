@@ -65,6 +65,9 @@ import Migration0108 from "./Migrations/062_ThreadFailureLookupIndex.ts";
 import Migration0110 from "./Migrations/063_DropUnusedV1Projections.ts";
 import Migration0111 from "./Migrations/064_CanonicalizeThreadPullRequestLinks.ts";
 
+import Migration0112 from "./Migrations/065_CodexUsageNativeTurnIndex.ts";
+import Migration0113 from "./Migrations/066_RepairClientSettlementTimestamps.ts";
+
 export const upstreamMigrationEntries = [
   [1, 1, "OrchestrationEvents", Migration0001],
   [2, 2, "OrchestrationCommandReceipts", Migration0002],
@@ -130,4 +133,6 @@ export const upstreamMigrationEntries = [
   [62, 108, "ThreadFailureLookupIndex", Migration0108],
   [63, 110, "DropUnusedV1Projections", Migration0110],
   [64, 111, "CanonicalizeThreadPullRequestLinks", Migration0111],
+  [65, 112, "CodexUsageNativeTurnIndex", Migration0112],
+  [66, 113, "RepairClientSettlementTimestamps", Migration0113],
 ] as const;

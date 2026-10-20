@@ -42,7 +42,10 @@ export class RelayDeliveryProof extends Context.Service<
       readonly headers: Readonly<Record<string, string>>;
       readonly hookId: string;
     }) => Effect.Effect<
-      Option.Option<{ readonly deliveryId: string; readonly receivedAt: string }>
+      Option.Option<{
+        readonly deliveryId: string;
+        readonly receivedAt: string;
+      }>
     >;
   }
 >()("t3/scheduledTasks/RelayDeliveryProof") {}
@@ -51,8 +54,8 @@ const make = Effect.gen(function* () {
   const authority = yield* selectedConnectAuthority;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const environment = yield* ServerEnvironment.ServerEnvironment;
-  const verify: RelayDeliveryProof["Service"]["verify"] = (input) =>
-    Effect.gen(function* () {
+  const verify: RelayDeliveryProof["Service"]["verify"] = Effect.fn("webhook.verifyRelayDelivery")(
+    function* (input) {
       if ((yield* readPersistedRelayAuthorityStatus(secrets, authority)) !== "active")
         return Option.none();
       const proof = input.headers[RELAY_HOOK_DELIVERY_HEADER];
@@ -90,7 +93,9 @@ const make = Effect.gen(function* () {
         return Option.none();
       }
       return Option.some({ deliveryId, receivedAt });
-    }).pipe(Effect.orElseSucceed(Option.none), Effect.withSpan("webhook.verifyRelayDelivery"));
+    },
+    Effect.orElseSucceed(Option.none),
+  );
   return RelayDeliveryProof.of({ verify });
 });
 

@@ -11,7 +11,11 @@ const DIGEST = "b".repeat(64);
 const status = (patch: Partial<ForkUpdateStatus> = {}): ForkUpdateStatus => ({
   coordinatorId: "device",
   phase: "idle",
-  policy: { channel: "nightly", automaticInstallation: false, pinnedBuild: null },
+  policy: {
+    channel: "nightly",
+    automaticInstallation: false,
+    pinnedBuild: null,
+  },
   currentBuild: {
     version: "1.0.0",
     commit: "a".repeat(40),
@@ -65,7 +69,10 @@ describe("coordinated CLI update", () => {
         if (operation === "action" && "action" in body && body.action === "check")
           return { ok: true, status: staged };
         expect(operation).toBe("action");
-        expect(body).toEqual({ action: "install", targetArtifactSha256: DIGEST });
+        expect(body).toEqual({
+          action: "install",
+          targetArtifactSha256: DIGEST,
+        });
         return { ok: true, status: waiting };
       }),
     );

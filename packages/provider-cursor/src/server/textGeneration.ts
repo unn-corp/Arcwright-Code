@@ -1,11 +1,9 @@
-import { extractJsonObject } from "@t3tools/shared/schemaJson";
-import { OrganizationArchitectTurnOutput, type ModelSelection } from "@t3tools/contracts";
+import { OrganizationArchitectTurnOutput } from "@t3tools/contracts";
 import {
   buildOrganizationArchitectPrompt,
   validateOrganizationArchitectOutput,
 } from "@t3tools/provider-core/server/OrganizationArchitectPrompt";
 import type * as TextGeneration from "@t3tools/provider-core/server/textGeneration";
-import * as NodeOS from "node:os";
 import * as FileSystem from "effect/FileSystem";
 
 import type { AgentOptions, RunResult } from "@cursor/sdk";
@@ -25,13 +23,6 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 const CURSOR_TIMEOUT_MS = 180_000;
 
 const isTextGenerationError = Schema.is(TextGenerationError);
-type CursorTextGenerationOperation =
-  | "generateCommitMessage"
-  | "generatePrContent"
-  | "generateBranchName"
-  | "generateReviewGuide"
-  | "generateThreadTitle"
-  | "generateOrganizationArchitectTurn";
 
 function cursorSdkResultDetail(result: RunResult): string {
   switch (result.status) {
@@ -72,40 +63,35 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
   const { Agent, SqliteLocalAgentStore } = yield* CursorSdk.CursorSdk;
   const resolvedEnvironment = environment ?? process.env;
 
-  const resolveCursorApiKey = (operation: CursorTextGenerationOperation) =>
-    Effect.gen(function* () {
-      if (!cursorSettings.enabled) {
-        return yield* new TextGenerationError({
-          operation,
-          detail: "Cursor is disabled in Arcwright Code settings.",
-        });
-      }
+  const resolveCursorApiKey = Effect.fn("CursorTextGeneration.resolveCursorApiKey")(function* (
+    operation: TextGenerationOperations.Operation | "generateOrganizationArchitectTurn",
+  ) {
+    if (!cursorSettings.enabled) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: "Cursor is disabled in Arcwright Code settings.",
+      });
+    }
 
-      const apiKey = resolveApiKey
-        ? yield* resolveApiKey
-        : resolvedEnvironment.CURSOR_API_KEY?.trim();
-      if (!apiKey) {
-        return yield* new TextGenerationError({
-          operation,
-          detail: "Sign in with Cursor or add CURSOR_API_KEY in provider settings.",
-        });
-      }
+    const apiKey = resolveApiKey
+      ? yield* resolveApiKey
+      : resolvedEnvironment.CURSOR_API_KEY?.trim();
+    if (!apiKey) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: "Sign in with Cursor or add CURSOR_API_KEY in provider settings.",
+      });
+    }
 
-      return apiKey;
-    });
+    return apiKey;
+  });
 
-  const runCursorJson = <S extends Schema.Top>({
-    operation,
-    prompt,
-    outputSchemaJson,
-    modelSelection,
-  }: {
-    operation: CursorTextGenerationOperation;
-    prompt: string;
-    outputSchemaJson: S;
-    modelSelection: ModelSelection;
-  }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
-    Effect.gen(function* () {
+  const runCursorJson: TextGenerationOperations.Runner<
+    TextGenerationOperations.Operation | "generateOrganizationArchitectTurn"
+  > = Effect.fn("CursorTextGeneration.runCursorJson")(
+    function* (input) {
+      const { operation, prompt, modelSelection } = input;
+
       const apiKey = yield* resolveCursorApiKey(operation);
       // The SDK loads sandbox.json independently of settingSources and lets it
       // expand the writable paths. Its public API cannot override that policy.
@@ -211,34 +197,26 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         });
       }
 
-      const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(outputSchemaJson));
-      return yield* decodeOutput(extractJsonObject(rawResult)).pipe(
-        Effect.catchTags({
-          SchemaError: (cause) =>
-            Effect.fail(
-              new TextGenerationError({
+      return yield* TextGenerationOperations.decodeJsonReply(input, "Cursor SDK", rawResult);
+    },
+    (effect, input) => {
+      const { operation } = input;
+      return effect.pipe(
+        Effect.scoped,
+        (effect) => (withAccess ? withAccess(effect) : effect),
+        Effect.scoped,
+        Effect.mapError((cause) =>
+          isTextGenerationError(cause)
+            ? cause
+            : new TextGenerationError({
                 operation,
-                detail: "Cursor SDK returned invalid structured output.",
+                detail: "Cursor SDK text generation failed.",
                 cause,
               }),
-            ),
-        }),
+        ),
       );
-    }).pipe(
-      // Scope this call inside `withAccess`, so sign-out closes the agent before its store.
-      Effect.scoped,
-      (effect) => (withAccess ? withAccess(effect) : effect),
-      Effect.scoped,
-      Effect.mapError((cause) =>
-        isTextGenerationError(cause)
-          ? cause
-          : new TextGenerationError({
-              operation,
-              detail: "Cursor SDK text generation failed.",
-              cause,
-            }),
-      ),
-    );
+    },
+  );
 
   const generateOrganizationArchitectTurn: NonNullable<
     TextGeneration.ProviderTextGeneration["generateOrganizationArchitectTurn"]
@@ -246,8 +224,9 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     const prompt = yield* buildOrganizationArchitectPrompt(input);
     const generated = yield* runCursorJson({
       operation: "generateOrganizationArchitectTurn",
+      cwd: process.cwd(),
       prompt,
-      outputSchemaJson: OrganizationArchitectTurnOutput,
+      outputSchema: OrganizationArchitectTurnOutput,
       modelSelection: input.modelSelection,
     });
     return yield* validateOrganizationArchitectOutput(generated, input.organization.draftRevision);
@@ -257,7 +236,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
     ...TextGenerationOperations.fromRunner(
       "CursorTextGeneration",
       TextGenerationOperations.withoutInvestigation("CursorTextGeneration", (request) =>
-        runCursorJson({ ...request, outputSchemaJson: request.outputSchema }),
+        runCursorJson(request),
       ),
     ),
     generateOrganizationArchitectTurn,

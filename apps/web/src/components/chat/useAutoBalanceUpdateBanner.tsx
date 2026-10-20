@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import { useState } from "react";
 
@@ -63,12 +64,18 @@ export function useAutoBalanceUpdateBanner(
         selfUpdate,
         installation: environment.serverConfig?.environment.capabilities.serverInstallation,
         desktopAppUpdate,
+        forkMaintenance: environment.serverConfig?.environment.capabilities.forkMaintenance,
         threadContinuation: supportsServerUpdateThreadContinuation(environment.serverConfig),
         continueThreadsAfterServerUpdate:
           environment.serverConfig?.settings.continueThreadsAfterServerUpdate ?? false,
         targetVersion: state.status === "idle" ? mismatch!.clientVersion : state.targetVersion,
         connected: environment.connection.phase === "connected",
-        remoteUpdate: selfUpdate !== null && (selfUpdate !== "desktop-managed" || desktopAppUpdate),
+        remoteUpdate:
+          supportsForkMaintenanceAdmission(
+            environment.serverConfig?.environment.capabilities.forkMaintenance,
+          ) &&
+          selfUpdate !== null &&
+          (selfUpdate !== "desktop-managed" || desktopAppUpdate),
         state,
         dismissKey,
       },

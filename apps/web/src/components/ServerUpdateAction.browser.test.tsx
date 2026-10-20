@@ -1,4 +1,4 @@
-import { act, type ReactNode } from "react";
+import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   AuthSessionState,
@@ -10,6 +10,18 @@ import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
+
+import "~/index.css";
+import {
+  completeConfirmDialogClose,
+  readConfirmDialogState,
+  registerConfirmDialogHost,
+  resetConfirmDialogForTests,
+  respondToConfirmDialog,
+} from "~/confirmDialog";
+import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
+import type { ServerUpdateTarget } from "./ServerUpdateAction";
 
 type SessionValue = Atom.Type<
   ReturnType<(typeof import("~/state/session"))["environmentSession"]["sessionStateAtom"]>
@@ -95,6 +107,7 @@ function updateButton() {
   return container.querySelector<HTMLButtonElement>("button")!;
 }
 beforeEach(() => {
+  resetConfirmDialogForTests();
   state.action.mockReset().mockResolvedValue(waiting);
   state.bulk.mockReset();
   state.toast.mockReset();
@@ -107,6 +120,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(() => root.unmount());
+  resetConfirmDialogForTests();
   container.remove();
 });
 describe("server update actions", () => {
@@ -202,5 +216,107 @@ describe("server update actions", () => {
       />,
     );
     expect(container.textContent).toBe("Restarting…");
+  });
+});
+
+describe("server updates from the environment selector", () => {
+  const localId = "env-test" as EnvironmentId;
+  const otherId = "update-server" as EnvironmentId;
+  const availableEnvironments = [
+    { environmentId: localId, label: "Build box", isPrimary: true },
+    { environmentId: otherId, label: "Other machine", isPrimary: false },
+  ].map((environment) => ({ ...environment, projectId: null, machine: "server" as const }));
+  const serverUpdate = {
+    environmentId: localId,
+    serverLabel: "Build box",
+    serverVersion: "0.0.30",
+    targetVersion: "0.0.31",
+    selfUpdate: "desktop-managed",
+    desktopAppUpdate: true,
+    forkMaintenance: capability,
+  } satisfies ServerUpdateTarget & { serverVersion: string };
+
+  it("confirms a locked chip update and honors cancellation before updating", async () => {
+    registerConfirmDialogHost();
+    await render(
+      <BranchToolbarEnvironmentSelector
+        environmentId={localId}
+        availableEnvironments={availableEnvironments}
+        envLocked
+        serverUpdate={serverUpdate}
+      />,
+    );
+    const chip = page.getByRole("button", { name: /Build box|Update/ });
+    await userEvent.click(chip);
+    expect(readConfirmDialogState()).toMatchObject({
+      status: "confirming",
+      message: expect.stringContaining("Build box"),
+    });
+    expect(state.action).not.toHaveBeenCalled();
+    await act(async () => {
+      respondToConfirmDialog(false);
+      completeConfirmDialogClose();
+    });
+    expect(state.action).not.toHaveBeenCalled();
+    await userEvent.click(chip);
+    await act(async () => respondToConfirmDialog(true));
+    expect(state.action).toHaveBeenCalledWith({ action: "check" });
+    expect(state.action).toHaveBeenCalledWith({
+      action: "install",
+      targetArtifactSha256: build.artifactSha256,
+    });
+  });
+
+  it("keeps unsupported hosts visible without bypassing admission and selects an action-like environment ID", async () => {
+    const update = { ...serverUpdate, selfUpdate: null, installation: { kind: "npx" } } as const;
+    function Picker() {
+      const [environmentId, setEnvironmentId] = useState(localId);
+      return (
+        <BranchToolbarEnvironmentSelector
+          environmentId={environmentId}
+          availableEnvironments={availableEnvironments}
+          envLocked={false}
+          onEnvironmentChange={setEnvironmentId}
+          serverUpdate={environmentId === localId ? update : null}
+        />
+      );
+    }
+    await render(<Picker />);
+    const picker = page.getByRole("combobox", { name: "Run on" });
+    await userEvent.click(picker);
+    await expect.element(page.getByRole("option", { name: "Other machine" })).toBeVisible();
+    expect(state.action).not.toHaveBeenCalled();
+    const bootstrap = page.getByRole("option", { name: /Bootstrap updater on/ });
+    await expect.element(bootstrap).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(bootstrap, { force: true });
+    expect(state.action).not.toHaveBeenCalled();
+    await expect.element(picker).toHaveTextContent("Build box");
+    await expect
+      .element(page.getByRole("option", { name: "Build box", exact: true }))
+      .toHaveAttribute("aria-selected", "true");
+    await userEvent.click(page.getByRole("option", { name: "Other machine" }));
+    await expect.element(picker).toHaveTextContent("Other machine");
+    expect(state.action).not.toHaveBeenCalled();
+  });
+
+  it("explains an unsupported desktop update in the picker without offering a runnable action", async () => {
+    registerConfirmDialogHost();
+    await render(
+      <BranchToolbarEnvironmentSelector
+        environmentId={localId}
+        availableEnvironments={availableEnvironments}
+        envLocked={false}
+        onEnvironmentChange={vi.fn()}
+        serverUpdate={{ ...serverUpdate, desktopAppUpdate: false }}
+      />,
+    );
+    await userEvent.click(page.getByRole("combobox", { name: "Run on" }));
+    const instruction = page.getByRole("option", { name: /Bootstrap updater on/ });
+    await expect.element(instruction).toBeVisible();
+    await expect.element(instruction).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(instruction, { force: true });
+    expect(readConfirmDialogState().status).toBe("idle");
+    expect(state.action).not.toHaveBeenCalled();
+    expect(state.action).not.toHaveBeenCalled();
   });
 });

@@ -63,7 +63,7 @@ describe("GitProcessBudget", () => {
         const holder = yield* budget
           .withPermit(
             "/repo",
-            ["status"],
+            ["add", "-A"],
             Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
           )
           .pipe(Effect.forkChild);

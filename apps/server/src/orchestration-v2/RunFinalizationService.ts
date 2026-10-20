@@ -36,7 +36,10 @@ export class RunFinalizationObserver extends Context.Reference<{
     readonly runId: RunId;
   }) => Effect.Effect<void, RunFinalizationRefreshError>;
 }>("t3/orchestration-v2/RunFinalizationObserver", {
-  defaultValue: () => ({ refresh: () => Effect.void, refreshAfterTurn: () => Effect.void }),
+  defaultValue: () => ({
+    refresh: () => Effect.void,
+    refreshAfterTurn: () => Effect.void,
+  }),
 }) {}
 
 export class RunFinalizationService extends Context.Service<
@@ -58,20 +61,26 @@ const make = Effect.gen(function* () {
   const finalize: RunFinalizationService["Service"]["finalize"] = Effect.fn(
     "RunFinalizationService.finalize",
   )(function* (input) {
-    yield* checkpointCapture
-      .execute(input)
-      .pipe(
-        Effect.mapError(
-          (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
-        ),
-      );
-    const projection = yield* projections
-      .getCheckpointContext(input.threadId)
-      .pipe(
-        Effect.mapError(
-          (cause) => new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
-        ),
-      );
+    yield* checkpointCapture.execute(input).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RunFinalizationError({
+            ...input,
+            operation: "capture-checkpoint",
+            cause,
+          }),
+      ),
+    );
+    const projection = yield* projections.getCheckpointContext(input.threadId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RunFinalizationError({
+            ...input,
+            operation: "refresh-workspace",
+            cause,
+          }),
+      ),
+    );
     const cwd = projection.checkpointScopes.find((scope) => scope.id === input.scopeId)?.cwd;
     if (cwd !== undefined) {
       // Retrying a display refresh after the checkpoint is durable blocks the next turn.
@@ -102,8 +111,8 @@ export const layerObserver = Layer.effect(
     const gitPolicy = yield* WorkspaceGitPolicy.WorkspaceGitPolicy;
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
-      refresh: ({ cwd, threadId, runId }) =>
-        Effect.gen(function* () {
+      refresh: Effect.fn("RunFinalizationService.refresh")(
+        function* ({ cwd, threadId, runId }) {
           if ((yield* storagePressure.read).reason !== null) return;
           const policy = yield* gitPolicy.read(cwd, threadId);
           const [, local] = yield* Effect.all(
@@ -126,7 +135,10 @@ export const layerObserver = Layer.effect(
               }),
             ),
           );
-        }).pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+        },
+        (effect, { cwd }) =>
+          effect.pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+      ),
     };
   }),
 );

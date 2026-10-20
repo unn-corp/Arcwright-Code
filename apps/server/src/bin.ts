@@ -14,6 +14,9 @@ if (
   })
 ) {
   const command = process.argv[2];
+  // Guard sockets before either dispatch path can load outbound-capable modules.
+  const { ignoreMacosTypeOfServiceEinval } = await import("./outboundHttp.ts");
+  ignoreMacosTypeOfServiceEinval();
   if (command === "__workspace-content") {
     const { runContentSearchProcess } = await import("./workspace/ContentSearchProcess.ts");
     runContentSearchProcess();

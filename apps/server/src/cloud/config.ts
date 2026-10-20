@@ -52,12 +52,14 @@ const decodeLinkPublicAuthority = Schema.decodeUnknownOption(
 );
 
 /** Fail closed without removing the saved record or implying it needs automatic enrollment. */
-export const readPersistedRelayAuthorityStatus = (
-  secrets: ServerSecretStore.ServerSecretStore["Service"],
-  selected?: SelectedConnectAuthority,
-  options?: { readonly ignoreLocalDisabled?: boolean },
-) =>
-  Effect.gen(function* () {
+export const readPersistedRelayAuthorityStatus = Effect.fn(
+  "config.readPersistedRelayAuthorityStatus",
+)(
+  function* (
+    secrets: ServerSecretStore.ServerSecretStore["Service"],
+    selected?: SelectedConnectAuthority,
+    options?: { readonly ignoreLocalDisabled?: boolean },
+  ) {
     const authority = selected ?? (yield* selectedConnectAuthority);
     if (
       !options?.ignoreLocalDisabled &&
@@ -88,7 +90,9 @@ export const readPersistedRelayAuthorityStatus = (
       relayUrl: Option.isSome(url) ? new TextDecoder().decode(url.value) : null,
       relayIssuer: Option.isSome(issuer) ? new TextDecoder().decode(issuer.value) : null,
     });
-  }).pipe(Effect.orElseSucceed(() => "unavailable" as const));
+  },
+  (effect) => effect.pipe(Effect.orElseSucceed(() => "unavailable" as const)),
+);
 
 export const encodeEndpointRuntimeConfigJson = Schema.encodeEffect(
   Schema.fromJsonString(RelayManagedEndpointRuntimeConfig),
@@ -119,10 +123,10 @@ export function isAgentActivityPublishingEnabledValue(value: string | null): boo
  * Mirrors the per-publish gate in AgentAwarenessRelay, so the descriptor
     capability never advertises publishing that the publisher would skip.
  */
-export const readAgentActivityPublishingActive = (
+export const readAgentActivityPublishingActive: (
   secrets: ServerSecretStore.ServerSecretStore["Service"],
-): Effect.Effect<boolean> =>
-  Effect.gen(function* () {
+) => Effect.Effect<boolean> = Effect.fn("config.readAgentActivityPublishingActive")(
+  function* (secrets: ServerSecretStore.ServerSecretStore["Service"]) {
     if ((yield* readPersistedRelayAuthorityStatus(secrets)) !== "active") return false;
     const readSecretString = (name: string) =>
       secrets
@@ -146,7 +150,9 @@ export const readAgentActivityPublishingActive = (
       environmentCredential !== null &&
       environmentCredential !== ""
     );
-  }).pipe(Effect.orElseSucceed(() => false));
+  },
+  Effect.orElseSucceed(() => false),
+);
 
 const readSecretString = (name: string) =>
   ServerSecretStore.ServerSecretStore.pipe(

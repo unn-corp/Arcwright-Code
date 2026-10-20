@@ -9,6 +9,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 
 import type {
   PendingServiceUpdate,
@@ -23,6 +24,7 @@ import {
   decodeServiceLauncherChildMessage,
   isExactServiceVersion,
   parseServiceState,
+  SERVICE_ENV_FILE,
   SERVICE_LAUNCHER_CONTEXT_ENV,
   SERVICE_LAUNCHER_MAINTENANCE_TRIAL,
   SERVICE_LAUNCHER_STORAGE_MIGRATION,
@@ -90,6 +92,36 @@ async function pathExists(target: string): Promise<boolean> {
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return false;
     throw cause;
   }
+}
+
+const MANAGED_SERVICE_ENV_NAMES = new Set([
+  "PATH",
+  "T3CODE_HOME",
+  "T3_BOOT_SERVICE_UNIT",
+  SERVICE_LAUNCHER_CONTEXT_ENV,
+]);
+
+export async function readServiceEnvironment(
+  baseDir: string,
+  inherited: NodeJS.ProcessEnv = process.env,
+): Promise<NodeJS.ProcessEnv> {
+  const environment = { ...inherited };
+  let contents: string;
+  try {
+    contents = await NodeFSP.readFile(NodePath.join(baseDir, SERVICE_ENV_FILE), "utf8");
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return environment;
+    throw cause;
+  }
+  for (const [name, value] of Object.entries(NodeUtil.parseEnv(contents))) {
+    if (
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
+      !MANAGED_SERVICE_ENV_NAMES.has(name.toUpperCase())
+    ) {
+      environment[name] = value;
+    }
+  }
+  return environment;
 }
 
 // Opened read-write: Windows refuses to flush a handle without write access.
@@ -297,7 +329,10 @@ export async function databaseBackupBlocker(
   dbPath: string,
   probe: Partial<BackupSpaceProbe> = {},
 ): Promise<string | undefined> {
-  const { readFreeBytes, canClone } = { ...filesystemBackupSpaceProbe, ...probe };
+  const { readFreeBytes, canClone } = {
+    ...filesystemBackupSpaceProbe,
+    ...probe,
+  };
   const backupRoot = NodePath.join(baseDir, "runtime", "db-backup");
   await NodeFSP.mkdir(backupRoot, { recursive: true, mode: 0o700 });
   const [files, free] = await Promise.all([statDatabaseFiles(dbPath), readFreeBytes(backupRoot)]);
@@ -468,7 +503,9 @@ function terminalUpdate<S extends TerminalStatus>(input: {
   readonly pending: PendingServiceUpdate;
   readonly status: S;
   readonly reason?: string;
-}): Exclude<ServiceUpdateRecord, PendingServiceUpdate> & { readonly status: S } {
+}): Exclude<ServiceUpdateRecord, PendingServiceUpdate> & {
+  readonly status: S;
+} {
   return {
     id: input.pending.id,
     fromVersion: input.pending.fromVersion,
@@ -524,8 +561,10 @@ export class Launcher {
   #timer: NodeJS.Timeout | undefined;
   #transitions: Promise<void> = Promise.resolve();
   /** Held in memory only: a launcher restart drops it, so the trial then fails closed at the coordinator. */
-  #trialCapability: { readonly updateId: string; readonly trial: ServiceMaintenanceTrial } | null =
-    null;
+  #trialCapability: {
+    readonly updateId: string;
+    readonly trial: ServiceMaintenanceTrial;
+  } | null = null;
   #stopRequested = false;
   #stopping = false;
   #done = false;
@@ -533,21 +572,33 @@ export class Launcher {
   readonly #runtimeSpawn: typeof runtimeSpawnArguments;
   readonly #completion = Promise.withResolvers<void>();
   readonly #backupSpaceProbe: Partial<BackupSpaceProbe> | undefined;
+  readonly #environment: Readonly<NodeJS.ProcessEnv>;
 
   constructor(
     baseDir: string,
     state: ServiceState,
     quiesceOrganizationLaunches:
       | typeof quiesceOrganizationLaunchBroker
-      | { readonly backupSpaceProbe?: Partial<BackupSpaceProbe> } = quiesceOrganizationLaunchBroker,
+      | {
+          readonly backupSpaceProbe?: Partial<BackupSpaceProbe>;
+          readonly environment?: Readonly<NodeJS.ProcessEnv>;
+        } = quiesceOrganizationLaunchBroker,
     runtimeSpawn = runtimeSpawnArguments,
-    options: { readonly backupSpaceProbe?: Partial<BackupSpaceProbe> } = {},
+    options: {
+      readonly backupSpaceProbe?: Partial<BackupSpaceProbe>;
+      readonly environment?: Readonly<NodeJS.ProcessEnv>;
+    } = {},
   ) {
     this.#baseDir = baseDir;
     this.#backupSpaceProbe =
       typeof quiesceOrganizationLaunches === "function"
         ? options.backupSpaceProbe
         : quiesceOrganizationLaunches.backupSpaceProbe;
+    this.#environment = {
+      ...((typeof quiesceOrganizationLaunches === "function"
+        ? options.environment
+        : quiesceOrganizationLaunches.environment) ?? process.env),
+    };
     this.#statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
     this.#state = state;
     this.#quiesceOrganizationLaunches =
@@ -707,7 +758,7 @@ export class Launcher {
         : undefined;
     if (trial !== undefined) this.#trialCapability = null;
     const environment: NodeJS.ProcessEnv = {
-      ...process.env,
+      ...this.#environment,
       [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify(context),
     };
     // A capability inherited from the launcher's own environment must never reach a child.
@@ -826,7 +877,10 @@ export class Launcher {
     this.#state = next;
     this.#trialCapability =
       message.trial === undefined ? null : { updateId: pending.id, trial: message.trial };
-    await sendMessage(child.process, { type: "update-accepted", updateId: pending.id });
+    await sendMessage(child.process, {
+      type: "update-accepted",
+      updateId: pending.id,
+    });
     this.#timer = setTimeout(() => this.#enqueue(() => this.#beginTrial(child)), HANDOFF_DELAY_MS);
   }
 
@@ -880,7 +934,10 @@ export class Launcher {
     child.role = "active";
     await discardDatabaseBackup(this.#baseDir, committed.id).catch(() => undefined);
     await resumeOrganizationLaunches(this.#baseDir, committed.id);
-    await sendMessage(child.process, { type: "committed", updateId: committed.id });
+    await sendMessage(child.process, {
+      type: "committed",
+      updateId: committed.id,
+    });
   }
 
   async #handlePreparedTimeout(child: ManagedChild): Promise<void> {
@@ -945,7 +1002,11 @@ export class Launcher {
       const next: ServiceState = {
         ...this.#state,
         activeVersion: pending.fromVersion,
-        update: terminalUpdate({ pending, status: "failed", reason: "state-dir-owned" }),
+        update: terminalUpdate({
+          pending,
+          status: "failed",
+          reason: "state-dir-owned",
+        }),
       };
       await writeServiceState(this.#statePath, next);
       this.#state = next;
@@ -988,7 +1049,8 @@ export async function main(): Promise<void> {
   if (baseDir === undefined || baseDir === "") {
     throw new Error("T3CODE_HOME is required by the Arcwright Code service launcher.");
   }
+  const environment = await readServiceEnvironment(baseDir);
   const statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
   const state = await readServiceState(statePath);
-  await new Launcher(baseDir, state).run();
+  await new Launcher(baseDir, state, { environment }).run();
 }

@@ -91,7 +91,10 @@ function prepareGitHubAccountsPatch(
       const currentAccount = current.githubAccounts[accountId as GitHubAccountId];
       const token = accountPatch.token;
       if (token !== undefined) {
-        tokenUpdates.push({ accountId, token: token.length > 0 ? token : null });
+        tokenUpdates.push({
+          accountId,
+          token: token.length > 0 ? token : null,
+        });
       }
       const { token: _token, ...metadata } = accountPatch;
       return [
@@ -270,64 +273,65 @@ export class ServerSettingsService extends Context.Service<
   static readonly layerTest = (overrides: DeepPartial<ServerSettings> = {}) => layerTest(overrides);
 }
 
-const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
-  Effect.gen(function* () {
-    const { automaticGitFetchInterval, providerHealthRefreshInterval, ...overridesForMerge } =
-      overrides;
-    const merged = deepMerge(DEFAULT_SERVER_SETTINGS, overridesForMerge);
-    const initialSettings = yield* normalizeServerSettings({
-      ...merged,
-      ...(automaticGitFetchInterval !== undefined
-        ? { automaticGitFetchInterval: automaticGitFetchInterval as Duration.Duration }
-        : {}),
-      ...(providerHealthRefreshInterval !== undefined
-        ? { providerHealthRefreshInterval: providerHealthRefreshInterval as Duration.Duration }
-        : {}),
-    });
-    const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
-    const writeSemaphore = yield* Semaphore.make(1);
-    const getSettings = Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider));
-
-    const updateTestSettings = (
-      update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-    ): Effect.Effect<ServerSettings, ServerSettingsError> =>
-      writeSemaphore.withPermits(1)(
-        Ref.get(currentSettingsRef).pipe(
-          Effect.flatMap(update),
-          Effect.flatMap(normalizeServerSettings),
-          Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
-          Effect.map(resolveTextGenerationProvider),
-        ),
-      );
-
-    return {
-      start: Effect.void,
-      ready: Effect.void,
-      getSettings,
-      updateSettings: (patch) =>
-        updateTestSettings((currentSettings) =>
-          Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
-        ),
-      updateProviderInstance: (mutation, patch = {}) =>
-        updateTestSettings((currentSettings) =>
-          Effect.gen(function* () {
-            yield* ensureProviderInstanceMutationAllowed(
-              currentSettings,
-              mutation,
-              "test settings",
-            );
-            const patched = applyServerSettingsPatch(currentSettings, patch);
-            return applyProviderInstanceMutation(patched, mutation);
-          }),
-        ),
-      withSettingsSnapshot: (use) =>
-        writeSemaphore.withPermits(1)(getSettings.pipe(Effect.flatMap(use))),
-      getGitHubAccountEnvironment: () => Effect.succeed({ configured: false }),
-      getGitHubAccountEnvironmentForWorkspaceRoot: () => Effect.succeed({ configured: false }),
-      streamChanges: Stream.empty,
-      subscribeChanges: Effect.succeed(Stream.empty),
-    } satisfies ServerSettingsService["Service"];
+const makeTest = Effect.fn("serverSettings.makeTest")(function* (
+  overrides: DeepPartial<ServerSettings> = {},
+) {
+  const { automaticGitFetchInterval, providerHealthRefreshInterval, ...overridesForMerge } =
+    overrides;
+  const merged = deepMerge(DEFAULT_SERVER_SETTINGS, overridesForMerge);
+  const initialSettings = yield* normalizeServerSettings({
+    ...merged,
+    ...(automaticGitFetchInterval !== undefined
+      ? {
+          automaticGitFetchInterval: automaticGitFetchInterval as Duration.Duration,
+        }
+      : {}),
+    ...(providerHealthRefreshInterval !== undefined
+      ? {
+          providerHealthRefreshInterval: providerHealthRefreshInterval as Duration.Duration,
+        }
+      : {}),
   });
+  const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
+  const writeSemaphore = yield* Semaphore.make(1);
+  const getSettings = Ref.get(currentSettingsRef).pipe(Effect.map(resolveTextGenerationProvider));
+
+  const updateTestSettings = (
+    update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
+  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    writeSemaphore.withPermits(1)(
+      Ref.get(currentSettingsRef).pipe(
+        Effect.flatMap(update),
+        Effect.flatMap(normalizeServerSettings),
+        Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
+        Effect.map(resolveTextGenerationProvider),
+      ),
+    );
+
+  return {
+    start: Effect.void,
+    ready: Effect.void,
+    getSettings,
+    updateSettings: (patch) =>
+      updateTestSettings((currentSettings) =>
+        Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
+      ),
+    updateProviderInstance: (mutation, patch = {}) =>
+      updateTestSettings((currentSettings) =>
+        Effect.gen(function* () {
+          yield* ensureProviderInstanceMutationAllowed(currentSettings, mutation, "test settings");
+          const patched = applyServerSettingsPatch(currentSettings, patch);
+          return applyProviderInstanceMutation(patched, mutation);
+        }),
+      ),
+    withSettingsSnapshot: (use) =>
+      writeSemaphore.withPermits(1)(getSettings.pipe(Effect.flatMap(use))),
+    getGitHubAccountEnvironment: () => Effect.succeed({ configured: false }),
+    getGitHubAccountEnvironmentForWorkspaceRoot: () => Effect.succeed({ configured: false }),
+    streamChanges: Stream.empty,
+    subscribeChanges: Effect.succeed(Stream.empty),
+  } satisfies ServerSettingsService["Service"];
+});
 
 export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
   Layer.effect(ServerSettingsService, makeTest(overrides));
@@ -386,7 +390,10 @@ function migrateLegacySourceControlSettings(
   },
 ): {
   readonly settings: ServerSettings;
-  readonly secretMoves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+  readonly secretMoves: ReadonlyArray<{
+    readonly from: string;
+    readonly to: string;
+  }>;
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
@@ -396,7 +403,11 @@ function migrateLegacySourceControlSettings(
       if (legacy.bitbucket[field] !== SECRET_REDACTED) continue;
       secretMoves.push({
         from,
-        to: sourceControlHostSecretName({ kind: "bitbucket", field, serverHost: null }),
+        to: sourceControlHostSecretName({
+          kind: "bitbucket",
+          field,
+          serverHost: null,
+        }),
       });
     }
   }
@@ -406,7 +417,11 @@ function migrateLegacySourceControlSettings(
       if (serverHost === null || value !== SECRET_REDACTED) continue;
       secretMoves.push({
         from: legacyGitHubTokenSecretName(serverHost),
-        to: sourceControlHostSecretName({ kind: "github", field: "tokens", serverHost }),
+        to: sourceControlHostSecretName({
+          kind: "github",
+          field: "tokens",
+          serverHost,
+        }),
       });
     }
   }
@@ -460,7 +475,10 @@ function migrateLegacyProviderSettings(
     const enabled =
       explicitEnabled ??
       (HISTORY_RESTORED_DRIVERS.has(driver) && usedProviders.has(driver) ? true : undefined);
-    const driverDefault = resolveProviderInstanceEnabled({ driver, config: {} });
+    const driverDefault = resolveProviderInstanceEnabled({
+      driver,
+      config: {},
+    });
     if (Object.keys(config).length === 0 && (enabled === undefined || enabled === driverDefault)) {
       continue;
     }
@@ -687,7 +705,11 @@ const applySettingsPatch = Effect.fn("ServerSettings.applySettingsPatch")(functi
       config,
     };
   }
-  return { ...patched, providers: DEFAULT_SERVER_SETTINGS.providers, providerInstances };
+  return {
+    ...patched,
+    providers: DEFAULT_SERVER_SETTINGS.providers,
+    providerInstances,
+  };
 });
 
 const make = Effect.gen(function* () {
@@ -759,8 +781,8 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const moveInlineSettingsSecrets = (settings: ServerSettings) =>
-    Effect.gen(function* () {
+  const moveInlineSettingsSecrets = Effect.fn("serverSettings.moveInlineSettingsSecrets")(
+    function* (settings: ServerSettings) {
       const pending: SettingsSecret[] = [];
       mapSettingsSecrets(settings, (secret) => {
         if (secret.kind === "field" && !secret.redacted && secret.value.length > 0) {
@@ -786,15 +808,14 @@ const make = Effect.gen(function* () {
       return mapSettingsSecrets(settings, (secret) =>
         moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
       );
-    });
+    },
+  );
 
   const loadSettingsFromDisk = Effect.gen(function* () {
     let settings = DEFAULT_SERVER_SETTINGS;
     let legacyProviders: Readonly<Record<string, unknown>> | undefined;
     let legacySourceControl: Parameters<typeof migrateLegacySourceControlSettings>[1] = {};
-    // A file that failed to decode must stay on disk for the user to repair;
-    // the fold below only writes when it started from the file's real contents.
-    let settingsFileTrusted = true;
+    let parseFailure = Option.none<unknown>();
 
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
@@ -809,10 +830,13 @@ const make = Effect.gen(function* () {
       }
       if (decoded._tag === "Failure" || legacySettings._tag === "Failure") {
         const failure = decoded._tag === "Failure" ? decoded : legacySettings;
-        settingsFileTrusted = false;
         // The file may hold an opt-out we can no longer read; never resume threads on a guess.
-        settings = { ...DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false };
+        settings = {
+          ...DEFAULT_SERVER_SETTINGS,
+          continueThreadsAfterServerUpdate: false,
+        };
         if (failure._tag === "Failure") {
+          parseFailure = Option.some(Cause.squash(failure.cause));
           yield* Effect.logWarning("failed to parse settings.json, using defaults", {
             path: settingsPath,
             issues: Cause.pretty(failure.cause),
@@ -824,6 +848,8 @@ const make = Effect.gen(function* () {
       }
     }
 
+    // A file that failed to decode must stay on disk for the user to repair.
+    const settingsFileTrusted = Option.isNone(parseFailure);
     const providerHistory = yield* sql<{
       readonly providerName: string;
       readonly providerInstanceId: string | null;
@@ -921,23 +947,23 @@ const make = Effect.gen(function* () {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
     }
-    return migrated;
+    return { settings: migrated, parseFailure };
   });
 
-  const settingsCache = yield* Cache.makeWith<typeof cacheKey, ServerSettings, ServerSettingsError>(
-    () => loadSettingsFromDisk,
-    {
-      capacity: 1,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
-    },
+  const settingsCache = yield* Cache.makeWith((_key: typeof cacheKey) => loadSettingsFromDisk, {
+    capacity: 1,
+    timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
+  });
+
+  const getSettingsFromCache = Cache.get(settingsCache, cacheKey).pipe(
+    Effect.map((loaded) => loaded.settings),
+  );
+  const reloadSettings = Cache.invalidate(settingsCache, cacheKey).pipe(
+    Effect.andThen(Cache.get(settingsCache, cacheKey)),
   );
 
-  const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
-
-  const materializeSettingsSecrets = (
-    settings: ServerSettings,
-  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
-    Effect.gen(function* () {
+  const materializeSettingsSecrets = Effect.fn("serverSettings.materializeSettingsSecrets")(
+    function* (settings: ServerSettings): Effect.fn.Return<ServerSettings, ServerSettingsError> {
       const storedSecrets = new Map<string, string>();
       const pending = new Map<string, SettingsSecret>();
       mapSettingsSecrets(settings, (secret) => {
@@ -969,7 +995,8 @@ const make = Effect.gen(function* () {
             : secret.value,
         redacted: secret.sensitive && secret.kind === "environment" && secret.redacted,
       }));
-    });
+    },
+  );
 
   const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
     changes.pipe(
@@ -994,7 +1021,10 @@ const make = Effect.gen(function* () {
     readonly environmentVariable?: string;
   } & (
     | { readonly kind: "write"; readonly value: Uint8Array }
-    | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
+    | {
+        readonly kind: "remove";
+        readonly operation: "remove-secret" | "remove-stale-secret";
+      }
   );
 
   const persistSettingsSecrets = (current: ServerSettings, next: ServerSettings) =>
@@ -1017,7 +1047,11 @@ const make = Effect.gen(function* () {
             : {}),
         };
         if (!secret.sensitive) {
-          changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
+          changes.push({
+            ...metadata,
+            kind: "remove",
+            operation: "remove-secret",
+          });
           return { value: secret.value, redacted: false };
         }
         const old = previous.get(secret.secretName);
@@ -1029,11 +1063,19 @@ const make = Effect.gen(function* () {
           return { value: "", redacted: true };
         }
         if (value.length === 0) {
-          changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
+          changes.push({
+            ...metadata,
+            kind: "remove",
+            operation: "remove-secret",
+          });
           return { value: "", redacted: false };
         }
         nextSecretNames.add(secret.secretName);
-        changes.push({ ...metadata, kind: "write", value: textEncoder.encode(value) });
+        changes.push({
+          ...metadata,
+          kind: "write",
+          value: textEncoder.encode(value),
+        });
         return { value: "", redacted: true };
       });
       for (const secret of previous.values()) {
@@ -1135,7 +1177,14 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
-        const current = yield* getSettingsFromCache;
+        const { settings: current, parseFailure } = yield* reloadSettings;
+        if (Option.isSome(parseFailure)) {
+          return yield* new ServerSettingsError({
+            settingsPath,
+            operation: "read-file",
+            cause: parseFailure.value,
+          });
+        }
         const updated = yield* update(current);
         const prepared = prepareGitHubAccountsPatch(current, updated);
         const sanitized: ServerSettings = {
@@ -1161,7 +1210,10 @@ const make = Effect.gen(function* () {
           }),
         );
         yield* persistGitHubAccountTokens(current, next, prepared.tokenUpdates);
-        yield* Cache.set(settingsCache, cacheKey, next);
+        yield* Cache.set(settingsCache, cacheKey, {
+          settings: next,
+          parseFailure: Option.none(),
+        });
         yield* emitChange(next);
         return resolveTextGenerationProvider(materialized);
       }),
@@ -1178,18 +1230,20 @@ const make = Effect.gen(function* () {
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
-      yield* Cache.invalidate(settingsCache, cacheKey);
-      const settings = yield* getSettingsFromCache;
+      const { settings } = yield* reloadSettings;
       yield* emitChange(settings);
     }),
   );
 
-  const persistGitHubAccountTokens = (
-    current: ServerSettings,
-    next: ServerSettings,
-    tokenUpdates: ReadonlyArray<{ readonly accountId: string; readonly token: string | null }>,
-  ): Effect.Effect<void, ServerSettingsError> =>
-    Effect.gen(function* () {
+  const persistGitHubAccountTokens = Effect.fn("serverSettings.persistGitHubAccountTokens")(
+    function* (
+      current: ServerSettings,
+      next: ServerSettings,
+      tokenUpdates: ReadonlyArray<{
+        readonly accountId: string;
+        readonly token: string | null;
+      }>,
+    ): Effect.fn.Return<void, ServerSettingsError> {
       for (const update of tokenUpdates) {
         const secretName = githubAccountTokenSecretName(update.accountId);
         const operation =
@@ -1224,12 +1278,13 @@ const make = Effect.gen(function* () {
           ),
         );
       }
-    });
+    },
+  );
 
-  const readGitHubAccountEnvironment = (
-    accountId: GitHubAccountId,
-  ): Effect.Effect<GitHubAccountEnvironment, ServerSettingsError> =>
-    Effect.gen(function* () {
+  const readGitHubAccountEnvironment = Effect.fn("serverSettings.readGitHubAccountEnvironment")(
+    function* (
+      accountId: GitHubAccountId,
+    ): Effect.fn.Return<GitHubAccountEnvironment, ServerSettingsError> {
       const settings = yield* getSettingsFromCache;
       const account = settings.githubAccounts[accountId];
       if (!account) {
@@ -1256,7 +1311,8 @@ const make = Effect.gen(function* () {
           ...(account.host === "github.com" ? {} : { GH_HOST: account.host }),
         },
       } satisfies GitHubAccountEnvironment;
-    });
+    },
+  );
 
   const watchFileChanges = (filePath: string) => {
     const directory = pathService.dirname(filePath);
@@ -1342,8 +1398,7 @@ const make = Effect.gen(function* () {
 
     const startup = Effect.gen(function* () {
       yield* startWatcher;
-      yield* Cache.invalidate(settingsCache, cacheKey);
-      yield* getSettingsFromCache;
+      yield* reloadSettings;
     });
 
     const startupExit = yield* Effect.exit(startup);
@@ -1383,7 +1438,9 @@ const make = Effect.gen(function* () {
         Effect.flatMap((rows) => {
           const accountId = rows[0]?.githubAccountId;
           if (accountId === null || accountId === undefined) {
-            return Effect.succeed({ configured: false } satisfies GitHubAccountEnvironment);
+            return Effect.succeed({
+              configured: false,
+            } satisfies GitHubAccountEnvironment);
           }
           return readGitHubAccountEnvironment(accountId as GitHubAccountId).pipe(
             Effect.flatMap((account) =>

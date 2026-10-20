@@ -6,7 +6,11 @@ import * as Schema from "effect/Schema";
 import { isBoundedDpopProof } from "../http/publicRelayInputBounds.ts";
 import { lt } from "drizzle-orm";
 
-import { DpopVerificationFailureCode, verifyDpopProof } from "@t3tools/shared/dpop";
+import {
+  DPOP_MAX_CLOCK_SKEW_SECONDS,
+  DpopVerificationFailureCode,
+  verifyDpopProof,
+} from "@t3tools/shared/dpop";
 import * as RelayDb from "../db.ts";
 import { relayDpopProofs } from "../persistence/schema.ts";
 
@@ -149,7 +153,8 @@ const make = Effect.gen(function* () {
         thumbprint: result.thumbprint,
         jti: result.jti,
         iat: result.iat,
-        expiresAt: DateTime.add(input.now, { minutes: 5 }),
+        // Retain replay identity through the last accepted second of clock skew.
+        expiresAt: DateTime.makeUnsafe((result.iat + DPOP_MAX_CLOCK_SKEW_SECONDS + 1) * 1_000),
       };
     },
   );

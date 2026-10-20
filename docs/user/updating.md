@@ -149,6 +149,17 @@ initialization over its home.
 
 ## Why installation waits
 
+After a successful provider CLI update, Arcwright Code refreshes model discovery for
+every enabled instance of that provider using its own configuration. Connected
+clients receive the refreshed catalogs automatically. Provider update checks
+must be enabled to download the latest Arcwright Code model catalog.
+
+Provider updates do not restart running chats. An existing session can keep
+using the previous CLI until it ends. If discovery fails, check the provider
+status and refresh it again.
+
+## Native installation safety
+
 This section applies to native Android and service maintenance. Desktop app
 updates use the explicit upstream installation flow described above.
 

@@ -1073,3 +1073,7 @@ in account details; never hide a configured instance behind the first label or c
 The [October 15 upstream integration](upstream-integration-20261015.md) records ownership and regression coverage for the read-only SQLite worker, fork migration 108, strict backup headroom, physical Windows dependency staging, and retained client features.
 
 See the [16 October upstream integration](./upstream-20261016.md) for pinned commits, preserved paths, update behavior and verification boundaries.
+
+The [October 20 upstream integration](upstream-integration-20261020.md) records
+the pinned range, retained client and recovery paths, compressed-history migration
+adapters, and verification boundaries.

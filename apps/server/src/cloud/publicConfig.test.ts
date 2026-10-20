@@ -203,9 +203,9 @@ it.effect(
         yield* makeHostedAppUrlConfig(undefined, ownedBuild).pipe(provideEnv({})),
         "https://app.example.test",
       );
-      const oauth = yield* makeCloudCliOAuthConfig({ connectProfileFallback: ownedBuild }).pipe(
-        provideEnv({}),
-      );
+      const oauth = yield* makeCloudCliOAuthConfig({
+        connectProfileFallback: ownedBuild,
+      }).pipe(provideEnv({}));
       assert.equal(oauth.tokenEndpoint, "https://sample.accounts.dev/oauth/token");
       assert.equal(oauth.clientId, "client_sample");
       assert.equal(
@@ -284,10 +284,9 @@ it.effect("keeps cloudless build configuration empty despite ambient managed inp
     );
     assert.isTrue(
       Result.isFailure(
-        yield* makeCloudCliOAuthConfig({ connectProfileFallback: cloudless }).pipe(
-          provideEnv(ownedFields),
-          Effect.result,
-        ),
+        yield* makeCloudCliOAuthConfig({
+          connectProfileFallback: cloudless,
+        }).pipe(provideEnv(ownedFields), Effect.result),
       ),
     );
     assert.isTrue(
@@ -300,3 +299,28 @@ it.effect("keeps cloudless build configuration empty despite ambient managed inp
     );
   }),
 );
+it("product opt-out disables relay tracing with either built-in or runtime credentials", () => {
+  const fallback = {
+    tracesUrl: "https://embedded.example.test/v1/traces",
+    tracesDataset: "embedded-dataset",
+    tracesToken: "embedded-token",
+  };
+  const env = {
+    T3CODE_TELEMETRY_ENABLED: "false",
+    T3CODE_OTEL_SDK_DISABLED: "false",
+  };
+
+  assert.equal(resolveRelayClientTracingConfig(env, fallback), null);
+  assert.equal(
+    resolveRelayClientTracingConfig(
+      {
+        ...env,
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: "https://runtime.example.test/v1/traces",
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: "runtime-dataset",
+        T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: "runtime-token",
+      },
+      fallback,
+    ),
+    null,
+  );
+});

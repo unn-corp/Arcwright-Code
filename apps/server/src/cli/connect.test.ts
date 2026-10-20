@@ -9,6 +9,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as CliTokenManager from "../cloud/CliTokenManager.ts";
 import { readPendingRemoteCleanup } from "../cloud/pendingRemoteCleanup.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { assert, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -18,6 +19,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as References from "effect/References";
 import * as Terminal from "effect/Terminal";
 import * as FileSystem from "effect/FileSystem";
@@ -35,8 +37,9 @@ import {
   acquireRelayClientForLink,
   headlessSessionConfig,
   reportCloudDisconnectResults,
+  reportServiceOnboarding,
 } from "./connect.ts";
-import { recoverServiceOnboardingOffer } from "./service.ts";
+import { offerServiceDuringOnboarding, recoverServiceOnboardingOffer } from "./service.ts";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -173,7 +176,9 @@ it.effect.each([
       }).pipe(Effect.andThen(Effect.die("unexpected managed action")));
     return Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cloudless-command-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cloudless-command-",
+      });
       vi.spyOn(RelayClient, "layerCloudflared").mockReturnValue(
         Layer.succeed(
           RelayClient.RelayClient,
@@ -216,7 +221,9 @@ it.effect.each([
             spawn: () => forbidden("spawn"),
           }),
           ConfigProvider.layer(
-            ConfigProvider.fromEnv({ env: { T3CODE_CONNECT_MODE: "cloudless" } }),
+            ConfigProvider.fromEnv({
+              env: { T3CODE_CONNECT_MODE: "cloudless" },
+            }),
           ),
         ),
       ),
@@ -246,7 +253,7 @@ it.effect("detects headless operation from individual SSH config values", () =>
 it.effect("treats cancelling optional background setup as a successful skip", () =>
   Effect.gen(function* () {
     const result = yield* recoverServiceOnboardingOffer(Effect.fail(new Terminal.QuitError({})));
-    assert.isFalse(result);
+    assert.equal(result, "skipped");
   }),
 );
 
@@ -255,8 +262,72 @@ it.effect("keeps a successful connection when a remote service update is pending
     const result = yield* recoverServiceOnboardingOffer(
       Effect.fail(new BootService.BootServiceUpdatePendingError()),
     );
-    assert.isFalse(result);
+    assert.equal(result, "skipped");
   }),
+);
+
+it.effect("reports pending onboarding until the handed-off service is ready", () =>
+  Effect.gen(function* () {
+    const input = yield* Queue.make<Terminal.UserInput>();
+    yield* Queue.offer(input, {
+      input: Option.some("\r"),
+      key: { name: "return", ctrl: false, meta: false, shift: false },
+    });
+    const terminal = Terminal.make({
+      columns: Effect.succeed(80),
+      rows: Effect.succeed(24),
+      readInput: Effect.succeed(Queue.asDequeue(input)),
+      readLine: Effect.die("unexpected line input"),
+      display: () => Effect.void,
+    });
+    const plan = {
+      program: ["/test/t3", "__service-launcher"],
+      baseDir: "/test",
+      unitPath: "/test/t3code.service",
+      logPath: "/test/boot-service.log",
+      handedOff: true,
+    };
+    let current = false;
+    const service = BootService.BootService.of({
+      status: Effect.sync(() => ({
+        supported: true,
+        installed: true,
+        current,
+        unitPath: plan.unitPath,
+        logPath: plan.logPath,
+      })),
+      install: () => Effect.succeed(plan),
+      restart: Effect.die("unexpected restart"),
+      uninstall: Effect.die("unexpected uninstall"),
+      withStopped: () => Effect.die("unexpected maintenance"),
+    });
+    const lines: string[] = [];
+    const onboard = recoverServiceOnboardingOffer(offerServiceDuringOnboarding).pipe(
+      Effect.flatMap(reportServiceOnboarding),
+      Effect.provideService(BootService.BootService, service),
+      Effect.provideService(Terminal.Terminal, terminal),
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(Console.Console, {
+        ...globalThis.console,
+        log: (...args) => {
+          lines.push(args.map(String).join(" "));
+        },
+      }),
+    );
+
+    yield* onboard;
+    const output = lines.join("\n");
+    assert.notInclude(output, "Background service ready");
+    assert.notInclude(output, "Start the server");
+    assert.include(output, "Background service restarting");
+    assert.include(output, plan.logPath);
+
+    current = true;
+    lines.length = 0;
+    yield* onboard;
+    assert.include(lines.join("\n"), "Background service ready");
+    assert.notInclude(lines.join("\n"), "restarting");
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.effect("does not install the relay client when the user declines the managed download", () =>
@@ -385,10 +456,16 @@ it.effect("keeps disconnect causes in structured logs and out of console warning
         assert.notInclude(warningText, liveFailure);
         assert.notInclude(warningText, relayFailure);
         assert.deepEqual(
-          logs.map(({ operation, clearAuthorization }) => ({ operation, clearAuthorization })),
+          logs.map(({ operation, clearAuthorization }) => ({
+            operation,
+            clearAuthorization,
+          })),
           [
             { operation: "live-server-unlink", clearAuthorization: true },
-            { operation: "relay-environment-unlink", clearAuthorization: true },
+            {
+              operation: "relay-environment-unlink",
+              clearAuthorization: true,
+            },
           ],
         );
         const loggedCauses = logs.map((log) => String(log.cause)).join("\n");
@@ -498,9 +575,9 @@ it.effect.each([
       }
     }).pipe(
       Effect.provide(
-        ServerConfig.layerTest("/", { prefix: "t3-connect-disconnect-test-" }).pipe(
-          Layer.provideMerge(NodeServices.layer),
-        ),
+        ServerConfig.layerTest("/", {
+          prefix: "t3-connect-disconnect-test-",
+        }).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
       Effect.provideService(
         ServerSecretStore.ServerSecretStore,
@@ -590,7 +667,10 @@ const captureDisconnectReport = (input: {
     unknown
   >;
 }) => {
-  const lines: Array<{ readonly stream: "log" | "warn"; readonly text: string }> = [];
+  const lines: Array<{
+    readonly stream: "log" | "warn";
+    readonly text: string;
+  }> = [];
   const testConsole = {
     ...globalThis.console,
     log: (...args: ReadonlyArray<unknown>) => {
@@ -603,7 +683,11 @@ const captureDisconnectReport = (input: {
 
   return reportCloudDisconnectResults(input).pipe(
     Effect.provideService(Console.Console, testConsole),
-    Effect.provide(Logger.layer([Logger.make(() => undefined)], { mergeWithExisting: false })),
+    Effect.provide(
+      Logger.layer([Logger.make(() => undefined)], {
+        mergeWithExisting: false,
+      }),
+    ),
     Effect.as(lines),
   );
 };

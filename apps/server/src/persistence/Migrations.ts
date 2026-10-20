@@ -121,7 +121,11 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       Effect.catchTags({
         SchemaFingerprintError: (cause) =>
           Effect.fail(
-            new Migrator.MigrationError({ kind: "BadState", message: cause.reason, cause }),
+            new Migrator.MigrationError({
+              kind: "BadState",
+              message: cause.reason,
+              cause,
+            }),
           ),
       }),
     );

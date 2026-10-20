@@ -9,14 +9,13 @@ import type * as EffectAcpErrors from "effect-acp/errors";
 
 import { TextGenerationError } from "@t3tools/contracts";
 import type { GrokSettings } from "../settings.ts";
-import { OrganizationArchitectTurnOutput, type ModelSelection } from "@t3tools/contracts";
+import { OrganizationArchitectTurnOutput } from "@t3tools/contracts";
 import {
   buildOrganizationArchitectPrompt,
   validateOrganizationArchitectOutput,
 } from "@t3tools/provider-core/server/OrganizationArchitectPrompt";
 import type * as TextGeneration from "@t3tools/provider-core/server/textGeneration";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import {
@@ -40,26 +39,12 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
 
-  const runGrokJson = <S extends Schema.Top>({
-    operation,
-    cwd,
-    prompt,
-    outputSchemaJson,
-    modelSelection,
-  }: {
-    operation:
-      | "generateCommitMessage"
-      | "generatePrContent"
-      | "generateBranchName"
-      | "generateReviewGuide"
-      | "generateThreadTitle"
-      | "generateOrganizationArchitectTurn";
-    cwd: string;
-    prompt: string;
-    outputSchemaJson: S;
-    modelSelection: ModelSelection;
-  }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
-    Effect.gen(function* () {
+  const runGrokJson: TextGenerationOperations.Runner<
+    TextGenerationOperations.Operation | "generateOrganizationArchitectTurn"
+  > = Effect.fn("GrokTextGeneration.runGrokJson")(
+    function* (request) {
+      const { operation, cwd, prompt, modelSelection } = request;
+
       const resolvedModel = resolveGrokAcpBaseModelId(modelSelection.model);
       const outputRef = yield* Ref.make("");
       let toolAttempted = false;
@@ -205,31 +190,24 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
         });
       }
 
-      const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(outputSchemaJson));
-      return yield* decodeOutput(extractJsonObject(trimmed)).pipe(
-        Effect.catchTags({
-          SchemaError: (cause) =>
-            Effect.fail(
-              new TextGenerationError({
+      return yield* TextGenerationOperations.decodeJsonReply(request, "Grok Agent", trimmed);
+    },
+    (effect, request) => {
+      const { operation } = request;
+      return effect.pipe(
+        Effect.mapError((cause) =>
+          isTextGenerationError(cause)
+            ? cause
+            : new TextGenerationError({
                 operation,
-                detail: "Grok Agent returned invalid structured output.",
+                detail: "Grok ACP text generation failed.",
                 cause,
               }),
-            ),
-        }),
+        ),
+        Effect.scoped,
       );
-    }).pipe(
-      Effect.mapError((cause) =>
-        isTextGenerationError(cause)
-          ? cause
-          : new TextGenerationError({
-              operation,
-              detail: "Grok ACP text generation failed.",
-              cause,
-            }),
-      ),
-      Effect.scoped,
-    );
+    },
+  );
 
   const generateOrganizationArchitectTurn: NonNullable<
     TextGeneration.ProviderTextGeneration["generateOrganizationArchitectTurn"]
@@ -239,7 +217,7 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
       operation: "generateOrganizationArchitectTurn",
       cwd: process.cwd(),
       prompt,
-      outputSchemaJson: OrganizationArchitectTurnOutput,
+      outputSchema: OrganizationArchitectTurnOutput,
       modelSelection: input.modelSelection,
     });
     return yield* validateOrganizationArchitectOutput(generated, input.organization.draftRevision);
@@ -249,7 +227,7 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
     ...TextGenerationOperations.fromRunner(
       "GrokTextGeneration",
       TextGenerationOperations.withoutInvestigation("GrokTextGeneration", (request) =>
-        runGrokJson({ ...request, outputSchemaJson: request.outputSchema }),
+        runGrokJson(request),
       ),
     ),
     generateOrganizationArchitectTurn,

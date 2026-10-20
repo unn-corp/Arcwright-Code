@@ -48,7 +48,10 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
-import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
+import {
+  knownProviderFailureMessage,
+  makeProviderFailure,
+} from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import {
@@ -67,9 +70,18 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 
-/** Claude refuses to replace a process running background work before it reads the prompt. */
+/**
+ * Claude refuses these before it reads the prompt: replacing a process running background work,
+ * or launch arguments whose appended system prompt cannot be read.
+ */
+const PROMPT_REFUSAL_TAGS = [
+  "ClaudeBackgroundWorkBlocksQueryReplacementError",
+  "ClaudeAppendSystemPromptFileError",
+  "ClaudeAppendSystemPromptMissingValueError",
+] as const;
+
 const refusedBeforePrompt = (error: unknown): boolean =>
-  Predicate.isTagged(error, "ClaudeBackgroundWorkBlocksQueryReplacementError") ||
+  PROMPT_REFUSAL_TAGS.some((tag) => Predicate.isTagged(error, tag)) ||
   (Predicate.hasProperty(error, "cause") && refusedBeforePrompt(error.cause));
 
 export interface ProviderTurnStartServiceV2Shape {
@@ -227,7 +239,10 @@ export const layer: Layer.Layer<
       const projection = yield* projectionStore.getTurnStartContext(input.threadId, runId);
       const run = projection.runs.find((candidate) => candidate.id === runId);
       if (run === undefined) {
-        return yield* new ProviderTurnStartError({ runId, cause: `Run ${runId} was not found.` });
+        return yield* new ProviderTurnStartError({
+          runId,
+          cause: `Run ${runId} was not found.`,
+        });
       }
       if (run.status !== "starting") {
         return;
@@ -304,7 +319,10 @@ export const layer: Layer.Layer<
           const { now, status } = input;
           const started = input.startedAt === undefined ? {} : { startedAt: input.startedAt };
           const item: OrchestrationV2TurnItem = {
-            id: idAllocator.derive.runSignalTurnItem({ runId, signal: input.signal }),
+            id: idAllocator.derive.runSignalTurnItem({
+              runId,
+              signal: input.signal,
+            }),
             threadId: projection.thread.id,
             runId,
             nodeId: rootNode.id,
@@ -327,7 +345,10 @@ export const layer: Layer.Layer<
           };
           const eventPayloads = [
             { type: "turn-item.updated", payload: item },
-            { type: "run.updated", payload: { ...run, status, ...started, completedAt: now } },
+            {
+              type: "run.updated",
+              payload: { ...run, status, ...started, completedAt: now },
+            },
             {
               type: "run-attempt.updated",
               payload: { ...attempt, status, ...started, completedAt: now },
@@ -349,7 +370,9 @@ export const layer: Layer.Layer<
             Effect.gen(function* () {
               return {
                 ...event,
-                id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+                id: yield* idAllocator.allocate.event({
+                  threadId: projection.thread.id,
+                }),
                 threadId: projection.thread.id,
                 runId,
                 nodeId: rootNode.id,
@@ -519,6 +542,7 @@ export const layer: Layer.Layer<
         thread: projection.thread,
         modelSelection: run.modelSelection,
       });
+      if (!(yield* isCurrentAttemptInStatus("starting"))) return;
       const existingSessionProjection = projection.providerSessions.find(
         (candidate) => candidate.id === providerSessionId,
       );
@@ -533,7 +557,9 @@ export const layer: Layer.Layer<
             : { resumeFromSession: existingSessionProjection }),
           ...(providerThread.nativeThreadRef?.nativeId == null
             ? {}
-            : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+            : {
+                initialNativeThreadId: providerThread.nativeThreadRef.nativeId,
+              }),
           ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
             ? {}
             : {
@@ -542,12 +568,12 @@ export const layer: Layer.Layer<
               }),
         }),
       );
-      const settleStartFailure = (failed: {
-        readonly signal: string;
-        readonly title: string;
-        readonly error: Error;
-      }) =>
-        Effect.gen(function* () {
+      const settleStartFailure = Effect.fn("ProviderTurnStartService.settleStartFailure")(
+        function* (failed: {
+          readonly signal: string;
+          readonly title: string;
+          readonly error: Error;
+        }) {
           const nestedCause = "cause" in failed.error ? failed.error.cause : undefined;
           yield* settleRunBeforeStart({
             signal: failed.signal,
@@ -561,16 +587,18 @@ export const layer: Layer.Layer<
               failure: makeProviderFailure({
                 cause: failed.error,
                 message:
-                  nestedCause instanceof Error
+                  knownProviderFailureMessage(failed.error) ??
+                  (nestedCause instanceof Error
                     ? nestedCause.message
                     : typeof nestedCause === "string"
                       ? nestedCause
-                      : failed.error.message,
+                      : failed.error.message),
                 class: "provider_error",
               }),
             },
           });
-        });
+        },
+      );
       if (sessionResult._tag === "Failure") {
         if (input.willRetry === true) return yield* sessionResult.failure;
         yield* settleStartFailure({
@@ -581,20 +609,20 @@ export const layer: Layer.Layer<
         return;
       }
       const session = sessionResult.success;
-      const loadFromProvider = (
+      if (!(yield* isCurrentAttemptInStatus("starting"))) return;
+      const loadFromProvider = Effect.fn("ProviderTurnStartService.loadFromProvider")(function* (
         load: Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapter.ProviderAdapterV2Error>,
-      ) =>
-        Effect.gen(function* () {
-          const loaded = yield* Effect.result(load);
-          if (loaded._tag === "Success") return loaded.success;
-          if (input.willRetry === true) return yield* loaded.failure;
-          yield* settleStartFailure({
-            signal: "provider-thread-load-failure",
-            title: "Provider turn failed to start",
-            error: loaded.failure,
-          });
-          return undefined;
+      ) {
+        const loaded = yield* Effect.result(load);
+        if (loaded._tag === "Success") return loaded.success;
+        if (input.willRetry === true) return yield* loaded.failure;
+        yield* settleStartFailure({
+          signal: "provider-thread-load-failure",
+          title: "Provider turn failed to start",
+          error: loaded.failure,
         });
+        return undefined;
+      });
       let effectiveHandoffs = handoffs;
       const loadedProviderThread = yield* Effect.gen(function* () {
         if (nativeForkTransfer !== undefined) {
@@ -696,7 +724,10 @@ export const layer: Layer.Layer<
             // The native ref is dropped so the adapter binds a fresh native
             // session instead of retrying the resume that just failed, while
             // still adopting this row's identity.
-            existingProviderThread: { ...providerThread, nativeThreadRef: null },
+            existingProviderThread: {
+              ...providerThread,
+              nativeThreadRef: null,
+            },
           }),
         );
         if (replacement === undefined) return undefined;
@@ -730,7 +761,9 @@ export const layer: Layer.Layer<
         yield* eventSink.write({
           events: [
             {
-              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              id: yield* idAllocator.allocate.event({
+                threadId: projection.thread.id,
+              }),
               type: "context-handoff.updated",
               threadId: projection.thread.id,
               runId: run.id,
@@ -739,7 +772,9 @@ export const layer: Layer.Layer<
               payload: handoff,
             },
             {
-              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              id: yield* idAllocator.allocate.event({
+                threadId: projection.thread.id,
+              }),
               type: "context-transfer.updated",
               threadId: projection.thread.id,
               runId: run.id,
@@ -756,7 +791,10 @@ export const layer: Layer.Layer<
                 targetProviderInstanceId: run.providerInstanceId,
                 targetRunId: run.id,
                 status: "resolved_portable",
-                resolution: { strategy: "portable_context", contextHandoffId: handoff.id },
+                resolution: {
+                  strategy: "portable_context",
+                  contextHandoffId: handoff.id,
+                },
                 createdBy: "system",
                 error: null,
                 createdAt,
@@ -832,7 +870,9 @@ export const layer: Layer.Layer<
         ...attempt,
         ...(runningProviderThread.nativeThreadRef?.nativeId == null
           ? {}
-          : { nativeThreadId: runningProviderThread.nativeThreadRef.nativeId }),
+          : {
+              nativeThreadId: runningProviderThread.nativeThreadRef.nativeId,
+            }),
         status: "running",
         startedAt: now,
       };
@@ -855,7 +895,9 @@ export const layer: Layer.Layer<
           payload: session.providerSession,
         },
         {
-          id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+          id: yield* idAllocator.allocate.event({
+            threadId: projection.thread.id,
+          }),
           type: "provider-thread.updated",
           threadId: projection.thread.id,
           driver: session.driver,
@@ -867,7 +909,9 @@ export const layer: Layer.Layer<
           ? []
           : [
               {
-                id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+                id: yield* idAllocator.allocate.event({
+                  threadId: projection.thread.id,
+                }),
                 type: "context-transfer.updated" as const,
                 threadId: projection.thread.id,
                 runId: run.id,
@@ -890,7 +934,9 @@ export const layer: Layer.Layer<
               },
             ]),
         {
-          id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+          id: yield* idAllocator.allocate.event({
+            threadId: projection.thread.id,
+          }),
           type: "run.updated",
           threadId: projection.thread.id,
           runId: run.id,
@@ -900,7 +946,9 @@ export const layer: Layer.Layer<
           payload: runningRun,
         },
         {
-          id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+          id: yield* idAllocator.allocate.event({
+            threadId: projection.thread.id,
+          }),
           type: "run-attempt.updated",
           threadId: projection.thread.id,
           runId: run.id,
@@ -910,7 +958,9 @@ export const layer: Layer.Layer<
           payload: runningAttempt,
         },
         {
-          id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+          id: yield* idAllocator.allocate.event({
+            threadId: projection.thread.id,
+          }),
           type: "node.updated",
           threadId: projection.thread.id,
           runId: run.id,
@@ -1074,11 +1124,8 @@ export const layer: Layer.Layer<
                 !coveredItemIds.has(item.id) &&
                 historicalMessage(item) !== null,
             );
-      const startWithHandoffs = (
-        turnInput: Parameters<typeof session.startTurn>[0],
-        compact = false,
-      ) =>
-        Effect.gen(function* () {
+      const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
+        function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const retryHandoff =
             missedItems.length === 0
               ? []
@@ -1128,25 +1175,24 @@ export const layer: Layer.Layer<
                       ...history,
                     }),
                 }),
-            persist: (handoff) =>
-              Effect.gen(function* () {
-                const updatedAt = yield* DateTime.now;
-                yield* eventSink.write({
-                  events: [
-                    {
-                      id: yield* idAllocator.allocate.event({
-                        threadId: projection.thread.id,
-                      }),
-                      type: "context-handoff.updated",
+            persist: Effect.fn("ProviderTurnStartService.persist")(function* (handoff) {
+              const updatedAt = yield* DateTime.now;
+              yield* eventSink.write({
+                events: [
+                  {
+                    id: yield* idAllocator.allocate.event({
                       threadId: projection.thread.id,
-                      runId: run.id,
-                      providerInstanceId: run.providerInstanceId,
-                      occurredAt: updatedAt,
-                      payload: { ...handoff, updatedAt },
-                    },
-                  ],
-                });
-              }),
+                    }),
+                    type: "context-handoff.updated",
+                    threadId: projection.thread.id,
+                    runId: run.id,
+                    providerInstanceId: run.providerInstanceId,
+                    occurredAt: updatedAt,
+                    payload: { ...handoff, updatedAt },
+                  },
+                ],
+              });
+            }),
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
@@ -1185,19 +1231,19 @@ export const layer: Layer.Layer<
               }),
             ),
           );
-        }).pipe(
-          Effect.mapError((cause) =>
-            cause._tag === "ProviderAdapterTurnStartError"
-              ? cause
-              : new ProviderAdapter.ProviderAdapterTurnStartError({
-                  driver: session.driver,
-                  threadId: projection.thread.id,
-                  providerThreadId: providerThread.id,
-                  runId: run.id,
-                  cause,
-                }),
-          ),
-        );
+        },
+        Effect.mapError((cause) =>
+          cause._tag === "ProviderAdapterTurnStartError"
+            ? cause
+            : new ProviderAdapter.ProviderAdapterTurnStartError({
+                driver: session.driver,
+                threadId: projection.thread.id,
+                providerThreadId: providerThread.id,
+                runId: run.id,
+                cause,
+              }),
+        ),
+      );
       const deliverySession =
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
@@ -1257,24 +1303,25 @@ export const layer: Layer.Layer<
     });
 
     return ProviderTurnStartServiceV2.of({
-      start: (input) =>
-        withWork(
-          Effect.gen(function* () {
-            // Storage cleanup removes worktrees under the same lease. Only startup
-            // holds it; the provider turn runs after it is released.
-            const { thread } = yield* projectionStore.getThreadRecords(input.threadId, []);
-            const providerTurn = yield* thread.worktreePath === null
-              ? start(input)
-              : withWorkspaceLease(path.resolve(thread.worktreePath), start(input));
-            if (providerTurn !== undefined) yield* providerTurn;
-          }),
-        ).pipe(
-          Effect.mapError((cause) =>
-            isProviderTurnStartError(cause)
-              ? cause
-              : new ProviderTurnStartError({ runId: input.runId, cause }),
+      start: Effect.fn("ProviderTurnStartService.start")(
+        function* (input) {
+          // Storage cleanup removes worktrees under the same lease. Only startup
+          // holds it; the provider turn runs after it is released.
+          const { thread } = yield* projectionStore.getThreadRecords(input.threadId, []);
+          const providerTurn = yield* thread.worktreePath === null
+            ? start(input)
+            : withWorkspaceLease(path.resolve(thread.worktreePath), start(input));
+          if (providerTurn !== undefined) yield* providerTurn;
+        },
+        (effect, input) =>
+          withWork(effect).pipe(
+            Effect.mapError((cause) =>
+              isProviderTurnStartError(cause)
+                ? cause
+                : new ProviderTurnStartError({ runId: input.runId, cause }),
+            ),
           ),
-        ),
+      ),
     });
   }),
 );

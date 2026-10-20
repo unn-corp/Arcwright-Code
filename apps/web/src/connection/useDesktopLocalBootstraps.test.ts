@@ -54,15 +54,15 @@ it("shares a push subscription, keeps stable successful snapshots, and retains f
   expect(subscribe).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
   const first = captured.snapshot!();
-  changed();
+  await changed();
   expect(captured.snapshot!()).toBe(first);
   read.mockImplementation(() => {
     throw new Error("IPC failed");
   });
-  changed();
+  await changed();
   expect(captured.snapshot!()).toBe(first);
   read.mockReturnValue([]);
-  changed();
+  await changed();
   expect(captured.snapshot!()).toEqual([]);
   cleanups.pop()!();
   expect(unsubscribe).not.toHaveBeenCalled();
@@ -75,7 +75,7 @@ it("shares and cleans up one fallback timer for old desktop bridges", async () =
   cleanups.push(captured.subscribe!(vi.fn()));
   expect(vi.getTimerCount()).toBe(1);
   read.mockReturnValue([]);
-  vi.advanceTimersByTime(2_000);
+  await vi.advanceTimersByTimeAsync(2_000);
   expect(captured.snapshot!()).toEqual([]);
   for (const cleanup of cleanups.splice(0)) cleanup();
   expect(vi.getTimerCount()).toBe(0);
@@ -94,17 +94,43 @@ it("retries a failed final event without another topology notification", async (
   read.mockImplementation(() => {
     throw new Error("IPC unavailable");
   });
-  changed();
+  await changed();
   expect(captured.snapshot!()).toBe(original);
   expect(vi.getTimerCount()).toBe(1);
   read.mockReturnValue([]);
-  vi.advanceTimersByTime(2_000);
+  await vi.advanceTimersByTimeAsync(2_000);
   expect(captured.snapshot!()).toEqual([]);
   expect(vi.getTimerCount()).toBe(0);
   read.mockImplementation(() => {
     throw new Error("IPC unavailable");
   });
-  changed();
+  await changed();
   for (const cleanup of cleanups.splice(0)) cleanup();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("ignores a stale async bridge read after a newer topology event", async () => {
+  let changed!: () => void;
+  let completeOld!: (value: ReadonlyArray<DesktopEnvironmentBootstrap>) => void;
+  const read = vi.fn().mockResolvedValue([topology]);
+  await mount({
+    readLocalEnvironmentBootstraps: read,
+    onLocalEnvironmentBootstrapsChanged: (listener: () => void) => {
+      changed = listener;
+      return () => {};
+    },
+  });
+  read.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        completeOld = resolve;
+      }),
+  );
+  const stale = changed();
+  read.mockResolvedValueOnce([]);
+  await changed();
+  expect(captured.snapshot!()).toEqual([]);
+  completeOld([topology]);
+  await stale;
+  expect(captured.snapshot!()).toEqual([]);
 });

@@ -6,10 +6,13 @@ const listeners = new Set<() => void>();
 let snapshot: ReadonlyArray<DesktopEnvironmentBootstrap> = [];
 let cleanup: (() => void) | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
-function refresh() {
+let refreshGeneration = 0;
+async function refresh() {
+  const generation = ++refreshGeneration;
   clearTimeout(retry);
   retry = undefined;
-  const result = readDesktopSecondaryBootstrapsResult();
+  const result = await readDesktopSecondaryBootstrapsResult();
+  if (generation !== refreshGeneration || listeners.size === 0) return;
   if (result._tag === "Failure") {
     if (listeners.size > 0 && window.desktopBridge?.onLocalEnvironmentBootstrapsChanged) {
       retry = setTimeout(refresh, 2_000);
@@ -38,6 +41,7 @@ function subscribe(listener: () => void) {
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) {
+      refreshGeneration++;
       clearTimeout(retry);
       retry = undefined;
       cleanup?.();

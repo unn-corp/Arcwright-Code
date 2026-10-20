@@ -104,7 +104,10 @@ export const layerExecutor: Layer.Layer<
         switch (effect.request.type) {
           case "provider-runtime.continue": {
             const sourceRunId = effect.request.sourceRunId;
-            return continueRestartedRun({ threadId: effect.threadId, sourceRunId }).pipe(
+            return continueRestartedRun({
+              threadId: effect.threadId,
+              sourceRunId,
+            }).pipe(
               Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
               Effect.provideService(ServerSettings.ServerSettingsService, settings),
               Effect.tapError(() =>
@@ -130,7 +133,9 @@ export const layerExecutor: Layer.Layer<
                 ...(effect.request.detail === undefined ? {} : { detail: effect.request.detail }),
                 ...(effect.request.revokeMcpCredential === undefined
                   ? {}
-                  : { revokeMcpCredential: effect.request.revokeMcpCredential }),
+                  : {
+                      revokeMcpCredential: effect.request.revokeMcpCredential,
+                    }),
               })
               .pipe(
                 Effect.mapError(
@@ -144,7 +149,11 @@ export const layerExecutor: Layer.Layer<
               );
           case "provider-turn.start":
             return providerTurnStart
-              .start({ threadId: effect.threadId, runId: effect.request.runId, willRetry })
+              .start({
+                threadId: effect.threadId,
+                runId: effect.request.runId,
+                willRetry,
+              })
               .pipe(
                 Effect.mapError(
                   (cause) =>
@@ -291,7 +300,9 @@ export const layerExecutor: Layer.Layer<
                         creationSource: message.creationSource,
                         ...(message.delegatedCompletion === undefined
                           ? {}
-                          : { delegatedCompletion: message.delegatedCompletion }),
+                          : {
+                              delegatedCompletion: message.delegatedCompletion,
+                            }),
                         ...(message.notification === undefined
                           ? {}
                           : { notification: message.notification }),
@@ -463,6 +474,17 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
+          case "scheduled-tasks.cleanup":
+            return resourceCleanup.cleanupScheduledTasks(effect.threadId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
           case "terminal.cleanup":
             return resourceCleanup.cleanupTerminals(effect.threadId).pipe(
               Effect.mapError(
@@ -675,8 +697,9 @@ export const layerWithOptions = (
           ? requeueClaim(effect, cause)
           : terminalizeClaim(effect, cause);
 
-      const runOnce = (excludeRestartContinuations = false) =>
-        Effect.gen(function* () {
+      // The worker probes for work repeatedly, including when the outbox is empty.
+      const runOnce = Effect.fnUntraced(
+        function* (excludeRestartContinuations = false) {
           const excludeProviderStarts = !(yield* startAdmission.canStart);
           const claimExit = yield* Effect.exit(
             outbox.claimNext({
@@ -742,7 +765,10 @@ export const layerWithOptions = (
           }
           if (Exit.isSuccess(exit)) {
             return yield* Effect.gen(function* () {
-              const completed = yield* outbox.succeed({ effectId: effect.id, workerId });
+              const completed = yield* outbox.succeed({
+                effectId: effect.id,
+                workerId,
+              });
               if (!completed) {
                 if (yield* wasCancelled(effect.id)) return true;
                 return yield* new OrchestrationEffectWorkerError({
@@ -789,13 +815,19 @@ export const layerWithOptions = (
             });
           }
           return true;
-        }).pipe(
-          Effect.mapError((cause) =>
-            isOrchestrationEffectWorkerError(cause)
-              ? cause
-              : new OrchestrationEffectWorkerError({ operation: "run", cause }),
+        },
+        (effect, _excludeRestartContinuations?: boolean) =>
+          effect.pipe(
+            Effect.mapError((cause) =>
+              isOrchestrationEffectWorkerError(cause)
+                ? cause
+                : new OrchestrationEffectWorkerError({
+                    operation: "run",
+                    cause,
+                  }),
+            ),
           ),
-        );
+      );
 
       return OrchestrationEffectWorkerV2.of({
         awaitWork: outbox.awaitAvailable,
@@ -806,7 +838,9 @@ export const layerWithOptions = (
           if (Option.isNone(next) || (yield* startAdmission.canStart)) return next;
           const now = yield* DateTime.now;
           const nowMs = DateTime.toEpochMillis(now);
-          const nextControl = yield* outbox.nextClaimableAt({ excludeProviderStarts: true });
+          const nextControl = yield* outbox.nextClaimableAt({
+            excludeProviderStarts: true,
+          });
           const nextControlMs = Option.isSome(nextControl)
             ? DateTime.toEpochMillis(nextControl.value)
             : nowMs + 5_000;
@@ -829,14 +863,13 @@ export const layerWithOptions = (
               }),
           ),
         ),
-        drain: (maxEffects = Number.MAX_SAFE_INTEGER) =>
-          Effect.gen(function* () {
-            let completed = 0;
-            while (completed < maxEffects && (yield* runOnce())) {
-              completed += 1;
-            }
-            return completed;
-          }),
+        drain: Effect.fn("EffectWorker.drain")(function* (maxEffects = Number.MAX_SAFE_INTEGER) {
+          let completed = 0;
+          while (completed < maxEffects && (yield* runOnce())) {
+            completed += 1;
+          }
+          return completed;
+        }),
       });
     }),
   );

@@ -73,6 +73,12 @@ export function escapeDesktopEntryExecArgument(value: string): string {
   return escapeDesktopEntryString(`"${quoted}"`);
 }
 
+// Legacy xdg-open looks up the first Exec word without unquoting it.
+const escapeUrlHandlerExecTarget = (value: string): string =>
+  /[ \t\n"'\\><~|&;$*?#()`]/.test(value)
+    ? escapeDesktopEntryExecArgument(value)
+    : escapeDesktopEntryString(value.replaceAll("%", "%%"));
+
 // AppImages share one launcher/portal identity; development and native
 // packages keep their URL-only entry hidden.
 export function renderUrlHandlerDesktopEntry(input: {
@@ -86,7 +92,7 @@ export function renderUrlHandlerDesktopEntry(input: {
     "[Desktop Entry]",
     "Type=Application",
     `Name=${escapeDesktopEntryString(input.displayName)}`,
-    `Exec=${escapeDesktopEntryExecArgument(input.execTarget)} %U`,
+    `Exec=${escapeUrlHandlerExecTarget(input.execTarget)} %U`,
     ...(input.iconPath === undefined ? [] : [`Icon=${escapeDesktopEntryString(input.iconPath)}`]),
     "Terminal=false",
     ...(input.launcher ? ["StartupWMClass=t3code", "Categories=Development;"] : ["NoDisplay=true"]),
@@ -292,12 +298,14 @@ export const make = Effect.gen(function* () {
     if (environment.platform !== "linux") {
       return;
     }
+    let bundledIcon: Uint8Array | undefined;
     if (environment.isPackaged) {
       const { png } = yield* assets.iconPaths;
       if (Option.isSome(png)) {
         yield* fileSystem.readFile(png.value).pipe(
           Effect.tap((bytes) =>
             Effect.sync(() => {
+              bundledIcon = bytes;
               iconPath = environment.path.join(
                 iconsDir,
                 desktopLauncherIconName(environment.linuxDesktopEntryName, bytes),
@@ -314,14 +322,17 @@ export const make = Effect.gen(function* () {
     if (!environment.isPackaged) return;
 
     yield* Effect.gen(function* () {
-      const { png } = yield* assets.iconPaths;
-      if (Option.isNone(png)) return;
+      if (bundledIcon === undefined) return;
+      // Writing bytes avoids Electron ASAR copyFile extraction leaks.
+      const icon = bundledIcon;
+      const current = yield* fileSystem.readFile(iconPath).pipe(Effect.option);
+      if (Option.isSome(current) && sameBytes(current.value, icon)) return;
       // The AppImage mount is temporary; the chooser needs the icon after exit.
       yield* fileSystem.makeDirectory(iconsDir, { recursive: true });
-      yield* fileSystem.copyFile(png.value, iconPath);
+      yield* fileSystem.writeFile(iconPath, icon, { mode: 0o600 });
     }).pipe(
       Effect.catch((error) =>
-        logWarning("URL handler icon copy failed", { iconPath, category: error.reason._tag }),
+        logWarning("URL handler icon install failed", { iconPath, category: error.reason._tag }),
       ),
     );
 
