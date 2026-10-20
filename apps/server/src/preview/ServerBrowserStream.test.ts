@@ -185,7 +185,9 @@ it.effect("sends replies ahead of stale frames and only the newest frame after a
       ),
     );
     const server = Context.get(services, HttpServer.HttpServer);
-    const origin = HttpServer.formatAddress(server.address).replace(/^http/, "ws");
+    const serverUrl = new URL(HttpServer.formatAddress(server.address));
+    serverUrl.hostname = "127.0.0.1";
+    const origin = serverUrl.origin.replace(/^http/, "ws");
     const received: Array<number | string> = [];
     let next = Promise.withResolvers<void>();
     const socket = yield* Effect.acquireRelease(
@@ -198,6 +200,7 @@ it.effect("sends replies ahead of stale frames and only the newest frame after a
       (socket) => Effect.sync(() => socket.close()),
     );
     socket.binaryType = "arraybuffer";
+    socket.addEventListener("error", () => next.reject(new Error("stream failed")));
     socket.addEventListener("message", (event) => {
       received.push(
         typeof event.data === "string"

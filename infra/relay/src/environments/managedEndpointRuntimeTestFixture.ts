@@ -111,8 +111,8 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
   const tunnelRows = new Map<string, Provider.ManagedEndpointTunnel>();
   const dnsRows = new Map<string, Provider.ManagedEndpointDnsRecord>();
   let tunnelSequence = 0;
-  const call = <A, E>(operation: string, effect: Effect.Effect<A, E>) =>
-    Effect.gen(function* () {
+  const call = Effect.fn("managedEndpointRuntimeTestFixture.call")(
+    function* <A, E>(operation: string, effect: Effect.Effect<A, E>) {
       expect(Option.isNone(yield* Effect.serviceOption(db.$client.transactionService))).toBe(true);
       calls.push(operation);
       if (options.before) yield* options.before(operation);
@@ -145,9 +145,14 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
         });
       }
       return yield* effect;
-    }).pipe(
-      options.uninterruptibleOperation === operation ? Effect.uninterruptible : (effect) => effect,
-    );
+    },
+    (_program, operation) =>
+      _program.pipe(
+        options.uninterruptibleOperation === operation
+          ? Effect.uninterruptible
+          : (effect) => effect,
+      ),
+  );
   const tunnels = Provider.ManagedEndpointTunnelClient.of({
     get: (id) =>
       call(

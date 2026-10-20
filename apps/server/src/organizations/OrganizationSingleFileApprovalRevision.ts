@@ -86,8 +86,8 @@ const revisionGuardLayer = (expectedCanonicalRoot?: string) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       return {
-        verifyCurrent: ({ projectId, baseCommit }) =>
-          Effect.gen(function* () {
+        verifyCurrent: Effect.fn("OrganizationSingleFileApprovalRevision.verifyCurrent")(
+          function* ({ projectId, baseCommit }) {
             if (!FULL_OID.test(baseCommit))
               return yield* failure("conflict", "Pinned base revision is invalid.");
             const project = (yield* sql<{ workspace_root: string }>`SELECT workspace_root
@@ -123,13 +123,13 @@ const revisionGuardLayer = (expectedCanonicalRoot?: string) =>
                 "conflict",
                 "Project HEAD differs from the reviewed base revision.",
               );
-          }).pipe(
-            Effect.mapError((error) =>
-              isRevisionError(error)
-                ? error
-                : failure("unavailable", "Current Project revision check failed."),
-            ),
+          },
+          Effect.mapError((error) =>
+            isRevisionError(error)
+              ? error
+              : failure("unavailable", "Current Project revision check failed."),
           ),
+        ),
       } satisfies OrganizationSingleFileApprovalRevisionGuardShape;
     }),
   );

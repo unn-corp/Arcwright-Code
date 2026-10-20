@@ -45,60 +45,63 @@ export class AccountDeletionFence extends Context.Service<
   }
 >()("t3code-relay/accounts/AccountDeletionFence") {}
 
-export const make = (authority: ConfiguredAccountAuthority) =>
-  Effect.gen(function* () {
-    const db = yield* RelayDb.RelayDb;
-    const inspectAllowed = (subject: OwnedSubject, bind: boolean) =>
-      Effect.gen(function* () {
-        const binding = yield* loadBinding(db, subject.userId);
-        if (yield* loadDeny(db, subject)) return yield* new AccountDenied();
-        if (binding) {
-          if (!bindingMatches(binding, subject))
-            return yield* new AccountAuthorityConflict({ reason: "authority_conflict" });
-        } else {
-          if (yield* hasUnboundAccountRows(db, subject.userId))
-            return yield* new AccountAuthorityConflict({ reason: "unbound_rows" });
-          if (bind) yield* bindFreshSubject(db, subject);
-        }
-      });
-    const lockAndCheckSubject = (subject: OwnedSubject) =>
-      Effect.gen(function* () {
-        yield* validateOwnedSubject(subject, authority);
-        yield* lockAccountSubject(db, subject);
-        yield* inspectAllowed(subject, true);
-      });
-    return AccountDeletionFence.of({
-      checkAllowed: (subject) =>
-        Effect.gen(function* () {
-          yield* validateOwnedSubject(subject, authority);
-          // Auth reads must not inherit an older REPEATABLE READ snapshot.
-          // Controlled transaction callers use lockAndCheckSubject instead.
-          if (yield* transactionActive(db))
-            return yield* new AccountTransactionRequired({ reason: "ambient_transaction" });
-          yield* inspectAllowed(subject, false);
-        }),
-      withSubjectWrite: (subject, sqlOnlyEffect) =>
-        Effect.gen(function* () {
-          yield* validateOwnedSubject(subject, authority);
-          return yield* withAccountTransaction(
-            db,
-            Effect.gen(function* () {
-              yield* lockAndCheckSubject(subject);
-              return yield* sqlOnlyEffect;
-            }),
-          );
-        }),
-      lockAndCheckSubject,
-      resolveBoundSubject: (userId) =>
-        Effect.gen(function* () {
-          yield* validateOwnedUserId(userId);
-          const binding = yield* loadBinding(db, userId);
-          if (!binding) return yield* new AccountAuthorityConflict({ reason: "missing_binding" });
-          if (binding.issuer !== authority.issuer || binding.instanceId !== authority.instanceId)
-            return yield* new AccountAuthorityConflict({ reason: "authority_conflict" });
-          return yield* subjectFromMatchingBinding(authority, userId);
-        }),
-    });
+export const make = Effect.fn("AccountDeletionFence.make")(function* (
+  authority: ConfiguredAccountAuthority,
+) {
+  const db = yield* RelayDb.RelayDb;
+  const inspectAllowed = Effect.fn("AccountDeletionFence.inspectAllowed")(function* (
+    subject: OwnedSubject,
+    bind: boolean,
+  ) {
+    const binding = yield* loadBinding(db, subject.userId);
+    if (yield* loadDeny(db, subject)) return yield* new AccountDenied();
+    if (binding) {
+      if (!bindingMatches(binding, subject))
+        return yield* new AccountAuthorityConflict({ reason: "authority_conflict" });
+    } else {
+      if (yield* hasUnboundAccountRows(db, subject.userId))
+        return yield* new AccountAuthorityConflict({ reason: "unbound_rows" });
+      if (bind) yield* bindFreshSubject(db, subject);
+    }
   });
+  const lockAndCheckSubject = Effect.fn("AccountDeletionFence.lockAndCheckSubject")(function* (
+    subject: OwnedSubject,
+  ) {
+    yield* validateOwnedSubject(subject, authority);
+    yield* lockAccountSubject(db, subject);
+    yield* inspectAllowed(subject, true);
+  });
+  return AccountDeletionFence.of({
+    checkAllowed: Effect.fn("AccountDeletionFence.checkAllowed")(function* (subject) {
+      yield* validateOwnedSubject(subject, authority);
+      // Auth reads must not inherit an older REPEATABLE READ snapshot.
+      // Controlled transaction callers use lockAndCheckSubject instead.
+      if (yield* transactionActive(db))
+        return yield* new AccountTransactionRequired({ reason: "ambient_transaction" });
+      yield* inspectAllowed(subject, false);
+    }),
+    withSubjectWrite: Effect.fn("AccountDeletionFence.withSubjectWrite")(
+      function* (subject, sqlOnlyEffect) {
+        yield* validateOwnedSubject(subject, authority);
+        return yield* withAccountTransaction(
+          db,
+          Effect.gen(function* () {
+            yield* lockAndCheckSubject(subject);
+            return yield* sqlOnlyEffect;
+          }),
+        );
+      },
+    ),
+    lockAndCheckSubject,
+    resolveBoundSubject: Effect.fn("AccountDeletionFence.resolveBoundSubject")(function* (userId) {
+      yield* validateOwnedUserId(userId);
+      const binding = yield* loadBinding(db, userId);
+      if (!binding) return yield* new AccountAuthorityConflict({ reason: "missing_binding" });
+      if (binding.issuer !== authority.issuer || binding.instanceId !== authority.instanceId)
+        return yield* new AccountAuthorityConflict({ reason: "authority_conflict" });
+      return yield* subjectFromMatchingBinding(authority, userId);
+    }),
+  });
+});
 export const layer = (authority: ConfiguredAccountAuthority) =>
   Layer.effect(AccountDeletionFence, make(authority));

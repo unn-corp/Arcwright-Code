@@ -24,68 +24,67 @@ const makeRoutes = Effect.gen(function* () {
   const store = yield* OrganizationIntakeStore;
   const correlation = yield* OrganizationCorrelationCoordinator;
   const recovery = yield* OrganizationCorrelationRecovery;
-  const receive = <E>(
+  const receive = Effect.fn("OrganizationIntakeHttp.receive")(function* <E>(
     decode: (raw: string) => Effect.Effect<OrganizationIntakeEventInput, E>,
     requireProjectBoundSource = false,
-  ) =>
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const authorization = request.headers.authorization;
-      const credential = authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
-      if (!credential) return HttpServerResponse.text("Unauthorized", { status: 401 });
-      if (!request.headers["content-type"]?.startsWith("application/json"))
-        return HttpServerResponse.text("JSON required", { status: 415 });
-      const declaredLength = Number(request.headers["content-length"]);
-      if (
-        request.headers["content-length"] !== undefined &&
-        (!Number.isSafeInteger(declaredLength) || declaredLength > MAX_HTTP_EVENT_BYTES)
-      )
-        return HttpServerResponse.text("Event too large", { status: 413 });
+  ) {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const authorization = request.headers.authorization;
+    const credential = authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+    if (!credential) return HttpServerResponse.text("Unauthorized", { status: 401 });
+    if (!request.headers["content-type"]?.startsWith("application/json"))
+      return HttpServerResponse.text("JSON required", { status: 415 });
+    const declaredLength = Number(request.headers["content-length"]);
+    if (
+      request.headers["content-length"] !== undefined &&
+      (!Number.isSafeInteger(declaredLength) || declaredLength > MAX_HTTP_EVENT_BYTES)
+    )
+      return HttpServerResponse.text("Event too large", { status: 413 });
 
-      const boundedBody = yield* Stream.runFoldEffect(
-        request.stream,
-        () => ({ byteLength: 0, chunks: [] as Uint8Array[] }),
-        (state, chunk) => {
-          const byteLength = state.byteLength + chunk.byteLength;
-          return byteLength > MAX_HTTP_EVENT_BYTES
-            ? Effect.fail("too_large" as const)
-            : Effect.succeed({ byteLength, chunks: [...state.chunks, chunk] });
-        },
-      ).pipe(Effect.result);
-      if (Result.isFailure(boundedBody))
-        return HttpServerResponse.text("Event too large", { status: 413 });
-      const raw = Buffer.concat(boundedBody.success.chunks).toString("utf8");
-      const event = yield* decode(raw).pipe(Effect.result);
-      if (Result.isFailure(event)) return HttpServerResponse.text("Invalid event", { status: 400 });
+    const boundedBody = yield* Stream.runFoldEffect(
+      request.stream,
+      () => ({ byteLength: 0, chunks: [] as Uint8Array[] }),
+      (state, chunk) => {
+        const byteLength = state.byteLength + chunk.byteLength;
+        return byteLength > MAX_HTTP_EVENT_BYTES
+          ? Effect.fail("too_large" as const)
+          : Effect.succeed({ byteLength, chunks: [...state.chunks, chunk] });
+      },
+    ).pipe(Effect.result);
+    if (Result.isFailure(boundedBody))
+      return HttpServerResponse.text("Event too large", { status: 413 });
+    const raw = Buffer.concat(boundedBody.success.chunks).toString("utf8");
+    const event = yield* decode(raw).pipe(Effect.result);
+    if (Result.isFailure(event)) return HttpServerResponse.text("Invalid event", { status: 400 });
 
-      const outcome = yield* store
-        .ingestWithCredential(event.success, credential, requireProjectBoundSource)
-        .pipe(Effect.flatMap((result) => correlateRecordedIntake(correlation, result, recovery)))
-        .pipe(Effect.result);
-      if (Result.isFailure(outcome)) {
-        const status =
-          outcome.failure.code === "invalid"
-            ? 400
-            : outcome.failure.code === "conflict"
-              ? 409
-              : outcome.failure.code === "rate_limited"
-                ? 429
-                : outcome.failure.code === "unavailable"
-                  ? 503
-                  : 401;
-        return HttpServerResponse.text(status === 401 ? "Unauthorized" : outcome.failure.message, {
-          status,
-          ...(status === 429 ? { headers: { "Retry-After": "3600" } } : {}),
-        });
-      }
-      const receipt = {
-        outcome: outcome.success.outcome,
-        observationId: outcome.success.observation.id,
-      };
-      return HttpServerResponse.jsonUnsafe(receipt, {
-        status: outcome.success.outcome === "recorded" ? 201 : 200,
+    const outcome = yield* store
+      .ingestWithCredential(event.success, credential, requireProjectBoundSource)
+      .pipe(Effect.flatMap((result) => correlateRecordedIntake(correlation, result, recovery)))
+      .pipe(Effect.result);
+    if (Result.isFailure(outcome)) {
+      const status =
+        outcome.failure.code === "invalid"
+          ? 400
+          : outcome.failure.code === "conflict"
+            ? 409
+            : outcome.failure.code === "rate_limited"
+              ? 429
+              : outcome.failure.code === "unavailable"
+                ? 503
+                : 401;
+      return HttpServerResponse.text(status === 401 ? "Unauthorized" : outcome.failure.message, {
+        status,
+        ...(status === 429 ? { headers: { "Retry-After": "3600" } } : {}),
       });
+    }
+    const receipt = {
+      outcome: outcome.success.outcome,
+      observationId: outcome.success.observation.id,
+    };
+    return HttpServerResponse.jsonUnsafe(receipt, {
+      status: outcome.success.outcome === "recorded" ? 201 : 200,
     });
+  });
   return Layer.mergeAll(
     HttpRouter.add(
       "POST",

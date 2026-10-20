@@ -35,8 +35,10 @@ export interface OrganizationScopeStartupRecoveryReport {
  * Organization command readiness. The authenticated broker journal proves
  * never-dispatch; persisted OS identities get an exact stop check.
  */
-export const reconcileOrganizationScopesAtStartup = (baseDir: string) =>
-  Effect.gen(function* () {
+export const reconcileOrganizationScopesAtStartup = Effect.fn(
+  "OrganizationScopeStartupRecovery.reconcileOrganizationScopesAtStartup",
+)(
+  function* (baseDir: string) {
     const sql = yield* SqlClient.SqlClient;
     const scopes = yield* OrganizationWorkScopeStore;
     const verifiedStopped: string[] = [];
@@ -77,4 +79,6 @@ export const reconcileOrganizationScopesAtStartup = (baseDir: string) =>
       verifiedStoppedUnattached,
       held,
     } satisfies OrganizationScopeStartupRecoveryReport;
-  }).pipe(Effect.provide(OrganizationWorkScopeStoreLayer.pipe(Layer.provide(exactVerifier))));
+  },
+  Effect.provide(OrganizationWorkScopeStoreLayer.pipe(Layer.provide(exactVerifier))),
+);

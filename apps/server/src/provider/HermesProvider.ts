@@ -45,44 +45,42 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const HERMES_ACP_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 
-export function buildInitialHermesProviderSnapshot(
-  hermesSettings: HermesSettings,
-): Effect.Effect<ServerProviderDraft> {
-  return Effect.gen(function* () {
-    const checkedAt = yield* Effect.map(DateTime.now, DateTime.formatIso);
-    const models: ReadonlyArray<ServerProviderModel> = [];
+export const buildInitialHermesProviderSnapshot = Effect.fn(
+  "HermesProvider.buildInitialHermesProviderSnapshot",
+)(function* (hermesSettings: HermesSettings): Effect.fn.Return<ServerProviderDraft> {
+  const checkedAt = yield* Effect.map(DateTime.now, DateTime.formatIso);
+  const models: ReadonlyArray<ServerProviderModel> = [];
 
-    if (!hermesSettings.enabled) {
-      return buildServerProvider({
-        presentation: HERMES_PRESENTATION,
-        enabled: false,
-        checkedAt,
-        models,
-        probe: {
-          installed: false,
-          version: null,
-          status: "warning",
-          auth: { status: "unknown" },
-          message: "Hermes is disabled in Arcwright Code settings.",
-        },
-      });
-    }
-
+  if (!hermesSettings.enabled) {
     return buildServerProvider({
       presentation: HERMES_PRESENTATION,
-      enabled: true,
+      enabled: false,
       checkedAt,
       models,
       probe: {
-        installed: true,
+        installed: false,
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Checking Hermes CLI availability...",
+        message: "Hermes is disabled in Arcwright Code settings.",
       },
     });
+  }
+
+  return buildServerProvider({
+    presentation: HERMES_PRESENTATION,
+    enabled: true,
+    checkedAt,
+    models,
+    probe: {
+      installed: true,
+      version: null,
+      status: "warning",
+      auth: { status: "unknown" },
+      message: "Checking Hermes CLI availability...",
+    },
   });
-}
+});
 
 function hermesModelsFromSettings(
   customModels: ReadonlyArray<string> | undefined,
@@ -116,11 +114,8 @@ function buildHermesDiscoveredModelsFromSessionModelState(
     .filter((model): model is ServerProviderModel => model !== undefined);
 }
 
-const discoverHermesModelsViaAcp = (
-  hermesSettings: HermesSettings,
-  environment: NodeJS.ProcessEnv = process.env,
-) =>
-  Effect.gen(function* () {
+const discoverHermesModelsViaAcp = Effect.fn("HermesProvider.discoverHermesModelsViaAcp")(
+  function* (hermesSettings: HermesSettings, environment: NodeJS.ProcessEnv = process.env) {
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const acp = yield* makeHermesAcpRuntime({
       hermesSettings,
@@ -131,25 +126,26 @@ const discoverHermesModelsViaAcp = (
     });
     const started = yield* acp.start();
     return buildHermesDiscoveredModelsFromSessionModelState(started.sessionSetupResult.models);
-  }).pipe(Effect.scoped);
+  },
+  Effect.scoped,
+);
 
-const runHermesVersionCommand = (
+const runHermesVersionCommand = Effect.fn("HermesProvider.runHermesVersionCommand")(function* (
   hermesSettings: HermesSettings,
   environment: NodeJS.ProcessEnv = process.env,
-) =>
-  Effect.gen(function* () {
-    const command = hermesSettings.binaryPath || "hermes";
-    const spawnCommand = yield* resolveSpawnCommand(command, ["acp", "--version"], {
-      env: environment,
-    });
-    return yield* spawnAndCollect(
-      command,
-      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-        env: environment,
-        shell: spawnCommand.shell,
-      }),
-    );
+) {
+  const command = hermesSettings.binaryPath || "hermes";
+  const spawnCommand = yield* resolveSpawnCommand(command, ["acp", "--version"], {
+    env: environment,
   });
+  return yield* spawnAndCollect(
+    command,
+    ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+      env: environment,
+      shell: spawnCommand.shell,
+    }),
+  );
+});
 
 export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(function* (
   hermesSettings: HermesSettings,

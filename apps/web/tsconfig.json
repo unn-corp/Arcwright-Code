@@ -36,6 +36,7 @@
     "../../scripts/lib/connect-build-surfaces.ts",
     "../../scripts/lib/owned-connect-web-env.ts",
     "../../scripts/lib/build-identity.ts",
+    "../../scripts/lib/fork-dom-test-projects.ts",
     "../../scripts/lib/third-party-licenses.ts",
     "../../packages/shared/src/connectProfile.ts",
     "../../packages/shared/src/relayAuth.ts"

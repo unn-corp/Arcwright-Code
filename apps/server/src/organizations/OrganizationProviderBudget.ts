@@ -288,12 +288,13 @@ const make = Effect.gen(function* () {
       Effect.mapError(() => unavailable()),
     );
   };
-  const requireRecord = (requestId: string) =>
-    Effect.gen(function* () {
-      const row = (yield* rowFor(requestId))[0];
-      if (!row) return yield* failure("not_found", "Provider request was not found.");
-      return row;
-    });
+  const requireRecord = Effect.fn("OrganizationProviderBudget.requireRecord")(function* (
+    requestId: string,
+  ) {
+    const row = (yield* rowFor(requestId))[0];
+    if (!row) return yield* failure("not_found", "Provider request was not found.");
+    return row;
+  });
   const requireAuthority = (action: "dispatch" | "expire" | "release", row: BudgetRow) =>
     authority.permitsTransition(action, decode(row))
       ? Effect.void

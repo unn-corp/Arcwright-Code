@@ -61,18 +61,19 @@ export class OrganizationLiveWorkDrainDeferred extends Error {
 }
 
 /** This transaction is also called after the last admitted phase settles. */
-const finishDrain = (organizationId: OrganizationId) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const row = (yield* sql<DrainRow>`SELECT * FROM organization_live_work_drains
+const finishDrain = Effect.fn("OrganizationLiveWorkDrain.finishDrain")(function* (
+  organizationId: OrganizationId,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const row = (yield* sql<DrainRow>`SELECT * FROM organization_live_work_drains
       WHERE organization_id = ${organizationId}`)[0];
-    if (!row || row.completed_at !== null) return status(organizationId, row);
-    const open = yield* sql<{
-      work_id: string;
-    }>`SELECT work_id FROM organization_live_work_phase_claims
+  if (!row || row.completed_at !== null) return status(organizationId, row);
+  const open = yield* sql<{
+    work_id: string;
+  }>`SELECT work_id FROM organization_live_work_phase_claims
       WHERE organization_id = ${organizationId} LIMIT 1`;
-    if (open.length > 0) return status(organizationId, row);
-    const unresolved = yield* sql<{ attempt_id: string }>`SELECT a.attempt_id
+  if (open.length > 0) return status(organizationId, row);
+  const unresolved = yield* sql<{ attempt_id: string }>`SELECT a.attempt_id
       FROM organization_work_attempts a
       JOIN organization_work_items w ON w.work_id = a.work_id
       LEFT JOIN organization_work_scopes s ON s.attempt_id = a.attempt_id
@@ -88,156 +89,156 @@ const finishDrain = (organizationId: OrganizationId) =>
           OR (prep.attempt_id IS NOT NULL AND s.verified_stopped_at IS NULL
             AND recovery.attempt_id IS NULL))
       LIMIT 1`;
-    if (unresolved.length > 0) return status(organizationId, row);
-    const organization = (yield* sql<{ lifecycle: string; draft_revision: number }>`
+  if (unresolved.length > 0) return status(organizationId, row);
+  const organization = (yield* sql<{ lifecycle: string; draft_revision: number }>`
       UPDATE organizations SET updated_at = updated_at WHERE organization_id = ${organizationId}
       RETURNING lifecycle, draft_revision`)[0];
-    if (!organization) return yield* workError("not_found", "Organization is unavailable.");
-    if (organization.lifecycle === "active") {
-      yield* OrganizationStore.pipe(
-        Effect.flatMap((store) =>
-          store.setLifecycle({
-            organizationId,
-            mutationId: row.request_id,
-            baseRevision: organization.draft_revision,
-            actor: "user",
-            lifecycle: "paused",
-          }),
-        ),
-        Effect.provide(Layer.fresh(OrganizationStoreLive)),
-        Effect.mapError((error) =>
-          workError(error.code === "duplicate_mutation" ? "conflict" : error.code, error.message),
-        ),
-      );
-    } else if (organization.lifecycle !== "paused") {
-      return yield* workError(
-        "conflict",
-        "Organization cannot complete a drain in this lifecycle.",
-      );
-    }
-    const completedAt = new Date().toISOString();
-    yield* sql`UPDATE organization_live_work_drains SET completed_at = ${completedAt}
+  if (!organization) return yield* workError("not_found", "Organization is unavailable.");
+  if (organization.lifecycle === "active") {
+    yield* OrganizationStore.pipe(
+      Effect.flatMap((store) =>
+        store.setLifecycle({
+          organizationId,
+          mutationId: row.request_id,
+          baseRevision: organization.draft_revision,
+          actor: "user",
+          lifecycle: "paused",
+        }),
+      ),
+      Effect.provide(Layer.fresh(OrganizationStoreLive)),
+      Effect.mapError((error) =>
+        workError(error.code === "duplicate_mutation" ? "conflict" : error.code, error.message),
+      ),
+    );
+  } else if (organization.lifecycle !== "paused") {
+    return yield* workError("conflict", "Organization cannot complete a drain in this lifecycle.");
+  }
+  const completedAt = new Date().toISOString();
+  yield* sql`UPDATE organization_live_work_drains SET completed_at = ${completedAt}
       WHERE organization_id = ${organizationId} AND completed_at IS NULL`;
-    yield* OrganizationWorkStatusChanges.changed(organizationId);
-    return { organizationId, state: "paused" as const, requestedAt: row.requested_at };
-  });
+  yield* OrganizationWorkStatusChanges.changed(organizationId);
+  return { organizationId, state: "paused" as const, requestedAt: row.requested_at };
+});
 
-export const readOrganizationWorkDrain = (organizationId: OrganizationId) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const exists = yield* sql<{ lifecycle: string }>`SELECT lifecycle FROM organizations
+export const readOrganizationWorkDrain = Effect.fn(
+  "OrganizationLiveWorkDrain.readOrganizationWorkDrain",
+)(function* (organizationId: OrganizationId) {
+  const sql = yield* SqlClient.SqlClient;
+  const exists = yield* sql<{ lifecycle: string }>`SELECT lifecycle FROM organizations
       WHERE organization_id = ${organizationId}`;
-    if (exists.length === 0) return yield* workError("not_found", "Organization is unavailable.");
-    if (exists[0]?.lifecycle === "archived") return status(organizationId, undefined);
-    const row = (yield* sql<DrainRow>`SELECT * FROM organization_live_work_drains
+  if (exists.length === 0) return yield* workError("not_found", "Organization is unavailable.");
+  if (exists[0]?.lifecycle === "archived") return status(organizationId, undefined);
+  const row = (yield* sql<DrainRow>`SELECT * FROM organization_live_work_drains
       WHERE organization_id = ${organizationId}`)[0];
-    return status(organizationId, row);
-  });
+  return status(organizationId, row);
+});
 
 /** A durable request stops admitting new phases before it waits for admitted work. */
-export const requestOrganizationWorkDrain = (
+export const requestOrganizationWorkDrain = Effect.fn(
+  "OrganizationLiveWorkDrain.requestOrganizationWorkDrain",
+)(function* (
   input: { readonly organizationId: OrganizationId; readonly requestId: string },
   principal: OrganizationWorkDrainPrincipal,
-) =>
-  Effect.gen(function* () {
-    if (
-      !principal.interactive ||
-      !principal.subject.trim() ||
-      Buffer.byteLength(principal.subject, "utf8") > 160
-    )
-      return yield* workError(
-        "forbidden",
-        "Draining work requires an authenticated interactive user.",
-      );
-    if (!input.requestId.trim() || Buffer.byteLength(input.requestId, "utf8") > 160)
-      return yield* workError("invalid", "Drain request ID is invalid.");
-    const sql = yield* SqlClient.SqlClient;
-    return yield* sql.withTransaction(
-      Effect.gen(function* () {
-        const org = (yield* sql<{
-          lifecycle: string;
-        }>`UPDATE organizations SET updated_at = updated_at
+) {
+  if (
+    !principal.interactive ||
+    !principal.subject.trim() ||
+    Buffer.byteLength(principal.subject, "utf8") > 160
+  )
+    return yield* workError(
+      "forbidden",
+      "Draining work requires an authenticated interactive user.",
+    );
+  if (!input.requestId.trim() || Buffer.byteLength(input.requestId, "utf8") > 160)
+    return yield* workError("invalid", "Drain request ID is invalid.");
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const org = (yield* sql<{
+        lifecycle: string;
+      }>`UPDATE organizations SET updated_at = updated_at
           WHERE organization_id = ${input.organizationId} RETURNING lifecycle`)[0];
-        if (!org) return yield* workError("not_found", "Organization is unavailable.");
-        if (org.lifecycle === "archived")
-          return yield* workError("conflict", "Archived Organizations cannot drain work.");
-        const existing = (yield* sql<DrainRow>`SELECT * FROM organization_live_work_drains
+      if (!org) return yield* workError("not_found", "Organization is unavailable.");
+      if (org.lifecycle === "archived")
+        return yield* workError("conflict", "Archived Organizations cannot drain work.");
+      const existing = (yield* sql<DrainRow>`SELECT * FROM organization_live_work_drains
           WHERE organization_id = ${input.organizationId}`)[0];
-        if (existing) return yield* finishDrain(input.organizationId);
-        if (org.lifecycle !== "active")
-          return yield* workError("conflict", "Only active Organizations can drain work.");
-        const used = yield* sql<{ request_id: string }>`
+      if (existing) return yield* finishDrain(input.organizationId);
+      if (org.lifecycle !== "active")
+        return yield* workError("conflict", "Only active Organizations can drain work.");
+      const used = yield* sql<{ request_id: string }>`
           SELECT mutation_id AS request_id FROM organization_audit
           WHERE mutation_id = ${input.requestId}
           UNION SELECT request_id FROM organization_live_work_drains
           WHERE request_id = ${input.requestId} LIMIT 1`;
-        if (used.length > 0)
-          return yield* workError("conflict", "Drain request ID has already been used.");
-        const requestedAt = new Date().toISOString();
-        yield* sql`INSERT INTO organization_live_work_drains
+      if (used.length > 0)
+        return yield* workError("conflict", "Drain request ID has already been used.");
+      const requestedAt = new Date().toISOString();
+      yield* sql`INSERT INTO organization_live_work_drains
           (organization_id, request_id, requested_by, requested_at, completed_at)
           VALUES (${input.organizationId}, ${input.requestId}, ${principal.subject}, ${requestedAt}, NULL)`;
-        yield* OrganizationWorkStatusChanges.changed(input.organizationId);
-        return yield* finishDrain(input.organizationId);
-      }),
-    );
-  });
+      yield* OrganizationWorkStatusChanges.changed(input.organizationId);
+      return yield* finishDrain(input.organizationId);
+    }),
+  );
+});
 
-const claimPhase = (workId: OrganizationWorkId, phase: Phase) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    return yield* sql.withTransaction(
-      Effect.gen(function* () {
-        const work = (yield* sql<{ organization_id: string; lifecycle: string }>`
+const claimPhase = Effect.fn("OrganizationLiveWorkDrain.claimPhase")(function* (
+  workId: OrganizationWorkId,
+  phase: Phase,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql.withTransaction(
+    Effect.gen(function* () {
+      const work = (yield* sql<{ organization_id: string; lifecycle: string }>`
           SELECT w.organization_id, o.lifecycle FROM organization_work_items w
           JOIN organization_work_intent_activations activation ON activation.work_id = w.work_id
             AND activation.organization_id = w.organization_id
           JOIN organizations o ON o.organization_id = w.organization_id
           WHERE w.work_id = ${workId}`)[0];
-        if (!work || work.lifecycle !== "active")
-          return yield* Effect.fail(new OrganizationLiveWorkDrainDeferred());
-        const emergencyStop = yield* sql<{ organization_id: string }>`SELECT organization_id
+      if (!work || work.lifecycle !== "active")
+        return yield* Effect.fail(new OrganizationLiveWorkDrainDeferred());
+      const emergencyStop = yield* sql<{ organization_id: string }>`SELECT organization_id
           FROM organization_emergency_stops WHERE organization_id = ${work.organization_id}`;
-        if (emergencyStop.length > 0)
-          return yield* Effect.fail(new OrganizationLiveWorkEmergencyDeferred());
-        const drain = yield* sql<{ organization_id: string }>`SELECT organization_id
+      if (emergencyStop.length > 0)
+        return yield* Effect.fail(new OrganizationLiveWorkEmergencyDeferred());
+      const drain = yield* sql<{ organization_id: string }>`SELECT organization_id
           FROM organization_live_work_drains WHERE organization_id = ${work.organization_id}`;
-        if (drain.length > 0) return yield* Effect.fail(new OrganizationLiveWorkDrainDeferred());
-        const startedAt = new Date().toISOString();
-        yield* sql`INSERT INTO organization_live_work_phase_claims
+      if (drain.length > 0) return yield* Effect.fail(new OrganizationLiveWorkDrainDeferred());
+      const startedAt = new Date().toISOString();
+      yield* sql`INSERT INTO organization_live_work_phase_claims
           (work_id, organization_id, phase, owner_epoch, started_at)
           VALUES (${workId}, ${work.organization_id}, ${phase}, ${processEpoch}, ${startedAt})`;
-        yield* OrganizationWorkStatusChanges.changed(work.organization_id as OrganizationId);
-        return { organizationId: work.organization_id as OrganizationId, workId };
-      }),
-    );
-  });
+      yield* OrganizationWorkStatusChanges.changed(work.organization_id as OrganizationId);
+      return { organizationId: work.organization_id as OrganizationId, workId };
+    }),
+  );
+});
 
-const releasePhase = (claim: {
+const releasePhase = Effect.fn("OrganizationLiveWorkDrain.releasePhase")(function* (claim: {
   readonly organizationId: OrganizationId;
   readonly workId: OrganizationWorkId;
-}) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    if (hasUnverifiedOrganizationProvider(claim.workId)) {
-      yield* Effect.logError("Organization provider exit is unverified; retaining phase claim", {
-        organizationId: claim.organizationId,
-        workId: claim.workId,
-      });
-      return;
-    }
-    yield* sql`DELETE FROM organization_live_work_phase_claims
+}) {
+  const sql = yield* SqlClient.SqlClient;
+  if (hasUnverifiedOrganizationProvider(claim.workId)) {
+    yield* Effect.logError("Organization provider exit is unverified; retaining phase claim", {
+      organizationId: claim.organizationId,
+      workId: claim.workId,
+    });
+    return;
+  }
+  yield* sql`DELETE FROM organization_live_work_phase_claims
       WHERE work_id = ${claim.workId} AND organization_id = ${claim.organizationId}
         AND owner_epoch = ${processEpoch}`;
-    yield* OrganizationWorkStatusChanges.changed(claim.organizationId);
-    yield* sql.withTransaction(finishDrain(claim.organizationId)).pipe(
-      Effect.catch(() =>
-        Effect.logWarning("Organization drain completion needs a retry", {
-          organizationId: claim.organizationId,
-        }),
-      ),
-    );
-  });
+  yield* OrganizationWorkStatusChanges.changed(claim.organizationId);
+  yield* sql.withTransaction(finishDrain(claim.organizationId)).pipe(
+    Effect.catch(() =>
+      Effect.logWarning("Organization drain completion needs a retry", {
+        organizationId: claim.organizationId,
+      }),
+    ),
+  );
+});
 
 /** The claim spans provider, scoped worker/QA, and integration effects. */
 export const withOrganizationLiveWorkPhaseClaim = <A, E, R>(

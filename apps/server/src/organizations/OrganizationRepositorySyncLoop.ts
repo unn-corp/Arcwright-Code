@@ -21,21 +21,22 @@ export const OrganizationRepositorySyncCoordinatorLive = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const repositories = yield* OrganizationRepositoryStore;
-    const runOnce: OrganizationRepositorySyncCoordinatorShape["runOnce"] = () =>
-      Effect.gen(function* () {
-        const current = DateTime.formatIso(yield* DateTime.now);
-        const due = yield* sql<{ organization_id: string }>`SELECT organization_id
+    const runOnce: OrganizationRepositorySyncCoordinatorShape["runOnce"] = Effect.fn(
+      "OrganizationRepositorySyncLoop.runOnce",
+    )(function* () {
+      const current = DateTime.formatIso(yield* DateTime.now);
+      const due = yield* sql<{ organization_id: string }>`SELECT organization_id
         FROM organization_repositories WHERE auto_sync_enabled = 1
           AND (next_sync_at IS NULL OR next_sync_at <= ${current})
         ORDER BY next_sync_at, organization_id LIMIT 4`;
-        for (const row of due) {
-          yield* repositories
-            .syncBackground({ organizationId: OrganizationId.make(row.organization_id) })
-            .pipe(withAutomationWork)
-            .pipe(Effect.ignoreCause({ log: false }));
-        }
-        return due.length;
-      });
+      for (const row of due) {
+        yield* repositories
+          .syncBackground({ organizationId: OrganizationId.make(row.organization_id) })
+          .pipe(withAutomationWork)
+          .pipe(Effect.ignoreCause({ log: false }));
+      }
+      return due.length;
+    });
     return { runOnce };
   }),
 );

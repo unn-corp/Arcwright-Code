@@ -329,24 +329,26 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map((rows) => rows[0] ?? null));
   // Called only after the user lock, before either row lock. Every coordinated
   // ordinary writer must use this order; provider effects run after commit.
-  const lockPublicationLink = (key: AllocationKey, requestedKey?: string) =>
-    Effect.gen(function* () {
-      const old = yield* db
-        .select({ environmentPublicKey: relayEnvironmentLinks.environmentPublicKey })
-        .from(relayEnvironmentLinks)
-        .where(
-          and(
-            eq(relayEnvironmentLinks.userId, key.userId),
-            eq(relayEnvironmentLinks.environmentId, key.environmentId),
-          ),
-        )
-        .limit(1);
-      yield* acquireEnvironmentLinkWriteLocks(db, key.environmentId, [
-        ...(old[0] ? [old[0].environmentPublicKey] : []),
-        ...(requestedKey === undefined ? [] : [requestedKey]),
-      ]);
-      return yield* lockLink(key);
-    });
+  const lockPublicationLink = Effect.fn("ManagedEndpointLifecycle.lockPublicationLink")(function* (
+    key: AllocationKey,
+    requestedKey?: string,
+  ) {
+    const old = yield* db
+      .select({ environmentPublicKey: relayEnvironmentLinks.environmentPublicKey })
+      .from(relayEnvironmentLinks)
+      .where(
+        and(
+          eq(relayEnvironmentLinks.userId, key.userId),
+          eq(relayEnvironmentLinks.environmentId, key.environmentId),
+        ),
+      )
+      .limit(1);
+    yield* acquireEnvironmentLinkWriteLocks(db, key.environmentId, [
+      ...(old[0] ? [old[0].environmentPublicKey] : []),
+      ...(requestedKey === undefined ? [] : [requestedKey]),
+    ]);
+    return yield* lockLink(key);
+  });
   const sameEndpoint = (a: RelayManagedEndpoint, b: RelayManagedEndpoint) =>
     a.providerKind === b.providerKind &&
     a.httpBaseUrl === b.httpBaseUrl &&
@@ -448,73 +450,72 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const completeReady = (
+  const completeReady = Effect.fn("ManagedEndpointLifecycle.completeReady")(function* (
     claim: Claim,
     origin: RelayManagedEndpointOrigin,
     publicKey: string,
     enableRecovery: boolean,
-  ) =>
-    Effect.gen(function* () {
-      const timestamp = yield* now;
-      const updated = yield* db
-        .update(table)
-        .set({
-          ...clearOwner,
-          readyAt: timestamp,
-          origin,
-          recoveryEnabledAt: enableRecovery
-            ? timestamp
-            : sql`CASE WHEN ${table.recoveryEnvironmentPublicKey} = ${publicKey} THEN ${table.recoveryEnabledAt} ELSE NULL END`,
-          recoveryEnvironmentPublicKey: enableRecovery
-            ? publicKey
-            : sql`CASE WHEN ${table.recoveryEnvironmentPublicKey} = ${publicKey} THEN ${table.recoveryEnvironmentPublicKey} ELSE NULL END`,
-          tunnelReleasedAt: null,
-          updatedAt: timestamp,
-        })
-        .where(ownerWhere(claim))
-        .returning({ allocationId: table.allocationId });
-      // Fail the transaction so earlier authority/credential writes cannot commit.
-      if (updated.length !== 1)
-        return yield* new LifecycleTransitionRejected({ reason: "owner-update-lost" });
-    });
-  const cleanupCaptured = (row: LifecycleAllocation | null) =>
-    Effect.gen(function* () {
-      if (!row) return { target: null, tunnelName: null } satisfies CapturedCleanup;
-      const updated = yield* db
-        .update(table)
-        .set({ cleanupRequested: true, updatedAt: yield* now })
-        .where(
-          and(
-            whereKey(row),
-            eq(table.allocationId, row.allocationId),
-            eq(table.generation, row.generation),
-          ),
-        )
-        .returning({ allocationId: table.allocationId });
-      if (updated.length !== 1)
-        return yield* new LifecycleTransitionRejected({ reason: "cleanup-update-lost" });
-      return { target: targetFor(row), tunnelName: row.tunnelName } satisfies CapturedCleanup;
-    });
-  const publishLink = (
+  ) {
+    const timestamp = yield* now;
+    const updated = yield* db
+      .update(table)
+      .set({
+        ...clearOwner,
+        readyAt: timestamp,
+        origin,
+        recoveryEnabledAt: enableRecovery
+          ? timestamp
+          : sql`CASE WHEN ${table.recoveryEnvironmentPublicKey} = ${publicKey} THEN ${table.recoveryEnabledAt} ELSE NULL END`,
+        recoveryEnvironmentPublicKey: enableRecovery
+          ? publicKey
+          : sql`CASE WHEN ${table.recoveryEnvironmentPublicKey} = ${publicKey} THEN ${table.recoveryEnvironmentPublicKey} ELSE NULL END`,
+        tunnelReleasedAt: null,
+        updatedAt: timestamp,
+      })
+      .where(ownerWhere(claim))
+      .returning({ allocationId: table.allocationId });
+    // Fail the transaction so earlier authority/credential writes cannot commit.
+    if (updated.length !== 1)
+      return yield* new LifecycleTransitionRejected({ reason: "owner-update-lost" });
+  });
+  const cleanupCaptured = Effect.fn("ManagedEndpointLifecycle.cleanupCaptured")(function* (
+    row: LifecycleAllocation | null,
+  ) {
+    if (!row) return { target: null, tunnelName: null } satisfies CapturedCleanup;
+    const updated = yield* db
+      .update(table)
+      .set({ cleanupRequested: true, updatedAt: yield* now })
+      .where(
+        and(
+          whereKey(row),
+          eq(table.allocationId, row.allocationId),
+          eq(table.generation, row.generation),
+        ),
+      )
+      .returning({ allocationId: table.allocationId });
+    if (updated.length !== 1)
+      return yield* new LifecycleTransitionRejected({ reason: "cleanup-update-lost" });
+    return { target: targetFor(row), tunnelName: row.tunnelName } satisfies CapturedCleanup;
+  });
+  const publishLink = Effect.fn("ManagedEndpointLifecycle.publishLink")(function* (
     key: AllocationKey,
     request: RelayEnvironmentLinkRequest,
     proof: RelayEnvironmentLinkProofPayload,
     endpoint: RelayManagedEndpoint,
     oldKey: string | undefined,
-  ) =>
-    Effect.gen(function* () {
-      yield* links.upsert({ userId: key.userId, request, proof, endpoint });
-      if (oldKey !== undefined && oldKey !== proof.environmentPublicKey) {
-        yield* credentials.revokeForEnvironmentPublicKey({
-          environmentId: key.environmentId,
-          environmentPublicKey: oldKey,
-        });
-      }
-      return yield* credentials.create({
+  ) {
+    yield* links.upsert({ userId: key.userId, request, proof, endpoint });
+    if (oldKey !== undefined && oldKey !== proof.environmentPublicKey) {
+      yield* credentials.revokeForEnvironmentPublicKey({
         environmentId: key.environmentId,
-        environmentPublicKey: proof.environmentPublicKey,
+        environmentPublicKey: oldKey,
       });
+    }
+    return yield* credentials.create({
+      environmentId: key.environmentId,
+      environmentPublicKey: proof.environmentPublicKey,
     });
+  });
 
   return ManagedEndpointLifecycle.of({
     get: (key) =>

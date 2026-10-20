@@ -133,77 +133,76 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
       const organizationDirectorStore = yield* OrganizationDirectorStore.OrganizationDirectorStore;
       const organizationRepositoryStore =
         yield* OrganizationRepositoryStore.OrganizationRepositoryStore;
-      const budgetConfigurationFor = (
+      const budgetConfigurationFor = Effect.fn("forkWs.budgetConfigurationFor")(function* (
         organizationId: string,
         scope: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetScope,
-      ) =>
-        Effect.gen(function* () {
-          if (!isInteractiveOrganizationSession(currentSession))
-            return yield* new OrganizationProviderBudgetConfigurationRpcError({
-              code: "forbidden",
-              message: "Provider capacity changes require an interactive human session.",
-            });
-          const organization = yield* organizationStore
-            .get({ organizationId: OrganizationId.make(organizationId) })
-            .pipe(
-              Effect.mapError(
-                (error) =>
-                  new OrganizationProviderBudgetConfigurationRpcError({
-                    code: error.code === "not_found" ? "not_found" : "unavailable",
-                    message: error.message,
-                  }),
-              ),
-            );
-          const allowed =
-            scope.kind === "global" ||
-            (scope.kind === "organization" && scope.organizationId === organization.id) ||
-            (scope.kind === "project" &&
-              organization.bindings.some(
-                (binding) => binding.projectId === scope.projectId && binding.detachedAt === null,
-              ));
-          if (!allowed)
-            return yield* new OrganizationProviderBudgetConfigurationRpcError({
-              code: "forbidden",
-              message: "Provider capacity scope is not linked to this Organization.",
-            });
-          const sameScope = (
-            candidate: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetScope,
-          ) =>
-            candidate.kind === scope.kind &&
-            (candidate.kind === "global" ||
-              (candidate.kind === "organization" &&
-                scope.kind === "organization" &&
-                candidate.organizationId === scope.organizationId) ||
-              (candidate.kind === "project" &&
-                scope.kind === "project" &&
-                candidate.projectId === scope.projectId));
-          const authority = Layer.succeed(
-            OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationAuthority,
-            {
-              authenticatedHumanId: currentSession.subject,
-              projectOrganizationId: scope.kind === "project" ? organization.id : null,
-              permitsRead: sameScope,
-              permitsGlobalUpdate: (
-                request: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationUpdate,
-              ) =>
-                currentSession.method === "bearer-access-token" &&
-                currentSession.subject === "desktop-bootstrap" &&
-                scope.kind === "global" &&
-                sameScope(request.scope),
-              permitsScopedUpdate: (
-                request: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationUpdate,
-              ) => scope.kind !== "global" && sameScope(request.scope),
-            },
-          );
-          return yield* OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfiguration.pipe(
-            Effect.provide(
-              OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationWithAuthority.pipe(
-                Layer.provide(authority),
-                Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              ),
+      ) {
+        if (!isInteractiveOrganizationSession(currentSession))
+          return yield* new OrganizationProviderBudgetConfigurationRpcError({
+            code: "forbidden",
+            message: "Provider capacity changes require an interactive human session.",
+          });
+        const organization = yield* organizationStore
+          .get({ organizationId: OrganizationId.make(organizationId) })
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new OrganizationProviderBudgetConfigurationRpcError({
+                  code: error.code === "not_found" ? "not_found" : "unavailable",
+                  message: error.message,
+                }),
             ),
           );
-        });
+        const allowed =
+          scope.kind === "global" ||
+          (scope.kind === "organization" && scope.organizationId === organization.id) ||
+          (scope.kind === "project" &&
+            organization.bindings.some(
+              (binding) => binding.projectId === scope.projectId && binding.detachedAt === null,
+            ));
+        if (!allowed)
+          return yield* new OrganizationProviderBudgetConfigurationRpcError({
+            code: "forbidden",
+            message: "Provider capacity scope is not linked to this Organization.",
+          });
+        const sameScope = (
+          candidate: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetScope,
+        ) =>
+          candidate.kind === scope.kind &&
+          (candidate.kind === "global" ||
+            (candidate.kind === "organization" &&
+              scope.kind === "organization" &&
+              candidate.organizationId === scope.organizationId) ||
+            (candidate.kind === "project" &&
+              scope.kind === "project" &&
+              candidate.projectId === scope.projectId));
+        const authority = Layer.succeed(
+          OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationAuthority,
+          {
+            authenticatedHumanId: currentSession.subject,
+            projectOrganizationId: scope.kind === "project" ? organization.id : null,
+            permitsRead: sameScope,
+            permitsGlobalUpdate: (
+              request: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationUpdate,
+            ) =>
+              currentSession.method === "bearer-access-token" &&
+              currentSession.subject === "desktop-bootstrap" &&
+              scope.kind === "global" &&
+              sameScope(request.scope),
+            permitsScopedUpdate: (
+              request: OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationUpdate,
+            ) => scope.kind !== "global" && sameScope(request.scope),
+          },
+        );
+        return yield* OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfiguration.pipe(
+          Effect.provide(
+            OrganizationProviderBudgetConfiguration.OrganizationProviderBudgetConfigurationWithAuthority.pipe(
+              Layer.provide(authority),
+              Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
+            ),
+          ),
+        );
+      });
       const requireInteractiveIntakeSession = <A, E, R>(
         effect: Effect.Effect<A, E, R>,
       ): Effect.Effect<A, E | OrganizationIntakeError, R> =>

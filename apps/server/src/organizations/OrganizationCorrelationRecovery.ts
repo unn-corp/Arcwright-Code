@@ -74,17 +74,15 @@ export class OrganizationCorrelationRecovery extends Context.Service<
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const coordinator = yield* OrganizationCorrelationCoordinator;
-  const markFromResult: OrganizationCorrelationRecoveryShape["markFromResult"] = (
-    observationId,
-    result,
-  ) =>
-    Effect.gen(function* () {
-      const updatedAt = DateTime.formatIso(yield* DateTime.now);
-      yield* sql`UPDATE organization_intake_correlation_jobs
+  const markFromResult: OrganizationCorrelationRecoveryShape["markFromResult"] = Effect.fn(
+    "OrganizationCorrelationRecovery.markFromResult",
+  )(function* (observationId, result) {
+    const updatedAt = DateTime.formatIso(yield* DateTime.now);
+    yield* sql`UPDATE organization_intake_correlation_jobs
         SET state = 'complete', outcome = ${result.outcome}, lease_token = NULL,
           lease_expires_at = NULL, last_error_code = NULL, updated_at = ${updatedAt}
         WHERE observation_id = ${observationId} AND state IN ('pending', 'leased', 'terminal')`;
-    });
+  });
   const claim = Effect.gen(function* () {
     const current = yield* DateTime.now;
     const currentIso = DateTime.formatIso(current);
@@ -109,71 +107,73 @@ const make = Effect.gen(function* () {
       }),
     );
   });
-  const process = (claimed: Claimed & { token: string }) =>
-    Effect.gen(function* () {
-      const result = yield* Effect.gen(function* () {
-        const row = (yield* sql<ObservationRow>`SELECT * FROM organization_intake_observations
+  const process = Effect.fn("OrganizationCorrelationRecovery.process")(function* (
+    claimed: Claimed & { token: string },
+  ) {
+    const result = yield* Effect.gen(function* () {
+      const row = (yield* sql<ObservationRow>`SELECT * FROM organization_intake_observations
         WHERE observation_id = ${claimed.observation_id}`)[0];
-        if (!row) return yield* Effect.fail({ code: "not_found" });
-        const attributes = yield* Schema.decodeUnknownEffect(AttributesJson)(row.attributes_json);
-        const observation = yield* Schema.decodeUnknownEffect(OrganizationObservation)({
-          id: row.observation_id,
-          organizationId: row.organization_id,
-          sourceId: row.source_id,
-          projectId: row.project_id,
-          externalEventId: row.external_event_id,
-          dedupKey: row.dedup_key,
-          occurredAt: row.occurred_at,
-          receivedAt: row.received_at,
-          title: row.title,
-          body: row.body,
-          attributes,
-          state: "observed",
-        });
-        return yield* coordinator.onObservation(observation, {
-          subject: ORGANIZATION_INTAKE_CORRELATION_SUBJECT,
-        });
-      }).pipe(Effect.result);
-      const current = yield* DateTime.now;
-      const updatedAt = DateTime.formatIso(current);
-      if (Result.isSuccess(result)) {
-        yield* sql`UPDATE organization_intake_correlation_jobs
+      if (!row) return yield* Effect.fail({ code: "not_found" });
+      const attributes = yield* Schema.decodeUnknownEffect(AttributesJson)(row.attributes_json);
+      const observation = yield* Schema.decodeUnknownEffect(OrganizationObservation)({
+        id: row.observation_id,
+        organizationId: row.organization_id,
+        sourceId: row.source_id,
+        projectId: row.project_id,
+        externalEventId: row.external_event_id,
+        dedupKey: row.dedup_key,
+        occurredAt: row.occurred_at,
+        receivedAt: row.received_at,
+        title: row.title,
+        body: row.body,
+        attributes,
+        state: "observed",
+      });
+      return yield* coordinator.onObservation(observation, {
+        subject: ORGANIZATION_INTAKE_CORRELATION_SUBJECT,
+      });
+    }).pipe(Effect.result);
+    const current = yield* DateTime.now;
+    const updatedAt = DateTime.formatIso(current);
+    if (Result.isSuccess(result)) {
+      yield* sql`UPDATE organization_intake_correlation_jobs
         SET state = 'complete', outcome = ${result.success.outcome}, lease_token = NULL,
           lease_expires_at = NULL, last_error_code = NULL, updated_at = ${updatedAt}
         WHERE observation_id = ${claimed.observation_id} AND state = 'leased'
           AND lease_token = ${claimed.token}`;
-        return "completed" as const;
-      }
-      const code = errorCode(result.failure);
-      if (terminalError(code) || claimed.attempts >= MAX_ATTEMPTS) {
-        yield* sql`UPDATE organization_intake_correlation_jobs
+      return "completed" as const;
+    }
+    const code = errorCode(result.failure);
+    if (terminalError(code) || claimed.attempts >= MAX_ATTEMPTS) {
+      yield* sql`UPDATE organization_intake_correlation_jobs
         SET state = 'terminal', outcome = NULL, lease_token = NULL,
           lease_expires_at = NULL, last_error_code = ${code}, updated_at = ${updatedAt}
         WHERE observation_id = ${claimed.observation_id} AND state = 'leased'
           AND lease_token = ${claimed.token}`;
-        return "terminal" as const;
-      }
-      const delaySeconds = Math.min(300, 5 * 2 ** (claimed.attempts - 1));
-      const nextAttemptAt = DateTime.formatIso(DateTime.add(current, { seconds: delaySeconds }));
-      yield* sql`UPDATE organization_intake_correlation_jobs
+      return "terminal" as const;
+    }
+    const delaySeconds = Math.min(300, 5 * 2 ** (claimed.attempts - 1));
+    const nextAttemptAt = DateTime.formatIso(DateTime.add(current, { seconds: delaySeconds }));
+    yield* sql`UPDATE organization_intake_correlation_jobs
       SET state = 'pending', next_attempt_at = ${nextAttemptAt}, lease_token = NULL,
         lease_expires_at = NULL, last_error_code = ${code}, updated_at = ${updatedAt}
       WHERE observation_id = ${claimed.observation_id} AND state = 'leased'
         AND lease_token = ${claimed.token}`;
-      return "retried" as const;
-    });
-  const runOnce: OrganizationCorrelationRecoveryShape["runOnce"] = () =>
-    Effect.gen(function* () {
-      const counts = { claimed: 0, completed: 0, retried: 0, terminal: 0 };
-      for (let index = 0; index < BATCH_SIZE; index++) {
-        const job = yield* claim;
-        if (!job) break;
-        counts.claimed++;
-        const outcome = yield* process(job);
-        counts[outcome]++;
-      }
-      return counts;
-    });
+    return "retried" as const;
+  });
+  const runOnce: OrganizationCorrelationRecoveryShape["runOnce"] = Effect.fn(
+    "OrganizationCorrelationRecovery.runOnce",
+  )(function* () {
+    const counts = { claimed: 0, completed: 0, retried: 0, terminal: 0 };
+    for (let index = 0; index < BATCH_SIZE; index++) {
+      const job = yield* claim;
+      if (!job) break;
+      counts.claimed++;
+      const outcome = yield* process(job);
+      counts[outcome]++;
+    }
+    return counts;
+  });
   const hasDue = Effect.gen(function* () {
     const currentIso = DateTime.formatIso(yield* DateTime.now);
     const rows = yield* sql<{ observation_id: string }>`SELECT observation_id

@@ -240,43 +240,43 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
       Effect.mapError(() => unavailable()),
     );
-  const verifyPrior = (target: TargetRow, saved: OrganizationWorkApprovalReceiptRecord) =>
-    Effect.gen(function* () {
-      const qa = yield* qaReceipts
-        .get(target.attempt_id)
-        .pipe(Effect.mapError(() => unavailable()));
-      if (
-        !qa ||
-        !qa.accepted ||
-        qa.workId !== saved.workId ||
-        qa.projectId !== saved.projectId ||
-        qa.artifactRef !== saved.artifactRef ||
-        qa.artifactDigest !== saved.artifactDigest ||
-        qa.workerSubject !== saved.workerSubject ||
-        qa.reviewerSubject !== saved.qaSubject ||
-        qa.evidenceRef !== target.qa_evidence_ref ||
-        qa.receiptDigest !== saved.qaReceiptDigest
-      )
-        return yield* conflict("Accepted QA receipt does not match the submitted attempt.");
-      yield* qaReceipts
-        .verifyEvaluation(qa)
-        .pipe(Effect.mapError(() => conflict("Accepted QA or artifact evidence is invalid.")));
-      const artifact = yield* artifacts
-        .get(target.attempt_id)
-        .pipe(Effect.mapError(() => unavailable()));
-      if (
-        !artifact ||
-        artifact.workId !== saved.workId ||
-        artifact.projectId !== saved.projectId ||
-        artifact.baseCodeRevision !== saved.baseCodeRevision ||
-        artifact.artifactRef !== saved.artifactRef ||
-        artifact.artifactDigest !== saved.artifactDigest
-      )
-        return yield* conflict("Approval artifact does not match pinned work revision.");
-      yield* artifacts
-        .verifySubmitted(artifact)
-        .pipe(Effect.mapError(() => conflict("Approval artifact bytes or scope are invalid.")));
-    });
+  const verifyPrior = Effect.fn("OrganizationWorkApprovalReceiptStore.verifyPrior")(function* (
+    target: TargetRow,
+    saved: OrganizationWorkApprovalReceiptRecord,
+  ) {
+    const qa = yield* qaReceipts.get(target.attempt_id).pipe(Effect.mapError(() => unavailable()));
+    if (
+      !qa ||
+      !qa.accepted ||
+      qa.workId !== saved.workId ||
+      qa.projectId !== saved.projectId ||
+      qa.artifactRef !== saved.artifactRef ||
+      qa.artifactDigest !== saved.artifactDigest ||
+      qa.workerSubject !== saved.workerSubject ||
+      qa.reviewerSubject !== saved.qaSubject ||
+      qa.evidenceRef !== target.qa_evidence_ref ||
+      qa.receiptDigest !== saved.qaReceiptDigest
+    )
+      return yield* conflict("Accepted QA receipt does not match the submitted attempt.");
+    yield* qaReceipts
+      .verifyEvaluation(qa)
+      .pipe(Effect.mapError(() => conflict("Accepted QA or artifact evidence is invalid.")));
+    const artifact = yield* artifacts
+      .get(target.attempt_id)
+      .pipe(Effect.mapError(() => unavailable()));
+    if (
+      !artifact ||
+      artifact.workId !== saved.workId ||
+      artifact.projectId !== saved.projectId ||
+      artifact.baseCodeRevision !== saved.baseCodeRevision ||
+      artifact.artifactRef !== saved.artifactRef ||
+      artifact.artifactDigest !== saved.artifactDigest
+    )
+      return yield* conflict("Approval artifact does not match pinned work revision.");
+    yield* artifacts
+      .verifySubmitted(artifact)
+      .pipe(Effect.mapError(() => conflict("Approval artifact bytes or scope are invalid.")));
+  });
   const capture: OrganizationWorkApprovalReceiptStoreShape["capture"] = (callerInput) => {
     // Snapshot bytes before Effect evaluation to avoid caller mutation across SQL awaits.
     const input: OrganizationWorkApprovalReceiptCaptureInput = {
@@ -408,8 +408,10 @@ const make = Effect.gen(function* () {
       }),
     );
   };
-  const verifyApproval: OrganizationWorkApprovalReceiptStoreShape["verifyApproval"] = (target) =>
-    Effect.gen(function* () {
+  const verifyApproval: OrganizationWorkApprovalReceiptStoreShape["verifyApproval"] = Effect.fn(
+    "OrganizationWorkApprovalReceiptStore.verifyApproval",
+  )(
+    function* (target) {
       const saved = yield* get(target.attemptId);
       if (!saved) return yield* approvalError("not_found", "Approval receipt was not found.");
       if (!matches(saved, target) || receiptDigest(saved) !== saved.receiptDigest)
@@ -427,7 +429,9 @@ const make = Effect.gen(function* () {
       )
         return yield* conflict("Approval attempt identity no longer matches.");
       yield* verifyPrior(attempt, saved);
-    }).pipe(Effect.mapError((error) => (isApprovalError(error) ? error : unavailable())));
+    },
+    Effect.mapError((error) => (isApprovalError(error) ? error : unavailable())),
+  );
   return { capture, get, verifyApproval } satisfies OrganizationWorkApprovalReceiptStoreShape;
 });
 

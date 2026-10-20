@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import * as Cause from "effect/Cause";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";

@@ -165,22 +165,18 @@ const routes = Layer.mergeAll(
       .handleRaw("forwardGet", unused),
   ),
 );
-export const send = <E, R>(
+export const send = Effect.fn("publicRelayAdmissions.test-fixture.send")(function* <E, R>(
   endpoint: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
   request: Request,
-) =>
-  Effect.gen(function* () {
-    const sent = yield* Deferred.make<HttpServerResponse.HttpServerResponse>();
-    yield* HttpEffect.toHandled(endpoint, (_, response) => Deferred.succeed(sent, response)).pipe(
-      Effect.provideService(
-        HttpServerRequest.HttpServerRequest,
-        HttpServerRequest.fromWeb(request),
-      ),
-      Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
-      Effect.exit,
-    );
-    return HttpServerResponse.toWeb(yield* Deferred.await(sent));
-  });
+) {
+  const sent = yield* Deferred.make<HttpServerResponse.HttpServerResponse>();
+  yield* HttpEffect.toHandled(endpoint, (_, response) => Deferred.succeed(sent, response)).pipe(
+    Effect.provideService(HttpServerRequest.HttpServerRequest, HttpServerRequest.fromWeb(request)),
+    Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
+    Effect.exit,
+  );
+  return HttpServerResponse.toWeb(yield* Deferred.await(sent));
+});
 export function fixture(input: {
   readonly admit: Limits.PublicRelayRateLimits["Service"]["admit"];
   readonly counts: ReturnType<typeof counters>;

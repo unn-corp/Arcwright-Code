@@ -69,8 +69,10 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const workStore = yield* OrganizationWorkStore;
   const git = yield* GitVcsDriver;
-  const plan: OrganizationWorkLaunchPlannerShape["plan"] = (workId) =>
-    Effect.gen(function* () {
+  const plan: OrganizationWorkLaunchPlannerShape["plan"] = Effect.fn(
+    "OrganizationWorkLaunchPlanner.plan",
+  )(
+    function* (workId) {
       const detail = yield* workStore
         .getWork(workId)
         .pipe(Effect.mapError(() => fail("not_found", "Organization work item is unavailable.")));
@@ -159,11 +161,11 @@ const make = Effect.gen(function* () {
         worktreeName: `organization-${suffix}`,
         branchName: `organization/${suffix}`,
       };
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationWorkLaunchError)(error) ? error : unavailable(),
-      ),
-    );
+    },
+    Effect.mapError((error) =>
+      Schema.is(OrganizationWorkLaunchError)(error) ? error : unavailable(),
+    ),
+  );
   return { plan } satisfies OrganizationWorkLaunchPlannerShape;
 });
 

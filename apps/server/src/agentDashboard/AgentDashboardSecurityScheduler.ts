@@ -174,13 +174,13 @@ const make = Effect.gen(function* () {
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
-  const collectAndPersist = (
-    observedAt: string,
-  ): Effect.Effect<
-    { readonly findingCount: number; readonly target: string },
-    AgentDashboardSecuritySchedulerError
-  > =>
-    Effect.gen(function* () {
+  const collectAndPersist = Effect.fn("AgentDashboardSecurityScheduler.collectAndPersist")(
+    function* (
+      observedAt: string,
+    ): Effect.fn.Return<
+      { readonly findingCount: number; readonly target: string },
+      AgentDashboardSecuritySchedulerError
+    > {
       const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
         Effect.mapError(
           (cause) =>
@@ -238,78 +238,78 @@ const make = Effect.gen(function* () {
             ? `${collected.states.length} repository security collector(s)`
             : "portfolio",
       };
-    });
+    },
+  );
 
-  const run = (force: boolean): AgentDashboardSecuritySchedulerService["runNow"] =>
-    Effect.gen(function* () {
-      const startedAtTime = yield* DateTime.now;
-      const startedAtMs = DateTime.toEpochMillis(startedAtTime);
-      const startedAt = DateTime.formatIso(startedAtTime);
-      const claimed = yield* Ref.modify(stateRef, (state) => {
-        if (
-          !state.enabled ||
-          state.lastStatus === "running" ||
-          (!force && Date.parse(state.nextRunAt) > startedAtMs)
-        ) {
-          return [false, state] as const;
-        }
-        return [
-          true,
-          {
-            ...state,
-            lastStatus: "running" as const,
-            lastRunAt: startedAt,
-            lastError: null,
-            heartbeatAt: startedAt,
-            runCount: state.runCount + 1,
-          },
-        ] as const;
-      });
-      if (!claimed) return null;
-
-      yield* persist(yield* Ref.get(stateRef));
-      const result = yield* Effect.exit(collectAndPersist(startedAt));
-      if (Exit.isFailure(result)) {
-        const cause = Cause.squash(result.cause);
-        const failure = isAgentDashboardSecuritySchedulerError(cause)
-          ? cause
-          : new AgentDashboardSecuritySchedulerError({
-              operation: "run security scan",
-              message: cause instanceof Error ? cause.message : "Scheduled security scan failed.",
-              cause,
-            });
-        const now = yield* DateTime.now;
-        const failedAt = DateTime.formatIso(now);
-        const current = yield* Ref.get(stateRef);
-        const failed: AgentDashboardSecuritySchedule = {
-          ...current,
-          lastStatus: "failed",
-          lastError: failure.message,
-          nextRunAt: isoAt(DateTime.toEpochMillis(now) + INTERVAL_MS),
-          heartbeatAt: failedAt,
-        };
-        yield* Ref.set(stateRef, failed);
-        yield* persist(failed).pipe(Effect.ignore);
-        return yield* failure;
+  const run = Effect.fn("AgentDashboardSecurityScheduler.run")(function* (force: boolean) {
+    const startedAtTime = yield* DateTime.now;
+    const startedAtMs = DateTime.toEpochMillis(startedAtTime);
+    const startedAt = DateTime.formatIso(startedAtTime);
+    const claimed = yield* Ref.modify(stateRef, (state) => {
+      if (
+        !state.enabled ||
+        state.lastStatus === "running" ||
+        (!force && Date.parse(state.nextRunAt) > startedAtMs)
+      ) {
+        return [false, state] as const;
       }
-
-      const completedAtTime = yield* DateTime.now;
-      const completedAt = DateTime.formatIso(completedAtTime);
-      const completedAtMs = DateTime.toEpochMillis(completedAtTime);
-      const current = yield* Ref.get(stateRef);
-      const completed: AgentDashboardSecuritySchedule = {
-        ...current,
-        lastStatus: "completed",
-        lastCompletedAt: completedAt,
-        lastError: null,
-        lastTarget: result.value.target,
-        nextRunAt: isoAt(Math.max(completedAtMs, startedAtMs + INTERVAL_MS)),
-        heartbeatAt: completedAt,
-      };
-      yield* Ref.set(stateRef, completed);
-      yield* persist(completed);
-      return completed;
+      return [
+        true,
+        {
+          ...state,
+          lastStatus: "running" as const,
+          lastRunAt: startedAt,
+          lastError: null,
+          heartbeatAt: startedAt,
+          runCount: state.runCount + 1,
+        },
+      ] as const;
     });
+    if (!claimed) return null;
+
+    yield* persist(yield* Ref.get(stateRef));
+    const result = yield* Effect.exit(collectAndPersist(startedAt));
+    if (Exit.isFailure(result)) {
+      const cause = Cause.squash(result.cause);
+      const failure = isAgentDashboardSecuritySchedulerError(cause)
+        ? cause
+        : new AgentDashboardSecuritySchedulerError({
+            operation: "run security scan",
+            message: cause instanceof Error ? cause.message : "Scheduled security scan failed.",
+            cause,
+          });
+      const now = yield* DateTime.now;
+      const failedAt = DateTime.formatIso(now);
+      const current = yield* Ref.get(stateRef);
+      const failed: AgentDashboardSecuritySchedule = {
+        ...current,
+        lastStatus: "failed",
+        lastError: failure.message,
+        nextRunAt: isoAt(DateTime.toEpochMillis(now) + INTERVAL_MS),
+        heartbeatAt: failedAt,
+      };
+      yield* Ref.set(stateRef, failed);
+      yield* persist(failed).pipe(Effect.ignore);
+      return yield* failure;
+    }
+
+    const completedAtTime = yield* DateTime.now;
+    const completedAt = DateTime.formatIso(completedAtTime);
+    const completedAtMs = DateTime.toEpochMillis(completedAtTime);
+    const current = yield* Ref.get(stateRef);
+    const completed: AgentDashboardSecuritySchedule = {
+      ...current,
+      lastStatus: "completed",
+      lastCompletedAt: completedAt,
+      lastError: null,
+      lastTarget: result.value.target,
+      nextRunAt: isoAt(Math.max(completedAtMs, startedAtMs + INTERVAL_MS)),
+      heartbeatAt: completedAt,
+    };
+    yield* Ref.set(stateRef, completed);
+    yield* persist(completed);
+    return completed;
+  });
 
   const runNow = withAutomationWork(run(true));
   const runScheduled = Effect.gen(function* () {

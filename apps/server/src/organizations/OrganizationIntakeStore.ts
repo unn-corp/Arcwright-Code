@@ -158,8 +158,8 @@ const decodeSource = (row: SourceRow) =>
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }).pipe(Effect.mapError(() => invalid("Stored intake source is invalid.")));
-const decodeObservation = (row: ObservationRow) =>
-  Effect.gen(function* () {
+const decodeObservation = Effect.fn("OrganizationIntakeStore.decodeObservation")(
+  function* (row: ObservationRow) {
     const attributes = yield* Schema.decodeUnknownEffect(AttributesJson)(row.attributes_json);
     return yield* Schema.decodeUnknownEffect(OrganizationObservation)({
       id: row.observation_id,
@@ -175,9 +175,11 @@ const decodeObservation = (row: ObservationRow) =>
       attributes,
       state: "observed",
     });
-  }).pipe(Effect.mapError(() => invalid("Stored intake observation is invalid.")));
-const decodeFinding = (row: FindingRow) =>
-  Effect.gen(function* () {
+  },
+  Effect.mapError(() => invalid("Stored intake observation is invalid.")),
+);
+const decodeFinding = Effect.fn("OrganizationIntakeStore.decodeFinding")(
+  function* (row: FindingRow) {
     const observationIds = yield* Schema.decodeUnknownEffect(EvidenceIdsJson)(
       row.observation_ids_json,
     );
@@ -202,7 +204,9 @@ const decodeFinding = (row: FindingRow) =>
       state: "tentative",
       createdAt: row.created_at,
     });
-  }).pipe(Effect.mapError(() => invalid("Stored tentative finding is invalid.")));
+  },
+  Effect.mapError(() => invalid("Stored tentative finding is invalid.")),
+);
 const decodeAudit = (row: AuditRow) =>
   Schema.decodeUnknownEffect(OrganizationIntakeAuditEntry)({
     id: row.audit_id,
@@ -450,18 +454,18 @@ const make = Effect.gen(function* () {
         return yield* decodeSource((yield* sourceRows(organizationId, sourceId))[0]!);
       }),
     );
-  const listSources: OrganizationIntakeStoreShape["listSources"] = (organizationId) =>
-    Effect.gen(function* () {
+  const listSources: OrganizationIntakeStoreShape["listSources"] = Effect.fn(
+    "OrganizationIntakeStore.listSources",
+  )(
+    function* (organizationId) {
       const rows = yield* sql<SourceRow>`SELECT * FROM organization_intake_sources
         WHERE organization_id = ${organizationId} ORDER BY created_at, source_id`;
       const sources: OrganizationIntakeSource[] = [];
       for (const row of rows) sources.push(yield* decodeSource(row));
       return sources;
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-      ),
-    );
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+  );
   const ingest: OrganizationIntakeStoreShape["ingest"] = (input, authentication) =>
     transaction(
       Effect.gen(function* () {
@@ -547,22 +551,22 @@ const make = Effect.gen(function* () {
         return { outcome: "recorded", observation: yield* decodeObservation(row) };
       }),
     );
-  const listObservations: OrganizationIntakeStoreShape["listObservations"] = (organizationId) =>
-    Effect.gen(function* () {
+  const listObservations: OrganizationIntakeStoreShape["listObservations"] = Effect.fn(
+    "OrganizationIntakeStore.listObservations",
+  )(
+    function* (organizationId) {
       const rows = yield* sql<ObservationRow>`SELECT * FROM organization_intake_observations
         WHERE organization_id = ${organizationId} ORDER BY received_at, observation_id`;
       const observations: OrganizationObservation[] = [];
       for (const row of rows) observations.push(yield* decodeObservation(row));
       return observations;
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-      ),
-    );
-  const listCorrelationJobs: OrganizationIntakeStoreShape["listCorrelationJobs"] = (
-    organizationId,
-  ) =>
-    Effect.gen(function* () {
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+  );
+  const listCorrelationJobs: OrganizationIntakeStoreShape["listCorrelationJobs"] = Effect.fn(
+    "OrganizationIntakeStore.listCorrelationJobs",
+  )(
+    function* (organizationId) {
       const rows = yield* sql<{
         observation_id: string;
         state: string;
@@ -591,16 +595,13 @@ const make = Effect.gen(function* () {
           }).pipe(Effect.mapError(() => unavailable())),
         );
       return jobs;
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-      ),
-    );
-  const getObservation: OrganizationIntakeStoreShape["getObservation"] = (
-    organizationId,
-    observationId,
-  ) =>
-    Effect.gen(function* () {
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+  );
+  const getObservation: OrganizationIntakeStoreShape["getObservation"] = Effect.fn(
+    "OrganizationIntakeStore.getObservation",
+  )(
+    function* (organizationId, observationId) {
       const row = (yield* sql<ObservationRow>`SELECT * FROM organization_intake_observations
         WHERE organization_id = ${organizationId} AND observation_id = ${observationId}`)[0];
       if (!row)
@@ -609,11 +610,9 @@ const make = Effect.gen(function* () {
           message: "Observation not found in this Organization.",
         });
       return yield* decodeObservation(row);
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-      ),
-    );
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+  );
   const proposeFinding: OrganizationIntakeStoreShape["proposeFinding"] = (input, principal) =>
     transaction(
       Effect.gen(function* () {
@@ -681,32 +680,30 @@ const make = Effect.gen(function* () {
         );
       }),
     );
-  const listTentativeFindings: OrganizationIntakeStoreShape["listTentativeFindings"] = (
-    organizationId,
-  ) =>
-    Effect.gen(function* () {
+  const listTentativeFindings: OrganizationIntakeStoreShape["listTentativeFindings"] = Effect.fn(
+    "OrganizationIntakeStore.listTentativeFindings",
+  )(
+    function* (organizationId) {
       const rows = yield* sql<FindingRow>`SELECT * FROM organization_intake_findings
         WHERE organization_id = ${organizationId} ORDER BY created_at, finding_id`;
       const findings: OrganizationTentativeFinding[] = [];
       for (const row of rows) findings.push(yield* decodeFinding(row));
       return findings;
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-      ),
-    );
-  const listAudit: OrganizationIntakeStoreShape["listAudit"] = (organizationId) =>
-    Effect.gen(function* () {
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+  );
+  const listAudit: OrganizationIntakeStoreShape["listAudit"] = Effect.fn(
+    "OrganizationIntakeStore.listAudit",
+  )(
+    function* (organizationId) {
       const rows = yield* sql<AuditRow>`SELECT * FROM organization_intake_audit
         WHERE organization_id = ${organizationId} ORDER BY sequence`;
       const entries: OrganizationIntakeAuditEntry[] = [];
       for (const row of rows) entries.push(yield* decodeAudit(row));
       return entries;
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-      ),
-    );
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+  );
   const ingestWithCredential: OrganizationIntakeStoreShape["ingestWithCredential"] = (
     input,
     credential,

@@ -24,11 +24,8 @@ export const persistAccount = <A, E, R>(
   );
 /** Own COMMIT, never a savepoint. SQL/commit/defect failures are retryable;
  * ordinary typed business errors retain their original type and value. */
-export const withAccountTransaction = <A, E, R>(
-  db: RelayDb.RelayDb["Service"],
-  sqlOnly: Effect.Effect<A, E, R>,
-) =>
-  Effect.gen(function* () {
+export const withAccountTransaction = Effect.fn("accountSubjectSql.withAccountTransaction")(
+  function* <A, E, R>(db: RelayDb.RelayDb["Service"], sqlOnly: Effect.Effect<A, E, R>) {
     if (yield* transactionActive(db))
       return yield* new AccountTransactionRequired({ reason: "ambient_transaction" });
     return yield* db.$client
@@ -51,24 +48,27 @@ export const withAccountTransaction = <A, E, R>(
           Effect.fail(new AccountPersistenceError({ operation: "transaction", retryable: true })),
         ),
       );
-  });
-export const lockAccountSubject = (db: RelayDb.RelayDb["Service"], subject: OwnedSubject) =>
-  Effect.gen(function* () {
-    if (!(yield* transactionActive(db)))
-      return yield* new AccountTransactionRequired({ reason: "transaction_required" });
-    const isolation = yield* persistAccount(
-      "transaction",
-      db.$client<{ transaction_isolation: string }>`SHOW transaction_isolation`,
-    );
-    if (isolation[0]?.transaction_isolation !== "read committed")
-      return yield* new AccountTransactionRequired({ reason: "read_committed_required" });
-    // This separate statement precedes all binding/deny reads. Waiters then get
-    // fresh READ COMMITTED snapshots, sharing the quota/lifecycle subject lock.
-    yield* persistAccount(
-      "lock",
-      db.$client`SELECT pg_advisory_xact_lock(hashtextextended(${`relay-managed-tunnel:${subject.userId}`}, 0))`,
-    );
-  });
+  },
+);
+export const lockAccountSubject = Effect.fn("accountSubjectSql.lockAccountSubject")(function* (
+  db: RelayDb.RelayDb["Service"],
+  subject: OwnedSubject,
+) {
+  if (!(yield* transactionActive(db)))
+    return yield* new AccountTransactionRequired({ reason: "transaction_required" });
+  const isolation = yield* persistAccount(
+    "transaction",
+    db.$client<{ transaction_isolation: string }>`SHOW transaction_isolation`,
+  );
+  if (isolation[0]?.transaction_isolation !== "read committed")
+    return yield* new AccountTransactionRequired({ reason: "read_committed_required" });
+  // This separate statement precedes all binding/deny reads. Waiters then get
+  // fresh READ COMMITTED snapshots, sharing the quota/lifecycle subject lock.
+  yield* persistAccount(
+    "lock",
+    db.$client`SELECT pg_advisory_xact_lock(hashtextextended(${`relay-managed-tunnel:${subject.userId}`}, 0))`,
+  );
+});
 export const loadBinding = (db: RelayDb.RelayDb["Service"], userId: string) =>
   persistAccount(
     "authority",

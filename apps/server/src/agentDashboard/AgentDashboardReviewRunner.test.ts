@@ -1,4 +1,5 @@
-// @effect-diagnostics nodeBuiltinImport:off - This integration fixture resolves the repository root before providing Effect services.
+// @effect-diagnostics nodeBuiltinImport:off - This integration fixture creates an isolated stable Git checkout.
+import * as NodeChildProcess from "node:child_process";
 import * as NodePath from "node:path";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -263,9 +264,18 @@ it.effect("starts the provider turn before snoozing the internal review thread",
     const stateDir = yield* Effect.promise(() =>
       NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-review-runner-test-")),
     );
+    const workspaceRoot = NodePath.join(stateDir, "repository");
+    yield* Effect.sync(() =>
+      NodeChildProcess.execFileSync("git", [
+        "init",
+        "--quiet",
+        "--initial-branch=main",
+        workspaceRoot,
+      ]),
+    );
     const target = {
       ...project("review-target", "Review target"),
-      workspaceRoot: NodePath.resolve(import.meta.dirname, "../../../.."),
+      workspaceRoot,
     };
     const commands = yield* Ref.make<Array<OrchestrationCommand>>([]);
     const projection = {

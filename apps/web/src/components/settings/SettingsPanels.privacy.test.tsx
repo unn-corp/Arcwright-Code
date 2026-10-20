@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { DEFAULT_CLIENT_SETTINGS, DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";

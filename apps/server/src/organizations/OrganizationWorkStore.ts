@@ -485,12 +485,15 @@ const make = Effect.gen(function* () {
     if (acquired.length !== 1)
       return yield* conflict("Organization work resource concurrency limit reached.");
   });
-  const releaseResourcePermit = (attemptId: string, state: "released" | "expired", time: string) =>
-    Effect.gen(function* () {
-      yield* requireScopeStopped(attemptId);
-      yield* sql`UPDATE organization_work_resource_permits SET state = ${state}, updated_at = ${time}
+  const releaseResourcePermit = Effect.fn("OrganizationWorkStore.releaseResourcePermit")(function* (
+    attemptId: string,
+    state: "released" | "expired",
+    time: string,
+  ) {
+    yield* requireScopeStopped(attemptId);
+    yield* sql`UPDATE organization_work_resource_permits SET state = ${state}, updated_at = ${time}
         WHERE attempt_id = ${attemptId} AND state = 'active'`;
-    });
+  });
   const requireScopeStopped = Effect.fnUntraced(function* (attemptId: string) {
     const scope = (yield* sql<{ verified_stopped_at: string | null }>`
       SELECT verified_stopped_at FROM organization_work_scopes
@@ -700,15 +703,19 @@ const make = Effect.gen(function* () {
     );
   const getWork: OrganizationWorkStoreShape["getWork"] = (workId) =>
     detail(workId).pipe(Effect.mapError((cause) => (isWorkError(cause) ? cause : unavailable())));
-  const listWork: OrganizationWorkStoreShape["listWork"] = (organizationId) =>
-    Effect.gen(function* () {
+  const listWork: OrganizationWorkStoreShape["listWork"] = Effect.fn(
+    "OrganizationWorkStore.listWork",
+  )(
+    function* (organizationId) {
       const items: OrganizationWorkDetail[] = [];
       for (const row of yield* sql<{ work_id: OrganizationWorkId }>`SELECT work_id
         FROM organization_work_items WHERE organization_id = ${organizationId}
         ORDER BY created_at, work_id`)
         items.push(yield* detail(row.work_id));
       return items;
-    }).pipe(Effect.mapError((cause) => (isWorkError(cause) ? cause : unavailable())));
+    },
+    Effect.mapError((cause) => (isWorkError(cause) ? cause : unavailable())),
+  );
   const claimAttempt: OrganizationWorkStoreShape["claimAttempt"] = (input, principal) =>
     transition("claim", input, principal, (work, time) =>
       Effect.gen(function* () {

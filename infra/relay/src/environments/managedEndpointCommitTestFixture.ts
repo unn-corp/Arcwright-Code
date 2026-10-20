@@ -31,23 +31,22 @@ export const installCommitBarrier = (
     begin: (connection) => connection.executeUnprepared("BEGIN", [], undefined).pipe(Effect.asVoid),
     savepoint: (connection, id) =>
       connection.executeUnprepared(`SAVEPOINT effect_sql_${id}`, [], undefined).pipe(Effect.asVoid),
-    commit: (connection) =>
-      Effect.gen(function* () {
-        yield* before;
-        const result = yield* decodeCommit(yield* connection.executeRaw("COMMIT", [])).pipe(
-          Effect.mapError(
-            (cause) => new SqlError({ reason: new UnknownError({ cause, operation: "commit" }) }),
-          ),
-        );
-        if (result.command !== "COMMIT")
-          return yield* new SqlError({
-            reason: new UnknownError({
-              cause: "Fixture transaction did not commit",
-              operation: "commit",
-            }),
-          });
-        yield* after;
-      }),
+    commit: Effect.fn("managedEndpointCommitTestFixture.commit")(function* (connection) {
+      yield* before;
+      const result = yield* decodeCommit(yield* connection.executeRaw("COMMIT", [])).pipe(
+        Effect.mapError(
+          (cause) => new SqlError({ reason: new UnknownError({ cause, operation: "commit" }) }),
+        ),
+      );
+      if (result.command !== "COMMIT")
+        return yield* new SqlError({
+          reason: new UnknownError({
+            cause: "Fixture transaction did not commit",
+            operation: "commit",
+          }),
+        });
+      yield* after;
+    }),
     rollback: (connection) =>
       connection.executeUnprepared("ROLLBACK", [], undefined).pipe(Effect.asVoid),
     rollbackSavepoint: (connection, id) =>

@@ -109,171 +109,173 @@ const ARCHITECT_PENDING_SECONDS = 120;
 const label = (text: string) => text;
 
 /** Activity sources this runtime owns. Any source that cannot be read blocks installation: unknown is never idle. */
-export const collectActivity = (participantId: string) =>
-  Effect.gen(function* () {
-    const projections = yield* ProjectionStore.ProjectionStoreV2;
-    const sql = yield* SqlClient.SqlClient;
-    // Required, not optional: a composition that forgets a source would silently read as idle.
-    const terminals = yield* TerminalManager.TerminalManager;
-    const clones = yield* ProjectCloneTracker.ProjectCloneTracker;
-    const diagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
-    const processRoots = yield* IdleProcessRoots.IdleProcessRoots;
-    const blockers: ForkActivityBlocker[] = [];
-    const unknown = (source: string): ForkActivityBlocker => ({
-      participantId,
-      reason: "unknown-participant",
-      label: `${source} activity could not be read.`,
-    });
-    const guard = <A, E, R>(
-      source: string,
-      read: Effect.Effect<A, E, R>,
-      onValue: (value: A) => void,
-    ) =>
-      read.pipe(
-        Effect.map(onValue),
-        Effect.catchCause(() => Effect.sync(() => void blockers.push(unknown(source)))),
-      );
+export const collectActivity = Effect.fn("MaintenanceCoordinator.collectActivity")(function* (
+  participantId: string,
+) {
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const sql = yield* SqlClient.SqlClient;
+  // Required, not optional: a composition that forgets a source would silently read as idle.
+  const terminals = yield* TerminalManager.TerminalManager;
+  const clones = yield* ProjectCloneTracker.ProjectCloneTracker;
+  const diagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
+  const processRoots = yield* IdleProcessRoots.IdleProcessRoots;
+  const blockers: ForkActivityBlocker[] = [];
+  const unknown = (source: string): ForkActivityBlocker => ({
+    participantId,
+    reason: "unknown-participant",
+    label: `${source} activity could not be read.`,
+  });
+  const guard = <A, E, R>(
+    source: string,
+    read: Effect.Effect<A, E, R>,
+    onValue: (value: A) => void,
+  ) =>
+    read.pipe(
+      Effect.map(onValue),
+      Effect.catchCause(() => Effect.sync(() => void blockers.push(unknown(source)))),
+    );
 
-    // Recovery also reconciles ready sessions after restart. Maintenance counts their actual work,
-    // pending requests and effects; a ready session alone is idle infrastructure.
-    yield* guard("Agent", projections.getRecoveryThreadIds("active-runtime"), (ids) => {
+  // Recovery also reconciles ready sessions after restart. Maintenance counts their actual work,
+  // pending requests and effects; a ready session alone is idle infrastructure.
+  yield* guard("Agent", projections.getRecoveryThreadIds("active-runtime"), (ids) => {
+    for (const threadId of ids.slice(0, CAP))
+      blockers.push({
+        participantId,
+        reason: "active-agents",
+        threadId,
+        label: label("Agent, approval, provider, command, or background work is still active."),
+      });
+  });
+  // Results and completions still owed to a parent: delivered after restart would be late, and dropped if the update loses them.
+  yield* guard(
+    "Delegated completion",
+    projections.getRecoveryThreadIds("delegated-completions"),
+    (ids) => {
       for (const threadId of ids.slice(0, CAP))
+        blockers.push({
+          participantId,
+          reason: "background-work",
+          threadId,
+          label: "A delegated completion is still being delivered.",
+        });
+    },
+  );
+  yield* guard("Subagent result", projections.getRecoveryThreadIds("subagent-results"), (ids) => {
+    for (const threadId of ids.slice(0, CAP))
+      blockers.push({
+        participantId,
+        reason: "background-work",
+        threadId,
+        label: "A subagent result has not reached its parent.",
+      });
+  });
+  // Organization work phases and Architect requests run outside the thread projections.
+  yield* guard(
+    "Organization work",
+    sql<{ work_id: string }>`SELECT work_id FROM organization_live_work_phase_claims LIMIT 1`,
+    (rows) => {
+      if (rows.length > 0)
         blockers.push({
           participantId,
           reason: "active-agents",
-          threadId,
-          label: label("Agent, approval, provider, command, or background work is still active."),
+          label: "Organization work is still running.",
         });
-    });
-    // Results and completions still owed to a parent: delivered after restart would be late, and dropped if the update loses them.
-    yield* guard(
-      "Delegated completion",
-      projections.getRecoveryThreadIds("delegated-completions"),
-      (ids) => {
-        for (const threadId of ids.slice(0, CAP))
-          blockers.push({
-            participantId,
-            reason: "background-work",
-            threadId,
-            label: "A delegated completion is still being delivered.",
-          });
-      },
-    );
-    yield* guard("Subagent result", projections.getRecoveryThreadIds("subagent-results"), (ids) => {
-      for (const threadId of ids.slice(0, CAP))
+    },
+  );
+  // The Architect store itself expires requests pending longer than this.
+  const architectCutoff = DateTime.formatIso(
+    DateTime.add(yield* DateTime.now, { seconds: -ARCHITECT_PENDING_SECONDS }),
+  );
+  yield* guard(
+    "Architect",
+    sql<{
+      request_id: string;
+    }>`SELECT request_id FROM organization_architect_requests WHERE status = 'pending' AND created_at >= ${architectCutoff} LIMIT 1`,
+    (rows) => {
+      if (rows.length > 0)
         blockers.push({
           participantId,
-          reason: "background-work",
-          threadId,
-          label: "A subagent result has not reached its parent.",
+          reason: "active-agents",
+          label: "An Architect request is still running.",
         });
-    });
-    // Organization work phases and Architect requests run outside the thread projections.
-    yield* guard(
-      "Organization work",
-      sql<{ work_id: string }>`SELECT work_id FROM organization_live_work_phase_claims LIMIT 1`,
-      (rows) => {
-        if (rows.length > 0)
-          blockers.push({
-            participantId,
-            reason: "active-agents",
-            label: "Organization work is still running.",
-          });
-      },
-    );
-    // The Architect store itself expires requests pending longer than this.
-    const architectCutoff = DateTime.formatIso(
-      DateTime.add(yield* DateTime.now, { seconds: -ARCHITECT_PENDING_SECONDS }),
-    );
-    yield* guard(
-      "Architect",
-      sql<{
-        request_id: string;
-      }>`SELECT request_id FROM organization_architect_requests WHERE status = 'pending' AND created_at >= ${architectCutoff} LIMIT 1`,
-      (rows) => {
-        if (rows.length > 0)
-          blockers.push({
-            participantId,
-            reason: "active-agents",
-            label: "An Architect request is still running.",
-          });
-      },
-    );
-    // A shell waiting at its prompt is not activity; a running command is.
-    yield* guard("Terminal", readTerminals(terminals), (running) => {
-      for (const terminal of running.slice(0, CAP))
-        blockers.push({
-          participantId,
-          reason: "commands",
-          threadId: terminal.threadId,
-          label: `A terminal command is running: ${terminal.label}`,
-        });
-    });
-    yield* guard("Repository clone", Stream.runHead(clones.stream), (head) => {
-      const running = Option.getOrElse(head, () => []).filter((clone) => clone.phase === "running");
-      if (running.length > 0)
-        blockers.push({
-          participantId,
-          reason: "background-work",
-          label: "A repository clone is still running.",
-        });
-    });
-    // Processes this runtime started (provider CLIs, terminals, background commands). If the runtime
-    // exits first, the coordinator keeps blocking until these are verified gone.
-    const processReadStartedAt = yield* Clock.currentTimeMillis;
-    const processSnapshot = yield* diagnostics.read.pipe(
-      Effect.map(Option.some),
-      Effect.catchCause(() => Effect.succeed(Option.none())),
-    );
-    if (Option.isNone(processSnapshot)) {
-      blockers.push(unknown("Process"));
-      return { blockers, descendants: [], descendantsKnown: false };
-    }
-    const snapshot = processSnapshot.value;
-    const roots = yield* processRoots.snapshot;
-    const descendants = snapshot.processes.map((entry) => ({
-      pid: entry.pid,
-      started: String(entry.startTimeMs),
-      label: entry.command,
-    }));
-    const processReadAt = DateTime.toEpochMillis(snapshot.readAt);
-    const censusComplete = !(
-      Option.isSome(snapshot.error) ||
-      processReadAt < processReadStartedAt ||
-      snapshot.processCount !== snapshot.processes.length
-    );
-    if (!censusComplete) blockers.push(unknown("Process"));
-    const identified = yield* Effect.tryPromise({
-      try: () => identifyDescendants(participantId, descendants, roots, processRoots.identify),
-      catch: (cause) => new MaintenanceCoordinatorError({ operation: "process identity", cause }),
-    }).pipe(
-      Effect.catchTags({
-        MaintenanceCoordinatorError: () =>
-          Effect.succeed({ descendants: [], complete: false, blockers: [] }),
-      }),
-    );
-    blockers.push(...identified.blockers);
-    if (!identified.complete) blockers.push(unknown("Process identity"));
-    return {
-      blockers,
-      descendants: identified.descendants,
-      descendantsKnown: censusComplete && identified.complete,
-    };
+    },
+  );
+  // A shell waiting at its prompt is not activity; a running command is.
+  yield* guard("Terminal", readTerminals(terminals), (running) => {
+    for (const terminal of running.slice(0, CAP))
+      blockers.push({
+        participantId,
+        reason: "commands",
+        threadId: terminal.threadId,
+        label: `A terminal command is running: ${terminal.label}`,
+      });
   });
+  yield* guard("Repository clone", Stream.runHead(clones.stream), (head) => {
+    const running = Option.getOrElse(head, () => []).filter((clone) => clone.phase === "running");
+    if (running.length > 0)
+      blockers.push({
+        participantId,
+        reason: "background-work",
+        label: "A repository clone is still running.",
+      });
+  });
+  // Processes this runtime started (provider CLIs, terminals, background commands). If the runtime
+  // exits first, the coordinator keeps blocking until these are verified gone.
+  const processReadStartedAt = yield* Clock.currentTimeMillis;
+  const processSnapshot = yield* diagnostics.read.pipe(
+    Effect.map(Option.some),
+    Effect.catchCause(() => Effect.succeed(Option.none())),
+  );
+  if (Option.isNone(processSnapshot)) {
+    blockers.push(unknown("Process"));
+    return { blockers, descendants: [], descendantsKnown: false };
+  }
+  const snapshot = processSnapshot.value;
+  const roots = yield* processRoots.snapshot;
+  const descendants = snapshot.processes.map((entry) => ({
+    pid: entry.pid,
+    started: String(entry.startTimeMs),
+    label: entry.command,
+  }));
+  const processReadAt = DateTime.toEpochMillis(snapshot.readAt);
+  const censusComplete = !(
+    Option.isSome(snapshot.error) ||
+    processReadAt < processReadStartedAt ||
+    snapshot.processCount !== snapshot.processes.length
+  );
+  if (!censusComplete) blockers.push(unknown("Process"));
+  const identified = yield* Effect.tryPromise({
+    try: () => identifyDescendants(participantId, descendants, roots, processRoots.identify),
+    catch: (cause) => new MaintenanceCoordinatorError({ operation: "process identity", cause }),
+  }).pipe(
+    Effect.catchTags({
+      MaintenanceCoordinatorError: () =>
+        Effect.succeed({ descendants: [], complete: false, blockers: [] }),
+    }),
+  );
+  blockers.push(...identified.blockers);
+  if (!identified.complete) blockers.push(unknown("Process identity"));
+  return {
+    blockers,
+    descendants: identified.descendants,
+    descendantsKnown: censusComplete && identified.complete,
+  };
+});
 
 /** First metadata snapshot is the full list of terminals; the subscription is released at once. */
-const readTerminals = (manager: TerminalManager.TerminalManager["Service"]) =>
-  Effect.gen(function* () {
-    const snapshot = yield* Ref.make<ReadonlyArray<TerminalSummary>>([]);
-    const unsubscribe = yield* manager.subscribeMetadata((event) =>
-      event.type === "snapshot" ? Ref.set(snapshot, event.terminals) : Effect.void,
-    );
-    // The snapshot is delivered synchronously on subscribe.
-    yield* Effect.sync(unsubscribe);
-    return (yield* Ref.get(snapshot)).filter(
-      (terminal) => terminal.status === "running" && terminal.hasRunningSubprocess,
-    );
-  });
+const readTerminals = Effect.fn("MaintenanceCoordinator.readTerminals")(function* (
+  manager: TerminalManager.TerminalManager["Service"],
+) {
+  const snapshot = yield* Ref.make<ReadonlyArray<TerminalSummary>>([]);
+  const unsubscribe = yield* manager.subscribeMetadata((event) =>
+    event.type === "snapshot" ? Ref.set(snapshot, event.terminals) : Effect.void,
+  );
+  // The snapshot is delivered synchronously on subscribe.
+  yield* Effect.sync(unsubscribe);
+  return (yield* Ref.get(snapshot)).filter(
+    (terminal) => terminal.status === "running" && terminal.hasRunningSubprocess,
+  );
+});
 
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;

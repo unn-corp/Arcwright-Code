@@ -83,28 +83,29 @@ export interface OrganizationLiveWorkFailure {
 }
 
 /** Bounded read model for the organization activity view; no provider response is stored. */
-export const listOrganizationLiveWorkFailures = (organizationId: string) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{
-      work_id: string;
-      phase: OrganizationLiveWorkPhase;
-      error_code: OrganizationLiveWorkFailureCode;
-      recorded_at: string;
-    }>`SELECT f.work_id, f.phase, f.error_code, f.recorded_at
+export const listOrganizationLiveWorkFailures = Effect.fn(
+  "OrganizationLiveWorkExecutor.listOrganizationLiveWorkFailures",
+)(function* (organizationId: string) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{
+    work_id: string;
+    phase: OrganizationLiveWorkPhase;
+    error_code: OrganizationLiveWorkFailureCode;
+    recorded_at: string;
+  }>`SELECT f.work_id, f.phase, f.error_code, f.recorded_at
       FROM organization_live_work_failures f
       JOIN organization_work_items w ON w.work_id = f.work_id
       JOIN organization_work_intent_activations a ON a.work_id = f.work_id
       WHERE w.organization_id = ${organizationId} AND a.organization_id = ${organizationId}
         AND w.status NOT IN ('succeeded', 'canceled')
       ORDER BY f.recorded_at DESC, f.work_id DESC LIMIT 100`;
-    return rows.map((row) => ({
-      workId: OrganizationWorkId.make(row.work_id),
-      phase: row.phase,
-      code: row.error_code,
-      occurredAt: row.recorded_at,
-    }));
-  });
+  return rows.map((row) => ({
+    workId: OrganizationWorkId.make(row.work_id),
+    phase: row.phase,
+    code: row.error_code,
+    occurredAt: row.recorded_at,
+  }));
+});
 
 const classifyFailure = (
   phase: OrganizationLiveWorkPhase,
@@ -147,16 +148,17 @@ class OrganizationLiveWorkPhaseError extends Error {
 }
 
 /** Durable state: budget exhaustion and transient integration are recoverable. */
-export const recordOrganizationLiveWorkFailure = (
+export const recordOrganizationLiveWorkFailure = Effect.fn(
+  "OrganizationLiveWorkExecutor.recordOrganizationLiveWorkFailure",
+)(function* (
   workId: OrganizationWorkId,
   phase: OrganizationLiveWorkPhase,
   code: OrganizationLiveWorkFailureCode,
-) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const recordedAt = new Date().toISOString();
-    const terminal = recoverableFailure(code) ? 0 : 1;
-    yield* sql`INSERT INTO organization_live_work_failures
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const recordedAt = new Date().toISOString();
+  const terminal = recoverableFailure(code) ? 0 : 1;
+  yield* sql`INSERT INTO organization_live_work_failures
       (work_id, phase, error_code, terminal, recorded_at)
       SELECT ${workId}, ${phase}, ${code}, ${terminal}, ${recordedAt}
       WHERE EXISTS (SELECT 1 FROM organization_work_intent_activations WHERE work_id = ${workId})
@@ -164,42 +166,45 @@ export const recordOrganizationLiveWorkFailure = (
         error_code = excluded.error_code, terminal = excluded.terminal,
         recorded_at = excluded.recorded_at
       WHERE organization_live_work_failures.terminal = 0`;
-  });
+});
 
-export const clearRecoverableOrganizationLiveWorkFailure = (workId: OrganizationWorkId) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`DELETE FROM organization_live_work_failures
+export const clearRecoverableOrganizationLiveWorkFailure = Effect.fn(
+  "OrganizationLiveWorkExecutor.clearRecoverableOrganizationLiveWorkFailure",
+)(function* (workId: OrganizationWorkId) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`DELETE FROM organization_live_work_failures
       WHERE work_id = ${workId} AND terminal = 0`;
-  });
+});
 
-export const readOrganizationLiveWorkFailure = (workId: OrganizationWorkId) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{
-      work_id: string;
-      phase: OrganizationLiveWorkPhase;
-      error_code: OrganizationLiveWorkFailureCode;
-      recorded_at: string;
-    }>`
+export const readOrganizationLiveWorkFailure = Effect.fn(
+  "OrganizationLiveWorkExecutor.readOrganizationLiveWorkFailure",
+)(function* (workId: OrganizationWorkId) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{
+    work_id: string;
+    phase: OrganizationLiveWorkPhase;
+    error_code: OrganizationLiveWorkFailureCode;
+    recorded_at: string;
+  }>`
       SELECT work_id, phase, error_code, recorded_at
       FROM organization_live_work_failures WHERE work_id = ${workId}`;
-    const row = rows[0];
-    return row
-      ? ({
-          workId: OrganizationWorkId.make(row.work_id),
-          phase: row.phase,
-          code: row.error_code,
-          recordedAt: row.recorded_at,
-        } satisfies OrganizationLiveWorkFailure)
-      : null;
-  });
+  const row = rows[0];
+  return row
+    ? ({
+        workId: OrganizationWorkId.make(row.work_id),
+        phase: row.phase,
+        code: row.error_code,
+        recordedAt: row.recorded_at,
+      } satisfies OrganizationLiveWorkFailure)
+    : null;
+});
 
 /** Keyset scan cannot admit a WorkStore row without its immutable activation row. */
-export const listActivatedOrganizationWorkAfter = (cursor: string | null) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{ work_id: string }>`SELECT a.work_id
+export const listActivatedOrganizationWorkAfter = Effect.fn(
+  "OrganizationLiveWorkExecutor.listActivatedOrganizationWorkAfter",
+)(function* (cursor: string | null) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{ work_id: string }>`SELECT a.work_id
       FROM organization_work_intent_activations a
       JOIN organization_work_items w ON w.work_id = a.work_id
       WHERE a.work_id > ${cursor ?? ""}
@@ -212,8 +217,8 @@ export const listActivatedOrganizationWorkAfter = (cursor: string | null) =>
               AND (attempt.status = 'submitted' OR
                 (attempt.status = 'qa-accepted' AND w.approval_subject IS NOT NULL)))))
       ORDER BY a.work_id LIMIT ${BATCH_SIZE}`;
-    return rows.map((row) => OrganizationWorkId.make(row.work_id));
-  });
+  return rows.map((row) => OrganizationWorkId.make(row.work_id));
+});
 
 export interface OrganizationLiveWorkSnapshot {
   readonly workId: OrganizationWorkId;
@@ -267,94 +272,93 @@ export function makeOrganizationLiveWorkExecutor<RS, RA, RQ, RI>(
   let cursor: string | null = null;
   const inFlight = new Set<string>();
   const failedInProcess = new Set<string>();
-  const runPhase = <R>(
+  const runPhase = Effect.fn("OrganizationLiveWorkExecutor.runPhase")(function* <R>(
     workId: OrganizationWorkId,
     phase: OrganizationLiveWorkPhase,
     action: Effect.Effect<void, Error, R>,
-  ) =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(action);
-      if (Exit.isFailure(exit)) {
-        const failure = Cause.squash(exit.cause);
-        if (
-          failure instanceof OrganizationLiveWorkDrainDeferred ||
-          failure instanceof OrganizationLiveWorkEmergencyDeferred
-        )
-          return { workId, phase, outcome: "waiting" as const };
-        const code = classifyFailure(phase, failure);
-        if (code === "authority_changed") {
-          const deferred = yield* source
-            .shouldDeferAuthorityFailure(workId)
-            .pipe(Effect.tapError(() => Effect.sync(() => failedInProcess.add(workId))));
-          if (deferred) return { workId, phase, outcome: "waiting" as const };
-        }
-        if (!recoverableFailure(code)) failedInProcess.add(workId);
-        yield* source
-          .recordFailure(workId, phase, code)
-          .pipe(Effect.tapError(() => Effect.sync(() => failedInProcess.add(workId))));
-      } else {
-        yield* source.clearRecoverableFailure(workId);
-      }
-      return {
-        workId,
-        phase,
-        outcome: Exit.isSuccess(exit) ? ("completed" as const) : ("failed" as const),
-      };
-    });
-  const runWork = (workId: OrganizationWorkId) =>
-    Effect.gen(function* () {
-      const snapshot = yield* source.read(workId);
-      if (!snapshot || snapshot.workId !== workId)
-        return { workId, phase: "skipped", outcome: "skipped" } as const;
-      if (snapshot.status === "pending" || snapshot.status === "retrying") {
-        return yield* runPhase(workId, "attempt", actions.proposeAndAttempt(workId));
-      }
-      if (snapshot.status === "blocked" && snapshot.attemptStatus === "submitted") {
-        if (!snapshot.attemptId) return { workId, phase: "skipped", outcome: "skipped" } as const;
-        return yield* runPhase(workId, "qa", actions.candidateAndQA(workId, snapshot.attemptId));
-      }
+  ) {
+    const exit = yield* Effect.exit(action);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.squash(exit.cause);
       if (
-        snapshot.status === "blocked" &&
-        snapshot.attemptStatus === "qa-accepted" &&
-        snapshot.approvalSubject
-      ) {
-        if (!snapshot.attemptId) return { workId, phase: "skipped", outcome: "skipped" } as const;
-        return yield* runPhase(
-          workId,
-          "integration",
-          actions.integrateAndComplete(workId, snapshot.attemptId),
-        );
+        failure instanceof OrganizationLiveWorkDrainDeferred ||
+        failure instanceof OrganizationLiveWorkEmergencyDeferred
+      )
+        return { workId, phase, outcome: "waiting" as const };
+      const code = classifyFailure(phase, failure);
+      if (code === "authority_changed") {
+        const deferred = yield* source
+          .shouldDeferAuthorityFailure(workId)
+          .pipe(Effect.tapError(() => Effect.sync(() => failedInProcess.add(workId))));
+        if (deferred) return { workId, phase, outcome: "waiting" as const };
       }
-      if (snapshot.status === "waiting-approval")
-        return { workId, phase: "waiting", outcome: "waiting" } as const;
-      // Running or recovering attempts belong to the broker recovery path. Never relaunch them.
+      if (!recoverableFailure(code)) failedInProcess.add(workId);
+      yield* source
+        .recordFailure(workId, phase, code)
+        .pipe(Effect.tapError(() => Effect.sync(() => failedInProcess.add(workId))));
+    } else {
+      yield* source.clearRecoverableFailure(workId);
+    }
+    return {
+      workId,
+      phase,
+      outcome: Exit.isSuccess(exit) ? ("completed" as const) : ("failed" as const),
+    };
+  });
+  const runWork = Effect.fn("OrganizationLiveWorkExecutor.runWork")(function* (
+    workId: OrganizationWorkId,
+  ) {
+    const snapshot = yield* source.read(workId);
+    if (!snapshot || snapshot.workId !== workId)
       return { workId, phase: "skipped", outcome: "skipped" } as const;
-    });
-  const runOnce = () =>
-    Effect.gen(function* () {
-      let selected = yield* source.listAfter(cursor);
-      if (selected.length === 0 && cursor !== null) {
-        cursor = null;
-        selected = yield* source.listAfter(null);
-      }
-      const results: OrganizationLiveWorkRunResult[] = [];
-      for (const workId of selected.slice(0, BATCH_SIZE)) {
-        cursor = workId;
-        if (inFlight.has(workId) || failedInProcess.has(workId)) continue;
-        inFlight.add(workId);
-        const result = yield* Effect.exit(
-          withAutomationWork(runWork(workId)).pipe(
-            Effect.catchTags({
-              MaintenanceWorkHeld: () =>
-                Effect.succeed({ workId, phase: "skipped", outcome: "waiting" } as const),
-            }),
-          ),
-        ).pipe(Effect.ensuring(Effect.sync(() => inFlight.delete(workId))));
-        if (Exit.isSuccess(result)) results.push(result.value);
-        else results.push({ workId, phase: "skipped", outcome: "failed" });
-      }
-      return results;
-    });
+    if (snapshot.status === "pending" || snapshot.status === "retrying") {
+      return yield* runPhase(workId, "attempt", actions.proposeAndAttempt(workId));
+    }
+    if (snapshot.status === "blocked" && snapshot.attemptStatus === "submitted") {
+      if (!snapshot.attemptId) return { workId, phase: "skipped", outcome: "skipped" } as const;
+      return yield* runPhase(workId, "qa", actions.candidateAndQA(workId, snapshot.attemptId));
+    }
+    if (
+      snapshot.status === "blocked" &&
+      snapshot.attemptStatus === "qa-accepted" &&
+      snapshot.approvalSubject
+    ) {
+      if (!snapshot.attemptId) return { workId, phase: "skipped", outcome: "skipped" } as const;
+      return yield* runPhase(
+        workId,
+        "integration",
+        actions.integrateAndComplete(workId, snapshot.attemptId),
+      );
+    }
+    if (snapshot.status === "waiting-approval")
+      return { workId, phase: "waiting", outcome: "waiting" } as const;
+    // Running or recovering attempts belong to the broker recovery path. Never relaunch them.
+    return { workId, phase: "skipped", outcome: "skipped" } as const;
+  });
+  const runOnce = Effect.fn("OrganizationLiveWorkExecutor.runOnce")(function* () {
+    let selected = yield* source.listAfter(cursor);
+    if (selected.length === 0 && cursor !== null) {
+      cursor = null;
+      selected = yield* source.listAfter(null);
+    }
+    const results: OrganizationLiveWorkRunResult[] = [];
+    for (const workId of selected.slice(0, BATCH_SIZE)) {
+      cursor = workId;
+      if (inFlight.has(workId) || failedInProcess.has(workId)) continue;
+      inFlight.add(workId);
+      const result = yield* Effect.exit(
+        withAutomationWork(runWork(workId)).pipe(
+          Effect.catchTags({
+            MaintenanceWorkHeld: () =>
+              Effect.succeed({ workId, phase: "skipped", outcome: "waiting" } as const),
+          }),
+        ),
+      ).pipe(Effect.ensuring(Effect.sync(() => inFlight.delete(workId))));
+      if (Exit.isSuccess(result)) results.push(result.value);
+      else results.push({ workId, phase: "skipped", outcome: "failed" });
+    }
+    return results;
+  });
   return { runOnce };
 }
 
@@ -402,8 +406,8 @@ export const makeOrganizationLiveWorkSource = Effect.gen(function* () {
       listActivatedOrganizationWorkAfter(cursor).pipe(
         Effect.provideService(SqlClient.SqlClient, sql),
       ),
-    read: (workId: OrganizationWorkId) =>
-      Effect.gen(function* () {
+    read: Effect.fn("OrganizationLiveWorkExecutor.read")(
+      function* (workId: OrganizationWorkId) {
         if (!runtimeReadiness.status().ready) return null;
         const activation = yield* readOrganizationWorkIntentActivationByWorkId(workId).pipe(
           Effect.orElseSucceed(() => null),
@@ -423,7 +427,9 @@ export const makeOrganizationLiveWorkSource = Effect.gen(function* () {
           attemptStatus: attempt?.status ?? null,
           approvalSubject: detail.work.approvalSubject,
         } satisfies OrganizationLiveWorkSnapshot;
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      },
+      Effect.provideService(SqlClient.SqlClient, sql),
+    ),
     recordFailure: (
       workId: OrganizationWorkId,
       phase: OrganizationLiveWorkPhase,
@@ -436,8 +442,10 @@ export const makeOrganizationLiveWorkSource = Effect.gen(function* () {
       clearRecoverableOrganizationLiveWorkFailure(workId).pipe(
         Effect.provideService(SqlClient.SqlClient, sql),
       ),
-    shouldDeferAuthorityFailure: (workId: OrganizationWorkId) =>
-      Effect.gen(function* () {
+    shouldDeferAuthorityFailure: Effect.fn(
+      "OrganizationLiveWorkExecutor.shouldDeferAuthorityFailure",
+    )(
+      function* (workId: OrganizationWorkId) {
         if (!runtimeReadiness.status().ready) return true;
         const activation = yield* readOrganizationWorkIntentActivationByWorkId(workId).pipe(
           Effect.orElseSucceed(() => null),
@@ -450,129 +458,136 @@ export const makeOrganizationLiveWorkSource = Effect.gen(function* () {
           JOIN organizations o ON o.organization_id = w.organization_id
           WHERE a.work_id = ${workId} AND a.organization_id = w.organization_id`;
         return rows[0]?.lifecycle === "paused";
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      },
+      Effect.provideService(SqlClient.SqlClient, sql),
+    ),
   } satisfies OrganizationLiveWorkSource;
 });
 
 /** Real coordinators recheck the selected work and persisted evidence at every phase. */
 export const organizationLiveWorkActions = {
-  proposeAndAttempt: (workId: OrganizationWorkId) =>
-    Effect.gen(function* () {
-      const proposal = yield* proposeOrganizationSingleFileArtifactWithBudget(workId);
-      const attempt = yield* runOrganizationSingleFileAttempt(proposal);
-      if (attempt.status !== "submitted")
-        return yield* Effect.fail(new OrganizationLiveWorkPhaseError("attempt_unavailable"));
-    }),
-  candidateAndQA: (workId: OrganizationWorkId, attemptId: string) =>
-    Effect.gen(function* () {
-      const activation = yield* readOrganizationWorkIntentActivationByWorkId(workId);
-      const readiness = yield* OrganizationWorkIntentActivationReadiness;
-      const workStore = yield* OrganizationWorkStore;
-      const detail = yield* workStore.getWork(workId);
-      const attempt = detail.attempts.at(-1);
-      if (
-        !attempt ||
-        attempt.id !== attemptId ||
-        attempt.status !== "submitted" ||
-        detail.work.status !== "blocked" ||
-        activation.organizationId !== detail.work.organizationId ||
-        !attempt.artifactRef ||
-        !attempt.artifactDigest
-      )
-        return yield* new OrganizationWorkError({
-          code: "conflict",
-          message: "Submitted attempt changed before candidate or QA.",
-        });
-      if (!readiness.permits(activation.organizationId, activation.intentId))
-        return yield* new OrganizationWorkError({
-          code: "forbidden",
-          message: "Project work execution is not ready.",
-        });
-      yield* coordinateOrganizationGitCandidate(attemptId).pipe(
-        Effect.provideService(OrganizationGitCandidateCoordinatorAuthority, {
-          permitsAttempt: (id) => id === attemptId,
-          permits: (intent) =>
-            intent.attemptId === attemptId &&
-            intent.workId === workId &&
-            intent.organizationId === activation.organizationId &&
-            intent.projectId === detail.work.projectId &&
-            intent.bindingId === detail.work.bindingId &&
-            intent.bindingVersion === detail.work.bindingVersion &&
-            intent.baseCommit === detail.work.codeRevision &&
-            intent.artifactRef === attempt.artifactRef &&
-            intent.artifactReceiptDigest === attempt.artifactDigest &&
-            intent.relativePath === activation.selection.fileName,
-        }),
-      );
-      const qa = yield* runOrganizationSingleFileQA({ workId, attemptId: attempt.id });
-      if (qa.attempts.at(-1)?.status === "qa-rejected")
-        return yield* Effect.fail(new OrganizationLiveWorkPhaseError("qa_rejected"));
-    }),
-  integrateAndComplete: (workId: OrganizationWorkId, attemptId: string) =>
-    Effect.gen(function* () {
-      const activation = yield* readOrganizationWorkIntentActivationByWorkId(workId);
-      const readiness = yield* OrganizationWorkIntentActivationReadiness;
-      const workStore = yield* OrganizationWorkStore;
-      const detail = yield* workStore.getWork(workId);
-      const attempt = detail.attempts.at(-1);
-      if (
-        !attempt ||
-        attempt.id !== attemptId ||
-        attempt.status !== "qa-accepted" ||
-        detail.work.status !== "blocked" ||
-        !detail.work.approvalSubject ||
-        activation.organizationId !== detail.work.organizationId
-      )
-        return yield* new OrganizationWorkError({
-          code: "conflict",
-          message: "Approved attempt changed before integration.",
-        });
-      if (!readiness.permits(activation.organizationId, activation.intentId))
-        return yield* new OrganizationWorkError({
-          code: "forbidden",
-          message: "Project work execution is not ready.",
-        });
-      const request = {
-        attemptId,
-        targetRef: activation.selection.targetRef,
-        integratorSubject: `system:organization-integrator:${workId}`,
-      };
-      const integrated = yield* coordinateOrganizationGitIntegration(request).pipe(
-        Effect.provideService(OrganizationGitIntegrationAuthority, {
-          permitsAttempt: (input) =>
-            input.attemptId === attemptId &&
-            input.targetRef === activation.selection.targetRef &&
-            input.integratorSubject === request.integratorSubject,
-          permits: (input, context) =>
-            input.attemptId === attemptId &&
-            input.targetRef === activation.selection.targetRef &&
-            input.integratorSubject === request.integratorSubject &&
-            context.workId === workId &&
-            context.organizationId === activation.organizationId &&
-            context.projectId === detail.work.projectId &&
-            context.bindingId === detail.work.bindingId &&
-            context.approvalSubject === detail.work.approvalSubject &&
-            context.baseCommit === detail.work.codeRevision,
-        }),
-      );
-      yield* completeOrganizationGitIntegration(request).pipe(
-        Effect.provideService(OrganizationGitIntegrationCompletionAuthority, {
-          permitsAttempt: (input) =>
-            input.attemptId === attemptId &&
-            input.targetRef === activation.selection.targetRef &&
-            input.integratorSubject === request.integratorSubject,
-          permits: (input, context) =>
-            input.attemptId === attemptId &&
-            input.targetRef === activation.selection.targetRef &&
-            input.integratorSubject === request.integratorSubject &&
-            context.workId === workId &&
-            context.organizationId === activation.organizationId &&
-            context.projectId === detail.work.projectId &&
-            context.bindingId === detail.work.bindingId &&
-            context.baseCommit === integrated.baseCommit &&
-            context.resultCommit === integrated.resultCommit &&
-            context.approvalReceiptDigest === integrated.approvalReceiptDigest,
-        }),
-      );
-    }),
+  proposeAndAttempt: Effect.fn("OrganizationLiveWorkExecutor.proposeAndAttempt")(function* (
+    workId: OrganizationWorkId,
+  ) {
+    const proposal = yield* proposeOrganizationSingleFileArtifactWithBudget(workId);
+    const attempt = yield* runOrganizationSingleFileAttempt(proposal);
+    if (attempt.status !== "submitted")
+      return yield* Effect.fail(new OrganizationLiveWorkPhaseError("attempt_unavailable"));
+  }),
+  candidateAndQA: Effect.fn("OrganizationLiveWorkExecutor.candidateAndQA")(function* (
+    workId: OrganizationWorkId,
+    attemptId: string,
+  ) {
+    const activation = yield* readOrganizationWorkIntentActivationByWorkId(workId);
+    const readiness = yield* OrganizationWorkIntentActivationReadiness;
+    const workStore = yield* OrganizationWorkStore;
+    const detail = yield* workStore.getWork(workId);
+    const attempt = detail.attempts.at(-1);
+    if (
+      !attempt ||
+      attempt.id !== attemptId ||
+      attempt.status !== "submitted" ||
+      detail.work.status !== "blocked" ||
+      activation.organizationId !== detail.work.organizationId ||
+      !attempt.artifactRef ||
+      !attempt.artifactDigest
+    )
+      return yield* new OrganizationWorkError({
+        code: "conflict",
+        message: "Submitted attempt changed before candidate or QA.",
+      });
+    if (!readiness.permits(activation.organizationId, activation.intentId))
+      return yield* new OrganizationWorkError({
+        code: "forbidden",
+        message: "Project work execution is not ready.",
+      });
+    yield* coordinateOrganizationGitCandidate(attemptId).pipe(
+      Effect.provideService(OrganizationGitCandidateCoordinatorAuthority, {
+        permitsAttempt: (id) => id === attemptId,
+        permits: (intent) =>
+          intent.attemptId === attemptId &&
+          intent.workId === workId &&
+          intent.organizationId === activation.organizationId &&
+          intent.projectId === detail.work.projectId &&
+          intent.bindingId === detail.work.bindingId &&
+          intent.bindingVersion === detail.work.bindingVersion &&
+          intent.baseCommit === detail.work.codeRevision &&
+          intent.artifactRef === attempt.artifactRef &&
+          intent.artifactReceiptDigest === attempt.artifactDigest &&
+          intent.relativePath === activation.selection.fileName,
+      }),
+    );
+    const qa = yield* runOrganizationSingleFileQA({ workId, attemptId: attempt.id });
+    if (qa.attempts.at(-1)?.status === "qa-rejected")
+      return yield* Effect.fail(new OrganizationLiveWorkPhaseError("qa_rejected"));
+  }),
+  integrateAndComplete: Effect.fn("OrganizationLiveWorkExecutor.integrateAndComplete")(function* (
+    workId: OrganizationWorkId,
+    attemptId: string,
+  ) {
+    const activation = yield* readOrganizationWorkIntentActivationByWorkId(workId);
+    const readiness = yield* OrganizationWorkIntentActivationReadiness;
+    const workStore = yield* OrganizationWorkStore;
+    const detail = yield* workStore.getWork(workId);
+    const attempt = detail.attempts.at(-1);
+    if (
+      !attempt ||
+      attempt.id !== attemptId ||
+      attempt.status !== "qa-accepted" ||
+      detail.work.status !== "blocked" ||
+      !detail.work.approvalSubject ||
+      activation.organizationId !== detail.work.organizationId
+    )
+      return yield* new OrganizationWorkError({
+        code: "conflict",
+        message: "Approved attempt changed before integration.",
+      });
+    if (!readiness.permits(activation.organizationId, activation.intentId))
+      return yield* new OrganizationWorkError({
+        code: "forbidden",
+        message: "Project work execution is not ready.",
+      });
+    const request = {
+      attemptId,
+      targetRef: activation.selection.targetRef,
+      integratorSubject: `system:organization-integrator:${workId}`,
+    };
+    const integrated = yield* coordinateOrganizationGitIntegration(request).pipe(
+      Effect.provideService(OrganizationGitIntegrationAuthority, {
+        permitsAttempt: (input) =>
+          input.attemptId === attemptId &&
+          input.targetRef === activation.selection.targetRef &&
+          input.integratorSubject === request.integratorSubject,
+        permits: (input, context) =>
+          input.attemptId === attemptId &&
+          input.targetRef === activation.selection.targetRef &&
+          input.integratorSubject === request.integratorSubject &&
+          context.workId === workId &&
+          context.organizationId === activation.organizationId &&
+          context.projectId === detail.work.projectId &&
+          context.bindingId === detail.work.bindingId &&
+          context.approvalSubject === detail.work.approvalSubject &&
+          context.baseCommit === detail.work.codeRevision,
+      }),
+    );
+    yield* completeOrganizationGitIntegration(request).pipe(
+      Effect.provideService(OrganizationGitIntegrationCompletionAuthority, {
+        permitsAttempt: (input) =>
+          input.attemptId === attemptId &&
+          input.targetRef === activation.selection.targetRef &&
+          input.integratorSubject === request.integratorSubject,
+        permits: (input, context) =>
+          input.attemptId === attemptId &&
+          input.targetRef === activation.selection.targetRef &&
+          input.integratorSubject === request.integratorSubject &&
+          context.workId === workId &&
+          context.organizationId === activation.organizationId &&
+          context.projectId === detail.work.projectId &&
+          context.bindingId === detail.work.bindingId &&
+          context.baseCommit === integrated.baseCommit &&
+          context.resultCommit === integrated.resultCommit &&
+          context.approvalReceiptDigest === integrated.approvalReceiptDigest,
+      }),
+    );
+  }),
 } satisfies OrganizationLiveWorkActions<unknown>;

@@ -15,6 +15,7 @@ import {
   DEV_PROXIED_PATH_PREFIXES,
 } from "@t3tools/shared/devProxy";
 
+import { WEB_DOM_TEST_FILES } from "../../scripts/lib/fork-dom-test-projects.ts";
 import { buildIdentity } from "../../scripts/lib/build-identity.ts";
 import {
   loadRepoEnv,
@@ -93,15 +94,26 @@ const unitTestProject = {
   test: {
     name: "unit",
     include: ["src/**/*.test.{ts,tsx}"],
-    exclude: ["src/**/*.browser.test.{ts,tsx}"],
+    exclude: ["src/**/*.browser.test.{ts,tsx}", ...WEB_DOM_TEST_FILES],
     hookTimeout: 15_000,
     testTimeout: 15_000,
     setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
   },
 } satisfies TestProjectInlineConfiguration;
 
-// Anything that renders React or touches the DOM is named *.browser.test.{ts,tsx} and runs
-// in headless Chromium through the same plugins as the app, so it exercises compiled code.
+const domTestProject = {
+  extends: true,
+  test: {
+    name: "dom",
+    environment: "jsdom",
+    include: WEB_DOM_TEST_FILES,
+    hookTimeout: 15_000,
+    testTimeout: 15_000,
+    setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+  },
+} satisfies TestProjectInlineConfiguration;
+
+// Browser regressions run in headless Chromium through the same plugins as the app.
 // Vitest's fixed browser API port (63315) collides when two checkouts run
 // browser tests at once, and `server.strictPort` above is inherited, so the
 // second run fails instead of moving on. Hash the checkout path like
@@ -316,7 +328,11 @@ export default defineConfig(() => {
       sourcemap: buildSourcemap,
     },
     test: {
-      projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
+      projects: [
+        defineProject(unitTestProject),
+        defineProject(domTestProject),
+        defineProject(browserTestProject),
+      ],
     },
   };
 });

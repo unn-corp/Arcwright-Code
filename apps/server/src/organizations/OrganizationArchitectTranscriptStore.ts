@@ -110,8 +110,8 @@ const ModelSelectionJson = Schema.fromJsonString(ModelSelection);
 const ChangeJson = Schema.fromJsonString(OrganizationArchitectAllowedChange);
 const json = (value: unknown) => Schema.encodeSync(JsonUnknown)(value);
 
-const decodeMessage = (row: MessageRow) =>
-  Effect.gen(function* () {
+const decodeMessage = Effect.fn("OrganizationArchitectTranscriptStore.decodeMessage")(
+  function* (row: MessageRow) {
     const modelSelection =
       row.model_selection_json === null
         ? null
@@ -126,9 +126,11 @@ const decodeMessage = (row: MessageRow) =>
       modelSelection,
       createdAt: row.created_at,
     });
-  }).pipe(Effect.mapError(() => unavailable()));
-const decodeProposal = (row: ProposalRow) =>
-  Effect.gen(function* () {
+  },
+  Effect.mapError(() => unavailable()),
+);
+const decodeProposal = Effect.fn("OrganizationArchitectTranscriptStore.decodeProposal")(
+  function* (row: ProposalRow) {
     const change = yield* Schema.decodeUnknownEffect(ChangeJson)(row.change_json);
     return yield* Schema.decodeUnknownEffect(OrganizationArchitectProposal)({
       id: row.proposal_id,
@@ -138,7 +140,9 @@ const decodeProposal = (row: ProposalRow) =>
       change,
       createdAt: row.created_at,
     });
-  }).pipe(Effect.mapError(() => unavailable()));
+  },
+  Effect.mapError(() => unavailable()),
+);
 const decodeRequestStatus = (row: RequestRow) =>
   Schema.decodeUnknownEffect(OrganizationArchitectRequestStatus)({
     requestId: row.request_id,

@@ -153,7 +153,7 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("Codex catalog disco
             "high",
           );
         }
-        assert.equal(provider.models.find((model) => model.isDefault)?.slug, "gpt-6.1-sol");
+        assert.equal(provider.models.find((model) => model.isDefault)?.slug, "gpt-6-luna");
       }
     }).pipe(Effect.scoped),
   );

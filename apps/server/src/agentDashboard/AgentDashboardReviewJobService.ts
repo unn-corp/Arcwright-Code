@@ -613,11 +613,8 @@ const make = Effect.gen(function* () {
         )
       : Effect.void;
 
-  const monitorAndIngest = (
-    run: AgentDashboardAutomationRun,
-    review: AgentDashboardReviewRunResult,
-  ): Effect.Effect<AgentDashboardAutomationRun, never> =>
-    Effect.gen(function* () {
+  const monitorAndIngest = Effect.fn("AgentDashboardReviewJobService.monitorAndIngest")(
+    function* (run: AgentDashboardAutomationRun, review: AgentDashboardReviewRunResult) {
       let outputNudgeCount = 0;
       let lastNudgedTurnId: string | null = null;
       let lastOutputNudgeAtMs: number | null = null;
@@ -850,33 +847,36 @@ const make = Effect.gen(function* () {
       };
       yield* hideReviewSession(run, review);
       return yield* persist(terminal).pipe(Effect.orElseSucceed(() => terminal));
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.gen(function* () {
-          const failedAt = yield* nowIso;
-          const failed: AgentDashboardAutomationRun = {
-            ...run,
-            status: "failed",
-            error: "Repository review ingestion failed unexpectedly.",
-            updatedAt: failedAt,
-            completedAt: failedAt,
-            threadId: review.threadId,
-            target: review.projectName,
-            repository: { projectId: review.projectId },
-          };
-          yield* Effect.logWarning("Arcwright Code repository review ingestion failed", {
-            runId: run.id,
-            threadId: review.threadId,
-            cause,
-          });
-          yield* hideReviewSession(run, review);
-          return yield* persist(failed).pipe(Effect.orElseSucceed(() => failed));
-        }),
+    },
+    (_program, run, review) =>
+      _program.pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            const failedAt = yield* nowIso;
+            const failed: AgentDashboardAutomationRun = {
+              ...run,
+              status: "failed",
+              error: "Repository review ingestion failed unexpectedly.",
+              updatedAt: failedAt,
+              completedAt: failedAt,
+              threadId: review.threadId,
+              target: review.projectName,
+              repository: { projectId: review.projectId },
+            };
+            yield* Effect.logWarning("Arcwright Code repository review ingestion failed", {
+              runId: run.id,
+              threadId: review.threadId,
+              cause,
+            });
+            yield* hideReviewSession(run, review);
+            return yield* persist(failed).pipe(Effect.orElseSucceed(() => failed));
+          }),
+        ),
       ),
-    );
+  );
 
-  const executeRunAdmitted = (run: AgentDashboardAutomationRun): Effect.Effect<void, never> =>
-    Effect.gen(function* () {
+  const executeRunAdmitted = Effect.fn("AgentDashboardReviewJobService.executeRunAdmitted")(
+    function* (run: AgentDashboardAutomationRun) {
       // Wait for a concurrency slot without busy-polling wall clocks.
       while (true) {
         const claimed = yield* Ref.modify(workerSlots, (active) => {
@@ -977,140 +977,146 @@ const make = Effect.gen(function* () {
       } finally {
         yield* Ref.update(workerSlots, (active) => Math.max(0, active - 1));
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.gen(function* () {
-          const failedAt = yield* nowIso;
-          const failed: AgentDashboardAutomationRun = {
-            ...run,
-            status: "failed",
-            error: "Repository review job failed unexpectedly.",
-            updatedAt: failedAt,
-            completedAt: failedAt,
-          };
-          yield* Effect.logWarning("Arcwright Code repository review job failed", {
-            runId: run.id,
-            cause,
-          });
-          yield* persist(failed).pipe(Effect.ignore);
-        }),
+    },
+    (_program, run) =>
+      _program.pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            const failedAt = yield* nowIso;
+            const failed: AgentDashboardAutomationRun = {
+              ...run,
+              status: "failed",
+              error: "Repository review job failed unexpectedly.",
+              updatedAt: failedAt,
+              completedAt: failedAt,
+            };
+            yield* Effect.logWarning("Arcwright Code repository review job failed", {
+              runId: run.id,
+              cause,
+            });
+            yield* persist(failed).pipe(Effect.ignore);
+          }),
+        ),
       ),
-    );
+  );
 
-  const executeRun = (run: AgentDashboardAutomationRun): Effect.Effect<void, never> =>
-    Effect.gen(function* () {
-      while (true) {
-        const exit = yield* Effect.exit(withAutomationWork(executeRunAdmitted(run)));
-        if (Exit.isSuccess(exit)) return;
-        const failure = Cause.squash(exit.cause);
-        if (!isMaintenanceWorkHeld(failure)) return;
-        // Keep durable queued work pending while either the device fence or person review is held.
-        yield* Effect.sleep(MONITOR_POLL_INTERVAL);
-      }
-    });
+  const executeRun = Effect.fn("AgentDashboardReviewJobService.executeRun")(function* (
+    run: AgentDashboardAutomationRun,
+  ): Effect.fn.Return<void, never> {
+    while (true) {
+      const exit = yield* Effect.exit(withAutomationWork(executeRunAdmitted(run)));
+      if (Exit.isSuccess(exit)) return;
+      const failure = Cause.squash(exit.cause);
+      if (!isMaintenanceWorkHeld(failure)) return;
+      // Keep durable queued work pending while either the device fence or person review is held.
+      yield* Effect.sleep(MONITOR_POLL_INTERVAL);
+    }
+  });
 
-  const enqueueReview: AgentDashboardReviewJobServiceService["enqueueReview"] = (input) =>
-    Effect.gen(function* () {
-      const current = yield* Ref.get(runsRef);
-      const idempotencyKey =
-        stringValue(input.idempotencyKey) ??
-        (input.trigger === "manual" && !input.projectId
-          ? `manual:${REVIEW_KIND}`
-          : input.trigger === "scheduled"
-            ? `scheduled:${REVIEW_KIND}`
-            : null);
+  const enqueueReview: AgentDashboardReviewJobServiceService["enqueueReview"] = Effect.fn(
+    "AgentDashboardReviewJobService.enqueueReview",
+  )(function* (input) {
+    const current = yield* Ref.get(runsRef);
+    const idempotencyKey =
+      stringValue(input.idempotencyKey) ??
+      (input.trigger === "manual" && !input.projectId
+        ? `manual:${REVIEW_KIND}`
+        : input.trigger === "scheduled"
+          ? `scheduled:${REVIEW_KIND}`
+          : null);
 
-      if (idempotencyKey) {
-        const existing = findIdempotentMatch(current, idempotencyKey);
-        if (existing) return existing;
-      }
+    if (idempotencyKey) {
+      const existing = findIdempotentMatch(current, idempotencyKey);
+      if (existing) return existing;
+    }
 
-      // Bound total in-flight work: refuse enqueue when the queue is already full
-      // of active runs at the concurrency limit *and* more are waiting... For
-      // simplicity with maxConcurrent=1, any active run with the same kind for
-      // scheduled/manual default keys is already handled. Additional targeted
-      // runs may still queue; cap absolute active+queued depth.
-      const active = activeCount(current.filter((run) => run.kind === REVIEW_KIND));
-      if (active >= MAX_CONCURRENT_REVIEW_RUNS * 4) {
-        return yield* new AgentDashboardReviewJobServiceError({
-          operation: "enqueue review",
-          message: "Too many repository reviews are already queued or running.",
-        });
-      }
-
-      const createdAt = yield* nowIso;
-      const reviewModelSelection = yield* settings.getSettings.pipe(
-        Effect.map((currentSettings) => currentSettings.repositoryReview.modelSelection),
-        Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS.repositoryReview.modelSelection),
-      );
-      const id = yield* randomId;
-      const projectId =
-        input.projectId ??
-        // Placeholder until dispatch selects a project; still satisfies the contract.
-        ProjectId.make("pending-selection");
-
-      const run: AgentDashboardAutomationRun = {
-        id,
-        status: "queued",
-        trigger: input.trigger,
-        kind: REVIEW_KIND,
-        repository: { projectId },
-        target: stringValue(input.target),
-        threadId: null,
-        jobId: idempotencyKey ?? id,
-        model: modelLabel(reviewModelSelection),
-        retryCount: input.retryCount ?? 0,
-        findingCount: 0,
-        costUnits: null,
-        error: null,
-        createdAt,
-        startedAt: null,
-        updatedAt: createdAt,
-        completedAt: null,
-      };
-
-      const saved = yield* persist(run);
-      yield* executeRun(saved).pipe(Effect.forkIn(scope));
-      return saved;
-    });
-
-  const retryRun: AgentDashboardReviewJobServiceService["retryRun"] = (runId) =>
-    Effect.gen(function* () {
-      const existing = (yield* Ref.get(runsRef)).find((run) => run.id === runId) ?? null;
-      if (!existing) {
-        return yield* new AgentDashboardReviewJobServiceError({
-          operation: "retry run",
-          message: "That automation run was not found.",
-        });
-      }
-      if (isActiveStatus(existing.status)) {
-        return yield* new AgentDashboardReviewJobServiceError({
-          operation: "retry run",
-          message: "That automation run is still in progress.",
-        });
-      }
-      if (existing.retryCount >= MAX_REVIEW_RETRIES) {
-        return yield* new AgentDashboardReviewJobServiceError({
-          operation: "retry run",
-          message: `Repository review retry limit (${MAX_REVIEW_RETRIES}) reached.`,
-        });
-      }
-      if (existing.repository.projectId === ProjectId.make("pending-selection")) {
-        return yield* new AgentDashboardReviewJobServiceError({
-          operation: "retry run",
-          message: "That automation run has no durable repository target to retry.",
-        });
-      }
-
-      return yield* enqueueReview({
-        trigger: "retry",
-        projectId: existing.repository.projectId,
-        target: existing.target,
-        parentRunId: existing.id,
-        retryCount: existing.retryCount + 1,
-        idempotencyKey: `retry:${existing.id}:${existing.retryCount + 1}`,
+    // Bound total in-flight work: refuse enqueue when the queue is already full
+    // of active runs at the concurrency limit *and* more are waiting... For
+    // simplicity with maxConcurrent=1, any active run with the same kind for
+    // scheduled/manual default keys is already handled. Additional targeted
+    // runs may still queue; cap absolute active+queued depth.
+    const active = activeCount(current.filter((run) => run.kind === REVIEW_KIND));
+    if (active >= MAX_CONCURRENT_REVIEW_RUNS * 4) {
+      return yield* new AgentDashboardReviewJobServiceError({
+        operation: "enqueue review",
+        message: "Too many repository reviews are already queued or running.",
       });
+    }
+
+    const createdAt = yield* nowIso;
+    const reviewModelSelection = yield* settings.getSettings.pipe(
+      Effect.map((currentSettings) => currentSettings.repositoryReview.modelSelection),
+      Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS.repositoryReview.modelSelection),
+    );
+    const id = yield* randomId;
+    const projectId =
+      input.projectId ??
+      // Placeholder until dispatch selects a project; still satisfies the contract.
+      ProjectId.make("pending-selection");
+
+    const run: AgentDashboardAutomationRun = {
+      id,
+      status: "queued",
+      trigger: input.trigger,
+      kind: REVIEW_KIND,
+      repository: { projectId },
+      target: stringValue(input.target),
+      threadId: null,
+      jobId: idempotencyKey ?? id,
+      model: modelLabel(reviewModelSelection),
+      retryCount: input.retryCount ?? 0,
+      findingCount: 0,
+      costUnits: null,
+      error: null,
+      createdAt,
+      startedAt: null,
+      updatedAt: createdAt,
+      completedAt: null,
+    };
+
+    const saved = yield* persist(run);
+    yield* executeRun(saved).pipe(Effect.forkIn(scope));
+    return saved;
+  });
+
+  const retryRun: AgentDashboardReviewJobServiceService["retryRun"] = Effect.fn(
+    "AgentDashboardReviewJobService.retryRun",
+  )(function* (runId) {
+    const existing = (yield* Ref.get(runsRef)).find((run) => run.id === runId) ?? null;
+    if (!existing) {
+      return yield* new AgentDashboardReviewJobServiceError({
+        operation: "retry run",
+        message: "That automation run was not found.",
+      });
+    }
+    if (isActiveStatus(existing.status)) {
+      return yield* new AgentDashboardReviewJobServiceError({
+        operation: "retry run",
+        message: "That automation run is still in progress.",
+      });
+    }
+    if (existing.retryCount >= MAX_REVIEW_RETRIES) {
+      return yield* new AgentDashboardReviewJobServiceError({
+        operation: "retry run",
+        message: `Repository review retry limit (${MAX_REVIEW_RETRIES}) reached.`,
+      });
+    }
+    if (existing.repository.projectId === ProjectId.make("pending-selection")) {
+      return yield* new AgentDashboardReviewJobServiceError({
+        operation: "retry run",
+        message: "That automation run has no durable repository target to retry.",
+      });
+    }
+
+    return yield* enqueueReview({
+      trigger: "retry",
+      projectId: existing.repository.projectId,
+      target: existing.target,
+      parentRunId: existing.id,
+      retryCount: existing.retryCount + 1,
+      idempotencyKey: `retry:${existing.id}:${existing.retryCount + 1}`,
     });
+  });
 
   yield* dashboardStore.repairRepositoryCoverage(loadInitial).pipe(
     Effect.tapError((cause) =>

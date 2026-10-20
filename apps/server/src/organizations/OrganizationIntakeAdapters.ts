@@ -126,91 +126,90 @@ const hasExactKeys = (value: unknown, expected: ReadonlySet<string>) => {
 };
 
 /** Pure relay normalization. Callers must separately authenticate the source secret. */
-export const normalizeOrganizationRelayEvent = (
-  input: unknown,
-): Effect.Effect<NormalizedEvent, OrganizationIntakeAdapterError> =>
-  Effect.gen(function* () {
-    const serialized = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
-      input,
-    ).pipe(Effect.mapError(() => invalid("Relay event must be a JSON object.")));
-    const size = bytes(serialized);
-    if (size > MAX_RELAY_BYTES) return yield* invalid("Relay event exceeds 32 KiB.");
-    const kind =
-      input !== null && typeof input === "object" && "kind" in input ? input.kind : undefined;
-    const keys =
-      kind === "github-issue-relay"
-        ? GITHUB_KEYS
-        : kind === "plain-text-email-relay"
-          ? EMAIL_KEYS
-          : null;
-    if (keys === null || !hasExactKeys(input, keys))
-      return yield* invalid("Relay event has missing or unsupported fields.");
-    const event = yield* Schema.decodeUnknownEffect(OrganizationRelayEventInput)(input).pipe(
-      Effect.mapError(() => invalid("Relay event fields are invalid.")),
-    );
+export const normalizeOrganizationRelayEvent = Effect.fn(
+  "OrganizationIntakeAdapters.normalizeOrganizationRelayEvent",
+)(function* (input: unknown): Effect.fn.Return<NormalizedEvent, OrganizationIntakeAdapterError> {
+  const serialized = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(input).pipe(
+    Effect.mapError(() => invalid("Relay event must be a JSON object.")),
+  );
+  const size = bytes(serialized);
+  if (size > MAX_RELAY_BYTES) return yield* invalid("Relay event exceeds 32 KiB.");
+  const kind =
+    input !== null && typeof input === "object" && "kind" in input ? input.kind : undefined;
+  const keys =
+    kind === "github-issue-relay"
+      ? GITHUB_KEYS
+      : kind === "plain-text-email-relay"
+        ? EMAIL_KEYS
+        : null;
+  if (keys === null || !hasExactKeys(input, keys))
+    return yield* invalid("Relay event has missing or unsupported fields.");
+  const event = yield* Schema.decodeUnknownEffect(OrganizationRelayEventInput)(input).pipe(
+    Effect.mapError(() => invalid("Relay event fields are invalid.")),
+  );
+  if (
+    bytes(event.organizationId) > 160 ||
+    bytes(event.sourceId) > 160 ||
+    bytes(event.projectId) > 160
+  )
+    return yield* invalid("Relay scope identity exceeds its size limit.");
+  const occurredAt = parseRfc3339(event.occurredAt);
+  if (occurredAt === null) return yield* invalid("Relay event timestamp is invalid.");
+  const title = redact(event.kind === "github-issue-relay" ? event.title : event.subject);
+  const body = redact(event.kind === "github-issue-relay" ? event.bodyText : event.plainText);
+  if (
+    bytes(title) > MAX_TITLE_BYTES ||
+    bytes(body) > MAX_BODY_BYTES ||
+    HTML_TAG.test(title) ||
+    HTML_TAG.test(body)
+  )
+    return yield* invalid("Relay text must be bounded plain text without HTML.");
+  let externalEventId: string;
+  let dedupKey: string;
+  let attributes: Record<string, string>;
+  if (event.kind === "github-issue-relay") {
     if (
-      bytes(event.organizationId) > 160 ||
-      bytes(event.sourceId) > 160 ||
-      bytes(event.projectId) > 160
+      !UUID.test(event.deliveryId) ||
+      !NUMERIC_ID.test(event.repositoryId) ||
+      !NUMERIC_ID.test(event.issueId)
     )
-      return yield* invalid("Relay scope identity exceeds its size limit.");
-    const occurredAt = parseRfc3339(event.occurredAt);
-    if (occurredAt === null) return yield* invalid("Relay event timestamp is invalid.");
-    const title = redact(event.kind === "github-issue-relay" ? event.title : event.subject);
-    const body = redact(event.kind === "github-issue-relay" ? event.bodyText : event.plainText);
+      return yield* invalid("GitHub relay identities are invalid.");
+    const deliveryHash = hash([event.deliveryId.toLowerCase()]);
+    externalEventId = `github-delivery:${deliveryHash}`;
+    dedupKey = externalEventId;
+    attributes = {
+      adapter: "github-issue-relay",
+      repositoryId: event.repositoryId,
+      issueId: event.issueId,
+      action: event.action,
+      correlationKey: `github-issue:${event.repositoryId}:${event.issueId}`,
+    };
+  } else {
     if (
-      bytes(title) > MAX_TITLE_BYTES ||
-      bytes(body) > MAX_BODY_BYTES ||
-      HTML_TAG.test(title) ||
-      HTML_TAG.test(body)
+      !RELAY_ID.test(event.relayEventId) ||
+      !MESSAGE_ID.test(event.messageId) ||
+      (event.correlationKey !== null &&
+        (!CORRELATION.test(event.correlationKey) ||
+          redact(event.correlationKey) !== event.correlationKey))
     )
-      return yield* invalid("Relay text must be bounded plain text without HTML.");
-    let externalEventId: string;
-    let dedupKey: string;
-    let attributes: Record<string, string>;
-    if (event.kind === "github-issue-relay") {
-      if (
-        !UUID.test(event.deliveryId) ||
-        !NUMERIC_ID.test(event.repositoryId) ||
-        !NUMERIC_ID.test(event.issueId)
-      )
-        return yield* invalid("GitHub relay identities are invalid.");
-      const deliveryHash = hash([event.deliveryId.toLowerCase()]);
-      externalEventId = `github-delivery:${deliveryHash}`;
-      dedupKey = externalEventId;
-      attributes = {
-        adapter: "github-issue-relay",
-        repositoryId: event.repositoryId,
-        issueId: event.issueId,
-        action: event.action,
-        correlationKey: `github-issue:${event.repositoryId}:${event.issueId}`,
-      };
-    } else {
-      if (
-        !RELAY_ID.test(event.relayEventId) ||
-        !MESSAGE_ID.test(event.messageId) ||
-        (event.correlationKey !== null &&
-          (!CORRELATION.test(event.correlationKey) ||
-            redact(event.correlationKey) !== event.correlationKey))
-      )
-        return yield* invalid("Email relay identities are invalid.");
-      externalEventId = `email-relay:${hash([event.relayEventId])}`;
-      dedupKey = `email-message:${hash([event.messageId])}`;
-      attributes = {
-        adapter: "plain-text-email-relay",
-        selectionReason: event.selectionReason,
-        ...(event.correlationKey === null ? {} : { correlationKey: event.correlationKey }),
-      };
-    }
-    return yield* Schema.decodeUnknownEffect(OrganizationIntakeEventInput)({
-      organizationId: event.organizationId,
-      sourceId: event.sourceId,
-      projectId: event.projectId,
-      externalEventId,
-      dedupKey,
-      occurredAt,
-      title,
-      body,
-      attributes,
-    }).pipe(Effect.mapError(() => invalid("Normalized relay event is invalid.")));
-  });
+      return yield* invalid("Email relay identities are invalid.");
+    externalEventId = `email-relay:${hash([event.relayEventId])}`;
+    dedupKey = `email-message:${hash([event.messageId])}`;
+    attributes = {
+      adapter: "plain-text-email-relay",
+      selectionReason: event.selectionReason,
+      ...(event.correlationKey === null ? {} : { correlationKey: event.correlationKey }),
+    };
+  }
+  return yield* Schema.decodeUnknownEffect(OrganizationIntakeEventInput)({
+    organizationId: event.organizationId,
+    sourceId: event.sourceId,
+    projectId: event.projectId,
+    externalEventId,
+    dedupKey,
+    occurredAt,
+    title,
+    body,
+    attributes,
+  }).pipe(Effect.mapError(() => invalid("Normalized relay event is invalid.")));
+});

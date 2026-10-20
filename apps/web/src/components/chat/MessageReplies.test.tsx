@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 // @effect-diagnostics nodeBuiltinImport:off - Verify the shipped reply foreground style.
 import * as NodeFS from "node:fs";
 import * as NodeURL from "node:url";

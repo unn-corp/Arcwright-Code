@@ -60,8 +60,8 @@ const make = Effect.gen(function* () {
   const settingsStore = yield* DesktopClientSettings.DesktopClientSettings;
   const windows = yield* ElectronWindow.ElectronWindow;
 
-  const show: DesktopNotifications["Service"]["show"] = (event) =>
-    Effect.gen(function* () {
+  const show: DesktopNotifications["Service"]["show"] = Effect.fn("DesktopNotifications.show")(
+    function* (event) {
       const settings = Option.getOrNull(yield* settingsStore.get);
       const preferences = settings?.agentNotifications;
       if (!preferences || !isAgentNotificationEnabled(preferences, event.kind)) {
@@ -88,7 +88,9 @@ const make = Effect.gen(function* () {
         notification.show();
         return "attempted" as const;
       });
-    }).pipe(Effect.catch(() => Effect.succeed("error" as const)));
+    },
+    Effect.catch(() => Effect.succeed("error" as const)),
+  );
 
   return DesktopNotifications.of({ show });
 });

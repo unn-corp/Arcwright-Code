@@ -1,5 +1,6 @@
 import "vite-plus/test/config";
-import { defaultInclude, defineConfig } from "vite-plus";
+import { defaultExclude, defaultInclude, defineConfig } from "vite-plus";
+import { DESKTOP_DOM_TEST_FILES } from "../../scripts/lib/fork-dom-test-projects.ts";
 import { buildIdentity } from "../../scripts/lib/build-identity.ts";
 
 import { isDesktopRuntimeExternalDependency } from "../../scripts/lib/desktop-external-packages.ts";
@@ -144,7 +145,20 @@ export default defineConfig({
     },
   ],
   test: {
-    include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
+          exclude: [...defaultExclude, ...DESKTOP_DOM_TEST_FILES],
+        },
+      },
+      {
+        extends: true,
+        test: { name: "dom", environment: "jsdom", include: DESKTOP_DOM_TEST_FILES },
+      },
+    ],
     // The Windows lane runs workspace suites concurrently; filesystem-heavy
     // desktop integration tests can exceed Vitest's 5 second default there.
     testTimeout: 15_000,

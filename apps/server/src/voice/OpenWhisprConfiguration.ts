@@ -79,16 +79,15 @@ const make = Effect.gen(function* () {
         : env.XDG_CONFIG_HOME || path.join(home, ".config");
   const profile = path.join(root, "open-whispr"),
     storage = path.join(profile, "Local Storage", "leveldb");
-  const read = (file: string) =>
-    Effect.gen(function* () {
-      const stat = yield* fs.stat(file);
-      if (stat.size > BigInt(MAX_STORAGE_BYTES))
-        return yield* new OpenWhisprConfigurationError({ reason: "settings" });
-      const data = yield* fs.readFile(file);
-      if (data.length > MAX_STORAGE_BYTES)
-        return yield* new OpenWhisprConfigurationError({ reason: "settings" });
-      return data;
-    });
+  const read = Effect.fn("OpenWhisprConfiguration.read")(function* (file: string) {
+    const stat = yield* fs.stat(file);
+    if (stat.size > BigInt(MAX_STORAGE_BYTES))
+      return yield* new OpenWhisprConfigurationError({ reason: "settings" });
+    const data = yield* fs.readFile(file);
+    if (data.length > MAX_STORAGE_BYTES)
+      return yield* new OpenWhisprConfigurationError({ reason: "settings" });
+    return data;
+  });
   const readPreferences = Effect.gen(function* () {
     const currentFile = path.join(storage, "CURRENT");
     if (!(yield* fs.exists(currentFile))) return null;
@@ -118,8 +117,8 @@ const make = Effect.gen(function* () {
     // Compaction may retire a table between CURRENT and the last read. Retry from CURRENT once.
     Effect.retry({ times: 1 }),
   );
-  const readKey = (preferences: ReadonlyMap<string, string>) =>
-    Effect.gen(function* () {
+  const readKey = Effect.fn("OpenWhisprConfiguration.readKey")(
+    function* (preferences: ReadonlyMap<string, string>) {
       const encryptedFile = path.join(profile, "secure-keys", "CUSTOM_TRANSCRIPTION_API_KEY.enc");
       if (yield* fs.exists(encryptedFile)) {
         const encrypted = yield* read(encryptedFile);
@@ -155,7 +154,9 @@ const make = Effect.gen(function* () {
       }
       if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1);
       return value.replace(/\s+#.*$/, "").trim();
-    }).pipe(Effect.mapError(() => new OpenWhisprConfigurationError({ reason: "credentials" })));
+    },
+    Effect.mapError(() => new OpenWhisprConfigurationError({ reason: "credentials" })),
+  );
 
   return OpenWhisprConfiguration.of({
     current: Effect.gen(function* () {

@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 // @effect-diagnostics nodeBuiltinImport:off - Verify the pinned tab uses the shipped stylesheet.
 import * as NodeFS from "node:fs";
 import * as NodeURL from "node:url";

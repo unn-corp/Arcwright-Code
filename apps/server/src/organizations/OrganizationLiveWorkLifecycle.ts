@@ -50,53 +50,51 @@ const requireInteractive = (principal: OrganizationLiveWorkLifecyclePrincipal) =
 /** Pausing uses OrganizationStore's existing idle-only transition. Resuming
  * receives a private exact-request authority after readiness and scope checks.
  */
-export const resumePausedOrganization = (
-  input: OrganizationLifecycleInput,
-  principal: OrganizationLiveWorkLifecyclePrincipal,
-) =>
-  Effect.gen(function* () {
-    if (!requireInteractive(principal))
-      return yield* fail("forbidden", "Resuming work requires an authenticated interactive user.");
-    if (input.actor !== "user" || input.lifecycle !== "active")
-      return yield* fail("invalid", "Resume requires the active lifecycle action.");
-    const readiness = yield* OrganizationLiveWorkRuntimeReadiness;
-    if (!readiness.status().ready)
-      return yield* fail("unavailable", "Organization work runtime is not ready.");
-    const sql = yield* SqlClient.SqlClient;
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          // The write lock serializes resume with pause, archive and scope changes.
-          const row = (yield* sql<{
-            lifecycle: string;
-            draft_revision: number;
-            published_revision: number | null;
-          }>`UPDATE organizations SET updated_at = updated_at
+export const resumePausedOrganization = Effect.fn(
+  "OrganizationLiveWorkLifecycle.resumePausedOrganization",
+)(function* (input: OrganizationLifecycleInput, principal: OrganizationLiveWorkLifecyclePrincipal) {
+  if (!requireInteractive(principal))
+    return yield* fail("forbidden", "Resuming work requires an authenticated interactive user.");
+  if (input.actor !== "user" || input.lifecycle !== "active")
+    return yield* fail("invalid", "Resume requires the active lifecycle action.");
+  const readiness = yield* OrganizationLiveWorkRuntimeReadiness;
+  if (!readiness.status().ready)
+    return yield* fail("unavailable", "Organization work runtime is not ready.");
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        // The write lock serializes resume with pause, archive and scope changes.
+        const row = (yield* sql<{
+          lifecycle: string;
+          draft_revision: number;
+          published_revision: number | null;
+        }>`UPDATE organizations SET updated_at = updated_at
             WHERE organization_id = ${input.organizationId}
             RETURNING lifecycle, draft_revision, published_revision`)[0];
-          if (!row) return yield* fail("not_found", "Organization is unavailable.");
-          if (row.lifecycle !== "paused")
-            return yield* fail("conflict", "Only a paused Organization can resume.");
-          if (row.draft_revision !== input.baseRevision)
-            return yield* fail("conflict", "Organization revision changed before resume.");
-          if (row.published_revision === null)
-            return yield* fail("conflict", "Publish configuration before resuming work.");
-          const emergencyStop = yield* sql<{ organization_id: string }>`
+        if (!row) return yield* fail("not_found", "Organization is unavailable.");
+        if (row.lifecycle !== "paused")
+          return yield* fail("conflict", "Only a paused Organization can resume.");
+        if (row.draft_revision !== input.baseRevision)
+          return yield* fail("conflict", "Organization revision changed before resume.");
+        if (row.published_revision === null)
+          return yield* fail("conflict", "Publish configuration before resuming work.");
+        const emergencyStop = yield* sql<{ organization_id: string }>`
             SELECT organization_id FROM organization_emergency_stops
             WHERE organization_id = ${input.organizationId} LIMIT 1`;
-          if (emergencyStop.length > 0)
-            return yield* fail("conflict", "Resolve emergency stop before resuming Project work.");
-          const drain = (yield* sql<{ completed_at: string | null }>`
+        if (emergencyStop.length > 0)
+          return yield* fail("conflict", "Resolve emergency stop before resuming Project work.");
+        const drain = (yield* sql<{ completed_at: string | null }>`
             SELECT completed_at FROM organization_live_work_drains
             WHERE organization_id = ${input.organizationId}`)[0];
-          if (drain?.completed_at === null)
-            return yield* fail("conflict", "Finish the Organization drain before resuming.");
-          const phaseClaims = yield* sql<{ work_id: string }>`
+        if (drain?.completed_at === null)
+          return yield* fail("conflict", "Finish the Organization drain before resuming.");
+        const phaseClaims = yield* sql<{ work_id: string }>`
             SELECT work_id FROM organization_live_work_phase_claims
             WHERE organization_id = ${input.organizationId} LIMIT 1`;
-          if (phaseClaims.length > 0)
-            return yield* fail("conflict", "Admitted work phases must settle before resuming.");
-          const open = yield* sql<{ attempt_id: string }>`SELECT a.attempt_id
+        if (phaseClaims.length > 0)
+          return yield* fail("conflict", "Admitted work phases must settle before resuming.");
+        const open = yield* sql<{ attempt_id: string }>`SELECT a.attempt_id
             FROM organization_work_attempts a
             JOIN organization_work_items w ON w.work_id = a.work_id
             LEFT JOIN organization_work_scopes s ON s.attempt_id = a.attempt_id
@@ -112,38 +110,38 @@ export const resumePausedOrganization = (
                 OR (prep.attempt_id IS NOT NULL AND s.verified_stopped_at IS NULL
                   AND recovery.attempt_id IS NULL))
             LIMIT 1`;
-          if (open.length > 0)
-            return yield* fail(
-              "conflict",
-              "Verify or recover the existing worker scope before resuming.",
-            );
-          if (!readiness.status().ready)
-            return yield* fail("unavailable", "Organization work runtime is not ready.");
-          const exactAuthority = Layer.succeed(OrganizationLifecycleActivationAuthority, {
-            permits: (request: OrganizationLifecycleInput) =>
-              request === input && readiness.status().ready,
-          });
-          const resumed = yield* OrganizationStore.pipe(
-            Effect.flatMap((store) => store.setLifecycle(input)),
-            Effect.provide(Layer.fresh(OrganizationStoreLayer.pipe(Layer.provide(exactAuthority)))),
-            Effect.mapError((error) =>
-              fail(error.code === "duplicate_mutation" ? "conflict" : error.code, error.message),
-            ),
+        if (open.length > 0)
+          return yield* fail(
+            "conflict",
+            "Verify or recover the existing worker scope before resuming.",
           );
-          yield* sql`DELETE FROM organization_live_work_drains
+        if (!readiness.status().ready)
+          return yield* fail("unavailable", "Organization work runtime is not ready.");
+        const exactAuthority = Layer.succeed(OrganizationLifecycleActivationAuthority, {
+          permits: (request: OrganizationLifecycleInput) =>
+            request === input && readiness.status().ready,
+        });
+        const resumed = yield* OrganizationStore.pipe(
+          Effect.flatMap((store) => store.setLifecycle(input)),
+          Effect.provide(Layer.fresh(OrganizationStoreLayer.pipe(Layer.provide(exactAuthority)))),
+          Effect.mapError((error) =>
+            fail(error.code === "duplicate_mutation" ? "conflict" : error.code, error.message),
+          ),
+        );
+        yield* sql`DELETE FROM organization_live_work_drains
             WHERE organization_id = ${input.organizationId} AND completed_at IS NOT NULL`;
-          yield* OrganizationWorkStatusChanges.changed(input.organizationId);
-          return resumed;
-        }),
-      )
-      .pipe(
-        Effect.mapError((error) =>
-          isLifecycleError(error)
-            ? error
-            : fail("unavailable", "Organization resume is unavailable."),
-        ),
-      );
-  });
+        yield* OrganizationWorkStatusChanges.changed(input.organizationId);
+        return resumed;
+      }),
+    )
+    .pipe(
+      Effect.mapError((error) =>
+        isLifecycleError(error)
+          ? error
+          : fail("unavailable", "Organization resume is unavailable."),
+      ),
+    );
+});
 
 export interface CancelActivatedOrganizationWorkInput {
   readonly organizationId: OrganizationId;
@@ -154,72 +152,72 @@ export interface CancelActivatedOrganizationWorkInput {
 /** Cancellation never stops a process by itself. WorkStore keeps active
  * permits when a prepared worker scope lacks verified stop evidence.
  */
-export const cancelActivatedOrganizationWork = (
+export const cancelActivatedOrganizationWork = Effect.fn(
+  "OrganizationLiveWorkLifecycle.cancelActivatedOrganizationWork",
+)(function* (
   input: CancelActivatedOrganizationWorkInput,
   principal: OrganizationLiveWorkLifecyclePrincipal,
-) =>
-  Effect.gen(function* () {
-    if (!requireInteractive(principal))
-      return yield* fail("forbidden", "Canceling work requires an authenticated interactive user.");
-    if (
-      typeof input.transitionId !== "string" ||
-      !input.transitionId.trim() ||
-      Buffer.byteLength(input.transitionId, "utf8") > 160
-    )
-      return yield* fail("invalid", "Cancellation transition ID is invalid.");
-    const sql = yield* SqlClient.SqlClient;
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const target = (yield* sql<{
-            organization_id: string;
-            project_id: string;
-            binding_id: string;
-            scope: string | null;
-          }>`SELECT w.organization_id, w.project_id, w.binding_id, w.scope
+) {
+  if (!requireInteractive(principal))
+    return yield* fail("forbidden", "Canceling work requires an authenticated interactive user.");
+  if (
+    typeof input.transitionId !== "string" ||
+    !input.transitionId.trim() ||
+    Buffer.byteLength(input.transitionId, "utf8") > 160
+  )
+    return yield* fail("invalid", "Cancellation transition ID is invalid.");
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const target = (yield* sql<{
+          organization_id: string;
+          project_id: string;
+          binding_id: string;
+          scope: string | null;
+        }>`SELECT w.organization_id, w.project_id, w.binding_id, w.scope
             FROM organization_work_intent_activations activation
             JOIN organization_work_items w ON w.work_id = activation.work_id
             WHERE activation.organization_id = ${input.organizationId}
               AND activation.work_id = ${input.workId}
               AND w.organization_id = ${input.organizationId}`)[0];
-          if (!target)
-            return yield* fail("not_found", "Activated Organization work is unavailable.");
-          if (target.scope !== null)
-            return yield* fail("forbidden", "This cancellation supports flat Project work only.");
-          const exactAuthority = Layer.succeed(OrganizationWorkExecutionAuthority, {
-            permits: (action, actor, candidate) =>
-              action === "cancel" &&
-              actor.subject === principal.subject &&
-              candidate.organizationId === target.organization_id &&
-              candidate.projectId === target.project_id &&
-              candidate.bindingId === target.binding_id &&
-              candidate.workId === input.workId &&
-              candidate.scope === null,
-          });
-          const workLayer = OrganizationWorkStoreLayer.pipe(
-            Layer.provide(exactAuthority),
-            Layer.provide(OrganizationWorkArtifactVerifierDisabled),
-            Layer.provide(OrganizationWorkEvaluationVerifierDisabled),
-            Layer.provide(OrganizationWorkApprovalVerifierDisabled),
-            Layer.provide(OrganizationWorkIntegrationVerifierDisabled),
-          );
-          return yield* OrganizationWorkStore.pipe(
-            Effect.flatMap((store) =>
-              store.cancelWork(
-                { workId: input.workId, transitionId: input.transitionId },
-                { subject: principal.subject },
-              ),
+        if (!target) return yield* fail("not_found", "Activated Organization work is unavailable.");
+        if (target.scope !== null)
+          return yield* fail("forbidden", "This cancellation supports flat Project work only.");
+        const exactAuthority = Layer.succeed(OrganizationWorkExecutionAuthority, {
+          permits: (action, actor, candidate) =>
+            action === "cancel" &&
+            actor.subject === principal.subject &&
+            candidate.organizationId === target.organization_id &&
+            candidate.projectId === target.project_id &&
+            candidate.bindingId === target.binding_id &&
+            candidate.workId === input.workId &&
+            candidate.scope === null,
+        });
+        const workLayer = OrganizationWorkStoreLayer.pipe(
+          Layer.provide(exactAuthority),
+          Layer.provide(OrganizationWorkArtifactVerifierDisabled),
+          Layer.provide(OrganizationWorkEvaluationVerifierDisabled),
+          Layer.provide(OrganizationWorkApprovalVerifierDisabled),
+          Layer.provide(OrganizationWorkIntegrationVerifierDisabled),
+        );
+        return yield* OrganizationWorkStore.pipe(
+          Effect.flatMap((store) =>
+            store.cancelWork(
+              { workId: input.workId, transitionId: input.transitionId },
+              { subject: principal.subject },
             ),
-            Effect.provide(Layer.fresh(workLayer)),
-            Effect.mapError((error) => fail(error.code, error.message)),
-          );
-        }),
-      )
-      .pipe(
-        Effect.mapError((error) =>
-          isLifecycleError(error)
-            ? error
-            : fail("unavailable", "Organization work cancellation is unavailable."),
-        ),
-      );
-  });
+          ),
+          Effect.provide(Layer.fresh(workLayer)),
+          Effect.mapError((error) => fail(error.code, error.message)),
+        );
+      }),
+    )
+    .pipe(
+      Effect.mapError((error) =>
+        isLifecycleError(error)
+          ? error
+          : fail("unavailable", "Organization work cancellation is unavailable."),
+      ),
+    );
+});

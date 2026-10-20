@@ -69,95 +69,94 @@ const human = (principal: OrganizationStandingWorkPrincipal) =>
   principal.interactive &&
   principal.subject.trim().length > 0 &&
   Buffer.byteLength(principal.subject, "utf8") <= 160;
-const decode = (row: GrantRow) =>
-  Effect.gen(function* () {
-    const parsed = yield* Effect.try({
-      try: () => JSON.parse(row.selection_json) as unknown,
-      catch: () => fail("unavailable", "Saved standing work selection is unreadable."),
-    });
-    const selection = yield* selectionSnapshot(parsed).pipe(
-      Effect.mapError(() => fail("unavailable", "Saved standing work selection is invalid.")),
-    );
-    return {
-      id: OrganizationStandingWorkAuthorizationId.make(row.authorization_id),
-      organizationId: OrganizationId.make(row.organization_id),
-      projectId: ProjectId.make(row.project_id),
-      sourceId: OrganizationIntakeSourceId.make(row.source_id),
-      bindingId: OrganizationBindingId.make(row.binding_id),
-      bindingVersion: row.binding_version,
-      publishedRevision: row.published_revision,
-      selection: selection.selected,
-      maxActivations: row.max_activations,
-      usedActivations: row.used_activations,
-      expiresAt: row.expires_at,
-      revokedAt: row.revoked_at,
-      revocationReason: row.revocation_reason,
-      createdBy: row.created_by,
-      createdAt: row.created_at,
-    };
+const decode = Effect.fn("OrganizationStandingWorkAuthorization.decode")(function* (row: GrantRow) {
+  const parsed = yield* Effect.try({
+    try: () => JSON.parse(row.selection_json) as unknown,
+    catch: () => fail("unavailable", "Saved standing work selection is unreadable."),
   });
+  const selection = yield* selectionSnapshot(parsed).pipe(
+    Effect.mapError(() => fail("unavailable", "Saved standing work selection is invalid.")),
+  );
+  return {
+    id: OrganizationStandingWorkAuthorizationId.make(row.authorization_id),
+    organizationId: OrganizationId.make(row.organization_id),
+    projectId: ProjectId.make(row.project_id),
+    sourceId: OrganizationIntakeSourceId.make(row.source_id),
+    bindingId: OrganizationBindingId.make(row.binding_id),
+    bindingVersion: row.binding_version,
+    publishedRevision: row.published_revision,
+    selection: selection.selected,
+    maxActivations: row.max_activations,
+    usedActivations: row.used_activations,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    revocationReason: row.revocation_reason,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+});
 
 /** The database write lock makes a retried human request compare with one saved payload. */
-export const createOrganizationStandingWorkAuthorization = (
+export const createOrganizationStandingWorkAuthorization = Effect.fn(
+  "OrganizationStandingWorkAuthorization.createOrganizationStandingWorkAuthorization",
+)(function* (
   input: OrganizationStandingWorkAuthorizationCreateInput,
   principal: OrganizationStandingWorkPrincipal,
-) =>
-  Effect.gen(function* () {
-    if (!human(principal))
-      return yield* fail("forbidden", "Standing Project work requires an interactive user.");
-    if (
-      !input.requestId.trim() ||
-      Buffer.byteLength(input.requestId, "utf8") > 160 ||
-      !Number.isSafeInteger(input.maxActivations) ||
-      input.maxActivations < 1 ||
-      input.maxActivations > 32
-    )
-      return yield* fail("invalid", "Standing work request is invalid.");
-    const { snapshot } = yield* selectionSnapshot(input.selection).pipe(
-      Effect.mapError((error) => fail(error.code, error.message)),
-    );
-    const readiness = yield* OrganizationLiveWorkRuntimeReadiness;
-    const sql = yield* SqlClient.SqlClient;
-    const git = yield* GitVcsDriver;
-    const targetPreflight = yield* OrganizationGitTargetPreflight;
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const org = (yield* sql<{ lifecycle: string; published_revision: number | null }>`
+) {
+  if (!human(principal))
+    return yield* fail("forbidden", "Standing Project work requires an interactive user.");
+  if (
+    !input.requestId.trim() ||
+    Buffer.byteLength(input.requestId, "utf8") > 160 ||
+    !Number.isSafeInteger(input.maxActivations) ||
+    input.maxActivations < 1 ||
+    input.maxActivations > 32
+  )
+    return yield* fail("invalid", "Standing work request is invalid.");
+  const { snapshot } = yield* selectionSnapshot(input.selection).pipe(
+    Effect.mapError((error) => fail(error.code, error.message)),
+  );
+  const readiness = yield* OrganizationLiveWorkRuntimeReadiness;
+  const sql = yield* SqlClient.SqlClient;
+  const git = yield* GitVcsDriver;
+  const targetPreflight = yield* OrganizationGitTargetPreflight;
+  return yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const org = (yield* sql<{ lifecycle: string; published_revision: number | null }>`
         UPDATE organizations SET updated_at = updated_at
         WHERE organization_id = ${input.organizationId}
         RETURNING lifecycle, published_revision`)[0];
-          if (!org) return yield* fail("not_found", "Organization is unavailable.");
-          const prior =
-            (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
+        if (!org) return yield* fail("not_found", "Organization is unavailable.");
+        const prior = (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
         WHERE request_id = ${input.requestId}`)[0];
-          if (prior) {
-            if (
-              prior.organization_id !== input.organizationId ||
-              prior.project_id !== input.projectId ||
-              prior.source_id !== input.sourceId ||
-              prior.binding_id !== input.bindingId ||
-              prior.selection_json !== snapshot ||
-              prior.max_activations !== input.maxActivations ||
-              prior.expires_at !== input.expiresAt ||
-              prior.created_by !== principal.subject
-            )
-              return yield* fail("conflict", "Standing work request ID was reused.");
-            return yield* decode(prior);
-          }
-          const expiry = Date.parse(input.expiresAt);
-          const nowMs = Date.now();
+        if (prior) {
           if (
-            !Number.isFinite(expiry) ||
-            new Date(expiry).toISOString() !== input.expiresAt ||
-            expiry <= nowMs ||
-            expiry > nowMs + MAX_GRANT_MS
+            prior.organization_id !== input.organizationId ||
+            prior.project_id !== input.projectId ||
+            prior.source_id !== input.sourceId ||
+            prior.binding_id !== input.bindingId ||
+            prior.selection_json !== snapshot ||
+            prior.max_activations !== input.maxActivations ||
+            prior.expires_at !== input.expiresAt ||
+            prior.created_by !== principal.subject
           )
-            return yield* fail("invalid", "Standing work expiry must be within 30 days.");
-          if (!readiness.status().ready)
-            return yield* fail("unavailable", "Project work runtime is not ready.");
-          const retiredAt = new Date(nowMs).toISOString();
-          yield* sql`UPDATE organization_standing_work_authorizations
+            return yield* fail("conflict", "Standing work request ID was reused.");
+          return yield* decode(prior);
+        }
+        const expiry = Date.parse(input.expiresAt);
+        const nowMs = Date.now();
+        if (
+          !Number.isFinite(expiry) ||
+          new Date(expiry).toISOString() !== input.expiresAt ||
+          expiry <= nowMs ||
+          expiry > nowMs + MAX_GRANT_MS
+        )
+          return yield* fail("invalid", "Standing work expiry must be within 30 days.");
+        if (!readiness.status().ready)
+          return yield* fail("unavailable", "Project work runtime is not ready.");
+        const retiredAt = new Date(nowMs).toISOString();
+        yield* sql`UPDATE organization_standing_work_authorizations
             SET revoked_at = ${retiredAt},
               revocation_reason = CASE WHEN expires_at <= ${retiredAt}
                 THEN 'expired' ELSE 'exhausted' END
@@ -165,145 +164,136 @@ export const createOrganizationStandingWorkAuthorization = (
               AND project_id = ${input.projectId} AND source_id = ${input.sourceId}
               AND revoked_at IS NULL
               AND (expires_at <= ${retiredAt} OR used_activations >= max_activations)`;
-          const active = yield* sql<{ authorization_id: string }>`SELECT authorization_id
+        const active = yield* sql<{ authorization_id: string }>`SELECT authorization_id
         FROM organization_standing_work_authorizations
         WHERE organization_id = ${input.organizationId} AND project_id = ${input.projectId}
           AND source_id = ${input.sourceId} AND revoked_at IS NULL LIMIT 1`;
-          if (active.length > 0)
-            return yield* fail(
-              "conflict",
-              "An active standing grant already covers this Project source.",
-            );
-          if (
-            !readiness.status().ready ||
-            !["draft", "active"].includes(org.lifecycle) ||
-            org.published_revision === null
-          )
-            return yield* fail("conflict", "Organization is not ready for standing Project work.");
-          const stopped = yield* sql<{ present: number }>`SELECT EXISTS (
+        if (active.length > 0)
+          return yield* fail(
+            "conflict",
+            "An active standing grant already covers this Project source.",
+          );
+        if (
+          !readiness.status().ready ||
+          !["draft", "active"].includes(org.lifecycle) ||
+          org.published_revision === null
+        )
+          return yield* fail("conflict", "Organization is not ready for standing Project work.");
+        const stopped = yield* sql<{ present: number }>`SELECT EXISTS (
         SELECT 1 FROM organization_emergency_stops WHERE organization_id = ${input.organizationId}
       ) AS present`;
-          const draining = yield* sql<{ present: number }>`SELECT EXISTS (
+        const draining = yield* sql<{ present: number }>`SELECT EXISTS (
         SELECT 1 FROM organization_live_work_drains WHERE organization_id = ${input.organizationId}
       ) AS present`;
-          if (stopped[0]?.present === 1 || draining[0]?.present === 1)
-            return yield* fail("conflict", "Organization work is stopped or draining.");
-          const source = (yield* sql<{ kind: string; enabled: number; project_id: string | null }>`
+        if (stopped[0]?.present === 1 || draining[0]?.present === 1)
+          return yield* fail("conflict", "Organization work is stopped or draining.");
+        const source = (yield* sql<{ kind: string; enabled: number; project_id: string | null }>`
         SELECT kind, enabled, project_id FROM organization_intake_sources
         WHERE source_id = ${input.sourceId} AND organization_id = ${input.organizationId}`)[0];
-          if (
-            source?.kind !== "generic-http" ||
-            source.enabled !== 1 ||
-            source.project_id !== input.projectId
-          )
-            return yield* fail(
-              "forbidden",
-              "Standing work requires an enabled Project-scoped HTTP source.",
-            );
-          const binding = (yield* sql<{
-            project_id: string;
-            access: string;
-            scope: string | null;
-            detached_at: string | null;
-            updated_at: string;
-            capabilities_json: string;
-          }>`
+        if (
+          source?.kind !== "generic-http" ||
+          source.enabled !== 1 ||
+          source.project_id !== input.projectId
+        )
+          return yield* fail(
+            "forbidden",
+            "Standing work requires an enabled Project-scoped HTTP source.",
+          );
+        const binding = (yield* sql<{
+          project_id: string;
+          access: string;
+          scope: string | null;
+          detached_at: string | null;
+          updated_at: string;
+          capabilities_json: string;
+        }>`
         SELECT project_id, access, scope, detached_at, updated_at, capabilities_json
         FROM organization_project_bindings
         WHERE binding_id = ${input.bindingId} AND organization_id = ${input.organizationId}`)[0];
-          const capabilities = binding
-            ? yield* Effect.try({
-                try: () => JSON.parse(binding.capabilities_json) as unknown,
-                catch: () => null,
-              }).pipe(Effect.orElseSucceed(() => null))
-            : null;
-          if (
-            !binding ||
-            binding.project_id !== input.projectId ||
-            binding.access !== "write" ||
-            binding.scope !== null ||
-            binding.detached_at !== null ||
-            !Array.isArray(capabilities) ||
-            !requiredCapabilities.every((capability) => capabilities.includes(capability))
-          )
-            return yield* fail("forbidden", "Project binding lacks standing work authority.");
-          const configRow = (yield* sql<{ config_json: string }>`SELECT config_json
+        const capabilities = binding
+          ? yield* Effect.try({
+              try: () => JSON.parse(binding.capabilities_json) as unknown,
+              catch: () => null,
+            }).pipe(Effect.orElseSucceed(() => null))
+          : null;
+        if (
+          !binding ||
+          binding.project_id !== input.projectId ||
+          binding.access !== "write" ||
+          binding.scope !== null ||
+          binding.detached_at !== null ||
+          !Array.isArray(capabilities) ||
+          !requiredCapabilities.every((capability) => capabilities.includes(capability))
+        )
+          return yield* fail("forbidden", "Project binding lacks standing work authority.");
+        const configRow = (yield* sql<{ config_json: string }>`SELECT config_json
         FROM organization_config_versions WHERE organization_id = ${input.organizationId}
           AND revision = ${org.published_revision}`)[0];
-          if (!configRow) return yield* fail("conflict", "Published configuration is unavailable.");
-          const config = yield* decodePublished(configRow.config_json).pipe(
-            Effect.mapError(() => fail("unavailable", "Published configuration is invalid.")),
-          );
-          const publishedBinding = config.bindings.find((item) => item.id === input.bindingId);
-          const workflow = config.workflows.find((item) => item.id === input.selection.workflowId);
-          if (
-            !publishedBinding ||
-            publishedBinding.projectId !== input.projectId ||
-            publishedBinding.updatedAt !== binding.updated_at ||
-            publishedBinding.detachedAt !== null ||
-            publishedBinding.access !== "write" ||
-            publishedBinding.scope !== null ||
-            !requiredCapabilities.every((capability) =>
-              publishedBinding.capabilities.includes(capability),
-            ) ||
-            !workflow ||
-            !["work", "qa", "approval", "integrate"].every((kind) =>
-              workflow.steps.some((step) => step.kind === kind),
-            )
+        if (!configRow) return yield* fail("conflict", "Published configuration is unavailable.");
+        const config = yield* decodePublished(configRow.config_json).pipe(
+          Effect.mapError(() => fail("unavailable", "Published configuration is invalid.")),
+        );
+        const publishedBinding = config.bindings.find((item) => item.id === input.bindingId);
+        const workflow = config.workflows.find((item) => item.id === input.selection.workflowId);
+        if (
+          !publishedBinding ||
+          publishedBinding.projectId !== input.projectId ||
+          publishedBinding.updatedAt !== binding.updated_at ||
+          publishedBinding.detachedAt !== null ||
+          publishedBinding.access !== "write" ||
+          publishedBinding.scope !== null ||
+          !requiredCapabilities.every((capability) =>
+            publishedBinding.capabilities.includes(capability),
+          ) ||
+          !workflow ||
+          !["work", "qa", "approval", "integrate"].every((kind) =>
+            workflow.steps.some((step) => step.kind === kind),
           )
-            return yield* fail(
-              "forbidden",
-              "Selected published binding or workflow is unavailable.",
-            );
-          const project = (yield* sql<{ workspace_root: string; deleted_at: string | null }>`
+        )
+          return yield* fail("forbidden", "Selected published binding or workflow is unavailable.");
+        const project = (yield* sql<{ workspace_root: string; deleted_at: string | null }>`
         SELECT workspace_root, deleted_at FROM projection_projects WHERE project_id = ${input.projectId}`)[0];
-          if (
-            !project ||
-            project.deleted_at !== null ||
-            !NodePath.isAbsolute(project.workspace_root)
-          )
-            return yield* fail("forbidden", "Project checkout is unavailable.");
-          const head = yield* git
-            .resolveCommit({ cwd: project.workspace_root, revision: "HEAD" })
-            .pipe(Effect.mapError(() => fail("conflict", "Project HEAD cannot be resolved.")));
-          const target = yield* git
-            .resolveCommit({ cwd: project.workspace_root, revision: input.selection.targetRef })
-            .pipe(
-              Effect.mapError(() => fail("conflict", "Selected Project branch is unavailable.")),
-            );
-          if (!fullCommit.test(head.commitSha) || target.commitSha !== head.commitSha)
-            return yield* fail("conflict", "Selected Project branch differs from HEAD.");
-          yield* targetPreflight
-            .verify({
-              projectRoot: project.workspace_root,
-              targetRef: input.selection.targetRef,
-              baseCommit: head.commitSha,
-            })
-            .pipe(Effect.mapError((error) => fail(error.code, error.message)));
-          const budgets = yield* sql<{
-            max_concurrent: number;
-            max_daily_calls: number;
-            max_daily_estimated_tokens: number;
-          }>`SELECT max_concurrent, max_daily_calls,
+        if (!project || project.deleted_at !== null || !NodePath.isAbsolute(project.workspace_root))
+          return yield* fail("forbidden", "Project checkout is unavailable.");
+        const head = yield* git
+          .resolveCommit({ cwd: project.workspace_root, revision: "HEAD" })
+          .pipe(Effect.mapError(() => fail("conflict", "Project HEAD cannot be resolved.")));
+        const target = yield* git
+          .resolveCommit({ cwd: project.workspace_root, revision: input.selection.targetRef })
+          .pipe(Effect.mapError(() => fail("conflict", "Selected Project branch is unavailable.")));
+        if (!fullCommit.test(head.commitSha) || target.commitSha !== head.commitSha)
+          return yield* fail("conflict", "Selected Project branch differs from HEAD.");
+        yield* targetPreflight
+          .verify({
+            projectRoot: project.workspace_root,
+            targetRef: input.selection.targetRef,
+            baseCommit: head.commitSha,
+          })
+          .pipe(Effect.mapError((error) => fail(error.code, error.message)));
+        const budgets = yield* sql<{
+          max_concurrent: number;
+          max_daily_calls: number;
+          max_daily_estimated_tokens: number;
+        }>`SELECT max_concurrent, max_daily_calls,
         max_daily_estimated_tokens FROM organization_provider_budget_limits
         WHERE (scope_kind = 'global' AND scope_id = '*')
           OR (scope_kind = 'organization' AND scope_id = ${input.organizationId})
           OR (scope_kind = 'project' AND scope_id = ${input.projectId})`;
-          if (
-            budgets.length !== 3 ||
-            budgets.some(
-              (budget) =>
-                budget.max_concurrent < 1 ||
-                budget.max_daily_calls < 1 ||
-                budget.max_daily_estimated_tokens < PROVIDER_ESTIMATE,
-            )
+        if (
+          budgets.length !== 3 ||
+          budgets.some(
+            (budget) =>
+              budget.max_concurrent < 1 ||
+              budget.max_daily_calls < 1 ||
+              budget.max_daily_estimated_tokens < PROVIDER_ESTIMATE,
           )
-            return yield* fail("unavailable", "Standing work provider budget is not configured.");
-          const createdAt = new Date().toISOString();
-          const id = OrganizationStandingWorkAuthorizationId.make(
-            `org-standing:${NodeCrypto.randomUUID()}`,
-          );
-          yield* sql`INSERT INTO organization_standing_work_authorizations
+        )
+          return yield* fail("unavailable", "Standing work provider budget is not configured.");
+        const createdAt = new Date().toISOString();
+        const id = OrganizationStandingWorkAuthorizationId.make(
+          `org-standing:${NodeCrypto.randomUUID()}`,
+        );
+        yield* sql`INSERT INTO organization_standing_work_authorizations
         (authorization_id, request_id, organization_id, project_id, source_id,
           binding_id, binding_version, published_revision, selection_json,
           max_activations, expires_at, created_by, created_at)
@@ -311,62 +301,65 @@ export const createOrganizationStandingWorkAuthorization = (
           ${input.sourceId}, ${input.bindingId}, ${binding.updated_at},
           ${org.published_revision}, ${snapshot}, ${input.maxActivations},
           ${input.expiresAt}, ${principal.subject}, ${createdAt})`;
-          return yield* decode(
-            (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
+        return yield* decode(
+          (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
         WHERE authorization_id = ${id}`)[0]!,
-          );
-        }),
-      )
-      .pipe(
-        Effect.mapError((error) =>
-          isGrantError(error)
-            ? error
-            : fail("unavailable", "Standing work authorization is unavailable."),
-        ),
-      );
-  });
+        );
+      }),
+    )
+    .pipe(
+      Effect.mapError((error) =>
+        isGrantError(error)
+          ? error
+          : fail("unavailable", "Standing work authorization is unavailable."),
+      ),
+    );
+});
 
-export const revokeOrganizationStandingWorkAuthorization = (
+export const revokeOrganizationStandingWorkAuthorization = Effect.fn(
+  "OrganizationStandingWorkAuthorization.revokeOrganizationStandingWorkAuthorization",
+)(function* (
   input: OrganizationStandingWorkAuthorizationRevokeInput,
   principal: OrganizationStandingWorkPrincipal,
-) =>
-  Effect.gen(function* () {
-    if (!human(principal))
-      return yield* fail("forbidden", "Revoking standing work requires an interactive user.");
-    const sql = yield* SqlClient.SqlClient;
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const locked = yield* sql<{ organization_id: string }>`UPDATE organizations
+) {
+  if (!human(principal))
+    return yield* fail("forbidden", "Revoking standing work requires an interactive user.");
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const locked = yield* sql<{ organization_id: string }>`UPDATE organizations
       SET updated_at = updated_at WHERE organization_id = ${input.organizationId}
       RETURNING organization_id`;
-          if (locked.length === 0) return yield* fail("not_found", "Organization is unavailable.");
-          const row = (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
+        if (locked.length === 0) return yield* fail("not_found", "Organization is unavailable.");
+        const row = (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
       WHERE authorization_id = ${input.authorizationId} AND organization_id = ${input.organizationId}`)[0];
-          if (!row) return yield* fail("not_found", "Standing work authorization is unavailable.");
-          if (row.revoked_at === null) {
-            const now = new Date().toISOString();
-            yield* sql`UPDATE organization_standing_work_authorizations
+        if (!row) return yield* fail("not_found", "Standing work authorization is unavailable.");
+        if (row.revoked_at === null) {
+          const now = new Date().toISOString();
+          yield* sql`UPDATE organization_standing_work_authorizations
               SET revoked_at = ${now}, revocation_reason = 'manual'
         WHERE authorization_id = ${input.authorizationId} AND revoked_at IS NULL`;
-          }
-          return yield* decode(
-            (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
+        }
+        return yield* decode(
+          (yield* sql<GrantRow>`SELECT * FROM organization_standing_work_authorizations
       WHERE authorization_id = ${input.authorizationId}`)[0]!,
-          );
-        }),
-      )
-      .pipe(
-        Effect.mapError((error) =>
-          isGrantError(error)
-            ? error
-            : fail("unavailable", "Standing work revocation is unavailable."),
-        ),
-      );
-  });
+        );
+      }),
+    )
+    .pipe(
+      Effect.mapError((error) =>
+        isGrantError(error)
+          ? error
+          : fail("unavailable", "Standing work revocation is unavailable."),
+      ),
+    );
+});
 
-export const listOrganizationStandingWorkAuthorizations = (organizationId: OrganizationId) =>
-  Effect.gen(function* () {
+export const listOrganizationStandingWorkAuthorizations = Effect.fn(
+  "OrganizationStandingWorkAuthorization.listOrganizationStandingWorkAuthorizations",
+)(
+  function* (organizationId: OrganizationId) {
     const sql = yield* SqlClient.SqlClient;
     const exists = yield* sql<{ organization_id: string }>`SELECT organization_id
       FROM organizations WHERE organization_id = ${organizationId}`;
@@ -377,13 +370,13 @@ export const listOrganizationStandingWorkAuthorizations = (organizationId: Organ
     const authorizations = [];
     for (const row of rows) authorizations.push(yield* decode(row));
     return { authorizations };
-  }).pipe(
-    Effect.mapError((error) =>
-      isGrantError(error)
-        ? error
-        : fail("unavailable", "Standing work authorizations are unavailable."),
-    ),
-  );
+  },
+  Effect.mapError((error) =>
+    isGrantError(error)
+      ? error
+      : fail("unavailable", "Standing work authorizations are unavailable."),
+  ),
+);
 
 let scanAfter: string | null = null;
 /** Bounded source-specific handoff. Activation itself rechecks the grant under the Organization lock. */

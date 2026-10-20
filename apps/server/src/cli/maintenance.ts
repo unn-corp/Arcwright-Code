@@ -46,29 +46,28 @@ const baseDir = (flag: Option.Option<string>) =>
   resolveBaseDir(Option.getOrUndefined(flag) ?? process.env.T3CODE_HOME);
 
 /** Every stateful command goes through the running server's one controller; nothing here installs anything itself. */
-const operate = (
+const operate = Effect.fn("maintenance.operate")(function* (
   flag: Option.Option<string>,
   json: boolean,
   call: (target: Awaited<ReturnType<typeof discoverOperatorTarget>>) => Promise<OperatorResult>,
-) =>
-  Effect.gen(function* () {
-    const home = yield* baseDir(flag);
-    const result = yield* Effect.tryPromise({
-      try: async () => call(await discoverOperatorTarget(home)),
-      catch: (cause) =>
-        new MaintenanceCliError({ reason: cause instanceof Error ? cause.message : String(cause) }),
-    });
-    if (!result.ok) {
-      yield* Console.error(result.reason);
-      for (const blocker of result.blockers ?? []) yield* Console.error(`  - ${blocker.label}`);
-      return yield* new MaintenanceCliError({ reason: "Device maintenance refused the request." });
-    }
-    yield* json
-      ? Console.log(JSON.stringify(result.status, null, 2))
-      : Effect.forEach(describeStatus(result.status), (line) => Console.log(line), {
-          discard: true,
-        });
+) {
+  const home = yield* baseDir(flag);
+  const result = yield* Effect.tryPromise({
+    try: async () => call(await discoverOperatorTarget(home)),
+    catch: (cause) =>
+      new MaintenanceCliError({ reason: cause instanceof Error ? cause.message : String(cause) }),
   });
+  if (!result.ok) {
+    yield* Console.error(result.reason);
+    for (const blocker of result.blockers ?? []) yield* Console.error(`  - ${blocker.label}`);
+    return yield* new MaintenanceCliError({ reason: "Device maintenance refused the request." });
+  }
+  yield* json
+    ? Console.log(JSON.stringify(result.status, null, 2))
+    : Effect.forEach(describeStatus(result.status), (line) => Console.log(line), {
+        discard: true,
+      });
+});
 
 const simple = (name: string, description: string, action: Parameters<typeof callOperator>[2]) =>
   Command.make(name, { baseDir: baseDirFlag, json: jsonFlag }).pipe(

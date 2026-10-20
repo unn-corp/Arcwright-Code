@@ -121,256 +121,268 @@ export const make = Effect.gen(function* () {
   const threadDetail = (threadId: ThreadId) =>
     snapshots.getThreadDetailById(threadId).pipe(Effect.orElseSucceed(() => Option.none()));
 
-  const headerFor = (thread: OrchestrationThread, config: DiscordBridgeSettings) =>
-    Effect.gen(function* () {
-      const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));
-      const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
-      const displayName =
-        settings === null ? null : (settings.providerInstances[instanceId]?.displayName ?? null);
-      const project = yield* snapshots
-        .getProjectShellById(thread.projectId)
-        .pipe(Effect.orElseSucceed(() => Option.none()));
-      const deepLink =
-        config.publicOrigin === ""
-          ? null
-          : `${config.publicOrigin.replace(/\/$/, "")}/threads/${thread.id}`;
-      return buildHeaderEmbed({
-        title: thread.title,
-        threadId: thread.id,
-        model: thread.modelSelection.model,
-        instanceId,
-        instanceDisplayName: displayName,
-        projectTitle: Option.isSome(project) ? (project.value.title ?? null) : null,
-        branch: thread.branch ?? null,
-        runtimeMode: thread.runtimeMode,
-        status: statusOf(thread),
-        deepLink,
-        createdAt: thread.createdAt,
-      });
+  const headerFor = Effect.fn("DiscordBridge.headerFor")(function* (
+    thread: OrchestrationThread,
+    config: DiscordBridgeSettings,
+  ) {
+    const settings = yield* serverSettings.getSettings.pipe(Effect.orElseSucceed(() => null));
+    const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+    const displayName =
+      settings === null ? null : (settings.providerInstances[instanceId]?.displayName ?? null);
+    const project = yield* snapshots
+      .getProjectShellById(thread.projectId)
+      .pipe(Effect.orElseSucceed(() => Option.none()));
+    const deepLink =
+      config.publicOrigin === ""
+        ? null
+        : `${config.publicOrigin.replace(/\/$/, "")}/threads/${thread.id}`;
+    return buildHeaderEmbed({
+      title: thread.title,
+      threadId: thread.id,
+      model: thread.modelSelection.model,
+      instanceId,
+      instanceDisplayName: displayName,
+      projectTitle: Option.isSome(project) ? (project.value.title ?? null) : null,
+      branch: thread.branch ?? null,
+      runtimeMode: thread.runtimeMode,
+      status: statusOf(thread),
+      deepLink,
+      createdAt: thread.createdAt,
     });
+  });
 
   /** Mark a link orphaned/archived rather than retrying forever. */
-  const handleRestError = (threadId: ThreadId, error: DiscordRestError) =>
-    Effect.gen(function* () {
-      const now = yield* DateTime.now;
-      if (isGoneError(error)) {
-        // A deleted Discord thread means "stop mirroring this". Never recreate.
-        yield* withAutomationWork(
-          links.setState({ threadId, state: "orphaned", updatedAt: now }).pipe(Effect.ignore),
-        );
-        yield* Effect.logInfo("discord bridge orphaned a link", { threadId });
-        return;
-      }
-      if (isAuthError(error)) {
-        yield* Effect.logWarning("discord bridge auth failure; check token and permissions", {
-          threadId,
-          status: error._tag === "DiscordResponseError" ? error.status : undefined,
-        });
-        return;
-      }
-      yield* Effect.logWarning("discord bridge request failed", {
+  const handleRestError = Effect.fn("DiscordBridge.handleRestError")(function* (
+    threadId: ThreadId,
+    error: DiscordRestError,
+  ) {
+    const now = yield* DateTime.now;
+    if (isGoneError(error)) {
+      // A deleted Discord thread means "stop mirroring this". Never recreate.
+      yield* withAutomationWork(
+        links.setState({ threadId, state: "orphaned", updatedAt: now }).pipe(Effect.ignore),
+      );
+      yield* Effect.logInfo("discord bridge orphaned a link", { threadId });
+      return;
+    }
+    if (isAuthError(error)) {
+      yield* Effect.logWarning("discord bridge auth failure; check token and permissions", {
         threadId,
-        error: error.message,
+        status: error._tag === "DiscordResponseError" ? error.status : undefined,
       });
+      return;
+    }
+    yield* Effect.logWarning("discord bridge request failed", {
+      threadId,
+      error: error.message,
     });
+  });
 
   const ensureUnarchived = (discordThreadId: string) =>
     rest.modifyThread({ threadId: discordThreadId, archived: false }).pipe(Effect.ignore);
 
-  const createLinkedThread = (threadId: ThreadId, config: DiscordBridgeSettings) =>
-    Effect.gen(function* () {
-      const existing = yield* links.getByThreadId(threadId);
-      if (Option.isSome(existing)) {
-        return;
-      }
-      const detail = yield* threadDetail(threadId);
-      if (Option.isNone(detail)) {
-        return;
-      }
-      const thread = detail.value;
-      if (
-        config.projectAllowlist.length > 0 &&
-        !config.projectAllowlist.includes(thread.projectId)
-      ) {
-        return;
-      }
+  const createLinkedThread = Effect.fn("DiscordBridge.createLinkedThread")(function* (
+    threadId: ThreadId,
+    config: DiscordBridgeSettings,
+  ) {
+    const existing = yield* links.getByThreadId(threadId);
+    if (Option.isSome(existing)) {
+      return;
+    }
+    const detail = yield* threadDetail(threadId);
+    if (Option.isNone(detail)) {
+      return;
+    }
+    const thread = detail.value;
+    if (config.projectAllowlist.length > 0 && !config.projectAllowlist.includes(thread.projectId)) {
+      return;
+    }
 
-      const embed = yield* headerFor(thread, config);
-      const starter = yield* rest.createMessage({ channelId: config.channelId, embeds: [embed] });
-      const created = yield* rest.startThreadFromMessage({
-        channelId: config.channelId,
-        messageId: starter.id,
-        name: threadNameFor({ title: thread.title, threadId }),
-      });
-      const now = yield* DateTime.now;
-      yield* links.link({
-        threadId,
-        guildId: config.guildId,
-        channelId: config.channelId,
-        discordThreadId: created.id,
-        headerMessageId: starter.id,
-        // Anchor the inbound cursor at the starter message so pre-existing
-        // chatter is never ingested.
-        lastSeenDiscordMessageId: starter.id,
-        createdAt: now,
-      });
-      yield* Effect.logInfo("discord bridge linked thread", {
-        threadId,
-        discordThreadId: created.id,
-      });
+    const embed = yield* headerFor(thread, config);
+    const starter = yield* rest.createMessage({ channelId: config.channelId, embeds: [embed] });
+    const created = yield* rest.startThreadFromMessage({
+      channelId: config.channelId,
+      messageId: starter.id,
+      name: threadNameFor({ title: thread.title, threadId }),
     });
-
-  const refreshHeader = (threadId: ThreadId, config: DiscordBridgeSettings) =>
-    Effect.gen(function* () {
-      const link = yield* links.getByThreadId(threadId);
-      if (Option.isNone(link) || link.value.state !== "active") {
-        return;
-      }
-      const detail = yield* threadDetail(threadId);
-      if (Option.isNone(detail)) {
-        return;
-      }
-      const embed = yield* headerFor(detail.value, config);
-      yield* rest.editMessage({
-        channelId: link.value.channelId,
-        messageId: link.value.headerMessageId,
-        embeds: [embed],
-      });
-      const name = threadNameFor({ title: detail.value.title, threadId });
-      yield* rest.modifyThread({ threadId: link.value.discordThreadId, name }).pipe(Effect.ignore);
+    const now = yield* DateTime.now;
+    yield* links.link({
+      threadId,
+      guildId: config.guildId,
+      channelId: config.channelId,
+      discordThreadId: created.id,
+      headerMessageId: starter.id,
+      // Anchor the inbound cursor at the starter message so pre-existing
+      // chatter is never ingested.
+      lastSeenDiscordMessageId: starter.id,
+      createdAt: now,
     });
+    yield* Effect.logInfo("discord bridge linked thread", {
+      threadId,
+      discordThreadId: created.id,
+    });
+  });
 
-  const flushMessage = (threadId: ThreadId, messageId: MessageId, _config: DiscordBridgeSettings) =>
-    Effect.gen(function* () {
-      // Never echo a message this bridge itself injected.
-      if (isDiscordOriginatedMessageId(messageId)) {
-        return;
-      }
-      const link = yield* links.getByThreadId(threadId);
-      if (Option.isNone(link) || link.value.state !== "active") {
-        return;
-      }
-      const discordThreadId = link.value.discordThreadId;
+  const refreshHeader = Effect.fn("DiscordBridge.refreshHeader")(function* (
+    threadId: ThreadId,
+    config: DiscordBridgeSettings,
+  ) {
+    const link = yield* links.getByThreadId(threadId);
+    if (Option.isNone(link) || link.value.state !== "active") {
+      return;
+    }
+    const detail = yield* threadDetail(threadId);
+    if (Option.isNone(detail)) {
+      return;
+    }
+    const embed = yield* headerFor(detail.value, config);
+    yield* rest.editMessage({
+      channelId: link.value.channelId,
+      messageId: link.value.headerMessageId,
+      embeds: [embed],
+    });
+    const name = threadNameFor({ title: detail.value.title, threadId });
+    yield* rest.modifyThread({ threadId: link.value.discordThreadId, name }).pipe(Effect.ignore);
+  });
 
-      // Read the authoritative text from the projection. Event payloads carry
-      // only a delta fragment while streaming, and an empty string on the
-      // completion event, so they must not be used as the message body.
-      const detail = yield* threadDetail(threadId);
-      if (Option.isNone(detail)) return;
-      const message = detail.value.messages.find((entry) => entry.id === messageId);
-      if (message === undefined) return;
-      const record = { ...message, isStreaming: message.streaming };
-      const now = yield* Clock.currentTimeMillis;
-      const flushes = yield* Ref.get(lastFlushAt);
-      const previous = flushes.get(messageId);
+  const flushMessage = Effect.fn("DiscordBridge.flushMessage")(function* (
+    threadId: ThreadId,
+    messageId: MessageId,
+    _config: DiscordBridgeSettings,
+  ) {
+    // Never echo a message this bridge itself injected.
+    if (isDiscordOriginatedMessageId(messageId)) {
+      return;
+    }
+    const link = yield* links.getByThreadId(threadId);
+    if (Option.isNone(link) || link.value.state !== "active") {
+      return;
+    }
+    const discordThreadId = link.value.discordThreadId;
 
-      const existingChunks = yield* links.listChunks(messageId);
-      const publishedTotal = existingChunks.reduce((sum, c) => sum + c.publishedLength, 0);
+    // Read the authoritative text from the projection. Event payloads carry
+    // only a delta fragment while streaming, and an empty string on the
+    // completion event, so they must not be used as the message body.
+    const detail = yield* threadDetail(threadId);
+    if (Option.isNone(detail)) return;
+    const message = detail.value.messages.find((entry) => entry.id === messageId);
+    if (message === undefined) return;
+    const record = { ...message, isStreaming: message.streaming };
+    const now = yield* Clock.currentTimeMillis;
+    const flushes = yield* Ref.get(lastFlushAt);
+    const previous = flushes.get(messageId);
 
-      if (
-        record.isStreaming &&
-        previous !== undefined &&
-        now - previous < EDIT_INTERVAL_MS &&
-        record.text.length - publishedTotal < MIN_DELTA_CHARS
-      ) {
-        return;
-      }
+    const existingChunks = yield* links.listChunks(messageId);
+    const publishedTotal = existingChunks.reduce((sum, c) => sum + c.publishedLength, 0);
 
-      const body = record.text.trimEnd();
-      if (body.length === 0) {
-        return;
-      }
-      const planned = planChunks(body);
+    if (
+      record.isStreaming &&
+      previous !== undefined &&
+      now - previous < EDIT_INTERVAL_MS &&
+      record.text.length - publishedTotal < MIN_DELTA_CHARS
+    ) {
+      return;
+    }
 
-      for (let index = 0; index < planned.length; index += 1) {
-        const isLast = index === planned.length - 1;
-        const content =
-          isLast && record.isStreaming ? withStreamingCursor(planned[index]!) : planned[index]!;
-        const existing = existingChunks.find((c) => c.chunkIndex === index);
+    const body = record.text.trimEnd();
+    if (body.length === 0) {
+      return;
+    }
+    const planned = planChunks(body);
 
-        if (existing !== undefined) {
-          if (existing.frozen || existing.publishedLength === content.length) {
-            continue;
-          }
-          yield* rest.editMessage({
-            channelId: discordThreadId,
-            messageId: existing.discordMessageId,
-            content,
-          });
-          yield* links.upsertChunk({
-            messageId,
-            chunkIndex: index,
-            threadId,
-            discordThreadId,
-            discordMessageId: existing.discordMessageId,
-            publishedLength: content.length,
-            // Everything but the tail is complete and must never be edited again.
-            frozen: !isLast,
-            now: yield* DateTime.now,
-          });
+    for (let index = 0; index < planned.length; index += 1) {
+      const isLast = index === planned.length - 1;
+      const content =
+        isLast && record.isStreaming ? withStreamingCursor(planned[index]!) : planned[index]!;
+      const existing = existingChunks.find((c) => c.chunkIndex === index);
+
+      if (existing !== undefined) {
+        if (existing.frozen || existing.publishedLength === content.length) {
           continue;
         }
-
-        const posted = yield* rest.createMessage({ channelId: discordThreadId, content });
+        yield* rest.editMessage({
+          channelId: discordThreadId,
+          messageId: existing.discordMessageId,
+          content,
+        });
         yield* links.upsertChunk({
           messageId,
           chunkIndex: index,
           threadId,
           discordThreadId,
-          discordMessageId: posted.id,
+          discordMessageId: existing.discordMessageId,
           publishedLength: content.length,
+          // Everything but the tail is complete and must never be edited again.
           frozen: !isLast,
           now: yield* DateTime.now,
         });
+        continue;
       }
 
+      const posted = yield* rest.createMessage({ channelId: discordThreadId, content });
+      yield* links.upsertChunk({
+        messageId,
+        chunkIndex: index,
+        threadId,
+        discordThreadId,
+        discordMessageId: posted.id,
+        publishedLength: content.length,
+        frozen: !isLast,
+        now: yield* DateTime.now,
+      });
+    }
+
+    yield* Ref.update(lastFlushAt, (map) => {
+      const next = new Map(map);
+      next.set(messageId, now);
+      return next;
+    });
+
+    if (!record.isStreaming) {
+      // Bound the map: a settled message never needs its debounce again.
       yield* Ref.update(lastFlushAt, (map) => {
         const next = new Map(map);
-        next.set(messageId, now);
+        next.delete(messageId);
         return next;
       });
+    }
+  });
 
-      if (!record.isStreaming) {
-        // Bound the map: a settled message never needs its debounce again.
-        yield* Ref.update(lastFlushAt, (map) => {
-          const next = new Map(map);
-          next.delete(messageId);
-          return next;
-        });
-      }
-    });
+  const postActivity = Effect.fn("DiscordBridge.postActivity")(function* (
+    threadId: ThreadId,
+    text: string,
+  ) {
+    const link = yield* links.getByThreadId(threadId);
+    if (Option.isNone(link) || link.value.state !== "active") {
+      return;
+    }
+    for (const chunk of planChunks(text)) {
+      yield* rest.createMessage({ channelId: link.value.discordThreadId, content: chunk });
+    }
+  });
 
-  const postActivity = (threadId: ThreadId, text: string) =>
-    Effect.gen(function* () {
-      const link = yield* links.getByThreadId(threadId);
-      if (Option.isNone(link) || link.value.state !== "active") {
-        return;
-      }
-      for (const chunk of planChunks(text)) {
-        yield* rest.createMessage({ channelId: link.value.discordThreadId, content: chunk });
-      }
-    });
+  const applyLifecycle = Effect.fn("DiscordBridge.applyLifecycle")(function* (
+    threadId: ThreadId,
+    action: "archived" | "unarchived" | "deleted",
+  ) {
+    const link = yield* links.getByThreadId(threadId);
+    if (Option.isNone(link)) {
+      return;
+    }
+    const now = yield* DateTime.now;
+    if (action === "unarchived") {
+      yield* ensureUnarchived(link.value.discordThreadId);
+      yield* links.setState({ threadId, state: "active", updatedAt: now });
+      return;
+    }
+    yield* rest
+      .modifyThread({ threadId: link.value.discordThreadId, archived: true })
+      .pipe(Effect.ignore);
+    yield* links.setState({ threadId, state: "archived", updatedAt: now });
+  });
 
-  const applyLifecycle = (threadId: ThreadId, action: "archived" | "unarchived" | "deleted") =>
-    Effect.gen(function* () {
-      const link = yield* links.getByThreadId(threadId);
-      if (Option.isNone(link)) {
-        return;
-      }
-      const now = yield* DateTime.now;
-      if (action === "unarchived") {
-        yield* ensureUnarchived(link.value.discordThreadId);
-        yield* links.setState({ threadId, state: "active", updatedAt: now });
-        return;
-      }
-      yield* rest
-        .modifyThread({ threadId: link.value.discordThreadId, archived: true })
-        .pipe(Effect.ignore);
-      yield* links.setState({ threadId, state: "archived", updatedAt: now });
-    });
-
-  const processWork = (work: BridgeWork) =>
-    Effect.gen(function* () {
+  const processWork = Effect.fn("DiscordBridge.processWork")(
+    function* (work: BridgeWork) {
       const config = yield* readConfig;
       if (config === null || !config.enabled || config.channelId === "") {
         return;
@@ -392,13 +404,16 @@ export const make = Effect.gen(function* () {
           yield* applyLifecycle(work.threadId, work.action);
           return;
       }
-    }).pipe(
-      Effect.catchTags({
-        DiscordResponseError: (error) =>
-          isArchivedError(error) ? Effect.void : handleRestError(work.threadId, error),
-      }),
-      Effect.catchTags({ DiscordRequestError: (error) => handleRestError(work.threadId, error) }),
-    );
+    },
+    (_program, work) =>
+      _program.pipe(
+        Effect.catchTags({
+          DiscordResponseError: (error) =>
+            isArchivedError(error) ? Effect.void : handleRestError(work.threadId, error),
+        }),
+        Effect.catchTags({ DiscordRequestError: (error) => handleRestError(work.threadId, error) }),
+      ),
+  );
 
   /**
    * The bridge is a post-commit observer. Any failure here is logged and
@@ -430,121 +445,120 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const dispatchInbound = (
+  const dispatchInbound = Effect.fn("DiscordBridge.dispatchInbound")(function* (
     threadId: ThreadId,
     thread: OrchestrationThread,
     message: DiscordMessage,
-  ) =>
-    Effect.gen(function* () {
-      const createdAt = DateTime.formatIso(yield* DateTime.now);
-      yield* orchestrationEngine.dispatch({
-        type: "thread.turn.start",
-        // Deterministic in the Discord message id: a re-read of the same
-        // message short-circuits on the existing command receipt, so dedupe
-        // is exact and survives restarts.
-        commandId: CommandId.make(`discord:${message.id}`),
-        threadId,
-        message: {
-          messageId: MessageId.make(`discord:${message.id}`),
-          role: "user",
-          text: message.content,
-          attachments: [],
-        },
-        // The decider reads these off the thread; pass current values so this
-        // never reads as an intent to change them.
-        runtimeMode: thread.runtimeMode,
-        interactionMode: thread.interactionMode,
-        createdAt,
-      });
+  ) {
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.start",
+      // Deterministic in the Discord message id: a re-read of the same
+      // message short-circuits on the existing command receipt, so dedupe
+      // is exact and survives restarts.
+      commandId: CommandId.make(`discord:${message.id}`),
+      threadId,
+      message: {
+        messageId: MessageId.make(`discord:${message.id}`),
+        role: "user",
+        text: message.content,
+        attachments: [],
+      },
+      // The decider reads these off the thread; pass current values so this
+      // never reads as an intent to change them.
+      runtimeMode: thread.runtimeMode,
+      interactionMode: thread.interactionMode,
+      createdAt,
     });
+  });
 
-  const processInboundMessage = (
+  const processInboundMessage = Effect.fn("DiscordBridge.processInboundMessage")(function* (
     threadId: ThreadId,
     discordThreadId: string,
     message: DiscordMessage,
     config: DiscordBridgeSettings,
-  ) =>
-    Effect.gen(function* () {
-      const isSelf = message.author.id === config.applicationId || message.author.bot === true;
-      const isWebhook = message.webhook_id !== undefined;
-      if (isSelf || isWebhook) {
-        yield* advanceCursor(threadId, message.id);
-        return true;
-      }
-      if (!config.allowedAuthorIds.includes(message.author.id)) {
-        yield* Effect.logWarning("discord bridge rejected unauthorized author", {
-          threadId,
-          authorId: message.author.id,
-        });
-        yield* react(discordThreadId, message.id, "❌");
-        yield* advanceCursor(threadId, message.id);
-        return true;
-      }
-      if (message.content.trim() === "") {
-        yield* react(discordThreadId, message.id, "⚠️");
-        yield* advanceCursor(threadId, message.id);
-        return true;
-      }
-
-      const detail = yield* threadDetail(threadId);
-      if (Option.isNone(detail)) {
-        yield* advanceCursor(threadId, message.id);
-        return true;
-      }
-      const status = statusOf(detail.value);
-      if (status === "running" || status === "starting") {
-        // Keep the durable cursor in place; the next poll rereads this message.
-        yield* react(discordThreadId, message.id, "⏳");
-        return false;
-      }
-
-      // Dispatch must succeed before the bridge acknowledges or persists the cursor.
-      // Its deterministic command id makes retries safe if the process stops between these steps.
-      yield* dispatchInbound(threadId, detail.value, message);
-      yield* react(discordThreadId, message.id, "✅");
+  ) {
+    const isSelf = message.author.id === config.applicationId || message.author.bot === true;
+    const isWebhook = message.webhook_id !== undefined;
+    if (isSelf || isWebhook) {
       yield* advanceCursor(threadId, message.id);
       return true;
-    });
+    }
+    if (!config.allowedAuthorIds.includes(message.author.id)) {
+      yield* Effect.logWarning("discord bridge rejected unauthorized author", {
+        threadId,
+        authorId: message.author.id,
+      });
+      yield* react(discordThreadId, message.id, "❌");
+      yield* advanceCursor(threadId, message.id);
+      return true;
+    }
+    if (message.content.trim() === "") {
+      yield* react(discordThreadId, message.id, "⚠️");
+      yield* advanceCursor(threadId, message.id);
+      return true;
+    }
 
-  const pollThread = (
+    const detail = yield* threadDetail(threadId);
+    if (Option.isNone(detail)) {
+      yield* advanceCursor(threadId, message.id);
+      return true;
+    }
+    const status = statusOf(detail.value);
+    if (status === "running" || status === "starting") {
+      // Keep the durable cursor in place; the next poll rereads this message.
+      yield* react(discordThreadId, message.id, "⏳");
+      return false;
+    }
+
+    // Dispatch must succeed before the bridge acknowledges or persists the cursor.
+    // Its deterministic command id makes retries safe if the process stops between these steps.
+    yield* dispatchInbound(threadId, detail.value, message);
+    yield* react(discordThreadId, message.id, "✅");
+    yield* advanceCursor(threadId, message.id);
+    return true;
+  });
+
+  const pollThread = Effect.fn("DiscordBridge.pollThread")(function* (
     link: {
       readonly threadId: string;
       readonly discordThreadId: string;
       readonly lastSeenDiscordMessageId: string | null;
     },
     config: DiscordBridgeSettings,
-  ) =>
-    Effect.gen(function* () {
-      const threadId = link.threadId as ThreadId;
-      const batch = yield* rest.listMessagesAfter({
-        channelId: link.discordThreadId,
-        afterMessageId: link.lastSeenDiscordMessageId,
-      });
-      // Discord returns newest-first; process oldest-first so ordering holds.
-      const ordered = batch.toReversed();
-
-      for (const message of ordered) {
-        const consumed = yield* withAutomationWork(
-          processInboundMessage(threadId, link.discordThreadId, message, config),
-        );
-        // Do not let a later bot/ignored message move the cursor past this
-        // oldest allowed message while its thread is still busy.
-        if (!consumed) return;
-      }
+  ) {
+    const threadId = link.threadId as ThreadId;
+    const batch = yield* rest.listMessagesAfter({
+      channelId: link.discordThreadId,
+      afterMessageId: link.lastSeenDiscordMessageId,
     });
+    // Discord returns newest-first; process oldest-first so ordering holds.
+    const ordered = batch.toReversed();
+
+    for (const message of ordered) {
+      const consumed = yield* withAutomationWork(
+        processInboundMessage(threadId, link.discordThreadId, message, config),
+      );
+      // Do not let a later bot/ignored message move the cursor past this
+      // oldest allowed message while its thread is still busy.
+      if (!consumed) return;
+    }
+  });
 
   const react = (channelId: string, messageId: string, emoji: string) =>
     rest.createReaction({ channelId, messageId, emoji }).pipe(Effect.ignore);
 
-  const advanceCursor = (threadId: ThreadId, discordMessageId: string) =>
-    Effect.gen(function* () {
-      const now = yield* DateTime.now;
-      yield* links.setLastSeen({
-        threadId,
-        lastSeenDiscordMessageId: discordMessageId,
-        updatedAt: now,
-      });
+  const advanceCursor = Effect.fn("DiscordBridge.advanceCursor")(function* (
+    threadId: ThreadId,
+    discordMessageId: string,
+  ) {
+    const now = yield* DateTime.now;
+    yield* links.setLastSeen({
+      threadId,
+      lastSeenDiscordMessageId: discordMessageId,
+      updatedAt: now,
     });
+  });
 
   const pollOnce = Effect.gen(function* () {
     const config = yield* readConfig;

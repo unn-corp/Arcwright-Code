@@ -1,6 +1,5 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { serverEnvironment } from "../../state/server";
-// @vitest-environment jsdom
 
 import {
   ApprovalRequestId,

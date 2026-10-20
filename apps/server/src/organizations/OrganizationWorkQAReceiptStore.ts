@@ -198,24 +198,25 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
       Effect.mapError(() => unavailable()),
     );
-  const verifyArtifact = (target: TargetRow) =>
-    Effect.gen(function* () {
-      const saved = yield* artifacts
-        .get(target.attempt_id)
-        .pipe(Effect.mapError(() => unavailable()));
-      if (
-        !saved ||
-        saved.workId !== target.work_id ||
-        saved.projectId !== target.project_id ||
-        saved.artifactDigest !== target.artifact_digest ||
-        saved.artifactRef !== target.artifact_ref ||
-        saved.baseCodeRevision !== target.code_revision
-      )
-        return yield* conflict("Submitted artifact receipt does not match the saved attempt.");
-      yield* artifacts
-        .verifySubmitted(saved)
-        .pipe(Effect.mapError(() => conflict("Submitted artifact bytes or scope are invalid.")));
-    });
+  const verifyArtifact = Effect.fn("OrganizationWorkQAReceiptStore.verifyArtifact")(function* (
+    target: TargetRow,
+  ) {
+    const saved = yield* artifacts
+      .get(target.attempt_id)
+      .pipe(Effect.mapError(() => unavailable()));
+    if (
+      !saved ||
+      saved.workId !== target.work_id ||
+      saved.projectId !== target.project_id ||
+      saved.artifactDigest !== target.artifact_digest ||
+      saved.artifactRef !== target.artifact_ref ||
+      saved.baseCodeRevision !== target.code_revision
+    )
+      return yield* conflict("Submitted artifact receipt does not match the saved attempt.");
+    yield* artifacts
+      .verifySubmitted(saved)
+      .pipe(Effect.mapError(() => conflict("Submitted artifact bytes or scope are invalid.")));
+  });
   const capture: OrganizationWorkQAReceiptStoreShape["capture"] = (callerInput) => {
     const input: OrganizationWorkQAReceiptCaptureInput = {
       attemptId: callerInput.attemptId,
@@ -333,8 +334,10 @@ const make = Effect.gen(function* () {
       }),
     );
   };
-  const verifyEvaluation: OrganizationWorkQAReceiptStoreShape["verifyEvaluation"] = (target) =>
-    Effect.gen(function* () {
+  const verifyEvaluation: OrganizationWorkQAReceiptStoreShape["verifyEvaluation"] = Effect.fn(
+    "OrganizationWorkQAReceiptStore.verifyEvaluation",
+  )(
+    function* (target) {
       const saved = yield* get(target.attemptId);
       if (!saved) return yield* qaError("not_found", "QA receipt was not found.");
       if (!matches(saved, target) || receiptDigest(saved) !== saved.receiptDigest)
@@ -353,7 +356,9 @@ const make = Effect.gen(function* () {
       yield* artifacts
         .verifySubmitted(artifact)
         .pipe(Effect.mapError(() => conflict("Submitted artifact bytes or scope are invalid.")));
-    }).pipe(Effect.mapError((error) => (isQAError(error) ? error : unavailable())));
+    },
+    Effect.mapError((error) => (isQAError(error) ? error : unavailable())),
+  );
   return { capture, get, verifyEvaluation } satisfies OrganizationWorkQAReceiptStoreShape;
 });
 

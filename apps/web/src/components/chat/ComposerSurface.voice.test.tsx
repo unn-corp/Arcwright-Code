@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 // @effect-diagnostics nodeBuiltinImport:off - Exercise the shipped stylesheet, bypassing Vitest's CSS import stub.
 import * as NodeFS from "node:fs";
 import * as NodeURL from "node:url";

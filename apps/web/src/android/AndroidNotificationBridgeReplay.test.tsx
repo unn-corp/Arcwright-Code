@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 // @effect-diagnostics nodeBuiltinImport:off - replay actual bridge messages through the native unit harness.
 import * as NodeFS from "node:fs";
 import { act } from "react";

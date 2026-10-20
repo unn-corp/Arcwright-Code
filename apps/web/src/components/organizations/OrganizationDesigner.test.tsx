@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { OrganizationId, OrganizationRoleId, type Organization } from "@t3tools/contracts";
 import { act, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";

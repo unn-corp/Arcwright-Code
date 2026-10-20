@@ -40,70 +40,84 @@ export const makeOrganizationLiveWorkReadinessGate = () => {
     generation++;
     current = Object.freeze({ ready: false, reason });
   };
-  const initialize = <EC, RC, ES, RS, EW, RW>(
+  const initialize = Effect.fn("OrganizationLiveWorkReadinessGate.initialize")(function* <
+    EC,
+    RC,
+    ES,
+    RS,
+    EW,
+    RW,
+  >(
     claimOwner: Effect.Effect<string, EC, RC>,
     recoverScopes: Effect.Effect<OrganizationLiveWorkRecoveryReport, ES, RS>,
     recoverWork: Effect.Effect<OrganizationLiveWorkRecoveryReport, EW, RW>,
-  ): Effect.Effect<OrganizationLiveWorkRuntimeStatus, never, RC | RS | RW> =>
-    Effect.gen(function* () {
-      revoke();
-      const ownGeneration = generation;
-      const owner = yield* Effect.exit(claimOwner);
-      if (ownGeneration !== generation) return current;
-      if (Exit.isFailure(owner) || !owner.value.trim()) {
-        revoke("broker_owner_unavailable");
-        return current;
-      }
-      const recovered = yield* Effect.exit(recoverScopes);
-      if (ownGeneration !== generation) return current;
-      if (Exit.isFailure(recovered)) {
-        revoke("scope_recovery_unavailable");
-        return current;
-      }
-      if (recovered.value.held.length > 0) {
-        revoke("scope_recovery_held");
-        return current;
-      }
-      const work = yield* Effect.exit(recoverWork);
-      if (ownGeneration !== generation) return current;
-      if (Exit.isFailure(work)) {
-        revoke("work_recovery_unavailable");
-        return current;
-      }
-      if (work.value.held.length > 0) {
-        revoke("work_recovery_held");
-        return current;
-      }
-      current = Object.freeze({ ready: true, reason: "ready" });
+  ): Effect.fn.Return<OrganizationLiveWorkRuntimeStatus, never, RC | RS | RW> {
+    revoke();
+    const ownGeneration = generation;
+    const owner = yield* Effect.exit(claimOwner);
+    if (ownGeneration !== generation) return current;
+    if (Exit.isFailure(owner) || !owner.value.trim()) {
+      revoke("broker_owner_unavailable");
       return current;
-    });
+    }
+    const recovered = yield* Effect.exit(recoverScopes);
+    if (ownGeneration !== generation) return current;
+    if (Exit.isFailure(recovered)) {
+      revoke("scope_recovery_unavailable");
+      return current;
+    }
+    if (recovered.value.held.length > 0) {
+      revoke("scope_recovery_held");
+      return current;
+    }
+    const work = yield* Effect.exit(recoverWork);
+    if (ownGeneration !== generation) return current;
+    if (Exit.isFailure(work)) {
+      revoke("work_recovery_unavailable");
+      return current;
+    }
+    if (work.value.held.length > 0) {
+      revoke("work_recovery_held");
+      return current;
+    }
+    current = Object.freeze({ ready: true, reason: "ready" });
+    return current;
+  });
   const permits = (organizationId: string, intentId: string) =>
     current.ready && organizationId.trim().length > 0 && intentId.trim().length > 0;
-  const retryUntilReady = <E, R, EW, RW>(
+  const retryUntilReady = Effect.fn("OrganizationLiveWorkReadinessGate.retryUntilReady")(function* <
+    E,
+    R,
+    EW,
+    RW,
+  >(
     check: () => Effect.Effect<OrganizationLiveWorkRuntimeStatus, E, R>,
     wait: Effect.Effect<void, EW, RW>,
-  ): Effect.Effect<void, E | EW, R | RW> =>
-    Effect.gen(function* () {
-      while (!current.ready) {
-        yield* wait;
-        if (!current.ready) yield* check();
-      }
-    });
-  const monitorOwner = <E, R, EW, RW>(
+  ): Effect.fn.Return<void, E | EW, R | RW> {
+    while (!current.ready) {
+      yield* wait;
+      if (!current.ready) yield* check();
+    }
+  });
+  const monitorOwner = Effect.fn("OrganizationLiveWorkReadinessGate.monitorOwner")(function* <
+    E,
+    R,
+    EW,
+    RW,
+  >(
     checkOwner: () => Effect.Effect<boolean, E, R>,
     wait: Effect.Effect<void, EW, RW>,
-  ): Effect.Effect<void, EW, R | RW> =>
-    Effect.gen(function* () {
-      while (current.ready) {
-        yield* wait;
-        if (!current.ready) return;
-        const checked = yield* Effect.exit(checkOwner());
-        if (Exit.isFailure(checked) || checked.value !== true) {
-          revoke("broker_owner_unavailable");
-          return;
-        }
+  ): Effect.fn.Return<void, EW, R | RW> {
+    while (current.ready) {
+      yield* wait;
+      if (!current.ready) return;
+      const checked = yield* Effect.exit(checkOwner());
+      if (Exit.isFailure(checked) || checked.value !== true) {
+        revoke("broker_owner_unavailable");
+        return;
       }
-    });
+    }
+  });
   return {
     status,
     permits,

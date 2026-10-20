@@ -192,173 +192,172 @@ export function coordinateOrganizationGitIntegration(
       WHERE a.attempt_id = ${input.attemptId}`;
     const intentFor = () => sql<IntentRow>`SELECT * FROM organization_git_integration_intents
       WHERE attempt_id = ${input.attemptId}`;
-    const prepare = () =>
-      Effect.gen(function* () {
-        const row = (yield* targetFor())[0];
-        if (!row) return yield* failure("not_found", "Integration attempt was not found.");
-        const stopped = yield* sql<{ organization_id: string }>`SELECT organization_id
+    const prepare = Effect.fn("OrganizationGitIntegrationCoordinator.prepare")(function* () {
+      const row = (yield* targetFor())[0];
+      if (!row) return yield* failure("not_found", "Integration attempt was not found.");
+      const stopped = yield* sql<{ organization_id: string }>`SELECT organization_id
           FROM organization_emergency_stops WHERE organization_id = ${row.organization_id}`;
-        if (stopped.length > 0)
-          return yield* failure("conflict", "Emergency stop holds Git integration.");
-        let capabilities: unknown;
-        try {
-          capabilities = JSON.parse(row.binding_capabilities_json ?? "");
-        } catch {
-          /* Fail closed. */
-        }
-        if (
-          row.attempt_status !== "qa-accepted" ||
-          row.work_status !== "blocked" ||
-          row.attempt_number !== row.attempt_count ||
-          row.lifecycle !== "active" ||
-          row.binding_organization_id !== row.organization_id ||
-          row.binding_project_id !== row.project_id ||
-          row.binding_updated_at !== row.binding_version ||
-          row.binding_access !== "write" ||
-          row.binding_scope !== row.scope ||
-          row.binding_detached_at !== null ||
-          row.project_deleted_at !== null ||
-          !row.workspace_root ||
-          !NodePath.isAbsolute(row.workspace_root) ||
-          row.scope !== null ||
-          !row.approval_subject ||
-          !row.approval_evidence_ref ||
-          !row.artifact_ref ||
-          !row.artifact_digest ||
-          !SHA256.test(row.artifact_digest) ||
-          !row.qa_subject ||
-          !FULL_OID.test(row.code_revision) ||
-          !Array.isArray(capabilities) ||
-          !["read-files", "write-files", "run-tests"].every((name) => capabilities.includes(name))
-        )
-          return yield* failure("conflict", "Current work, binding, or Project is ineligible.");
-        if (
-          [row.worker_subject, row.qa_subject, row.approval_subject].includes(
-            input.integratorSubject,
-          )
-        )
-          return yield* failure("forbidden", "Integrator identity must be independent.");
-        const root = yield* Effect.tryPromise({
-          try: () => NodeFSP.realpath(row.workspace_root!),
-          catch: () => failure("unavailable", "Project root could not be resolved."),
-        });
-        const candidate = yield* candidates
-          .get(input.attemptId)
-          .pipe(Effect.mapError((error) => failure(error.code, error.message)));
-        const artifact = yield* artifacts
-          .get(input.attemptId)
-          .pipe(Effect.mapError((error) => failure(error.code, error.message)));
-        const approval = yield* approvals
-          .get(input.attemptId)
-          .pipe(Effect.mapError((error) => failure(error.code, error.message)));
-        if (
-          !candidate ||
-          candidate.status !== "retained" ||
-          !candidate.resultCommit ||
-          candidate.workId !== row.work_id ||
-          candidate.organizationId !== row.organization_id ||
-          candidate.projectId !== row.project_id ||
-          candidate.bindingId !== row.binding_id ||
-          candidate.bindingVersion !== row.binding_version ||
-          candidate.baseCommit !== row.code_revision ||
-          candidate.artifactRef !== row.artifact_ref ||
-          candidate.artifactReceiptDigest !== row.artifact_digest ||
-          candidate.refName !==
-            `refs/t3-organizations/candidates/${candidate.reviewedArtifactDigest}` ||
-          !artifact ||
-          artifact.workId !== row.work_id ||
-          artifact.projectId !== row.project_id ||
-          artifact.baseCodeRevision !== row.code_revision ||
-          artifact.artifactRef !== row.artifact_ref ||
-          artifact.artifactDigest !== row.artifact_digest ||
-          sha256(artifact.patchBytes) !== candidate.reviewedArtifactDigest ||
-          !approval ||
-          !approval.approved ||
-          approval.workId !== row.work_id ||
-          approval.projectId !== row.project_id ||
-          approval.baseCodeRevision !== row.code_revision ||
-          approval.artifactRef !== row.artifact_ref ||
-          approval.artifactDigest !== row.artifact_digest ||
-          approval.workerSubject !== row.worker_subject ||
-          approval.qaSubject !== row.qa_subject ||
-          approval.approvalSubject !== row.approval_subject ||
-          approval.evidenceRef !== row.approval_evidence_ref
-        )
-          return yield* failure(
-            "conflict",
-            "Retained candidate or approval differs from current work.",
-          );
-        yield* approvals
-          .verifyApproval(approval)
-          .pipe(
-            Effect.mapError(() =>
-              failure("conflict", "Approval, QA or artifact evidence is invalid."),
-            ),
-          );
-        let evidence: unknown;
-        try {
-          evidence = JSON.parse(Buffer.from(approval.evidenceBytes).toString("utf8"));
-        } catch {
-          /* Fail closed. */
-        }
-        if (
-          typeof evidence !== "object" ||
-          evidence === null ||
-          !("version" in evidence) ||
-          evidence.version !== 1 ||
-          !("canonicalProjectRoot" in evidence) ||
-          evidence.canonicalProjectRoot !== root ||
-          !("approved" in evidence) ||
-          evidence.approved !== true ||
-          !("attemptId" in evidence) ||
-          evidence.attemptId !== input.attemptId ||
-          !("artifactDigest" in evidence) ||
-          evidence.artifactDigest !== row.artifact_digest ||
-          !("qaReceiptDigest" in evidence) ||
-          evidence.qaReceiptDigest !== approval.qaReceiptDigest
-        )
-          return yield* failure(
-            "conflict",
-            "Approval did not pin this canonical Project and artifact.",
-          );
-        if (
-          !authority.permits(input, {
-            organizationId: row.organization_id,
-            projectId: row.project_id,
-            bindingId: row.binding_id,
-            workId: row.work_id,
-            approvalSubject: row.approval_subject,
-            baseCommit: row.code_revision,
-            resultCommit: candidate.resultCommit,
-          })
-        )
-          return yield* failure("forbidden", "Git integration is not authorized.");
-        return {
-          prepared: {
-            attempt_id: input.attemptId,
-            work_id: row.work_id,
-            organization_id: row.organization_id,
-            project_id: row.project_id,
-            binding_id: row.binding_id,
-            binding_version: row.binding_version,
-            project_root_digest: sha256(`t3-org-project-root-v1\0${root}`),
-            base_commit: row.code_revision,
-            result_commit: candidate.resultCommit,
-            candidate_ref: candidate.refName,
-            reviewed_artifact_digest: candidate.reviewedArtifactDigest,
-            artifact_receipt_digest: row.artifact_digest,
-            approval_receipt_digest: approval.receiptDigest,
-            target_ref: input.targetRef,
-            integrator_subject: input.integratorSubject,
-          } satisfies Prepared,
-          root,
-          workspaceRoot: row.workspace_root,
-          bytes: Uint8Array.from(artifact.patchBytes),
-        };
+      if (stopped.length > 0)
+        return yield* failure("conflict", "Emergency stop holds Git integration.");
+      let capabilities: unknown;
+      try {
+        capabilities = JSON.parse(row.binding_capabilities_json ?? "");
+      } catch {
+        /* Fail closed. */
+      }
+      if (
+        row.attempt_status !== "qa-accepted" ||
+        row.work_status !== "blocked" ||
+        row.attempt_number !== row.attempt_count ||
+        row.lifecycle !== "active" ||
+        row.binding_organization_id !== row.organization_id ||
+        row.binding_project_id !== row.project_id ||
+        row.binding_updated_at !== row.binding_version ||
+        row.binding_access !== "write" ||
+        row.binding_scope !== row.scope ||
+        row.binding_detached_at !== null ||
+        row.project_deleted_at !== null ||
+        !row.workspace_root ||
+        !NodePath.isAbsolute(row.workspace_root) ||
+        row.scope !== null ||
+        !row.approval_subject ||
+        !row.approval_evidence_ref ||
+        !row.artifact_ref ||
+        !row.artifact_digest ||
+        !SHA256.test(row.artifact_digest) ||
+        !row.qa_subject ||
+        !FULL_OID.test(row.code_revision) ||
+        !Array.isArray(capabilities) ||
+        !["read-files", "write-files", "run-tests"].every((name) => capabilities.includes(name))
+      )
+        return yield* failure("conflict", "Current work, binding, or Project is ineligible.");
+      if (
+        [row.worker_subject, row.qa_subject, row.approval_subject].includes(input.integratorSubject)
+      )
+        return yield* failure("forbidden", "Integrator identity must be independent.");
+      const root = yield* Effect.tryPromise({
+        try: () => NodeFSP.realpath(row.workspace_root!),
+        catch: () => failure("unavailable", "Project root could not be resolved."),
       });
-    const lock = (value: Prepared, workspaceRoot: string) =>
-      Effect.gen(function* () {
-        const rows = yield* sql<{ binding_id: string }>`UPDATE organization_project_bindings
+      const candidate = yield* candidates
+        .get(input.attemptId)
+        .pipe(Effect.mapError((error) => failure(error.code, error.message)));
+      const artifact = yield* artifacts
+        .get(input.attemptId)
+        .pipe(Effect.mapError((error) => failure(error.code, error.message)));
+      const approval = yield* approvals
+        .get(input.attemptId)
+        .pipe(Effect.mapError((error) => failure(error.code, error.message)));
+      if (
+        !candidate ||
+        candidate.status !== "retained" ||
+        !candidate.resultCommit ||
+        candidate.workId !== row.work_id ||
+        candidate.organizationId !== row.organization_id ||
+        candidate.projectId !== row.project_id ||
+        candidate.bindingId !== row.binding_id ||
+        candidate.bindingVersion !== row.binding_version ||
+        candidate.baseCommit !== row.code_revision ||
+        candidate.artifactRef !== row.artifact_ref ||
+        candidate.artifactReceiptDigest !== row.artifact_digest ||
+        candidate.refName !==
+          `refs/t3-organizations/candidates/${candidate.reviewedArtifactDigest}` ||
+        !artifact ||
+        artifact.workId !== row.work_id ||
+        artifact.projectId !== row.project_id ||
+        artifact.baseCodeRevision !== row.code_revision ||
+        artifact.artifactRef !== row.artifact_ref ||
+        artifact.artifactDigest !== row.artifact_digest ||
+        sha256(artifact.patchBytes) !== candidate.reviewedArtifactDigest ||
+        !approval ||
+        !approval.approved ||
+        approval.workId !== row.work_id ||
+        approval.projectId !== row.project_id ||
+        approval.baseCodeRevision !== row.code_revision ||
+        approval.artifactRef !== row.artifact_ref ||
+        approval.artifactDigest !== row.artifact_digest ||
+        approval.workerSubject !== row.worker_subject ||
+        approval.qaSubject !== row.qa_subject ||
+        approval.approvalSubject !== row.approval_subject ||
+        approval.evidenceRef !== row.approval_evidence_ref
+      )
+        return yield* failure(
+          "conflict",
+          "Retained candidate or approval differs from current work.",
+        );
+      yield* approvals
+        .verifyApproval(approval)
+        .pipe(
+          Effect.mapError(() =>
+            failure("conflict", "Approval, QA or artifact evidence is invalid."),
+          ),
+        );
+      let evidence: unknown;
+      try {
+        evidence = JSON.parse(Buffer.from(approval.evidenceBytes).toString("utf8"));
+      } catch {
+        /* Fail closed. */
+      }
+      if (
+        typeof evidence !== "object" ||
+        evidence === null ||
+        !("version" in evidence) ||
+        evidence.version !== 1 ||
+        !("canonicalProjectRoot" in evidence) ||
+        evidence.canonicalProjectRoot !== root ||
+        !("approved" in evidence) ||
+        evidence.approved !== true ||
+        !("attemptId" in evidence) ||
+        evidence.attemptId !== input.attemptId ||
+        !("artifactDigest" in evidence) ||
+        evidence.artifactDigest !== row.artifact_digest ||
+        !("qaReceiptDigest" in evidence) ||
+        evidence.qaReceiptDigest !== approval.qaReceiptDigest
+      )
+        return yield* failure(
+          "conflict",
+          "Approval did not pin this canonical Project and artifact.",
+        );
+      if (
+        !authority.permits(input, {
+          organizationId: row.organization_id,
+          projectId: row.project_id,
+          bindingId: row.binding_id,
+          workId: row.work_id,
+          approvalSubject: row.approval_subject,
+          baseCommit: row.code_revision,
+          resultCommit: candidate.resultCommit,
+        })
+      )
+        return yield* failure("forbidden", "Git integration is not authorized.");
+      return {
+        prepared: {
+          attempt_id: input.attemptId,
+          work_id: row.work_id,
+          organization_id: row.organization_id,
+          project_id: row.project_id,
+          binding_id: row.binding_id,
+          binding_version: row.binding_version,
+          project_root_digest: sha256(`t3-org-project-root-v1\0${root}`),
+          base_commit: row.code_revision,
+          result_commit: candidate.resultCommit,
+          candidate_ref: candidate.refName,
+          reviewed_artifact_digest: candidate.reviewedArtifactDigest,
+          artifact_receipt_digest: row.artifact_digest,
+          approval_receipt_digest: approval.receiptDigest,
+          target_ref: input.targetRef,
+          integrator_subject: input.integratorSubject,
+        } satisfies Prepared,
+        root,
+        workspaceRoot: row.workspace_root,
+        bytes: Uint8Array.from(artifact.patchBytes),
+      };
+    });
+    const lock = Effect.fn("OrganizationGitIntegrationCoordinator.lock")(function* (
+      value: Prepared,
+      workspaceRoot: string,
+    ) {
+      const rows = yield* sql<{ binding_id: string }>`UPDATE organization_project_bindings
         SET updated_at = updated_at WHERE binding_id = ${value.binding_id}
           AND organization_id = ${value.organization_id}
           AND project_id = ${value.project_id}
@@ -371,9 +370,9 @@ export function coordinateOrganizationGitIntegration(
           AND EXISTS (SELECT 1 FROM projection_projects p WHERE p.project_id = ${value.project_id}
             AND p.deleted_at IS NULL AND p.workspace_root = ${workspaceRoot})
         RETURNING binding_id`;
-        if (!rows[0])
-          return yield* failure("conflict", "Current binding no longer permits integration.");
-      });
+      if (!rows[0])
+        return yield* failure("conflict", "Current binding no longer permits integration.");
+    });
     const transaction = <A, E>(effect: Effect.Effect<A, E, never>) =>
       sql
         .withTransaction(effect)

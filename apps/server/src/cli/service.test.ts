@@ -178,7 +178,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("service commands
 
       const output = lines.join("\n");
       expect(output).not.toContain("Restarted");
-      expect(output).toContain("Queued a restart of the T3 Code service on t3@0.0.30");
+      expect(output).toContain("Queued a restart of the Arcwright Code service on t3@0.0.30");
       expect(output).toContain(`Logs: ${status.logPath}`);
     }),
   );

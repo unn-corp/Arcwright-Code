@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import type { DesktopPreviewAnnotationPage } from "@t3tools/contracts";
 import {
   CAPTURE_ANNOTATION_PAGE_CHANNEL,

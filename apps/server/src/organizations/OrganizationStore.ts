@@ -630,8 +630,8 @@ const make = Effect.gen(function* () {
     load(organizationId).pipe(
       Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
     );
-  const list: OrganizationStoreShape["list"] = () =>
-    Effect.gen(function* () {
+  const list: OrganizationStoreShape["list"] = Effect.fn("OrganizationStore.list")(
+    function* () {
       const rows = yield* sql<{ organization_id: string }>`
       SELECT organization_id FROM organizations ORDER BY created_at, organization_id
     `;
@@ -639,9 +639,9 @@ const make = Effect.gen(function* () {
       for (const row of rows)
         organizations.push(yield* load(OrganizationId.make(row.organization_id)));
       return { organizations };
-    }).pipe(
-      Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
-    );
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+  );
 
   const mutate: OrganizationStoreShape["mutate"] = (input) =>
     transaction(
@@ -799,8 +799,10 @@ const make = Effect.gen(function* () {
         });
       }),
     );
-  const getPublishedConfig: OrganizationStoreShape["getPublishedConfig"] = (input) =>
-    Effect.gen(function* () {
+  const getPublishedConfig: OrganizationStoreShape["getPublishedConfig"] = Effect.fn(
+    "OrganizationStore.getPublishedConfig",
+  )(
+    function* (input) {
       const rows = yield* sql<{ config_json: string }>`
       SELECT config_json FROM organization_config_versions
       WHERE organization_id = ${input.organizationId} AND revision = ${input.revision}
@@ -808,9 +810,9 @@ const make = Effect.gen(function* () {
       const row = rows[0];
       if (!row) return yield* notFound();
       return yield* decodePublished(yield* parseJson(row.config_json));
-    }).pipe(
-      Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
-    );
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+  );
 
   const requireNoOpenExecution = Effect.fnUntraced(function* (
     organizationId: OrganizationId,
@@ -999,8 +1001,8 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const listAudit: OrganizationStoreShape["listAudit"] = (input) =>
-    Effect.gen(function* () {
+  const listAudit: OrganizationStoreShape["listAudit"] = Effect.fn("OrganizationStore.listAudit")(
+    function* (input) {
       yield* load(input.organizationId);
       const rows = yield* sql<AuditRow>`
       SELECT * FROM organization_audit WHERE organization_id = ${input.organizationId}
@@ -1021,9 +1023,9 @@ const make = Effect.gen(function* () {
           }),
         );
       return { entries };
-    }).pipe(
-      Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
-    );
+    },
+    Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+  );
 
   return {
     create,

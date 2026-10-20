@@ -64,14 +64,13 @@ export const withWork = <A, E, R>(
   );
 
 /** Runs bounded autonomous work under both the device fence and restored-automation review hold. */
-export const withAutomationWork = <A, E, R>(
+export const withAutomationWork = Effect.fn("WorkAdmission.withAutomationWork")(function* <A, E, R>(
   effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | MaintenanceWorkHeld, R> =>
-  Effect.gen(function* () {
-    const admission = yield* WorkAdmission;
-    yield* admission.checkAutomation;
-    return yield* withWork(effect);
-  });
+): Effect.fn.Return<A, E | MaintenanceWorkHeld, R> {
+  const admission = yield* WorkAdmission;
+  yield* admission.checkAutomation;
+  return yield* withWork(effect);
+});
 
 /** Re-admits a detached autonomous worker after a hold clears, retaining its durable work. */
 export const retryAutomationWork = <A, E, R>(

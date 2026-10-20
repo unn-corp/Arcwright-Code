@@ -114,30 +114,31 @@ const invalidClerkAuthConfiguration = () =>
  * Default providers drop empty leaves but retain their original parent keys.
  * Run outside the Worker layer: Alchemy would otherwise auto-bind parent records.
  */
-export const parseClerkAuthPolicyConfig = (provider: ConfigProvider.ConfigProvider) =>
-  Effect.gen(function* () {
-    const root = yield* provider
-      .load([])
+export const parseClerkAuthPolicyConfig = Effect.fn("Config.parseClerkAuthPolicyConfig")(function* (
+  provider: ConfigProvider.ConfigProvider,
+) {
+  const root = yield* provider
+    .load([])
+    .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
+  for (const key of CLERK_AUTH_KEYS) {
+    const leaf = yield* provider
+      .load([key])
       .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
-    for (const key of CLERK_AUTH_KEYS) {
-      const leaf = yield* provider
-        .load([key])
-        .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
-      if (leaf !== undefined) continue;
-      const segments = key.split("_");
-      const last = segments.pop();
-      const parent = yield* provider
-        .load(segments)
-        .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
-      if (
-        (root?._tag === "Record" && root.keys.has(key)) ||
-        (last !== undefined && parent?._tag === "Record" && parent.keys.has(last))
-      ) {
-        return yield* invalidClerkAuthConfiguration();
-      }
+    if (leaf !== undefined) continue;
+    const segments = key.split("_");
+    const last = segments.pop();
+    const parent = yield* provider
+      .load(segments)
+      .pipe(Effect.mapError((error) => new Config.ConfigError(error)));
+    if (
+      (root?._tag === "Record" && root.keys.has(key)) ||
+      (last !== undefined && parent?._tag === "Record" && parent.keys.has(last))
+    ) {
+      return yield* invalidClerkAuthConfiguration();
     }
-    return yield* clerkAuthPolicyFieldsConfig.parse(provider);
-  });
+  }
+  return yield* clerkAuthPolicyFieldsConfig.parse(provider);
+});
 
 /** Deployment preflight must finish before building the Worker layer. */
 export const clerkAuthPolicyConfig = Effect.gen(function* () {
@@ -145,22 +146,21 @@ export const clerkAuthPolicyConfig = Effect.gen(function* () {
 });
 
 /** The bridge's raw environment retains own-property presence even for dropped empty bindings. */
-export const clerkAuthPolicyFromWorkerEnvironment = (
-  environment: Readonly<Record<string, unknown>>,
-) =>
-  Effect.gen(function* () {
-    for (const key of CLERK_AUTH_KEYS) {
-      if (
-        Object.hasOwn(environment, key) &&
-        (typeof environment[key] !== "string" || environment[key].trim().length === 0)
-      ) {
-        return yield* invalidClerkAuthConfiguration();
-      }
+export const clerkAuthPolicyFromWorkerEnvironment = Effect.fn(
+  "Config.clerkAuthPolicyFromWorkerEnvironment",
+)(function* (environment: Readonly<Record<string, unknown>>) {
+  for (const key of CLERK_AUTH_KEYS) {
+    if (
+      Object.hasOwn(environment, key) &&
+      (typeof environment[key] !== "string" || environment[key].trim().length === 0)
+    ) {
+      return yield* invalidClerkAuthConfiguration();
     }
-    // Plan-time WorkerEnvironment is {}, so it cannot replace operator preflight.
-    // These leaf reads preserve Alchemy's existing binding and marker reification.
-    return yield* clerkAuthPolicyFieldsConfig;
-  });
+  }
+  // Plan-time WorkerEnvironment is {}, so it cannot replace operator preflight.
+  // These leaf reads preserve Alchemy's existing binding and marker reification.
+  return yield* clerkAuthPolicyFieldsConfig;
+});
 
 export class RelayConfiguration extends Context.Service<
   RelayConfiguration,
@@ -196,37 +196,38 @@ export const make = (configuration: RelayConfiguration["Service"]) =>
 /** Validate injected runtime services too, before accepting any credential. */
 class InvalidClerkAuthPolicy extends Data.TaggedError("InvalidClerkAuthPolicy") {}
 
-export const resolveClerkAuthPolicy = (configuration: RelayConfiguration["Service"]) =>
-  Effect.gen(function* () {
-    const policy = yield* decodeClerkAuthPolicy(
-      configuration.clerkAuthPolicy === undefined
-        ? { mode: "legacy" }
-        : configuration.clerkAuthPolicy,
-    );
-    if (policy.mode === "legacy") {
-      const supplied = configuration.clerkAuthPolicy;
-      if (supplied && ("issuer" in supplied || "cliClientId" in supplied)) {
-        return yield* new InvalidClerkAuthPolicy();
-      }
-    } else {
-      let frontendApi = "";
-      try {
-        const encoded = configuration.clerkPublishableKey.match(
-          /^pk_(?:live|test)_([A-Za-z0-9+/=]+)$/,
-        )?.[1];
-        frontendApi = encoded ? atob(encoded) : "";
-      } catch {
-        return yield* new InvalidClerkAuthPolicy();
-      }
-      if (
-        frontendApi !== `${new URL(policy.issuer).host}$` ||
-        !/^[A-Za-z0-9_-]+$/.test(configuration.clerkJwtAudience)
-      ) {
-        return yield* new InvalidClerkAuthPolicy();
-      }
+export const resolveClerkAuthPolicy = Effect.fn("Config.resolveClerkAuthPolicy")(function* (
+  configuration: RelayConfiguration["Service"],
+) {
+  const policy = yield* decodeClerkAuthPolicy(
+    configuration.clerkAuthPolicy === undefined
+      ? { mode: "legacy" }
+      : configuration.clerkAuthPolicy,
+  );
+  if (policy.mode === "legacy") {
+    const supplied = configuration.clerkAuthPolicy;
+    if (supplied && ("issuer" in supplied || "cliClientId" in supplied)) {
+      return yield* new InvalidClerkAuthPolicy();
     }
-    return policy;
-  });
+  } else {
+    let frontendApi = "";
+    try {
+      const encoded = configuration.clerkPublishableKey.match(
+        /^pk_(?:live|test)_([A-Za-z0-9+/=]+)$/,
+      )?.[1];
+      frontendApi = encoded ? atob(encoded) : "";
+    } catch {
+      return yield* new InvalidClerkAuthPolicy();
+    }
+    if (
+      frontendApi !== `${new URL(policy.issuer).host}$` ||
+      !/^[A-Za-z0-9_-]+$/.test(configuration.clerkJwtAudience)
+    ) {
+      return yield* new InvalidClerkAuthPolicy();
+    }
+  }
+  return policy;
+});
 
 export const layer = (configuration: RelayConfiguration["Service"]) =>
   Layer.succeed(RelayConfiguration, make(configuration));

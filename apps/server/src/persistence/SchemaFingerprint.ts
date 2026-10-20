@@ -105,31 +105,32 @@ const readLedger = Effect.gen(function* () {
 });
 
 /** Three tiny metadata reads. No user rows, file bytes, VACUUM or migration write transaction is needed on a match. */
-export const hasCurrentSchemaFingerprint = (manifest: ReadonlyArray<readonly [number, string]>) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const objects = yield* readSchemaObjects;
-    if (
-      !objects.some((object) => object.name === "arcwright_schema_fingerprint") ||
-      !objects.some((object) => object.name === "effect_sql_migrations")
-    )
-      return false;
-    const saved = (yield* sql<{
-      manifest_sha256: string;
-      schema_sha256: string;
-      ledger_sha256: string;
-    }>`SELECT manifest_sha256,schema_sha256,ledger_sha256 FROM arcwright_schema_fingerprint WHERE id=1`)[0];
-    if (saved?.manifest_sha256 !== migrationManifestDigest(manifest)) return false;
-    const ledger = yield* readLedger;
-    return saved.schema_sha256 === schemaDigest(objects) && saved.ledger_sha256 === digest(ledger);
-  });
+export const hasCurrentSchemaFingerprint = Effect.fn(
+  "SchemaFingerprint.hasCurrentSchemaFingerprint",
+)(function* (manifest: ReadonlyArray<readonly [number, string]>) {
+  const sql = yield* SqlClient.SqlClient;
+  const objects = yield* readSchemaObjects;
+  if (
+    !objects.some((object) => object.name === "arcwright_schema_fingerprint") ||
+    !objects.some((object) => object.name === "effect_sql_migrations")
+  )
+    return false;
+  const saved = (yield* sql<{
+    manifest_sha256: string;
+    schema_sha256: string;
+    ledger_sha256: string;
+  }>`SELECT manifest_sha256,schema_sha256,ledger_sha256 FROM arcwright_schema_fingerprint WHERE id=1`)[0];
+  if (saved?.manifest_sha256 !== migrationManifestDigest(manifest)) return false;
+  const ledger = yield* readLedger;
+  return saved.schema_sha256 === schemaDigest(objects) && saved.ledger_sha256 === digest(ledger);
+});
 
 /** Stamp only a verified schema after the normal migration path. Extra legacy objects are retained and covered by the SHA. */
-export const recordSchemaFingerprint = (
-  manifest: ReadonlyArray<readonly [number, string]>,
-  expected: ReadonlyArray<SchemaObject>,
-) =>
-  Effect.gen(function* () {
+export const recordSchemaFingerprint = Effect.fn("SchemaFingerprint.recordSchemaFingerprint")(
+  function* (
+    manifest: ReadonlyArray<readonly [number, string]>,
+    expected: ReadonlyArray<SchemaObject>,
+  ) {
     const sql = yield* SqlClient.SqlClient;
     const objects = yield* readSchemaObjects;
     const actual = new Map(
@@ -157,4 +158,5 @@ export const recordSchemaFingerprint = (
     yield* sql`INSERT INTO arcwright_schema_fingerprint(id,manifest_sha256,schema_sha256,ledger_sha256)
     VALUES(1,${migrationManifestDigest(manifest)},${schemaDigest(objects)},${digest(ledger)})
     ON CONFLICT(id) DO UPDATE SET manifest_sha256=excluded.manifest_sha256,schema_sha256=excluded.schema_sha256,ledger_sha256=excluded.ledger_sha256`;
-  });
+  },
+);

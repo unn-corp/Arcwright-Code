@@ -390,8 +390,8 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const resolveBaseBranch = (project: OrchestrationProjectShell, configured: string) =>
-    Effect.gen(function* () {
+  const resolveBaseBranch = Effect.fn("AgentDashboardPullRequestRollup.resolveBaseBranch")(
+    function* (project: OrchestrationProjectShell, configured: string) {
       const refs = yield* git.listRefs({
         cwd: project.workspaceRoot,
         includeMatchingRemoteRefs: true,
@@ -406,230 +406,231 @@ const make = Effect.gen(function* () {
         });
       }
       return { baseBranch, refs };
-    }).pipe(
-      Effect.mapError((cause) =>
-        isPullRequestRollupError(cause)
-          ? cause
-          : new AgentDashboardPullRequestRollupError({
-              operation: "resolve base branch",
-              message: `Arcwright Code could not identify the rollup target branch for ${project.title}.`,
-              cause,
-            }),
+    },
+    (_program, project) =>
+      _program.pipe(
+        Effect.mapError((cause) =>
+          isPullRequestRollupError(cause)
+            ? cause
+            : new AgentDashboardPullRequestRollupError({
+                operation: "resolve base branch",
+                message: `Arcwright Code could not identify the rollup target branch for ${project.title}.`,
+                cause,
+              }),
+        ),
       ),
-    );
+  );
 
-  const launch = (input: {
+  const launch = Effect.fn("AgentDashboardPullRequestRollup.launch")(function* (input: {
     readonly project: OrchestrationProjectShell;
     readonly repository: string;
     readonly baseBranch: string;
     readonly pullRequests: ReadonlyArray<SourceControlProjectPullRequest>;
     readonly settings: PullRequestRollupSettings;
-  }) =>
-    Effect.gen(function* () {
-      const runId = `pr-rollup:${yield* randomId}`;
-      const createdAt = yield* nowIso;
-      const queued = createRun({
-        id: runId,
-        project: input.project,
-        repository: input.repository,
-        pullRequestCount: input.pullRequests.length,
-        baseBranch: input.baseBranch,
-        settings: input.settings,
-        createdAt,
-      });
-      yield* persistRun(queued);
-
-      const threadId = ThreadId.make(yield* randomId);
-      const branchToken = (yield* randomId).replace(/[^0-9a-f]/giu, "").slice(0, 8);
-      const branch = sanitizeBranchFragment(
-        `${input.settings.branchPrefix}/${createdAt.slice(0, 10)}-${branchToken}`,
-      );
-      let threadCreated = false;
-      let worktreePath: string | null = null;
-
-      const launchResult = yield* Effect.result(
-        Effect.gen(function* () {
-          yield* dispatch({
-            type: "thread.create",
-            commandId: yield* commandId("thread-create"),
-            threadId,
-            projectId: input.project.id,
-            title: `Roll up ${input.pullRequests.length} pull requests`.slice(0, 80),
-            modelSelection: input.settings.modelSelection,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-            createdAt,
-          });
-          threadCreated = true;
-
-          const trackedRemoteName = yield* git.resolveBranchRemoteName({
-            cwd: input.project.workspaceRoot,
-            branchName: input.baseBranch,
-          });
-          const remoteName = trackedRemoteName ?? "origin";
-          let baseRef = input.baseBranch;
-          if (yield* git.remoteExists({ cwd: input.project.workspaceRoot, remoteName })) {
-            yield* git.fetchRemote({ cwd: input.project.workspaceRoot, remoteName });
-            baseRef = (yield* git.resolveRemoteTrackingCommit({
-              cwd: input.project.workspaceRoot,
-              refName: input.baseBranch,
-              fallbackRemoteName: remoteName,
-            })).commitSha;
-          }
-          const worktree = yield* git.createWorktree({
-            cwd: input.project.workspaceRoot,
-            refName: baseRef,
-            newRefName: branch,
-            baseRefName: input.baseBranch,
-            path: null,
-          });
-          const targetWorktreePath = worktree.worktree.path;
-          worktreePath = targetWorktreePath;
-
-          yield* dispatch({
-            type: "thread.meta.update",
-            commandId: yield* commandId("thread-meta-update"),
-            threadId,
-            branch: worktree.worktree.refName,
-            worktreePath: targetWorktreePath,
-          });
-          yield* setupScripts
-            .runForThread({
-              threadId,
-              projectId: input.project.id,
-              projectCwd: input.project.workspaceRoot,
-              worktreePath: targetWorktreePath,
-            })
-            .pipe(Effect.ignore);
-
-          yield* dispatch({
-            type: "thread.turn.start",
-            commandId: yield* commandId("turn-start"),
-            threadId,
-            message: {
-              messageId: MessageId.make(yield* randomId),
-              role: "user",
-              text: buildPullRequestRollupPrompt({
-                ...input,
-                branch: worktree.worktree.refName,
-              }),
-              attachments: [],
-            },
-            modelSelection: input.settings.modelSelection,
-            titleSeed: `Pull request rollup for ${input.project.title}`,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            createdAt,
-          });
-
-          return {
-            projectId: input.project.id,
-            threadId,
-            branch: worktree.worktree.refName,
-            baseBranch: input.baseBranch,
-            worktreePath: targetWorktreePath,
-            repository: input.repository,
-          } satisfies PullRequestRollupLaunchResult;
-        }),
-      );
-
-      if (Result.isFailure(launchResult)) {
-        if (threadCreated) {
-          yield* dispatch({
-            type: "thread.delete",
-            commandId: yield* commandId("thread-cleanup"),
-            threadId,
-          }).pipe(Effect.ignore);
-        }
-        if (worktreePath !== null) {
-          yield* git
-            .removeWorktree({ cwd: input.project.workspaceRoot, path: worktreePath, force: true })
-            .pipe(Effect.ignore);
-        }
-        const failedAt = yield* nowIso;
-        yield* persistRun({
-          ...queued,
-          status: "failed",
-          error:
-            launchResult.failure instanceof Error
-              ? launchResult.failure.message
-              : "The pull request rollup agent could not start.",
-          updatedAt: failedAt,
-          completedAt: failedAt,
-        });
-        return yield* new AgentDashboardPullRequestRollupError({
-          operation: "launch agent",
-          message: `Arcwright Code could not start the pull request rollup for ${input.project.title}.`,
-          cause: launchResult.failure,
-        });
-      }
-
-      const startedAt = yield* nowIso;
-      const running: AgentDashboardAutomationRun = {
-        ...queued,
-        status: "running",
-        threadId,
-        startedAt,
-        updatedAt: startedAt,
-      };
-      yield* persistRun(running);
-      return { run: running, launch: launchResult.success };
+  }) {
+    const runId = `pr-rollup:${yield* randomId}`;
+    const createdAt = yield* nowIso;
+    const queued = createRun({
+      id: runId,
+      project: input.project,
+      repository: input.repository,
+      pullRequestCount: input.pullRequests.length,
+      baseBranch: input.baseBranch,
+      settings: input.settings,
+      createdAt,
     });
+    yield* persistRun(queued);
 
-  const finishRun = (input: {
+    const threadId = ThreadId.make(yield* randomId);
+    const branchToken = (yield* randomId).replace(/[^0-9a-f]/giu, "").slice(0, 8);
+    const branch = sanitizeBranchFragment(
+      `${input.settings.branchPrefix}/${createdAt.slice(0, 10)}-${branchToken}`,
+    );
+    let threadCreated = false;
+    let worktreePath: string | null = null;
+
+    const launchResult = yield* Effect.result(
+      Effect.gen(function* () {
+        yield* dispatch({
+          type: "thread.create",
+          commandId: yield* commandId("thread-create"),
+          threadId,
+          projectId: input.project.id,
+          title: `Roll up ${input.pullRequests.length} pull requests`.slice(0, 80),
+          modelSelection: input.settings.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        });
+        threadCreated = true;
+
+        const trackedRemoteName = yield* git.resolveBranchRemoteName({
+          cwd: input.project.workspaceRoot,
+          branchName: input.baseBranch,
+        });
+        const remoteName = trackedRemoteName ?? "origin";
+        let baseRef = input.baseBranch;
+        if (yield* git.remoteExists({ cwd: input.project.workspaceRoot, remoteName })) {
+          yield* git.fetchRemote({ cwd: input.project.workspaceRoot, remoteName });
+          baseRef = (yield* git.resolveRemoteTrackingCommit({
+            cwd: input.project.workspaceRoot,
+            refName: input.baseBranch,
+            fallbackRemoteName: remoteName,
+          })).commitSha;
+        }
+        const worktree = yield* git.createWorktree({
+          cwd: input.project.workspaceRoot,
+          refName: baseRef,
+          newRefName: branch,
+          baseRefName: input.baseBranch,
+          path: null,
+        });
+        const targetWorktreePath = worktree.worktree.path;
+        worktreePath = targetWorktreePath;
+
+        yield* dispatch({
+          type: "thread.meta.update",
+          commandId: yield* commandId("thread-meta-update"),
+          threadId,
+          branch: worktree.worktree.refName,
+          worktreePath: targetWorktreePath,
+        });
+        yield* setupScripts
+          .runForThread({
+            threadId,
+            projectId: input.project.id,
+            projectCwd: input.project.workspaceRoot,
+            worktreePath: targetWorktreePath,
+          })
+          .pipe(Effect.ignore);
+
+        yield* dispatch({
+          type: "thread.turn.start",
+          commandId: yield* commandId("turn-start"),
+          threadId,
+          message: {
+            messageId: MessageId.make(yield* randomId),
+            role: "user",
+            text: buildPullRequestRollupPrompt({
+              ...input,
+              branch: worktree.worktree.refName,
+            }),
+            attachments: [],
+          },
+          modelSelection: input.settings.modelSelection,
+          titleSeed: `Pull request rollup for ${input.project.title}`,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt,
+        });
+
+        return {
+          projectId: input.project.id,
+          threadId,
+          branch: worktree.worktree.refName,
+          baseBranch: input.baseBranch,
+          worktreePath: targetWorktreePath,
+          repository: input.repository,
+        } satisfies PullRequestRollupLaunchResult;
+      }),
+    );
+
+    if (Result.isFailure(launchResult)) {
+      if (threadCreated) {
+        yield* dispatch({
+          type: "thread.delete",
+          commandId: yield* commandId("thread-cleanup"),
+          threadId,
+        }).pipe(Effect.ignore);
+      }
+      if (worktreePath !== null) {
+        yield* git
+          .removeWorktree({ cwd: input.project.workspaceRoot, path: worktreePath, force: true })
+          .pipe(Effect.ignore);
+      }
+      const failedAt = yield* nowIso;
+      yield* persistRun({
+        ...queued,
+        status: "failed",
+        error:
+          launchResult.failure instanceof Error
+            ? launchResult.failure.message
+            : "The pull request rollup agent could not start.",
+        updatedAt: failedAt,
+        completedAt: failedAt,
+      });
+      return yield* new AgentDashboardPullRequestRollupError({
+        operation: "launch agent",
+        message: `Arcwright Code could not start the pull request rollup for ${input.project.title}.`,
+        cause: launchResult.failure,
+      });
+    }
+
+    const startedAt = yield* nowIso;
+    const running: AgentDashboardAutomationRun = {
+      ...queued,
+      status: "running",
+      threadId,
+      startedAt,
+      updatedAt: startedAt,
+    };
+    yield* persistRun(running);
+    return { run: running, launch: launchResult.success };
+  });
+
+  const finishRun = Effect.fn("AgentDashboardPullRequestRollup.finishRun")(function* (input: {
     readonly run: AgentDashboardAutomationRun;
     readonly launch: PullRequestRollupLaunchResult;
     readonly project: OrchestrationProjectShell;
     readonly settings: PullRequestRollupSettings;
     readonly status: "succeeded" | "partial" | "failed" | "cancelled";
     readonly error: string | null;
-  }) =>
-    Effect.gen(function* () {
-      const completedAt = yield* nowIso;
-      yield* persistRun({
-        ...input.run,
-        status: input.status,
-        error: input.error,
-        updatedAt: completedAt,
-        completedAt,
-      });
-      if (input.status !== "succeeded" || !input.settings.removeCompletedWorktrees) return;
-      const commands = buildCompletedImplementationCleanupCommands({
-        threadId: input.launch.threadId,
-        settleCommandId: yield* commandId("thread-settle"),
-        stopCommandId: yield* commandId("session-stop"),
-        createdAt: completedAt,
-      });
-      yield* dispatch(commands.settle).pipe(Effect.ignore);
-      yield* dispatch(commands.stop).pipe(Effect.ignore);
-      yield* git
-        .removeWorktree(
-          buildCompletedImplementationWorktreeRemovalInput({
-            projectCwd: input.project.workspaceRoot,
-            worktreePath: input.launch.worktreePath,
-          }),
-        )
-        .pipe(
-          Effect.tapError((cause) =>
-            Effect.logWarning("Pull request rollup retained its completed worktree", {
-              threadId: input.launch.threadId,
-              worktreePath: input.launch.worktreePath,
-              cause,
-            }),
-          ),
-          Effect.ignore,
-        );
+  }) {
+    const completedAt = yield* nowIso;
+    yield* persistRun({
+      ...input.run,
+      status: input.status,
+      error: input.error,
+      updatedAt: completedAt,
+      completedAt,
     });
+    if (input.status !== "succeeded" || !input.settings.removeCompletedWorktrees) return;
+    const commands = buildCompletedImplementationCleanupCommands({
+      threadId: input.launch.threadId,
+      settleCommandId: yield* commandId("thread-settle"),
+      stopCommandId: yield* commandId("session-stop"),
+      createdAt: completedAt,
+    });
+    yield* dispatch(commands.settle).pipe(Effect.ignore);
+    yield* dispatch(commands.stop).pipe(Effect.ignore);
+    yield* git
+      .removeWorktree(
+        buildCompletedImplementationWorktreeRemovalInput({
+          projectCwd: input.project.workspaceRoot,
+          worktreePath: input.launch.worktreePath,
+        }),
+      )
+      .pipe(
+        Effect.tapError((cause) =>
+          Effect.logWarning("Pull request rollup retained its completed worktree", {
+            threadId: input.launch.threadId,
+            worktreePath: input.launch.worktreePath,
+            cause,
+          }),
+        ),
+        Effect.ignore,
+      );
+  });
 
-  const monitor = (input: {
-    readonly run: AgentDashboardAutomationRun;
-    readonly launch: PullRequestRollupLaunchResult;
-    readonly project: OrchestrationProjectShell;
-    readonly settings: PullRequestRollupSettings;
-  }): Effect.Effect<void> =>
-    Effect.gen(function* () {
+  const monitor = Effect.fn("AgentDashboardPullRequestRollup.monitor")(
+    function* (input: {
+      readonly run: AgentDashboardAutomationRun;
+      readonly launch: PullRequestRollupLaunchResult;
+      readonly project: OrchestrationProjectShell;
+      readonly settings: PullRequestRollupSettings;
+    }) {
       for (;;) {
         const shell = yield* projection.getShellSnapshot();
         const thread = shell.threads.find((candidate) => candidate.id === input.launch.threadId);
@@ -715,31 +716,34 @@ const make = Effect.gen(function* () {
         }
         yield* Effect.sleep(MONITOR_INTERVAL);
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Pull request rollup monitor stopped unexpectedly", {
-          runId: input.run.id,
-          threadId: input.launch.threadId,
-          cause,
-        }).pipe(
-          Effect.andThen(
-            finishRun({
-              ...input,
-              status: "failed",
-              error:
-                "Arcwright Code could not continue monitoring the pull request rollup. Open the generated work session to inspect it.",
-            }),
-          ),
-          Effect.catchCause((persistCause) =>
-            Effect.logError("Pull request rollup failure could not be persisted", {
-              runId: input.run.id,
-              threadId: input.launch.threadId,
-              cause: persistCause,
-            }),
+    },
+    (_program, input) =>
+      _program.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Pull request rollup monitor stopped unexpectedly", {
+            runId: input.run.id,
+            threadId: input.launch.threadId,
+            cause,
+          }).pipe(
+            Effect.andThen(
+              finishRun({
+                ...input,
+                status: "failed",
+                error:
+                  "Arcwright Code could not continue monitoring the pull request rollup. Open the generated work session to inspect it.",
+              }),
+            ),
+            Effect.catchCause((persistCause) =>
+              Effect.logError("Pull request rollup failure could not be persisted", {
+                runId: input.run.id,
+                threadId: input.launch.threadId,
+                cause: persistCause,
+              }),
+            ),
           ),
         ),
       ),
-    );
+  );
 
   const recoverInterruptedRuns = Effect.gen(function* () {
     const recoveredAt = yield* nowIso;

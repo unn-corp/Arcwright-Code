@@ -595,34 +595,35 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const recordStopped: OrganizationWorkScopeStoreShape["recordStopped"] = (attemptId) =>
-    Effect.gen(function* () {
-      const row = yield* required(attemptId);
-      if (row.verified_stopped_at) return decode(row);
-      if (!row.stop_requested_at)
-        return yield* conflict("Scope stop must be requested before verification.");
-      // The injected verifier receives only the persisted immutable identity.
-      // No caller-supplied string or boolean can act as a stop receipt.
-      yield* verifier.verifyStopped(identityOf(row));
-      return yield* transaction(
-        Effect.gen(function* () {
-          const time = yield* now;
-          const updated = yield* sql<ScopeRow>`UPDATE organization_work_scopes
+  const recordStopped: OrganizationWorkScopeStoreShape["recordStopped"] = Effect.fn(
+    "OrganizationWorkScopeStore.recordStopped",
+  )(function* (attemptId) {
+    const row = yield* required(attemptId);
+    if (row.verified_stopped_at) return decode(row);
+    if (!row.stop_requested_at)
+      return yield* conflict("Scope stop must be requested before verification.");
+    // The injected verifier receives only the persisted immutable identity.
+    // No caller-supplied string or boolean can act as a stop receipt.
+    yield* verifier.verifyStopped(identityOf(row));
+    return yield* transaction(
+      Effect.gen(function* () {
+        const time = yield* now;
+        const updated = yield* sql<ScopeRow>`UPDATE organization_work_scopes
           SET verified_stopped_at = ${time}
           WHERE attempt_id = ${attemptId} AND stop_requested_at IS NOT NULL
             AND unit_name = ${row.unit_name} AND invocation_id = ${row.invocation_id}
             AND control_group = ${row.control_group}
             AND sandbox_pid = ${row.sandbox_pid} AND pid_namespace = ${row.pid_namespace}
             AND verified_stopped_at IS NULL RETURNING *`;
-          if (updated[0]) return decode(updated[0]);
-          const latest = yield* required(attemptId);
-          if (!sameIdentity(latest, identityOf(row)))
-            return yield* conflict("Scope identity changed during stop verification.");
-          if (latest.verified_stopped_at) return decode(latest);
-          return yield* conflict("Scope stop was not requested.");
-        }),
-      );
-    });
+        if (updated[0]) return decode(updated[0]);
+        const latest = yield* required(attemptId);
+        if (!sameIdentity(latest, identityOf(row)))
+          return yield* conflict("Scope identity changed during stop verification.");
+        if (latest.verified_stopped_at) return decode(latest);
+        return yield* conflict("Scope stop was not requested.");
+      }),
+    );
+  });
 
   const get: OrganizationWorkScopeStoreShape["get"] = (attemptId) =>
     rowFor(attemptId).pipe(

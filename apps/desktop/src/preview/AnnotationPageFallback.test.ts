@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { ANNOTATION_PAGE_FALLBACK_SCRIPT } from "./AnnotationPageFallback.ts";
 import { DesktopPreviewAnnotationPageSchema } from "@t3tools/contracts";

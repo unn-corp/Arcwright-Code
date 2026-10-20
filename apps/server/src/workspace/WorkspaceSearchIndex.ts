@@ -486,16 +486,15 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
   const refreshes = yield* Cache.make({
     capacity: 1,
     timeToLive: 0,
-    lookup: (_key: "refresh") =>
-      Effect.gen(function* () {
-        yield* Effect.yieldNow;
-        do {
-          const through = refreshGeneration;
-          yield* refreshOnce();
-          cachedList = undefined;
-          completedRefresh = through;
-        } while (completedRefresh < refreshGeneration);
-      }),
+    lookup: Effect.fn("WorkspaceSearchIndex.lookup")(function* (_key: "refresh") {
+      yield* Effect.yieldNow;
+      do {
+        const through = refreshGeneration;
+        yield* refreshOnce();
+        cachedList = undefined;
+        completedRefresh = through;
+      } while (completedRefresh < refreshGeneration);
+    }),
   });
   const refresh: WorkspaceSearchIndex["Service"]["refresh"] = Effect.fn(
     "WorkspaceSearchIndex.refresh",

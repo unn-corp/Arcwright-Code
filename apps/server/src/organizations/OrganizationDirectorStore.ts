@@ -55,8 +55,8 @@ const json = (value: unknown) => Schema.encodeSync(Json)(value);
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const safeText = (value: string, limit: number) =>
   redactOrganizationArchitectText(value).slice(0, limit);
-const decodeMessage = (row: MessageRow) =>
-  Effect.gen(function* () {
+const decodeMessage = Effect.fn("OrganizationDirectorStore.decodeMessage")(
+  function* (row: MessageRow) {
     const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(row.evidence_json);
     return yield* Schema.decodeUnknownEffect(OrganizationDirectorMessage)({
       sequence: row.sequence,
@@ -69,7 +69,9 @@ const decodeMessage = (row: MessageRow) =>
       evidence,
       createdAt: row.created_at,
     });
-  }).pipe(Effect.mapError(() => unavailable()));
+  },
+  Effect.mapError(() => unavailable()),
+);
 
 export interface OrganizationDirectorStoreShape {
   readonly ask: (
@@ -95,30 +97,35 @@ const make = Effect.gen(function* () {
           Schema.is(OrganizationDirectorError)(cause) ? cause : unavailable(),
         ),
       );
-  const requireOrg = (organizationId: string) =>
-    Effect.gen(function* () {
-      const org = (yield* sql<OrgRow>`SELECT lifecycle, published_revision FROM organizations
+  const requireOrg = Effect.fn("OrganizationDirectorStore.requireOrg")(function* (
+    organizationId: string,
+  ) {
+    const org = (yield* sql<OrgRow>`SELECT lifecycle, published_revision FROM organizations
       WHERE organization_id = ${organizationId}`)[0];
-      if (!org) return yield* fail("not_found", "Organization not found.");
-      return org;
-    });
+    if (!org) return yield* fail("not_found", "Organization not found.");
+    return org;
+  });
   const messagesForRequest = (requestId: string) =>
     sql<MessageRow>`SELECT * FROM organization_director_messages
       WHERE request_id = ${requestId} ORDER BY sequence LIMIT 2`;
-  const resultForRequest = (requestId: string) =>
-    Effect.gen(function* () {
-      const rows = yield* messagesForRequest(requestId);
-      const user = rows.find((row) => row.role === "user");
-      const director = rows.find((row) => row.role === "director");
-      if (!user || !director) return yield* unavailable();
-      return {
-        userMessage: yield* decodeMessage(user),
-        directorMessage: yield* decodeMessage(director),
-      };
-    });
-  const answer = (organizationId: string, projectId: string | null, org: OrgRow) =>
-    Effect.gen(function* () {
-      const observations = yield* sql<EvidenceRow>`SELECT o.observation_id AS id, o.project_id
+  const resultForRequest = Effect.fn("OrganizationDirectorStore.resultForRequest")(function* (
+    requestId: string,
+  ) {
+    const rows = yield* messagesForRequest(requestId);
+    const user = rows.find((row) => row.role === "user");
+    const director = rows.find((row) => row.role === "director");
+    if (!user || !director) return yield* unavailable();
+    return {
+      userMessage: yield* decodeMessage(user),
+      directorMessage: yield* decodeMessage(director),
+    };
+  });
+  const answer = Effect.fn("OrganizationDirectorStore.answer")(function* (
+    organizationId: string,
+    projectId: string | null,
+    org: OrgRow,
+  ) {
+    const observations = yield* sql<EvidenceRow>`SELECT o.observation_id AS id, o.project_id
         FROM organization_intake_observations o
         WHERE o.organization_id = ${organizationId} AND (
           (${projectId} IS NOT NULL AND o.project_id = ${projectId}) OR
@@ -128,7 +135,7 @@ const make = Effect.gen(function* () {
             WHERE b.organization_id = ${organizationId} AND b.project_id = o.project_id
               AND b.detached_at IS NULL))))
         ORDER BY o.received_at DESC, o.observation_id DESC LIMIT 6`;
-      const findings = yield* sql<EvidenceRow>`SELECT f.finding_id AS id, f.project_id
+    const findings = yield* sql<EvidenceRow>`SELECT f.finding_id AS id, f.project_id
         FROM organization_intake_findings f
         WHERE f.organization_id = ${organizationId} AND f.state = 'tentative' AND (
           (${projectId} IS NOT NULL AND f.project_id = ${projectId}) OR
@@ -138,7 +145,7 @@ const make = Effect.gen(function* () {
             WHERE b.organization_id = ${organizationId} AND b.project_id = f.project_id
               AND b.detached_at IS NULL))))
         ORDER BY f.created_at DESC, f.finding_id DESC LIMIT 6`;
-      const proposals = yield* sql<EvidenceRow>`
+    const proposals = yield* sql<EvidenceRow>`
         SELECT p.proposal_id AS id, p.project_id FROM organization_work_proposals p
         WHERE p.organization_id = ${organizationId} AND p.state = 'proposed' AND (
           (${projectId} IS NOT NULL AND p.project_id = ${projectId}) OR
@@ -149,7 +156,7 @@ const make = Effect.gen(function* () {
             WHERE b.organization_id = ${organizationId} AND b.project_id = p.project_id
               AND b.detached_at IS NULL)))
         ORDER BY p.created_at DESC, p.proposal_id DESC LIMIT 6`;
-      const unfinished = yield* sql<{ status: string }>`
+    const unfinished = yield* sql<{ status: string }>`
         SELECT w.status FROM organization_work_items w
         WHERE w.organization_id = ${organizationId}
           AND w.status IN ('pending','running','blocked','waiting-approval','retrying','recovering')
@@ -160,7 +167,7 @@ const make = Effect.gen(function* () {
               WHERE b.organization_id = ${organizationId} AND b.project_id = w.project_id
                 AND b.detached_at IS NULL)))
         ORDER BY w.created_at DESC, w.work_id DESC LIMIT 6`;
-      const work = yield* sql<EvidenceRow>`
+    const work = yield* sql<EvidenceRow>`
         SELECT w.work_id AS id, w.project_id FROM organization_work_items w
         WHERE w.organization_id = ${organizationId}
           AND w.status = 'succeeded' AND w.integration_receipt_ref IS NOT NULL
@@ -172,50 +179,50 @@ const make = Effect.gen(function* () {
               WHERE b.organization_id = ${organizationId} AND b.project_id = w.project_id
                 AND b.detached_at IS NULL)))
         ORDER BY w.created_at DESC, w.work_id DESC LIMIT 6`;
-      const mode = (yield* sql<ModeRow>`SELECT observation_mode_enabled
+    const mode = (yield* sql<ModeRow>`SELECT observation_mode_enabled
         FROM organization_proposal_settings WHERE organization_id = ${organizationId}`)[0];
-      const effectiveMode =
-        mode?.observation_mode_enabled === 1 &&
-        (org.lifecycle === "draft" || org.lifecycle === "active") &&
-        org.published_revision !== null;
-      const evidence = [
-        ...observations.map((row) => ({
-          kind: "observation" as const,
-          label: "observed" as const,
-          id: row.id,
-          projectId: row.project_id,
-        })),
-        ...findings.map((row) => ({
-          kind: "finding" as const,
-          label: "tentative" as const,
-          id: row.id,
-          projectId: row.project_id,
-        })),
-        ...proposals.map((row) => ({
-          kind: "proposal" as const,
-          label: "proposed" as const,
-          id: row.id,
-          projectId: row.project_id,
-        })),
-        ...work.map((row) => ({
-          kind: "work" as const,
-          label: "verified-work" as const,
-          id: row.id,
-          projectId: row.project_id,
-        })),
-      ];
-      const lines = [
-        `Recorded Organization state: ${org.lifecycle}; published revision: ${org.published_revision ?? "none"}; observation mode: ${effectiveMode ? "effective" : "inactive"}.`,
-        `Evidence in ${projectId === null ? "the Organization and currently bound Projects" : "this Project"} (latest up to 6 per category): ${observations.length} observed, ${findings.length} tentative findings, ${proposals.length} proposals, ${work.length} verified work records.`,
-        `Unfinished work records shown (up to 6): ${unfinished.length}; these are not verified outcomes.`,
-        "Organization inference and worker cost: unknown; no Organization-level metering record was read for this report.",
-        "These are stored records, not a new investigation. Tentative findings and proposals are not completed work. Execution is unavailable from this conversation.",
-      ];
-      return {
-        text: lines.join("\n"),
-        evidence: yield* Schema.decodeUnknownEffect(EvidenceJson)(json(evidence)),
-      };
-    });
+    const effectiveMode =
+      mode?.observation_mode_enabled === 1 &&
+      (org.lifecycle === "draft" || org.lifecycle === "active") &&
+      org.published_revision !== null;
+    const evidence = [
+      ...observations.map((row) => ({
+        kind: "observation" as const,
+        label: "observed" as const,
+        id: row.id,
+        projectId: row.project_id,
+      })),
+      ...findings.map((row) => ({
+        kind: "finding" as const,
+        label: "tentative" as const,
+        id: row.id,
+        projectId: row.project_id,
+      })),
+      ...proposals.map((row) => ({
+        kind: "proposal" as const,
+        label: "proposed" as const,
+        id: row.id,
+        projectId: row.project_id,
+      })),
+      ...work.map((row) => ({
+        kind: "work" as const,
+        label: "verified-work" as const,
+        id: row.id,
+        projectId: row.project_id,
+      })),
+    ];
+    const lines = [
+      `Recorded Organization state: ${org.lifecycle}; published revision: ${org.published_revision ?? "none"}; observation mode: ${effectiveMode ? "effective" : "inactive"}.`,
+      `Evidence in ${projectId === null ? "the Organization and currently bound Projects" : "this Project"} (latest up to 6 per category): ${observations.length} observed, ${findings.length} tentative findings, ${proposals.length} proposals, ${work.length} verified work records.`,
+      `Unfinished work records shown (up to 6): ${unfinished.length}; these are not verified outcomes.`,
+      "Organization inference and worker cost: unknown; no Organization-level metering record was read for this report.",
+      "These are stored records, not a new investigation. Tentative findings and proposals are not completed work. Execution is unavailable from this conversation.",
+    ];
+    return {
+      text: lines.join("\n"),
+      evidence: yield* Schema.decodeUnknownEffect(EvidenceJson)(json(evidence)),
+    };
+  });
   const ask: OrganizationDirectorStoreShape["ask"] = (input, principal) =>
     transaction(
       Effect.gen(function* () {
@@ -276,8 +283,8 @@ const make = Effect.gen(function* () {
         return yield* resultForRequest(parsed.requestId);
       }),
     );
-  const list: OrganizationDirectorStoreShape["list"] = (input) =>
-    Effect.gen(function* () {
+  const list: OrganizationDirectorStoreShape["list"] = Effect.fn("OrganizationDirectorStore.list")(
+    function* (input) {
       const parsed = yield* Schema.decodeUnknownEffect(OrganizationDirectorListInput)(input).pipe(
         Effect.mapError(() => fail("invalid", "Director list input is invalid.")),
       );
@@ -290,11 +297,11 @@ const make = Effect.gen(function* () {
       const messages = [];
       for (const row of page) messages.push(yield* decodeMessage(row));
       return { messages, nextCursor: rows.length > parsed.limit ? page.at(-1)!.sequence : null };
-    }).pipe(
-      Effect.mapError((cause) =>
-        Schema.is(OrganizationDirectorError)(cause) ? cause : unavailable(),
-      ),
-    );
+    },
+    Effect.mapError((cause) =>
+      Schema.is(OrganizationDirectorError)(cause) ? cause : unavailable(),
+    ),
+  );
   return { ask, list } satisfies OrganizationDirectorStoreShape;
 });
 

@@ -13,13 +13,11 @@ type LinkedBudgetRow = {
 };
 
 /** Binding and ceiling are read in one SQLite statement, so a committed detach cannot race between them. */
-export const readLinkedBudgetProjectPage = (
-  organizationId: OrganizationId,
-  afterProjectId: ProjectId | null,
-) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<LinkedBudgetRow>`SELECT b.project_id,
+export const readLinkedBudgetProjectPage = Effect.fn(
+  "OrganizationProviderBudgetRead.readLinkedBudgetProjectPage",
+)(function* (organizationId: OrganizationId, afterProjectId: ProjectId | null) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<LinkedBudgetRow>`SELECT b.project_id,
         l.max_concurrent, l.max_daily_calls, l.max_daily_estimated_tokens
       FROM organization_project_bindings AS b
       LEFT JOIN organization_provider_budget_limits AS l
@@ -29,26 +27,26 @@ export const readLinkedBudgetProjectPage = (
         AND b.project_id > ${afterProjectId ?? ""}
       ORDER BY b.project_id COLLATE BINARY
       LIMIT ${PROJECT_PAGE_SIZE + 1}`;
-    const page = rows.slice(0, PROJECT_PAGE_SIZE);
-    const hasMoreProjects = rows.length > PROJECT_PAGE_SIZE;
-    return {
-      projects: page.map((row) => ({
-        projectId: row.project_id,
-        ceiling:
-          row.max_concurrent === null ||
-          row.max_daily_calls === null ||
-          row.max_daily_estimated_tokens === null
-            ? null
-            : {
-                maxConcurrent: row.max_concurrent,
-                maxDailyCalls: row.max_daily_calls,
-                maxDailyEstimatedTokens: row.max_daily_estimated_tokens,
-              },
-      })),
-      hasMoreProjects,
-      nextProjectCursor: hasMoreProjects ? (page.at(-1)?.project_id ?? null) : null,
-    };
-  });
+  const page = rows.slice(0, PROJECT_PAGE_SIZE);
+  const hasMoreProjects = rows.length > PROJECT_PAGE_SIZE;
+  return {
+    projects: page.map((row) => ({
+      projectId: row.project_id,
+      ceiling:
+        row.max_concurrent === null ||
+        row.max_daily_calls === null ||
+        row.max_daily_estimated_tokens === null
+          ? null
+          : {
+              maxConcurrent: row.max_concurrent,
+              maxDailyCalls: row.max_daily_calls,
+              maxDailyEstimatedTokens: row.max_daily_estimated_tokens,
+            },
+    })),
+    hasMoreProjects,
+    nextProjectCursor: hasMoreProjects ? (page.at(-1)?.project_id ?? null) : null,
+  };
+});
 
 /** Caller must obtain humanId from the authenticated server session. */
 export const providerBudgetReadAuthority = (

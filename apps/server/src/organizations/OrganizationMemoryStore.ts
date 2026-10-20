@@ -103,8 +103,8 @@ const unavailable = () => issue("unavailable", "Organization memory storage is u
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const ContentJson = Schema.fromJsonString(OrganizationMemoryContent);
 const SnapshotJson = Schema.fromJsonString(OrganizationMemoryRecord);
-const decodeRecord = (row: RecordRow) =>
-  Effect.gen(function* () {
+const decodeRecord = Effect.fn("OrganizationMemoryStore.decodeRecord")(
+  function* (row: RecordRow) {
     const content = yield* Schema.decodeUnknownEffect(ContentJson)(row.content_json);
     return yield* Schema.decodeUnknownEffect(OrganizationMemoryRecord)({
       id: row.record_id,
@@ -118,9 +118,11 @@ const decodeRecord = (row: RecordRow) =>
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     });
-  }).pipe(Effect.mapError(() => unavailable()));
-const decodeRevision = (row: RevisionRow) =>
-  Effect.gen(function* () {
+  },
+  Effect.mapError(() => unavailable()),
+);
+const decodeRevision = Effect.fn("OrganizationMemoryStore.decodeRevision")(
+  function* (row: RevisionRow) {
     const snapshot = yield* Schema.decodeUnknownEffect(SnapshotJson)(row.snapshot_json);
     return yield* Schema.decodeUnknownEffect(OrganizationMemoryRevision)({
       mutationId: row.mutation_id,
@@ -132,7 +134,9 @@ const decodeRevision = (row: RevisionRow) =>
       snapshot,
       createdAt: row.created_at,
     });
-  }).pipe(Effect.mapError(() => unavailable()));
+  },
+  Effect.mapError(() => unavailable()),
+);
 const validDate = (value: string | null) =>
   value === null ||
   (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
@@ -148,62 +152,69 @@ const make = Effect.gen(function* () {
           Schema.is(OrganizationMemoryError)(cause) ? cause : unavailable(),
         ),
       );
-  const requirePrincipal = (principal: OrganizationMemoryPrincipal) =>
-    Effect.gen(function* () {
-      if (
-        principal.interactive !== true ||
-        typeof principal.subject !== "string" ||
-        !principal.subject.trim() ||
-        Buffer.byteLength(principal.subject, "utf8") > MAX_SUBJECT_BYTES
-      )
-        return yield* issue("forbidden", "An authenticated interactive user is required.");
-    });
-  const requireOrganization = (organizationId: OrganizationId, write: boolean) =>
-    Effect.gen(function* () {
-      const org = (yield* sql<{ lifecycle: string }>`SELECT lifecycle FROM organizations
+  const requirePrincipal = Effect.fn("OrganizationMemoryStore.requirePrincipal")(function* (
+    principal: OrganizationMemoryPrincipal,
+  ) {
+    if (
+      principal.interactive !== true ||
+      typeof principal.subject !== "string" ||
+      !principal.subject.trim() ||
+      Buffer.byteLength(principal.subject, "utf8") > MAX_SUBJECT_BYTES
+    )
+      return yield* issue("forbidden", "An authenticated interactive user is required.");
+  });
+  const requireOrganization = Effect.fn("OrganizationMemoryStore.requireOrganization")(function* (
+    organizationId: OrganizationId,
+    write: boolean,
+  ) {
+    const org = (yield* sql<{ lifecycle: string }>`SELECT lifecycle FROM organizations
         WHERE organization_id = ${organizationId}`)[0];
-      if (!org) return yield* issue("not_found", "Organization not found.");
-      if (write && org.lifecycle === "archived")
-        return yield* issue("forbidden", "Archived Organization memory cannot be changed.");
-    });
-  const requireScope = (organizationId: OrganizationId, projectId: ProjectId | null) =>
-    Effect.gen(function* () {
-      if (projectId === null) return;
-      const rows = yield* sql<{ project_id: string }>`
+    if (!org) return yield* issue("not_found", "Organization not found.");
+    if (write && org.lifecycle === "archived")
+      return yield* issue("forbidden", "Archived Organization memory cannot be changed.");
+  });
+  const requireScope = Effect.fn("OrganizationMemoryStore.requireScope")(function* (
+    organizationId: OrganizationId,
+    projectId: ProjectId | null,
+  ) {
+    if (projectId === null) return;
+    const rows = yield* sql<{ project_id: string }>`
         SELECT p.project_id FROM organization_project_bindings b
         JOIN projection_projects p ON p.project_id = b.project_id AND p.deleted_at IS NULL
         WHERE b.organization_id = ${organizationId} AND b.project_id = ${projectId}
           AND b.detached_at IS NULL LIMIT 1`;
-      if (rows.length === 0)
-        return yield* issue("forbidden", "Project is not currently bound to this Organization.");
-    });
-  const requireHistoricalScope = (organizationId: OrganizationId, projectId: ProjectId | null) =>
-    Effect.gen(function* () {
+    if (rows.length === 0)
+      return yield* issue("forbidden", "Project is not currently bound to this Organization.");
+  });
+  const requireHistoricalScope = Effect.fn("OrganizationMemoryStore.requireHistoricalScope")(
+    function* (organizationId: OrganizationId, projectId: ProjectId | null) {
       if (projectId === null) return;
       const rows = yield* sql<{ binding_id: string }>`
         SELECT binding_id FROM organization_project_bindings
         WHERE organization_id = ${organizationId} AND project_id = ${projectId} LIMIT 1`;
       if (rows.length === 0)
         return yield* issue("forbidden", "Project was never bound to this Organization.");
-    });
-  const requireContent = (content: unknown) =>
-    Effect.gen(function* () {
-      const parsed = yield* Schema.decodeUnknownEffect(OrganizationMemoryContent)(content).pipe(
-        Effect.mapError(() => issue("invalid", "Memory content is invalid.")),
-      );
-      if (
-        !validDate(parsed.reviewedAt) ||
-        !validDate(parsed.staleAt) ||
-        !validDate(parsed.retainUntil)
-      )
-        return yield* issue("invalid", "Memory timestamps must be ISO UTC timestamps.");
-      if (parsed.provenance.kind === "explicit-reference" && parsed.provenance.reference === null)
-        return yield* issue("invalid", "Explicit provenance requires a reference.");
-      const sanitized = sanitizeContent(parsed);
-      if (Buffer.byteLength(json(sanitized), "utf8") > MAX_CONTENT_BYTES)
-        return yield* issue("invalid", "Memory content exceeds its size limit.");
-      return sanitized;
-    });
+    },
+  );
+  const requireContent = Effect.fn("OrganizationMemoryStore.requireContent")(function* (
+    content: unknown,
+  ) {
+    const parsed = yield* Schema.decodeUnknownEffect(OrganizationMemoryContent)(content).pipe(
+      Effect.mapError(() => issue("invalid", "Memory content is invalid.")),
+    );
+    if (
+      !validDate(parsed.reviewedAt) ||
+      !validDate(parsed.staleAt) ||
+      !validDate(parsed.retainUntil)
+    )
+      return yield* issue("invalid", "Memory timestamps must be ISO UTC timestamps.");
+    if (parsed.provenance.kind === "explicit-reference" && parsed.provenance.reference === null)
+      return yield* issue("invalid", "Explicit provenance requires a reference.");
+    const sanitized = sanitizeContent(parsed);
+    if (Buffer.byteLength(json(sanitized), "utf8") > MAX_CONTENT_BYTES)
+      return yield* issue("invalid", "Memory content exceeds its size limit.");
+    return sanitized;
+  });
   const rowFor = (recordId: OrganizationMemoryRecordId) =>
     sql<RecordRow>`SELECT * FROM organization_memory_records WHERE record_id = ${recordId}`;
   const checkedRow = Effect.fnUntraced(function* (

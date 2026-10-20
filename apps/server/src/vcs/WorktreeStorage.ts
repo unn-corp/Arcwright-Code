@@ -141,8 +141,8 @@ export const make = Effect.gen(function* () {
   const usageCache = yield* Cache.make({
     capacity: 128,
     timeToLive: "1 minute",
-    lookup: (cwd: string) =>
-      Effect.gen(function* () {
+    lookup: Effect.fn("WorktreeStorage.lookup")(
+      function* (cwd: string) {
         const filesystem = yield* Effect.tryPromise(() => NodeFSP.statfs(cwd));
         if (platform === "linux" && filesystem.type === 0x9123683e) {
           // FIEMAP reports exclusive data separately from shared extents. Ordinary
@@ -241,7 +241,9 @@ export const make = Effect.gen(function* () {
           },
           catch: (cause) => new WorktreeStorageError({ operation: "measure", cause }),
         });
-      }).pipe(Effect.orElseSucceed(() => null)),
+      },
+      Effect.orElseSucceed(() => null),
+    ),
   });
   const read = (repository: string, signature: string) =>
     io("read", async () => {

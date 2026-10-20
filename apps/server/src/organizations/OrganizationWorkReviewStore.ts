@@ -118,8 +118,8 @@ const make = Effect.gen(function* () {
         AND EXISTS (SELECT 1 FROM json_each(b.capabilities_json)
           WHERE value = 'read-files')
         AND p.deleted_at IS NULL`;
-  const get: OrganizationWorkReviewStoreShape["get"] = (input) =>
-    Effect.gen(function* () {
+  const get: OrganizationWorkReviewStoreShape["get"] = Effect.fn("OrganizationWorkReviewStore.get")(
+    function* (input) {
       const row = (yield* authorized(input))[0];
       if (!row) return yield* denied();
       if (!NodePath.isAbsolute(row.workspace_root))
@@ -238,7 +238,9 @@ const make = Effect.gen(function* () {
               }
             : null,
       } satisfies OrganizationWorkReviewResult;
-    }).pipe(Effect.mapError((error) => (isWorkError(error) ? error : unavailable())));
+    },
+    Effect.mapError((error) => (isWorkError(error) ? error : unavailable())),
+  );
   return { get } satisfies OrganizationWorkReviewStoreShape;
 });
 

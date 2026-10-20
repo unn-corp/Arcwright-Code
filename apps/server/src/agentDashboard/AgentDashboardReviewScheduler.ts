@@ -336,132 +336,195 @@ const make = Effect.gen(function* () {
   const initial = yield* SynchronizedRef.get(stateRef);
   yield* persist(initial);
 
-  const collectPortfolio = (observedAt: string) =>
-    Effect.gen(function* () {
-      const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewSchedulerError({
-              operation: "load portfolio repositories",
-              message: "Failed to load repositories for the findings portfolio cycle.",
-              cause,
-            }),
-        ),
-      );
-      const collected = yield* Effect.tryPromise({
-        try: () =>
-          AgentDashboardCollectors.collectAgentDashboardData({
-            stateDir: config.stateDir,
-            projects: shellSnapshot.projects,
-            kind: "all",
-            observedAt,
-          }),
-        catch: (cause) =>
+  const collectPortfolio = Effect.fn("AgentDashboardReviewScheduler.collectPortfolio")(function* (
+    observedAt: string,
+  ) {
+    const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+      Effect.mapError(
+        (cause) =>
           new AgentDashboardReviewSchedulerError({
-            operation: "collect portfolio findings",
-            message: "The scheduled findings portfolio collectors failed.",
+            operation: "load portfolio repositories",
+            message: "Failed to load repositories for the findings portfolio cycle.",
             cause,
           }),
-      });
-      const findingCount = yield* dashboardStore.appendFindings(collected.findings).pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewSchedulerError({
-              operation: "persist portfolio findings",
-              message: "Failed to persist scheduled portfolio findings.",
-              cause,
-            }),
-        ),
-      );
-      yield* Effect.forEach(
-        collected.states,
-        (state) =>
-          dashboardStore.writeCollectorState(state).pipe(
-            Effect.mapError(
-              (cause) =>
-                new AgentDashboardReviewSchedulerError({
-                  operation: "persist portfolio collector state",
-                  message: "Failed to persist scheduled collector health.",
-                  cause,
-                }),
-            ),
-          ),
-        { concurrency: 1, discard: true },
-      );
-      return {
-        findingCount,
-        successfulTypes: [
-          ...(collected.states.some(
-            (state) => state.kind === "security" && state.status === "available",
-          )
-            ? (["security"] as const)
-            : []),
-          ...(collected.states.some(
-            (state) => state.kind === "research" && state.status === "available",
-          )
-            ? (["research"] as const)
-            : []),
-        ] satisfies ReadonlyArray<AgentDashboardFindingType>,
-        unavailableCollectorCount: collected.states.filter(
-          (state) => state.status === "unavailable",
-        ).length,
-      };
+      ),
+    );
+    const collected = yield* Effect.tryPromise({
+      try: () =>
+        AgentDashboardCollectors.collectAgentDashboardData({
+          stateDir: config.stateDir,
+          projects: shellSnapshot.projects,
+          kind: "all",
+          observedAt,
+        }),
+      catch: (cause) =>
+        new AgentDashboardReviewSchedulerError({
+          operation: "collect portfolio findings",
+          message: "The scheduled findings portfolio collectors failed.",
+          cause,
+        }),
     });
+    const findingCount = yield* dashboardStore.appendFindings(collected.findings).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewSchedulerError({
+            operation: "persist portfolio findings",
+            message: "Failed to persist scheduled portfolio findings.",
+            cause,
+          }),
+      ),
+    );
+    yield* Effect.forEach(
+      collected.states,
+      (state) =>
+        dashboardStore.writeCollectorState(state).pipe(
+          Effect.mapError(
+            (cause) =>
+              new AgentDashboardReviewSchedulerError({
+                operation: "persist portfolio collector state",
+                message: "Failed to persist scheduled collector health.",
+                cause,
+              }),
+          ),
+        ),
+      { concurrency: 1, discard: true },
+    );
+    return {
+      findingCount,
+      successfulTypes: [
+        ...(collected.states.some(
+          (state) => state.kind === "security" && state.status === "available",
+        )
+          ? (["security"] as const)
+          : []),
+        ...(collected.states.some(
+          (state) => state.kind === "research" && state.status === "available",
+        )
+          ? (["research"] as const)
+          : []),
+      ] satisfies ReadonlyArray<AgentDashboardFindingType>,
+      unavailableCollectorCount: collected.states.filter((state) => state.status === "unavailable")
+        .length,
+    };
+  });
 
-  const run = (force: boolean): AgentDashboardReviewSchedulerService["runNow"] =>
-    Effect.gen(function* () {
-      const automationSettings = yield* settings.getSettings.pipe(
-        Effect.map((current) => current.repositoryReview),
-        Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS.repositoryReview),
-      );
-      const intervalMs = automationSettings.intervalMinutes * 60_000;
-      const startedAtTime = yield* DateTime.now;
-      const startedAtMs = DateTime.toEpochMillis(startedAtTime);
-      const startedAt = DateTime.formatIso(startedAtTime);
-      const claimed = yield* modifyPersistedSchedule(stateRef, persist, (state) => {
-        if (
-          (!automationSettings.enabled && !force) ||
-          state.lastStatus === "running" ||
-          (!force && Date.parse(state.nextRunAt) > startedAtMs)
-        ) {
-          return [
-            false,
-            {
-              ...state,
-              enabled: automationSettings.enabled,
-              intervalMinutes: automationSettings.intervalMinutes,
-            },
-          ] as const;
-        }
+  const run = Effect.fn("AgentDashboardReviewScheduler.run")(function* (force: boolean) {
+    const automationSettings = yield* settings.getSettings.pipe(
+      Effect.map((current) => current.repositoryReview),
+      Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS.repositoryReview),
+    );
+    const intervalMs = automationSettings.intervalMinutes * 60_000;
+    const startedAtTime = yield* DateTime.now;
+    const startedAtMs = DateTime.toEpochMillis(startedAtTime);
+    const startedAt = DateTime.formatIso(startedAtTime);
+    const claimed = yield* modifyPersistedSchedule(stateRef, persist, (state) => {
+      if (
+        (!automationSettings.enabled && !force) ||
+        state.lastStatus === "running" ||
+        (!force && Date.parse(state.nextRunAt) > startedAtMs)
+      ) {
         return [
-          true,
+          false,
           {
             ...state,
-            lastStatus: "running" as const,
-            lastRunAt: startedAt,
-            lastError: null,
-            heartbeatAt: startedAt,
-            runCount: state.runCount + 1,
             enabled: automationSettings.enabled,
             intervalMinutes: automationSettings.intervalMinutes,
           },
         ] as const;
-      });
-      if (!claimed) return null;
+      }
+      return [
+        true,
+        {
+          ...state,
+          lastStatus: "running" as const,
+          lastRunAt: startedAt,
+          lastError: null,
+          heartbeatAt: startedAt,
+          runCount: state.runCount + 1,
+          enabled: automationSettings.enabled,
+          intervalMinutes: automationSettings.intervalMinutes,
+        },
+      ] as const;
+    });
+    if (!claimed) return null;
 
-      yield* collectPortfolio(startedAt).pipe(
-        Effect.tap((result) =>
-          modifyPersistedSchedule(stateRef, persist, (current) => [
+    yield* collectPortfolio(startedAt).pipe(
+      Effect.tap((result) =>
+        modifyPersistedSchedule(stateRef, persist, (current) => [
+          undefined,
+          {
+            ...current,
+            lastCoveredTypes: [...LOCAL_COVERED_FINDING_TYPES],
+            lastSuccessfulTypes: [...result.successfulTypes],
+            lastFindingCount: result.findingCount,
+            lastUnavailableCollectorCount: result.unavailableCollectorCount,
+            heartbeatAt: startedAt,
+          },
+        ]),
+      ),
+      Effect.catch((cause) =>
+        Effect.gen(function* () {
+          const now = yield* DateTime.now;
+          const nowIso = DateTime.formatIso(now);
+          yield* modifyPersistedSchedule(stateRef, persist, (current) => [
             undefined,
             {
               ...current,
-              lastCoveredTypes: [...LOCAL_COVERED_FINDING_TYPES],
-              lastSuccessfulTypes: [...result.successfulTypes],
-              lastFindingCount: result.findingCount,
-              lastUnavailableCollectorCount: result.unavailableCollectorCount,
-              heartbeatAt: startedAt,
+              lastStatus: "failed",
+              lastError: cause.message,
+              nextRunAt: isoAt(DateTime.toEpochMillis(now) + intervalMs),
+              heartbeatAt: nowIso,
             },
+          ]);
+          return yield* cause;
+        }),
+      ),
+    );
+
+    const run = yield* jobService
+      .enqueueReview({
+        trigger: force ? "manual" : "scheduled",
+        // Shared key so schedule ticks and manual force do not pile up.
+        idempotencyKey: force ? "manual:repository-review" : "scheduled:repository-review",
+      })
+      .pipe(
+        Effect.tap((enqueued) =>
+          modifyPersistedSchedule(stateRef, persist, (current) => [
+            undefined,
+            scheduleFromRun(current, enqueued, startedAtMs, startedAt, intervalMs),
           ]),
+        ),
+        Effect.tap((enqueued) =>
+          // Follow the job until terminal so schedule lastStatus is truthful.
+          Effect.gen(function* () {
+            for (;;) {
+              const runs = yield* jobService.listRuns.pipe(Effect.orElseSucceed(() => []));
+              const current = runs.find((item) => item.id === enqueued.id);
+              if (!current) return;
+              yield* modifyPersistedSchedule(stateRef, persist, (schedule) => [
+                undefined,
+                scheduleFromRun(schedule, current, startedAtMs, startedAt, intervalMs),
+              ]);
+              if (
+                current.status === "succeeded" ||
+                current.status === "partial" ||
+                current.status === "failed" ||
+                current.status === "cancelled"
+              ) {
+                return;
+              }
+              yield* Effect.sleep(Duration.seconds(1));
+            }
+          }).pipe(
+            retryAutomationWork,
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Arcwright Code schedule follow-up for review job failed", {
+                runId: enqueued.id,
+                cause,
+              }),
+            ),
+            Effect.forkIn(schedulerScope),
+          ),
         ),
         Effect.catch((cause) =>
           Effect.gen(function* () {
@@ -472,7 +535,8 @@ const make = Effect.gen(function* () {
               {
                 ...current,
                 lastStatus: "failed",
-                lastError: cause.message,
+                lastError:
+                  "message" in cause ? String(cause.message) : "Findings portfolio cycle failed.",
                 nextRunAt: isoAt(DateTime.toEpochMillis(now) + intervalMs),
                 heartbeatAt: nowIso,
               },
@@ -482,73 +546,8 @@ const make = Effect.gen(function* () {
         ),
       );
 
-      const run = yield* jobService
-        .enqueueReview({
-          trigger: force ? "manual" : "scheduled",
-          // Shared key so schedule ticks and manual force do not pile up.
-          idempotencyKey: force ? "manual:repository-review" : "scheduled:repository-review",
-        })
-        .pipe(
-          Effect.tap((enqueued) =>
-            modifyPersistedSchedule(stateRef, persist, (current) => [
-              undefined,
-              scheduleFromRun(current, enqueued, startedAtMs, startedAt, intervalMs),
-            ]),
-          ),
-          Effect.tap((enqueued) =>
-            // Follow the job until terminal so schedule lastStatus is truthful.
-            Effect.gen(function* () {
-              for (;;) {
-                const runs = yield* jobService.listRuns.pipe(Effect.orElseSucceed(() => []));
-                const current = runs.find((item) => item.id === enqueued.id);
-                if (!current) return;
-                yield* modifyPersistedSchedule(stateRef, persist, (schedule) => [
-                  undefined,
-                  scheduleFromRun(schedule, current, startedAtMs, startedAt, intervalMs),
-                ]);
-                if (
-                  current.status === "succeeded" ||
-                  current.status === "partial" ||
-                  current.status === "failed" ||
-                  current.status === "cancelled"
-                ) {
-                  return;
-                }
-                yield* Effect.sleep(Duration.seconds(1));
-              }
-            }).pipe(
-              retryAutomationWork,
-              Effect.catchCause((cause) =>
-                Effect.logWarning("Arcwright Code schedule follow-up for review job failed", {
-                  runId: enqueued.id,
-                  cause,
-                }),
-              ),
-              Effect.forkIn(schedulerScope),
-            ),
-          ),
-          Effect.catch((cause) =>
-            Effect.gen(function* () {
-              const now = yield* DateTime.now;
-              const nowIso = DateTime.formatIso(now);
-              yield* modifyPersistedSchedule(stateRef, persist, (current) => [
-                undefined,
-                {
-                  ...current,
-                  lastStatus: "failed",
-                  lastError:
-                    "message" in cause ? String(cause.message) : "Findings portfolio cycle failed.",
-                  nextRunAt: isoAt(DateTime.toEpochMillis(now) + intervalMs),
-                  heartbeatAt: nowIso,
-                },
-              ]);
-              return yield* cause;
-            }),
-          ),
-        );
-
-      return run;
-    });
+    return run;
+  });
 
   const runNow = withAutomationWork(run(true));
   const runScheduled = Effect.gen(function* () {

@@ -32,6 +32,16 @@ next launch. This name takes precedence over the legacy `T3CODE_DISABLE_AUTO_UPD
 alias, including when explicitly enabling updates. Automatic installation remains a
 separate saved preference in App updates and retains coordinator admission checks.
 
+The root, web, and desktop Vitest configurations select retained DOM fixtures through
+`scripts/lib/fork-dom-test-projects.ts`. These tests keep their release-required file names
+and run in the `dom` jsdom project; other unit tests run in `unit`. Web's existing
+`*.browser.test.{ts,tsx}` tests retain the separate Chromium project. Release commands
+loading the root configuration from a package directory use the same DOM fixture list.
+From the repository root, `vp test run --project dom --maxWorkers=1` runs all retained DOM
+fixtures. The same command from `apps/web` or `apps/desktop` uses that package's configuration
+and fixture subset. The normal web test script includes `unit`, `dom`, and `browser`.
+Server projects inherit their Git fixture setup and server timeouts from the server configuration.
+
 ## Default agent delivery
 
 Scheduled nightly and stable publication is authorized. Preserve the configured

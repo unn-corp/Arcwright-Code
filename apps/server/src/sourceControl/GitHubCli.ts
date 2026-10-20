@@ -117,51 +117,53 @@ export const make = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
   const crypto = yield* Crypto.Crypto;
 
-  const resolveLocator = (cwd: string, selector: string) =>
-    Effect.gen(function* () {
-      const [remotesResult, resolvedResult] = yield* Effect.all([
-        git
-          .execute({
-            operation: "GitHubCli.resolveRepository.remotes",
-            cwd,
-            args: ["remote", "-v"],
-            allowNonZeroExit: true,
-          })
-          .pipe(Effect.result),
-        git
-          .execute({
-            operation: "GitHubCli.resolveRepository.default",
-            cwd,
-            args: ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"],
-            allowNonZeroExit: true,
-          })
-          .pipe(Effect.result),
-      ]);
-      const remotes = Result.isSuccess(remotesResult) ? remotesResult.success.stdout : "";
-      const resolved = Result.isSuccess(resolvedResult) ? resolvedResult.success.stdout : "";
-      const fetchRemotes = GitHubRepositoryResolution.parseFetchRemotes(remotes);
-      const primaryRemote =
-        fetchRemotes.find((remote) => remote.name === "origin") ?? fetchRemotes[0];
-      const remoteHost =
-        primaryRemote === undefined
-          ? undefined
-          : normalizeGitRemoteUrl(primaryRemote.url).split("/")[0];
-      const hostHint = environment.GH_HOST ?? remoteHost;
-      const remoteResolution = GitHubRepositoryResolution.resolveGitHubRepository({
-        remotes,
-        resolved,
-        hostHint,
-        defaultHost: hostHint ?? "github.com",
-      });
-      const locator = GitHubRepositoryResolution.parseGitHubRepositorySelector(
-        selector,
-        remoteResolution.host,
-      );
-      if (locator === null) {
-        return yield* Effect.fail(fail("resolveRepository", cwd));
-      }
-      return locator;
+  const resolveLocator = Effect.fn("GitHubCli.resolveLocator")(function* (
+    cwd: string,
+    selector: string,
+  ) {
+    const [remotesResult, resolvedResult] = yield* Effect.all([
+      git
+        .execute({
+          operation: "GitHubCli.resolveRepository.remotes",
+          cwd,
+          args: ["remote", "-v"],
+          allowNonZeroExit: true,
+        })
+        .pipe(Effect.result),
+      git
+        .execute({
+          operation: "GitHubCli.resolveRepository.default",
+          cwd,
+          args: ["config", "--get-regexp", "^remote\\..*\\.gh-resolved$"],
+          allowNonZeroExit: true,
+        })
+        .pipe(Effect.result),
+    ]);
+    const remotes = Result.isSuccess(remotesResult) ? remotesResult.success.stdout : "";
+    const resolved = Result.isSuccess(resolvedResult) ? resolvedResult.success.stdout : "";
+    const fetchRemotes = GitHubRepositoryResolution.parseFetchRemotes(remotes);
+    const primaryRemote =
+      fetchRemotes.find((remote) => remote.name === "origin") ?? fetchRemotes[0];
+    const remoteHost =
+      primaryRemote === undefined
+        ? undefined
+        : normalizeGitRemoteUrl(primaryRemote.url).split("/")[0];
+    const hostHint = environment.GH_HOST ?? remoteHost;
+    const remoteResolution = GitHubRepositoryResolution.resolveGitHubRepository({
+      remotes,
+      resolved,
+      hostHint,
+      defaultHost: hostHint ?? "github.com",
     });
+    const locator = GitHubRepositoryResolution.parseGitHubRepositorySelector(
+      selector,
+      remoteResolution.host,
+    );
+    if (locator === null) {
+      return yield* Effect.fail(fail("resolveRepository", cwd));
+    }
+    return locator;
+  });
 
   /** Pin a project-selected account only for this Effect; never mutate process headers/env. */
   const withProjectCredential = <A, E>(

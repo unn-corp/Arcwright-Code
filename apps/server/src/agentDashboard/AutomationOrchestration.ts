@@ -25,8 +25,8 @@ export class OrchestrationEngineService extends Context.Service<
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService;
   const sessions = yield* ProviderSessionManagerV2;
-  const dispatch = (command: OrchestrationCommand) =>
-    Effect.gen(function* () {
+  const dispatch = Effect.fn("AutomationOrchestration.dispatch")(
+    function* (command: OrchestrationCommand) {
       switch (command.type) {
         case "thread.turn.start": {
           const shell = yield* threads.getThreadShell(command.threadId);
@@ -101,9 +101,14 @@ const make = Effect.gen(function* () {
           return yield* threads.dispatch(native);
         }
       }
-    }).pipe(
-      Effect.mapError((cause) => new AutomationDispatchError({ commandType: command.type, cause })),
-    );
+    },
+    (_program, command) =>
+      _program.pipe(
+        Effect.mapError(
+          (cause) => new AutomationDispatchError({ commandType: command.type, cause }),
+        ),
+      ),
+  );
   return { dispatch } satisfies AutomationOrchestrationShape;
 });
 export const layer = Layer.effect(OrchestrationEngineService, make);

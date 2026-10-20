@@ -11,8 +11,8 @@ const isWorkError = Schema.is(OrganizationWorkError);
  * the SQL writer lock waits for the outer commit or rollback, and both halves
  * of the snapshot are read from the same committed transaction.
  */
-export const read = (organizationId: OrganizationId) =>
-  Effect.gen(function* () {
+export const read = Effect.fn("OrganizationWorkStatusRead.read")(
+  function* (organizationId: OrganizationId) {
     const sql = yield* SqlClient.SqlClient;
     return yield* sql.withTransaction(
       Effect.gen(function* () {
@@ -21,13 +21,13 @@ export const read = (organizationId: OrganizationId) =>
         return { organizationId, drain, emergencyStop };
       }),
     );
-  }).pipe(
-    Effect.mapError((error) =>
-      isWorkError(error)
-        ? error
-        : new OrganizationWorkError({
-            code: "unavailable",
-            message: "Organization work status is unavailable.",
-          }),
-    ),
-  );
+  },
+  Effect.mapError((error) =>
+    isWorkError(error)
+      ? error
+      : new OrganizationWorkError({
+          code: "unavailable",
+          message: "Organization work status is unavailable.",
+        }),
+  ),
+);

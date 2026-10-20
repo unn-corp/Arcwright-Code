@@ -148,170 +148,168 @@ export class DiscordRestClient extends Context.Service<
   }
 >()("t3/discord/DiscordRestClient") {}
 
-const make = (options: { readonly token: string } | { readonly tokenRef: Ref.Ref<string> }) =>
-  Effect.gen(function* () {
-    const tokenRef = "tokenRef" in options ? options.tokenRef : yield* Ref.make(options.token);
-    const buckets = yield* Ref.make(new Map<string, BucketState>());
-    const globalGate = yield* Ref.make<BucketState>({ notBefore: 0 });
+const make = Effect.fn("DiscordRestClient.make")(function* (
+  options: { readonly token: string } | { readonly tokenRef: Ref.Ref<string> },
+) {
+  const tokenRef = "tokenRef" in options ? options.tokenRef : yield* Ref.make(options.token);
+  const buckets = yield* Ref.make(new Map<string, BucketState>());
+  const globalGate = yield* Ref.make<BucketState>({ notBefore: 0 });
 
-    const baseClient = yield* HttpClient.HttpClient;
-    // Retry only transport-level faults. 429 is handled explicitly below,
-    // because retrying it without honouring `retry_after` is how a bot gets
-    // banned — and that would take the Hermes gateway down with it.
-    const httpClient = baseClient.pipe(
-      HttpClient.retryTransient({ retryOn: "errors-only", times: 3 }),
-    );
+  const baseClient = yield* HttpClient.HttpClient;
+  // Retry only transport-level faults. 429 is handled explicitly below,
+  // because retrying it without honouring `retry_after` is how a bot gets
+  // banned — and that would take the Hermes gateway down with it.
+  const httpClient = baseClient.pipe(
+    HttpClient.retryTransient({ retryOn: "errors-only", times: 3 }),
+  );
 
-    const waitForBucket = (key: string) =>
-      Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis;
-        const globalState = yield* Ref.get(globalGate);
-        const bucketMap = yield* Ref.get(buckets);
-        const bucketState = bucketMap.get(key);
-        const notBefore = Math.max(globalState.notBefore, bucketState?.notBefore ?? 0);
-        if (notBefore > now) {
-          yield* Effect.sleep(Duration.millis(notBefore - now));
-        }
-      });
-
-    const recordRetryAfter = (key: string, retryAfterSeconds: number, isGlobal: boolean) =>
-      Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis;
-        const notBefore = now + Math.ceil(retryAfterSeconds * 1000);
-        if (isGlobal) {
-          yield* Ref.set(globalGate, { notBefore });
-          return;
-        }
-        yield* Ref.update(buckets, (map) => {
-          const next = new Map(map);
-          next.set(key, { notBefore });
-          return next;
-        });
-      });
-
-    const request = <A>(
-      method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
-      route: string,
-      body?: unknown,
-      attempt = 0,
-    ): Effect.Effect<A, DiscordRestError> =>
-      Effect.gen(function* () {
-        const key = bucketKey(method, route);
-        yield* waitForBucket(key);
-
-        const url = `${DISCORD_API_BASE}${route}`;
-        const token = yield* Ref.get(tokenRef);
-        let req = HttpClientRequest.make(method)(url).pipe(
-          HttpClientRequest.setHeaders({
-            Authorization: `Bot ${token}`,
-            "User-Agent": "T3CodeDiscordBridge (https://t3.chat, 1.0)",
-          }),
-        );
-        if (body !== undefined) {
-          req = yield* HttpClientRequest.bodyJson(body)(req).pipe(
-            Effect.mapError((cause) => new DiscordRequestError({ route, method, cause })),
-          );
-        }
-
-        const response = yield* httpClient
-          .execute(req)
-          .pipe(Effect.mapError((cause) => new DiscordRequestError({ route, method, cause })));
-
-        if (response.status === 429) {
-          const text = yield* response.text.pipe(Effect.orElseSucceed(() => "{}"));
-          const parsed = yield* readErrorBody(text);
-          const retryAfter = parsed.retry_after ?? 1;
-          const isGlobal = parsed.global === true;
-          yield* Effect.logWarning("discord rate limited", {
-            route,
-            retryAfter,
-            global: isGlobal,
-          });
-          yield* recordRetryAfter(key, retryAfter, isGlobal);
-          if (attempt >= 3) {
-            return yield* new DiscordResponseError({ route, method, status: 429, body: text });
-          }
-          return yield* request<A>(method, route, body, attempt + 1);
-        }
-
-        if (response.status < 200 || response.status >= 300) {
-          const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-          const parsed = yield* readErrorBody(text);
-          return yield* new DiscordResponseError({
-            route,
-            method,
-            status: response.status,
-            ...(parsed.code === undefined ? {} : { discordCode: parsed.code }),
-            body: text.slice(0, 500),
-          });
-        }
-
-        if (response.status === 204) {
-          return undefined as A;
-        }
-
-        return yield* response.json.pipe(
-          Effect.map((value) => value as A),
-          Effect.mapError((cause) => new DiscordRequestError({ route, method, cause })),
-        );
-      });
-
-    return {
-      createMessage: (input) =>
-        request<DiscordMessage>("POST", `/channels/${input.channelId}/messages`, {
-          ...(input.content === undefined ? {} : { content: input.content }),
-          ...(input.embeds === undefined ? {} : { embeds: input.embeds }),
-          // Never let mirrored repo content ping anyone.
-          allowed_mentions: { parse: [] },
-        }),
-
-      editMessage: (input) =>
-        request<DiscordMessage>(
-          "PATCH",
-          `/channels/${input.channelId}/messages/${input.messageId}`,
-          {
-            ...(input.content === undefined ? {} : { content: input.content }),
-            ...(input.embeds === undefined ? {} : { embeds: input.embeds }),
-            allowed_mentions: { parse: [] },
-          },
-        ),
-
-      startThreadFromMessage: (input) =>
-        request<{ id: string }>(
-          "POST",
-          `/channels/${input.channelId}/messages/${input.messageId}/threads`,
-          {
-            name: input.name,
-            auto_archive_duration: input.autoArchiveDuration ?? 10080,
-          },
-        ),
-
-      listMessagesAfter: (input) => {
-        const params = new URLSearchParams({ limit: String(input.limit ?? 25) });
-        if (input.afterMessageId !== null) {
-          params.set("after", input.afterMessageId);
-        }
-        return request<ReadonlyArray<DiscordMessage>>(
-          "GET",
-          `/channels/${input.channelId}/messages?${params.toString()}`,
-        );
-      },
-
-      modifyThread: (input) =>
-        request<unknown>("PATCH", `/channels/${input.threadId}`, {
-          ...(input.name === undefined ? {} : { name: input.name }),
-          ...(input.archived === undefined ? {} : { archived: input.archived }),
-        }).pipe(Effect.asVoid),
-
-      createReaction: (input) =>
-        request<unknown>(
-          "PUT",
-          `/channels/${input.channelId}/messages/${input.messageId}/reactions/${encodeURIComponent(
-            input.emoji,
-          )}/@me`,
-        ).pipe(Effect.asVoid),
-    } satisfies DiscordRestClient["Service"];
+  const waitForBucket = Effect.fn("DiscordRestClient.waitForBucket")(function* (key: string) {
+    const now = yield* Clock.currentTimeMillis;
+    const globalState = yield* Ref.get(globalGate);
+    const bucketMap = yield* Ref.get(buckets);
+    const bucketState = bucketMap.get(key);
+    const notBefore = Math.max(globalState.notBefore, bucketState?.notBefore ?? 0);
+    if (notBefore > now) {
+      yield* Effect.sleep(Duration.millis(notBefore - now));
+    }
   });
+
+  const recordRetryAfter = Effect.fn("DiscordRestClient.recordRetryAfter")(function* (
+    key: string,
+    retryAfterSeconds: number,
+    isGlobal: boolean,
+  ) {
+    const now = yield* Clock.currentTimeMillis;
+    const notBefore = now + Math.ceil(retryAfterSeconds * 1000);
+    if (isGlobal) {
+      yield* Ref.set(globalGate, { notBefore });
+      return;
+    }
+    yield* Ref.update(buckets, (map) => {
+      const next = new Map(map);
+      next.set(key, { notBefore });
+      return next;
+    });
+  });
+
+  const request = Effect.fn("DiscordRestClient.request")(function* <A>(
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
+    route: string,
+    body?: unknown,
+    attempt = 0,
+  ): Effect.fn.Return<A, DiscordRestError> {
+    const key = bucketKey(method, route);
+    yield* waitForBucket(key);
+
+    const url = `${DISCORD_API_BASE}${route}`;
+    const token = yield* Ref.get(tokenRef);
+    let req = HttpClientRequest.make(method)(url).pipe(
+      HttpClientRequest.setHeaders({
+        Authorization: `Bot ${token}`,
+        "User-Agent": "T3CodeDiscordBridge (https://t3.chat, 1.0)",
+      }),
+    );
+    if (body !== undefined) {
+      req = yield* HttpClientRequest.bodyJson(body)(req).pipe(
+        Effect.mapError((cause) => new DiscordRequestError({ route, method, cause })),
+      );
+    }
+
+    const response = yield* httpClient
+      .execute(req)
+      .pipe(Effect.mapError((cause) => new DiscordRequestError({ route, method, cause })));
+
+    if (response.status === 429) {
+      const text = yield* response.text.pipe(Effect.orElseSucceed(() => "{}"));
+      const parsed = yield* readErrorBody(text);
+      const retryAfter = parsed.retry_after ?? 1;
+      const isGlobal = parsed.global === true;
+      yield* Effect.logWarning("discord rate limited", {
+        route,
+        retryAfter,
+        global: isGlobal,
+      });
+      yield* recordRetryAfter(key, retryAfter, isGlobal);
+      if (attempt >= 3) {
+        return yield* new DiscordResponseError({ route, method, status: 429, body: text });
+      }
+      return yield* request<A>(method, route, body, attempt + 1);
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+      const parsed = yield* readErrorBody(text);
+      return yield* new DiscordResponseError({
+        route,
+        method,
+        status: response.status,
+        ...(parsed.code === undefined ? {} : { discordCode: parsed.code }),
+        body: text.slice(0, 500),
+      });
+    }
+
+    if (response.status === 204) {
+      return undefined as A;
+    }
+
+    return yield* response.json.pipe(
+      Effect.map((value) => value as A),
+      Effect.mapError((cause) => new DiscordRequestError({ route, method, cause })),
+    );
+  });
+
+  return {
+    createMessage: (input) =>
+      request<DiscordMessage>("POST", `/channels/${input.channelId}/messages`, {
+        ...(input.content === undefined ? {} : { content: input.content }),
+        ...(input.embeds === undefined ? {} : { embeds: input.embeds }),
+        // Never let mirrored repo content ping anyone.
+        allowed_mentions: { parse: [] },
+      }),
+
+    editMessage: (input) =>
+      request<DiscordMessage>("PATCH", `/channels/${input.channelId}/messages/${input.messageId}`, {
+        ...(input.content === undefined ? {} : { content: input.content }),
+        ...(input.embeds === undefined ? {} : { embeds: input.embeds }),
+        allowed_mentions: { parse: [] },
+      }),
+
+    startThreadFromMessage: (input) =>
+      request<{ id: string }>(
+        "POST",
+        `/channels/${input.channelId}/messages/${input.messageId}/threads`,
+        {
+          name: input.name,
+          auto_archive_duration: input.autoArchiveDuration ?? 10080,
+        },
+      ),
+
+    listMessagesAfter: (input) => {
+      const params = new URLSearchParams({ limit: String(input.limit ?? 25) });
+      if (input.afterMessageId !== null) {
+        params.set("after", input.afterMessageId);
+      }
+      return request<ReadonlyArray<DiscordMessage>>(
+        "GET",
+        `/channels/${input.channelId}/messages?${params.toString()}`,
+      );
+    },
+
+    modifyThread: (input) =>
+      request<unknown>("PATCH", `/channels/${input.threadId}`, {
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(input.archived === undefined ? {} : { archived: input.archived }),
+      }).pipe(Effect.asVoid),
+
+    createReaction: (input) =>
+      request<unknown>(
+        "PUT",
+        `/channels/${input.channelId}/messages/${input.messageId}/reactions/${encodeURIComponent(
+          input.emoji,
+        )}/@me`,
+      ).pipe(Effect.asVoid),
+  } satisfies DiscordRestClient["Service"];
+});
 
 /**
  * Live layer that resolves the bot token from the secret store at build time.

@@ -162,124 +162,122 @@ function validBodyInput(bytes: Uint8Array, contentTypeHeader: string | undefined
   }
 }
 
-const admitPublicRelayRequest = (
+// traceRelayHttpRequestWith owns the HTTP span and its sanitized request attributes.
+const admitPublicRelayRequest = Effect.fnUntraced(function* (
   request: HttpServerRequest.HttpServerRequest,
   original: Request | undefined,
   aborted: Deferred.Deferred<void>,
-) =>
-  Effect.gen(function* () {
-    const traceId = yield* currentTraceId;
-    const early = (status: BoundaryStatus) => {
-      if (original) cancelBody(original);
-      return rejected(status, traceId);
-    };
-    if (
-      request.url.length > publicRelayBounds.urlCharacters ||
-      request.originalUrl.length > publicRelayBounds.urlCharacters
-    )
-      return early(413);
-    // Oversized all-decimal CL must be 413 even when it exceeds the header cap.
-    const lengthFailure = contentLengthFailure(request.headers["content-length"]);
-    if (lengthFailure) return early(lengthFailure);
-    if (publicRelayHeaderFailure(request.headers)) return early(431);
-    if (request.method === "OPTIONS") {
-      if (original) cancelBody(original);
-      return isRelayHookPath(request.url) ? request : HttpServerResponse.empty({ status: 204 });
-    }
-    const route = classifyPublicRelayRoute(request.method, request.url);
-    if (!route) {
-      // Static metadata is bounded but does not drain a body or authenticate; unknowns retain router status.
-      if (original) cancelBody(original);
-      return request;
-    }
-    if (original?.signal.aborted) return early(400);
-    const identity = yield* PublicRelayRateLimits.TrustedEdgeIdentity;
-    const canonicalIp = identity.status === "available" ? canonicalEdgeIp(identity.ip) : undefined;
-    if (canonicalIp === undefined || !original) {
-      if (original) cancelBody(original);
-      return responseFor(
-        new RelayServiceUnavailableError({
-          code: "relay_unavailable",
-          reason: "internal",
-          traceId,
-        }),
-      );
-    }
-    const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
-    const limited = yield* limiter.admit(route.operation, { kind: "edge", ip: canonicalIp }).pipe(
-      Effect.map(() => Option.none<HttpServerResponse.HttpServerResponse>()),
-      Effect.catch((error) =>
-        Effect.succeedSome(responseFor(relayPublicLimitError(error, traceId))),
-      ),
-      Effect.raceFirst(
-        Deferred.await(aborted).pipe(Effect.as(Option.some(rejected(400, traceId)))),
-      ),
-    );
-    if (Option.isSome(limited)) {
-      cancelBody(original);
-      return limited.value;
-    }
-    const body = yield* readBody(original).pipe(
-      Effect.map((bytes) => ({ _tag: "Body" as const, bytes })),
-      Effect.catch((error) => Effect.succeed({ _tag: "Rejected" as const, status: error.status })),
-    );
-    if (body._tag === "Rejected") return early(body.status);
-    if (!validBodyInput(body.bytes, request.headers["content-type"])) return early(400);
-    const bounded = new Request(original.url, {
-      method: original.method,
-      headers: original.headers,
-      signal: original.signal,
-      ...(original.method === "GET" || original.method === "HEAD" ? {} : { body: body.bytes }),
-    });
-    // Web Request construction follows the signal; retain the ingress signal identity for route consumers too.
-    Object.defineProperty(bounded, "signal", { value: original.signal });
-    const boundedEffect = HttpServerRequest.fromWeb(bounded).modify({
-      url: request.url,
-      headers: request.headers,
-      remoteAddress: request.remoteAddress,
-    });
-    return boundedEffect;
-  });
-
-const boundary = <E, R>(router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    // Hook byte limits and raw forwarding belong to HookForwarder, without reconstruction.
-    if (isRelayHookRequest(request.method, request.url)) return yield* router;
-    const original = request.source instanceof Request ? request.source : undefined;
-    const aborted = Deferred.makeUnsafe<void>();
-    // An active reader owns its cancellation/release; this bracket owns unread ingress.
-    const cancelUnread = () => {
-      if (original && !original.bodyUsed && !original.body?.locked) cancelBody(original);
-    };
-    const abort = () => {
-      cancelUnread();
-      Deferred.doneUnsafe(aborted, Effect.void);
-    };
-    return yield* Effect.acquireUseRelease(
-      Effect.sync(() => {
-        original?.signal.addEventListener("abort", abort, { once: true });
-        if (original?.signal.aborted) abort();
+) {
+  const traceId = yield* currentTraceId;
+  const early = (status: BoundaryStatus) => {
+    if (original) cancelBody(original);
+    return rejected(status, traceId);
+  };
+  if (
+    request.url.length > publicRelayBounds.urlCharacters ||
+    request.originalUrl.length > publicRelayBounds.urlCharacters
+  )
+    return early(413);
+  // Oversized all-decimal CL must be 413 even when it exceeds the header cap.
+  const lengthFailure = contentLengthFailure(request.headers["content-length"]);
+  if (lengthFailure) return early(lengthFailure);
+  if (publicRelayHeaderFailure(request.headers)) return early(431);
+  if (request.method === "OPTIONS") {
+    if (original) cancelBody(original);
+    return isRelayHookPath(request.url) ? request : HttpServerResponse.empty({ status: 204 });
+  }
+  const route = classifyPublicRelayRoute(request.method, request.url);
+  if (!route) {
+    // Static metadata is bounded but does not drain a body or authenticate; unknowns retain router status.
+    if (original) cancelBody(original);
+    return request;
+  }
+  if (original?.signal.aborted) return early(400);
+  const identity = yield* PublicRelayRateLimits.TrustedEdgeIdentity;
+  const canonicalIp = identity.status === "available" ? canonicalEdgeIp(identity.ip) : undefined;
+  if (canonicalIp === undefined || !original) {
+    if (original) cancelBody(original);
+    return responseFor(
+      new RelayServiceUnavailableError({
+        code: "relay_unavailable",
+        reason: "internal",
+        traceId,
       }),
-      () =>
-        Effect.gen(function* () {
-          // Tunnel setup gets a longer handler budget; unread ingress and
-          // edge admission retain the ordinary nine-second limit.
-          const admission = yield* relayRequestDeadline(
-            admitPublicRelayRequest(request, original, aborted),
-          );
-          if (HttpServerResponse.isHttpServerResponse(admission)) return admission;
-          return yield* router.pipe(
-            Effect.provideService(HttpServerRequest.HttpServerRequest, admission),
-          );
-        }),
-      () =>
-        Effect.sync(() => {
-          original?.signal.removeEventListener("abort", abort);
-          cancelUnread();
-        }),
     );
+  }
+  const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
+  const limited = yield* limiter.admit(route.operation, { kind: "edge", ip: canonicalIp }).pipe(
+    Effect.map(() => Option.none<HttpServerResponse.HttpServerResponse>()),
+    Effect.catch((error) => Effect.succeedSome(responseFor(relayPublicLimitError(error, traceId)))),
+    Effect.raceFirst(Deferred.await(aborted).pipe(Effect.as(Option.some(rejected(400, traceId))))),
+  );
+  if (Option.isSome(limited)) {
+    cancelBody(original);
+    return limited.value;
+  }
+  const body = yield* readBody(original).pipe(
+    Effect.map((bytes) => ({ _tag: "Body" as const, bytes })),
+    Effect.catch((error) => Effect.succeed({ _tag: "Rejected" as const, status: error.status })),
+  );
+  if (body._tag === "Rejected") return early(body.status);
+  if (!validBodyInput(body.bytes, request.headers["content-type"])) return early(400);
+  const bounded = new Request(original.url, {
+    method: original.method,
+    headers: original.headers,
+    signal: original.signal,
+    ...(original.method === "GET" || original.method === "HEAD" ? {} : { body: body.bytes }),
   });
+  // Web Request construction follows the signal; retain the ingress signal identity for route consumers too.
+  Object.defineProperty(bounded, "signal", { value: original.signal });
+  const boundedEffect = HttpServerRequest.fromWeb(bounded).modify({
+    url: request.url,
+    headers: request.headers,
+    remoteAddress: request.remoteAddress,
+  });
+  return boundedEffect;
+});
+
+// Preserve the single request span created by the outer HTTP tracing wrapper.
+const boundary = Effect.fnUntraced(function* <E, R>(
+  router: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  // Hook byte limits and raw forwarding belong to HookForwarder, without reconstruction.
+  if (isRelayHookRequest(request.method, request.url)) return yield* router;
+  const original = request.source instanceof Request ? request.source : undefined;
+  const aborted = Deferred.makeUnsafe<void>();
+  // An active reader owns its cancellation/release; this bracket owns unread ingress.
+  const cancelUnread = () => {
+    if (original && !original.bodyUsed && !original.body?.locked) cancelBody(original);
+  };
+  const abort = () => {
+    cancelUnread();
+    Deferred.doneUnsafe(aborted, Effect.void);
+  };
+  return yield* Effect.acquireUseRelease(
+    Effect.sync(() => {
+      original?.signal.addEventListener("abort", abort, { once: true });
+      if (original?.signal.aborted) abort();
+    }),
+    () =>
+      Effect.gen(function* () {
+        // Tunnel setup gets a longer handler budget; unread ingress and
+        // edge admission retain the ordinary nine-second limit.
+        const admission = yield* relayRequestDeadline(
+          admitPublicRelayRequest(request, original, aborted),
+        );
+        if (HttpServerResponse.isHttpServerResponse(admission)) return admission;
+        return yield* router.pipe(
+          Effect.provideService(HttpServerRequest.HttpServerRequest, admission),
+        );
+      }),
+    () =>
+      Effect.sync(() => {
+        original?.signal.removeEventListener("abort", abort);
+        cancelUnread();
+      }),
+  );
+});
 
 /** The real outer production boundary, also used by offline request fixtures. */
 export const wrapPublicRelayHttp = <E, R>(
@@ -296,14 +294,16 @@ export const assemblePublicRelayHttp = <A, E, R>(
   );
 
 /** Production fetch adapter: the Workers request is fetched per execution, never memoized. */
-export const withCloudflarePublicRelayIdentity = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const ingress = yield* Cloudflare.Workers.Request;
-    const ip = canonicalEdgeIp(ingress.headers.get("cf-connecting-ip"));
-    return yield* effect.pipe(
-      Effect.provideService(
-        PublicRelayRateLimits.TrustedEdgeIdentity,
-        ip === undefined ? { status: "unavailable" } : { status: "available", ip },
-      ),
-    );
-  });
+// The assembled HTTP boundary supplies the request span after identity injection.
+export const withCloudflarePublicRelayIdentity = Effect.fnUntraced(function* <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) {
+  const ingress = yield* Cloudflare.Workers.Request;
+  const ip = canonicalEdgeIp(ingress.headers.get("cf-connecting-ip"));
+  return yield* effect.pipe(
+    Effect.provideService(
+      PublicRelayRateLimits.TrustedEdgeIdentity,
+      ip === undefined ? { status: "unavailable" } : { status: "available", ip },
+    ),
+  );
+});

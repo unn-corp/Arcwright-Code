@@ -76,3 +76,12 @@ unavailable. Release runtime tests load the server Git fixture configuration;
 updater cache paths, SSH stubs, whitespace paths, and the real subprocess timeout
 fixture now run portably without skipping required checks. Test diagnostics do
 not commission replacement release packages or reuse the failed build counter.
+
+The general CI follow-up also aligns retained reusable Effect generators with
+upstream tracing rules and selects all 26 DOM fixture files through explicit
+Vitest projects. Tests and required release filenames remain intact; the relay's
+outer request span continues to own its untraced inner adapters. Stale migration,
+restart-result, model-preference, and ACP branding assertions now match the
+integrated contracts. Review fixtures use an isolated stable checkout, stream
+clients connect through loopback, and process-exit probes handle forced TCP resets
+without swallowing unrelated socket errors. No additional nightly was commissioned.

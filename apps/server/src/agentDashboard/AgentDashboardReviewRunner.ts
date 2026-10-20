@@ -414,300 +414,297 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const selectNextProject = (
+  const selectNextProject = Effect.fn("AgentDashboardReviewRunner.selectNextProject")(function* (
     options: AgentDashboardReviewSelectionOptions = { allowNotDue: true },
-  ): Effect.Effect<ProjectId | null, AgentDashboardReviewRunnerError> =>
-    Effect.gen(function* () {
-      const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "select project",
-              message: "Failed to load Arcwright Code projects for scheduler selection.",
-              cause,
-            }),
-        ),
-      );
-      const projects = yield* stableProjects(shellSnapshot.projects);
-      const policies = yield* dashboardStore.readRepositoryPolicies.pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "select project",
-              message: "Failed to load repository review policies.",
-              cause,
-            }),
-        ),
-      );
-      const coverage = yield* dashboardStore.readRepositoryCoverage.pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "select project",
-              message: "Failed to load repository review coverage.",
-              cause,
-            }),
-        ),
-      );
-      const now = yield* DateTime.now;
-      return selectNextRepository({
-        projects,
+  ): Effect.fn.Return<ProjectId | null, AgentDashboardReviewRunnerError> {
+    const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "select project",
+            message: "Failed to load Arcwright Code projects for scheduler selection.",
+            cause,
+          }),
+      ),
+    );
+    const projects = yield* stableProjects(shellSnapshot.projects);
+    const policies = yield* dashboardStore.readRepositoryPolicies.pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "select project",
+            message: "Failed to load repository review policies.",
+            cause,
+          }),
+      ),
+    );
+    const coverage = yield* dashboardStore.readRepositoryCoverage.pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "select project",
+            message: "Failed to load repository review coverage.",
+            cause,
+          }),
+      ),
+    );
+    const now = yield* DateTime.now;
+    return selectNextRepository({
+      projects,
+      policies,
+      coverage,
+      nowMs: DateTime.toEpochMillis(now),
+      allowNotDue: options.allowNotDue === true,
+    });
+  });
+
+  const runReview: AgentDashboardReviewRunnerService["runReview"] = Effect.fn(
+    "AgentDashboardReviewRunner.runReview",
+  )(function* (options = {}) {
+    const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "load projects",
+            message: "Failed to load Arcwright Code projects for the scheduled review.",
+            cause,
+          }),
+      ),
+    );
+    const projects = yield* stableProjects(shellSnapshot.projects);
+    if (projects.length === 0) {
+      return yield* new AgentDashboardReviewRunnerError({
+        operation: "select project",
+        message: "No stable Arcwright Code repository checkout is available for review.",
+      });
+    }
+
+    const requestedId = options.projectId ? String(options.projectId) : null;
+    const explicitTarget =
+      requestedId && requestedId !== PENDING_SELECTION
+        ? (projects.find((project) => String(project.id) === requestedId) ?? null)
+        : null;
+
+    if (requestedId && requestedId !== PENDING_SELECTION && explicitTarget === null) {
+      return yield* new AgentDashboardReviewRunnerError({
+        operation: "select project",
+        message: "The requested Arcwright Code project is not available for review.",
+      });
+    }
+
+    let project = explicitTarget;
+    if (project === null) {
+      const selectedId = yield* selectNextProject({
+        allowNotDue: shouldAllowNotDueSelection(options.trigger),
+      });
+      project =
+        selectedId === null
+          ? null
+          : (projects.find((candidate) => candidate.id === selectedId) ?? null);
+    }
+    if (project === null) {
+      return yield* new AgentDashboardReviewRunnerError({
+        operation: "select project",
+        message: "The Arcwright Code repository review candidate list changed before selection.",
+      });
+    }
+
+    const startedAt = yield* nowIso;
+    const candidates = yield* dashboardStore.readFindings.pipe(
+      Effect.map((findings) =>
+        selectQualificationCandidates(findings, project.id, Date.parse(startedAt)),
+      ),
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "load qualification candidates",
+            message: "Failed to load pending findings for repository qualification.",
+            cause,
+          }),
+      ),
+    );
+    const [currentSettings, policies] = yield* Effect.all([
+      settings.getSettings,
+      dashboardStore.readRepositoryPolicies,
+    ]).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "read settings",
+            message: "Failed to load the settings for the scheduled review.",
+            cause,
+          }),
+      ),
+    );
+    const modelSelection = currentSettings.repositoryReview.modelSelection;
+    const policy = policies.find(
+      (candidate) => String(candidate.repository.projectId) === String(project.id),
+    );
+    const opportunityDiscoveryEnabled =
+      currentSettings.productOpportunityDiscovery.enabled &&
+      AgentDashboardStore.repositoryAutomationsEnabled(
         policies,
-        coverage,
-        nowMs: DateTime.toEpochMillis(now),
-        allowNotDue: options.allowNotDue === true,
-      });
+        project.id,
+        "product-opportunity-discovery",
+      ) &&
+      policy?.productContextConfirmedAt !== null &&
+      policy?.productContextConfirmedAt !== undefined;
+    const threadId = ThreadId.make(yield* randomUuid);
+    const title = `Repository review: ${project.title}`.slice(0, 80);
+
+    yield* dispatch({
+      type: "thread.create",
+      commandId: yield* makeCommandId("review-thread-create"),
+      threadId,
+      projectId: project.id,
+      title,
+      modelSelection,
+      runtimeMode: REVIEW_RUNTIME_MODE,
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdAt: startedAt,
     });
 
-  const runReview: AgentDashboardReviewRunnerService["runReview"] = (options = {}) =>
-    Effect.gen(function* () {
-      const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "load projects",
-              message: "Failed to load Arcwright Code projects for the scheduled review.",
-              cause,
-            }),
-        ),
-      );
-      const projects = yield* stableProjects(shellSnapshot.projects);
-      if (projects.length === 0) {
-        return yield* new AgentDashboardReviewRunnerError({
-          operation: "select project",
-          message: "No stable Arcwright Code repository checkout is available for review.",
-        });
-      }
+    const turnDispatch = dispatch({
+      type: "thread.turn.start",
+      commandId: yield* makeCommandId("review-turn-start"),
+      threadId,
+      message: {
+        messageId: MessageId.make(yield* randomUuid),
+        role: "user",
+        text: buildReviewPrompt(project, candidates, {
+          enabled: opportunityDiscoveryEnabled,
+          productContextPath: policy?.productContextPath ?? "PRODUCT.md",
+          maximumCandidates: currentSettings.productOpportunityDiscovery.maximumCandidates,
+        }),
+        attachments: [],
+      },
+      modelSelection,
+      titleSeed: title,
+      runtimeMode: REVIEW_RUNTIME_MODE,
+      interactionMode: "default",
+      createdAt: startedAt,
+    });
 
-      const requestedId = options.projectId ? String(options.projectId) : null;
-      const explicitTarget =
-        requestedId && requestedId !== PENDING_SELECTION
-          ? (projects.find((project) => String(project.id) === requestedId) ?? null)
-          : null;
+    yield* turnDispatch.pipe(
+      Effect.catch((cause) =>
+        Effect.gen(function* () {
+          const cleanupCommandId = yield* makeCommandId("review-thread-cleanup");
+          yield* dispatch({
+            type: "thread.delete",
+            commandId: cleanupCommandId,
+            threadId,
+          }).pipe(Effect.ignore);
+          return yield* cause;
+        }),
+      ),
+    );
 
-      if (requestedId && requestedId !== PENDING_SELECTION && explicitTarget === null) {
-        return yield* new AgentDashboardReviewRunnerError({
-          operation: "select project",
-          message: "The requested Arcwright Code project is not available for review.",
-        });
-      }
-
-      let project = explicitTarget;
-      if (project === null) {
-        const selectedId = yield* selectNextProject({
-          allowNotDue: shouldAllowNotDueSelection(options.trigger),
-        });
-        project =
-          selectedId === null
-            ? null
-            : (projects.find((candidate) => candidate.id === selectedId) ?? null);
-      }
-      if (project === null) {
-        return yield* new AgentDashboardReviewRunnerError({
-          operation: "select project",
-          message: "The Arcwright Code repository review candidate list changed before selection.",
-        });
-      }
-
-      const startedAt = yield* nowIso;
-      const candidates = yield* dashboardStore.readFindings.pipe(
-        Effect.map((findings) =>
-          selectQualificationCandidates(findings, project.id, Date.parse(startedAt)),
-        ),
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "load qualification candidates",
-              message: "Failed to load pending findings for repository qualification.",
-              cause,
-            }),
-        ),
-      );
-      const [currentSettings, policies] = yield* Effect.all([
-        settings.getSettings,
-        dashboardStore.readRepositoryPolicies,
-      ]).pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "read settings",
-              message: "Failed to load the settings for the scheduled review.",
-              cause,
-            }),
-        ),
-      );
-      const modelSelection = currentSettings.repositoryReview.modelSelection;
-      const policy = policies.find(
-        (candidate) => String(candidate.repository.projectId) === String(project.id),
-      );
-      const opportunityDiscoveryEnabled =
-        currentSettings.productOpportunityDiscovery.enabled &&
-        AgentDashboardStore.repositoryAutomationsEnabled(
-          policies,
-          project.id,
-          "product-opportunity-discovery",
-        ) &&
-        policy?.productContextConfirmedAt !== null &&
-        policy?.productContextConfirmedAt !== undefined;
-      const threadId = ThreadId.make(yield* randomUuid);
-      const title = `Repository review: ${project.title}`.slice(0, 80);
-
-      yield* dispatch({
-        type: "thread.create",
-        commandId: yield* makeCommandId("review-thread-create"),
-        threadId,
-        projectId: project.id,
-        title,
-        modelSelection,
-        runtimeMode: REVIEW_RUNTIME_MODE,
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-        createdAt: startedAt,
-      });
-
-      const turnDispatch = dispatch({
-        type: "thread.turn.start",
-        commandId: yield* makeCommandId("review-turn-start"),
-        threadId,
-        message: {
-          messageId: MessageId.make(yield* randomUuid),
-          role: "user",
-          text: buildReviewPrompt(project, candidates, {
-            enabled: opportunityDiscoveryEnabled,
-            productContextPath: policy?.productContextPath ?? "PRODUCT.md",
-            maximumCandidates: currentSettings.productOpportunityDiscovery.maximumCandidates,
-          }),
-          attachments: [],
-        },
-        modelSelection,
-        titleSeed: title,
-        runtimeMode: REVIEW_RUNTIME_MODE,
-        interactionMode: "default",
-        createdAt: startedAt,
-      });
-
-      yield* turnDispatch.pipe(
-        Effect.catch((cause) =>
-          Effect.gen(function* () {
-            const cleanupCommandId = yield* makeCommandId("review-thread-cleanup");
-            yield* dispatch({
-              type: "thread.delete",
-              commandId: cleanupCommandId,
-              threadId,
-            }).pipe(Effect.ignore);
-            return yield* cause;
-          }),
-        ),
-      );
-
-      // A review must stay queryable while its provider is working, so it
-      // cannot be archived before ingestion. Snooze it as soon as the provider
-      // adopts the turn instead, keeping the internal chat out of the inbox
-      // without preventing runtime events from reaching the projector.
-      yield* Effect.gen(function* () {
-        for (let attempt = 0; attempt < REVIEW_SESSION_POLL_ATTEMPTS; attempt += 1) {
-          const thread = yield* projectionSnapshotQuery.getThreadShellById(threadId);
-          if (
-            Option.isSome(thread) &&
-            (thread.value.session?.status === "starting" ||
-              thread.value.session?.status === "running")
-          ) {
-            const now = yield* DateTime.now;
-            yield* dispatch({
-              type: "thread.snooze",
-              commandId: yield* makeCommandId("review-thread-snooze"),
-              threadId,
-              snoozedUntil: DateTime.formatIso(
-                DateTime.add(now, { minutes: REVIEW_SNOOZE_MINUTES }),
-              ),
-            });
-            return;
-          }
-          if (attempt + 1 < REVIEW_SESSION_POLL_ATTEMPTS) {
-            yield* Effect.sleep(REVIEW_SESSION_POLL_INTERVAL);
-          }
+    // A review must stay queryable while its provider is working, so it
+    // cannot be archived before ingestion. Snooze it as soon as the provider
+    // adopts the turn instead, keeping the internal chat out of the inbox
+    // without preventing runtime events from reaching the projector.
+    yield* Effect.gen(function* () {
+      for (let attempt = 0; attempt < REVIEW_SESSION_POLL_ATTEMPTS; attempt += 1) {
+        const thread = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+        if (
+          Option.isSome(thread) &&
+          (thread.value.session?.status === "starting" ||
+            thread.value.session?.status === "running")
+        ) {
+          const now = yield* DateTime.now;
+          yield* dispatch({
+            type: "thread.snooze",
+            commandId: yield* makeCommandId("review-thread-snooze"),
+            threadId,
+            snoozedUntil: DateTime.formatIso(DateTime.add(now, { minutes: REVIEW_SNOOZE_MINUTES })),
+          });
+          return;
         }
-      }).pipe(
-        Effect.tapError((cause) =>
-          Effect.logWarning(
-            "Arcwright Code could not snooze an internal repository review session",
-            {
-              threadId,
-              cause,
-            },
-          ),
-        ),
-        Effect.ignore,
-      );
+        if (attempt + 1 < REVIEW_SESSION_POLL_ATTEMPTS) {
+          yield* Effect.sleep(REVIEW_SESSION_POLL_INTERVAL);
+        }
+      }
+    }).pipe(
+      Effect.tapError((cause) =>
+        Effect.logWarning("Arcwright Code could not snooze an internal repository review session", {
+          threadId,
+          cause,
+        }),
+      ),
+      Effect.ignore,
+    );
 
-      return {
-        projectId: project.id,
-        projectName: project.title,
-        workspaceRoot: project.workspaceRoot,
-        githubRepo: githubRepositoryForProject(project),
-        threadId,
-        startedAt,
-      } satisfies AgentDashboardReviewRunResult;
-    });
+    return {
+      projectId: project.id,
+      projectName: project.title,
+      workspaceRoot: project.workspaceRoot,
+      githubRepo: githubRepositoryForProject(project),
+      threadId,
+      startedAt,
+    } satisfies AgentDashboardReviewRunResult;
+  });
 
-  const nudgeReview: NonNullable<AgentDashboardReviewRunnerService["nudgeReview"]> = (input) =>
-    Effect.gen(function* () {
-      const modelSelection = yield* settings.getSettings.pipe(
-        Effect.map((currentSettings) => currentSettings.repositoryReview.modelSelection),
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardReviewRunnerError({
-              operation: "read settings",
-              message: "Failed to load the model settings for the review correction.",
-              cause,
-            }),
-        ),
-      );
-      const createdAt = yield* nowIso;
-      yield* dispatch({
-        type: "thread.turn.start",
-        commandId: yield* makeCommandId("review-turn-nudge"),
-        threadId: input.threadId,
-        message: {
-          messageId: MessageId.make(yield* randomUuid),
-          role: "user",
-          text:
-            input.reason === "stalled"
-              ? [
-                  `Automated review progress check ${input.attempt} of ${input.maxAttempts}.`,
-                  "The review has not produced observable provider progress. Continue from the current evidence and finish the required structured review output. If blocked, report the exact blocker instead of waiting silently.",
-                ].join("\n\n")
-              : [
-                  `Automated review output check ${input.attempt} of ${input.maxAttempts}.`,
-                  "Your previous review turn settled without a valid T3_REVIEW_METADATA line.",
-                  "Use the evidence you already gathered. Return the required valid single-line JSON metadata first, followed by the concise human-readable report. Do not restart the repository review from scratch.",
-                ].join("\n\n"),
-          attachments: [],
-        },
-        modelSelection,
-        runtimeMode: REVIEW_RUNTIME_MODE,
-        interactionMode: "default",
-        createdAt,
-      });
+  const nudgeReview: NonNullable<AgentDashboardReviewRunnerService["nudgeReview"]> = Effect.fn(
+    "AgentDashboardReviewRunner.nudgeReview",
+  )(function* (input) {
+    const modelSelection = yield* settings.getSettings.pipe(
+      Effect.map((currentSettings) => currentSettings.repositoryReview.modelSelection),
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardReviewRunnerError({
+            operation: "read settings",
+            message: "Failed to load the model settings for the review correction.",
+            cause,
+          }),
+      ),
+    );
+    const createdAt = yield* nowIso;
+    yield* dispatch({
+      type: "thread.turn.start",
+      commandId: yield* makeCommandId("review-turn-nudge"),
+      threadId: input.threadId,
+      message: {
+        messageId: MessageId.make(yield* randomUuid),
+        role: "user",
+        text:
+          input.reason === "stalled"
+            ? [
+                `Automated review progress check ${input.attempt} of ${input.maxAttempts}.`,
+                "The review has not produced observable provider progress. Continue from the current evidence and finish the required structured review output. If blocked, report the exact blocker instead of waiting silently.",
+              ].join("\n\n")
+            : [
+                `Automated review output check ${input.attempt} of ${input.maxAttempts}.`,
+                "Your previous review turn settled without a valid T3_REVIEW_METADATA line.",
+                "Use the evidence you already gathered. Return the required valid single-line JSON metadata first, followed by the concise human-readable report. Do not restart the repository review from scratch.",
+              ].join("\n\n"),
+        attachments: [],
+      },
+      modelSelection,
+      runtimeMode: REVIEW_RUNTIME_MODE,
+      interactionMode: "default",
+      createdAt,
     });
+  });
 
-  const stopReview: NonNullable<AgentDashboardReviewRunnerService["stopReview"]> = (threadId) =>
-    Effect.gen(function* () {
-      const createdAt = yield* nowIso;
-      yield* dispatch({
-        type: "thread.turn.interrupt",
-        commandId: yield* makeCommandId("review-turn-interrupt"),
-        threadId,
-        createdAt,
-      });
-      yield* dispatch({
-        type: "thread.session.stop",
-        commandId: yield* makeCommandId("review-session-stop"),
-        threadId,
-        createdAt,
-      });
+  const stopReview: NonNullable<AgentDashboardReviewRunnerService["stopReview"]> = Effect.fn(
+    "AgentDashboardReviewRunner.stopReview",
+  )(function* (threadId) {
+    const createdAt = yield* nowIso;
+    yield* dispatch({
+      type: "thread.turn.interrupt",
+      commandId: yield* makeCommandId("review-turn-interrupt"),
+      threadId,
+      createdAt,
     });
+    yield* dispatch({
+      type: "thread.session.stop",
+      commandId: yield* makeCommandId("review-session-stop"),
+      threadId,
+      createdAt,
+    });
+  });
 
   const runRandomReview = runReview();
 

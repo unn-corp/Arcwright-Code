@@ -80,33 +80,34 @@ const hash = (parts: ReadonlyArray<string>) =>
   NodeCrypto.createHash("sha256")
     .update(Schema.encodeSync(PartsJson)([...parts]))
     .digest("hex");
-const decodeFinding = (row: FindingRow) =>
-  Effect.gen(function* () {
-    const observationIds = yield* Schema.decodeUnknownEffect(EvidenceIdsJson)(
-      row.observation_ids_json,
-    );
-    const evidence =
-      row.evidence_json === null
-        ? observationIds.map((observationId) => ({
-            observationId,
-            sourceId: OrganizationIntakeSourceId.make(row.source_id),
-            projectId: null,
-          }))
-        : yield* Schema.decodeUnknownEffect(EvidenceRefsJson)(row.evidence_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationTentativeFinding)({
-      id: row.finding_id,
-      organizationId: row.organization_id,
-      sourceId: row.source_id,
-      projectId: row.project_id,
-      dedupKey: row.dedup_key,
-      title: row.title,
-      summary: row.summary,
-      observationIds,
-      evidence,
-      state: "tentative",
-      createdAt: row.created_at,
-    });
+const decodeFinding = Effect.fn("OrganizationFindingCorrelator.decodeFinding")(function* (
+  row: FindingRow,
+) {
+  const observationIds = yield* Schema.decodeUnknownEffect(EvidenceIdsJson)(
+    row.observation_ids_json,
+  );
+  const evidence =
+    row.evidence_json === null
+      ? observationIds.map((observationId) => ({
+          observationId,
+          sourceId: OrganizationIntakeSourceId.make(row.source_id),
+          projectId: null,
+        }))
+      : yield* Schema.decodeUnknownEffect(EvidenceRefsJson)(row.evidence_json);
+  return yield* Schema.decodeUnknownEffect(OrganizationTentativeFinding)({
+    id: row.finding_id,
+    organizationId: row.organization_id,
+    sourceId: row.source_id,
+    projectId: row.project_id,
+    dedupKey: row.dedup_key,
+    title: row.title,
+    summary: row.summary,
+    observationIds,
+    evidence,
+    state: "tentative",
+    createdAt: row.created_at,
   });
+});
 
 export interface OrganizationFindingCorrelatorShape {
   readonly correlate: (

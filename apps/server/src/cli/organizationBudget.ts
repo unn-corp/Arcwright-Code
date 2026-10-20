@@ -42,35 +42,33 @@ const localGlobalAuthority = Layer.succeed(OrganizationProviderBudgetConfigurati
   permitsScopedUpdate: () => false,
 });
 
-const withExistingState = <A, E>(
+const withExistingState = Effect.fn("organizationBudget.withExistingState")(function* <A, E>(
   baseDir: string,
   readonly: boolean,
   action: Effect.Effect<A, E, OrganizationProviderBudgetConfiguration | SqlClient.SqlClient>,
-) =>
-  Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const fs = yield* FileSystem.FileSystem;
-    if (!path.isAbsolute(baseDir) || baseDir.trim().length === 0) {
-      return yield* new OrganizationBudgetStateError({
-        message:
-          "--base-dir must be an absolute path to an existing Arcwright Code data directory.",
-      });
-    }
-    const { dbPath } = yield* deriveServerPaths(path.resolve(baseDir), undefined, {
-      baseDirIsExplicit: true,
+) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  if (!path.isAbsolute(baseDir) || baseDir.trim().length === 0) {
+    return yield* new OrganizationBudgetStateError({
+      message: "--base-dir must be an absolute path to an existing Arcwright Code data directory.",
     });
-    if (!(yield* fs.exists(dbPath))) {
-      return yield* new OrganizationBudgetStateError({
-        message: `No initialized Arcwright Code database exists at ${dbPath}. Start Arcwright Code with this --base-dir first.`,
-      });
-    }
-
-    const persistence = NodeSqliteClient.layer({ filename: dbPath, readonly });
-    const configuration = OrganizationProviderBudgetConfigurationWithAuthority.pipe(
-      Layer.provide(localGlobalAuthority),
-    );
-    return yield* action.pipe(Effect.provide(configuration.pipe(Layer.provideMerge(persistence))));
+  }
+  const { dbPath } = yield* deriveServerPaths(path.resolve(baseDir), undefined, {
+    baseDirIsExplicit: true,
   });
+  if (!(yield* fs.exists(dbPath))) {
+    return yield* new OrganizationBudgetStateError({
+      message: `No initialized Arcwright Code database exists at ${dbPath}. Start Arcwright Code with this --base-dir first.`,
+    });
+  }
+
+  const persistence = NodeSqliteClient.layer({ filename: dbPath, readonly });
+  const configuration = OrganizationProviderBudgetConfigurationWithAuthority.pipe(
+    Layer.provide(localGlobalAuthority),
+  );
+  return yield* action.pipe(Effect.provide(configuration.pipe(Layer.provideMerge(persistence))));
+});
 
 export const readGlobalOrganizationBudget = (baseDir: string) =>
   withExistingState(

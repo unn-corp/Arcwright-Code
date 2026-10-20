@@ -122,27 +122,26 @@ export const readPendingRemoteCleanup = Effect.gen(function* () {
 }).pipe(Effect.mapError((cause) => new PendingRemoteCleanupError({ cause })));
 
 const decodeLinkAuthority = Schema.decodeUnknownOption(Schema.fromJsonString(LinkPublicAuthority));
-export const readStoredCleanupRelayOrigin = (
-  secrets: ServerSecretStore.ServerSecretStore["Service"],
-) =>
-  Effect.gen(function* () {
-    const [url, issuer, stamp] = yield* Effect.all([
-      secrets.get(RELAY_URL_SECRET),
-      secrets.get(RELAY_ISSUER_SECRET),
-      secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET),
-    ]);
-    for (const value of [url, issuer]) {
-      if (Option.isSome(value)) {
-        const origin = normalizeSecureRelayUrl(new TextDecoder().decode(value.value));
-        if (origin !== null) return origin;
-      }
+export const readStoredCleanupRelayOrigin = Effect.fn(
+  "pendingRemoteCleanup.readStoredCleanupRelayOrigin",
+)(function* (secrets: ServerSecretStore.ServerSecretStore["Service"]) {
+  const [url, issuer, stamp] = yield* Effect.all([
+    secrets.get(RELAY_URL_SECRET),
+    secrets.get(RELAY_ISSUER_SECRET),
+    secrets.get(CLOUD_PUBLIC_AUTHORITY_SECRET),
+  ]);
+  for (const value of [url, issuer]) {
+    if (Option.isSome(value)) {
+      const origin = normalizeSecureRelayUrl(new TextDecoder().decode(value.value));
+      if (origin !== null) return origin;
     }
-    if (Option.isSome(stamp)) {
-      const decoded = decodeLinkAuthority(new TextDecoder().decode(stamp.value));
-      if (Option.isSome(decoded)) return normalizeSecureRelayUrl(decoded.value.relayOrigin);
-    }
-    return null;
-  });
+  }
+  if (Option.isSome(stamp)) {
+    const decoded = decodeLinkAuthority(new TextDecoder().decode(stamp.value));
+    if (Option.isSome(decoded)) return normalizeSecureRelayUrl(decoded.value.relayOrigin);
+  }
+  return null;
+});
 
 export const rememberPendingRemoteCleanup = Effect.fn("cloud.rememberPendingRemoteCleanup")(
   function* (input: { readonly relayUrl: string | null; readonly environmentId: string }) {

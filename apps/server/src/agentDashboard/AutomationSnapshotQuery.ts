@@ -245,8 +245,8 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStoreV2;
   const events = yield* EventStoreV2;
   const mapError = (cause: unknown) => new AutomationQueryError({ cause });
-  const getShellSnapshot = (options?: { readonly unsettledOnly?: boolean }) =>
-    Effect.gen(function* () {
+  const getShellSnapshot = Effect.fn("AutomationSnapshotQuery.getShellSnapshot")(
+    function* (options?: { readonly unsettledOnly?: boolean }) {
       const snapshot = yield* threads.getShellSnapshot();
       return {
         snapshotSequence: snapshot.snapshotSequence,
@@ -256,7 +256,9 @@ const make = Effect.gen(function* () {
           .filter((thread) => !options?.unsettledOnly || thread.settledOverride !== "settled"),
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };
-    }).pipe(Effect.mapError(mapError));
+    },
+    Effect.mapError(mapError),
+  );
   return {
     getShellSnapshot,
     getThreadShellById: (id: ThreadId) =>
@@ -266,39 +268,39 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(mapError),
       ),
-    getThreadDetailById: (
+    getThreadDetailById: Effect.fn("AutomationSnapshotQuery.getThreadDetailById")(function* (
       id: ThreadId,
       query?: { readonly activityKinds?: ReadonlyArray<string> },
-    ) =>
-      Effect.gen(function* () {
-        const shell = yield* threads.getThreadShell(id);
-        const projection = shell === null ? null : yield* threads.getThreadProjection(id);
-        return shell === null || projection === null
-          ? Option.none()
-          : Option.some(
-              (() => {
-                const detail = automationThreadDetail(shell, projection);
-                return query?.activityKinds === undefined
-                  ? detail
-                  : {
-                      ...detail,
-                      activities: detail.activities.filter((activity) =>
-                        query.activityKinds!.includes(activity.kind),
-                      ),
-                    };
-              })(),
-            );
-      }).pipe(Effect.mapError(mapError)),
+    ) {
+      const shell = yield* threads.getThreadShell(id);
+      const projection = shell === null ? null : yield* threads.getThreadProjection(id);
+      return shell === null || projection === null
+        ? Option.none()
+        : Option.some(
+            (() => {
+              const detail = automationThreadDetail(shell, projection);
+              return query?.activityKinds === undefined
+                ? detail
+                : {
+                    ...detail,
+                    activities: detail.activities.filter((activity) =>
+                      query.activityKinds!.includes(activity.kind),
+                    ),
+                  };
+            })(),
+          );
+    }, Effect.mapError(mapError)),
     getProjectShellById: (id: ProjectId) => projects.getShell(id).pipe(Effect.mapError(mapError)),
-    getActiveProjectByWorkspaceRoot: (root: string) =>
-      Effect.gen(function* () {
-        const project = yield* projects.findActiveByWorkspaceRoot(root);
-        return Option.isNone(project)
-          ? Option.none()
-          : yield* projects.getShell(project.value.projectId);
-      }).pipe(Effect.mapError(mapError)),
-    getRecentActivitySummaries: (limit: number) =>
-      Effect.gen(function* () {
+    getActiveProjectByWorkspaceRoot: Effect.fn(
+      "AutomationSnapshotQuery.getActiveProjectByWorkspaceRoot",
+    )(function* (root: string) {
+      const project = yield* projects.findActiveByWorkspaceRoot(root);
+      return Option.isNone(project)
+        ? Option.none()
+        : yield* projects.getShell(project.value.projectId);
+    }, Effect.mapError(mapError)),
+    getRecentActivitySummaries: Effect.fn("AutomationSnapshotQuery.getRecentActivitySummaries")(
+      function* (limit: number) {
         const count = Math.max(0, Math.min(500, Math.floor(limit)));
         if (count === 0) return [];
         const snapshot = yield* threads.getShellSnapshot();
@@ -340,7 +342,9 @@ const make = Effect.gen(function* () {
         return [...byId.values(), ...runs]
           .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt))
           .slice(0, count);
-      }).pipe(Effect.mapError(mapError)),
+      },
+      Effect.mapError(mapError),
+    ),
   } satisfies AutomationSnapshotQueryShape;
 });
 export const layer = Layer.effect(ProjectionSnapshotQuery, make);

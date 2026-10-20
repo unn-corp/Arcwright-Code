@@ -70,39 +70,41 @@ const attempt = <A>(work: () => Promise<A>) =>
   Effect.tryPromise({ try: work, catch: asMaintenanceError });
 
 /** A host that is not a binary update target (standalone, development, unsupported OS): visible, checked, never updated in-product. */
-const readOnlyStatus = (reason: string, coordinator: MaintenanceCoordinator["Service"]) =>
-  Effect.gen(function* () {
-    const status = yield* coordinator.status.pipe(Effect.orElseSucceed(() => null));
-    const blockers: ForkActivityBlocker[] = [
-      ...(status?.blockers ?? []),
-      { participantId: "coordinator", reason: "launcher", label: reason },
-    ];
-    const current = deriveBuildIdentity({
-      version: APP_VERSION,
-      upstreamVersion: BUILD_IDENTITY.upstreamVersion,
-      upstreamCommit: BUILD_IDENTITY.upstreamCommit,
-      forkBuildNumber: BUILD_IDENTITY.forkBuildNumber,
-      commit: BUILD_IDENTITY.commit,
-      recordedArtifactSha256: null,
-    });
-    return {
-      coordinatorId: status?.coordinatorId ?? "",
-      phase: "idle",
-      policy: {
-        channel: defaultChannelForBuild(APP_VERSION),
-        automaticInstallation: false,
-        pinnedBuild: null,
-      },
-      currentBuild: current,
-      targetBuild: null,
-      blockers,
-      recoveryOptions: [],
-      transactionId: null,
-      automationReviewRequired: false,
-      installable: false,
-      affectedHomes: [],
-    } satisfies ForkUpdateStatus;
+const readOnlyStatus = Effect.fn("MaintenanceService.readOnlyStatus")(function* (
+  reason: string,
+  coordinator: MaintenanceCoordinator["Service"],
+) {
+  const status = yield* coordinator.status.pipe(Effect.orElseSucceed(() => null));
+  const blockers: ForkActivityBlocker[] = [
+    ...(status?.blockers ?? []),
+    { participantId: "coordinator", reason: "launcher", label: reason },
+  ];
+  const current = deriveBuildIdentity({
+    version: APP_VERSION,
+    upstreamVersion: BUILD_IDENTITY.upstreamVersion,
+    upstreamCommit: BUILD_IDENTITY.upstreamCommit,
+    forkBuildNumber: BUILD_IDENTITY.forkBuildNumber,
+    commit: BUILD_IDENTITY.commit,
+    recordedArtifactSha256: null,
   });
+  return {
+    coordinatorId: status?.coordinatorId ?? "",
+    phase: "idle",
+    policy: {
+      channel: defaultChannelForBuild(APP_VERSION),
+      automaticInstallation: false,
+      pinnedBuild: null,
+    },
+    currentBuild: current,
+    targetBuild: null,
+    blockers,
+    recoveryOptions: [],
+    transactionId: null,
+    automationReviewRequired: false,
+    installable: false,
+    affectedHomes: [],
+  } satisfies ForkUpdateStatus;
+});
 
 /** Whole assets are read from the fork release origin only; the helper and its runtime are the largest. */
 const MAX_RELEASE_ASSET_BYTES = 400 * 1024 * 1024;

@@ -53,11 +53,10 @@ const skipped = (reason: Exclude<OrganizationCorrelationCoordinatorResult["reaso
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const correlator = yield* OrganizationFindingCorrelator;
-  const onObservation: OrganizationCorrelationCoordinatorShape["onObservation"] = (
-    observation,
-    principal,
-  ) =>
-    Effect.gen(function* () {
+  const onObservation: OrganizationCorrelationCoordinatorShape["onObservation"] = Effect.fn(
+    "OrganizationCorrelationCoordinator.onObservation",
+  )(
+    function* (observation, principal) {
       if (!principal.subject.trim())
         return yield* intakeError("forbidden", "Authenticated intake principal is required.");
       const row = (yield* sql<PersistedObservation>`SELECT organization_id, source_id,
@@ -93,13 +92,13 @@ const make = Effect.gen(function* () {
         principal,
       );
       return { ...result, reason: null };
-    }).pipe(
-      Effect.mapError((cause) =>
-        Schema.is(OrganizationIntakeError)(cause)
-          ? cause
-          : intakeError("unavailable", "Organization correlation coordination is unavailable."),
-      ),
-    );
+    },
+    Effect.mapError((cause) =>
+      Schema.is(OrganizationIntakeError)(cause)
+        ? cause
+        : intakeError("unavailable", "Organization correlation coordination is unavailable."),
+    ),
+  );
   return { onObservation } satisfies OrganizationCorrelationCoordinatorShape;
 });
 

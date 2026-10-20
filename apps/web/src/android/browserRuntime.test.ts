@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import source from "../../../android-pwa/app/src/main/assets/t3-browser-runtime.js?raw";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 

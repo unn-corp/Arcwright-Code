@@ -2,11 +2,7 @@ import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 import * as NodeURL from "node:url";
 
-// Retained fork renderer regressions cover state-loop and sidebar behavior.
-const DOM_TEST_ENVIRONMENT_ALLOWLIST: Array<string> = [
-  "apps/web/src/components/ui/sidebar.test.tsx",
-  "apps/web/src/components/chat/MessagesTimeline.test.tsx",
-];
+import { ROOT_DOM_TEST_FILES } from "./scripts/lib/fork-dom-test-projects.ts";
 
 const RESTRICTED_IMPORT_PATHS = [
   {
@@ -60,6 +56,16 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    projects: [
+      {
+        extends: true,
+        test: { name: "unit", exclude: ROOT_DOM_TEST_FILES },
+      },
+      {
+        extends: true,
+        test: { name: "dom", environment: "jsdom", include: ROOT_DOM_TEST_FILES },
+      },
+    ],
     exclude: [
       "**/.repos/**",
       "**/.t3/**",
@@ -191,7 +197,6 @@ export default defineConfig({
       },
       {
         files: ["apps/**/src/**", "packages/**/src/**"],
-        excludeFiles: DOM_TEST_ENVIRONMENT_ALLOWLIST,
         rules: { "t3code/no-dom-test-environment": "error" },
       },
       {

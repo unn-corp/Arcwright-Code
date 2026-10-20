@@ -149,7 +149,7 @@ export const reconcileV2PreviewMigration = Effect.fn("reconcileV2PreviewMigratio
   );
 });
 
-const migrateForkGap = (
+const migrateForkGap = Effect.fn("reconcileV2PreviewMigration.migrateForkGap")(function* (
   sql: SqlClient.SqlClient,
   rows: ReadonlyArray<MigrationRow>,
   alreadyAppliedRows: ReadonlyArray<MigrationRow>,
@@ -160,66 +160,63 @@ const migrateForkGap = (
       Effect.Effect<void, SqlError.SqlError | Schema.SchemaError, SqlClient.SqlClient>,
     ]
   >,
-) =>
-  Effect.gen(function* () {
-    // Hold all legacy rows outside the active id range while applying fork-only
-    // migrations. Effect's Migrator intentionally skips every id at or below
-    // the latest ledger row, so these missing fork migrations must run directly
-    // before restoring identity-matched rows.
-    for (const row of rows) {
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = ${1000 + row.migration_id} WHERE migration_id = ${row.migration_id}`;
-    }
+) {
+  // Hold all legacy rows outside the active id range while applying fork-only
+  // migrations. Effect's Migrator intentionally skips every id at or below
+  // the latest ledger row, so these missing fork migrations must run directly
+  // before restoring identity-matched rows.
+  for (const row of rows) {
+    yield* sql`UPDATE effect_sql_migrations SET migration_id = ${1000 + row.migration_id} WHERE migration_id = ${row.migration_id}`;
+  }
 
-    const reconciliationThrough = Math.max(
-      94,
-      ...rows.map(
-        (row) =>
-          upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name) ?? 0,
-      ),
-    );
-    const executed: Array<readonly [number, string]> = [];
-    for (const [id, name, migration] of migrations) {
-      if (id < 36 || id > reconciliationThrough) continue;
-      const existing = alreadyAppliedRows.find((row) => {
-        const target =
-          upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name);
-        return (target === id || row.migration_id === id) && row.name === name;
-      });
-      if (existing) {
-        if (rows.some((row) => row.migration_id === existing.migration_id)) {
-          yield* sql`UPDATE effect_sql_migrations SET migration_id = ${id} WHERE migration_id = ${1000 + existing.migration_id}`;
-        }
-        continue;
-      }
-      yield* migration.pipe(
-        Effect.catchCause((cause) =>
-          Effect.die(
-            new Migrator.MigrationError({
-              cause,
-              kind: "Failed",
-              message: `Migration "${id}_${name}" failed during upstream history reconciliation.`,
-            }),
-          ),
-        ),
-      );
-      yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
-      executed.push([id, name]);
-    }
-
-    for (const row of rows) {
+  const reconciliationThrough = Math.max(
+    94,
+    ...rows.map(
+      (row) => upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name) ?? 0,
+    ),
+  );
+  const executed: Array<readonly [number, string]> = [];
+  for (const [id, name, migration] of migrations) {
+    if (id < 36 || id > reconciliationThrough) continue;
+    const existing = alreadyAppliedRows.find((row) => {
       const target =
         upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name);
-      if (target === undefined) {
-        return yield* new Migrator.MigrationError({
-          kind: "BadState",
-          message: `Cannot reconcile unknown V2 migration ${row.migration_id}_${row.name}.`,
-        });
+      return (target === id || row.migration_id === id) && row.name === name;
+    });
+    if (existing) {
+      if (rows.some((row) => row.migration_id === existing.migration_id)) {
+        yield* sql`UPDATE effect_sql_migrations SET migration_id = ${id} WHERE migration_id = ${1000 + existing.migration_id}`;
       }
-      const stagedId = 1000 + row.migration_id;
-      yield* sql`UPDATE effect_sql_migrations SET migration_id = ${target} WHERE migration_id = ${stagedId}`;
+      continue;
     }
-    return executed;
-  });
+    yield* migration.pipe(
+      Effect.catchCause((cause) =>
+        Effect.die(
+          new Migrator.MigrationError({
+            cause,
+            kind: "Failed",
+            message: `Migration "${id}_${name}" failed during upstream history reconciliation.`,
+          }),
+        ),
+      ),
+    );
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${name})`;
+    executed.push([id, name]);
+  }
+
+  for (const row of rows) {
+    const target = upstreamMigrationTargets.get(row.name) ?? previewMigrationTargets.get(row.name);
+    if (target === undefined) {
+      return yield* new Migrator.MigrationError({
+        kind: "BadState",
+        message: `Cannot reconcile unknown V2 migration ${row.migration_id}_${row.name}.`,
+      });
+    }
+    const stagedId = 1000 + row.migration_id;
+    yield* sql`UPDATE effect_sql_migrations SET migration_id = ${target} WHERE migration_id = ${stagedId}`;
+  }
+  return executed;
+});
 
 const upstreamMigrationNames = new Map<number, string>(
   upstreamMigrationEntries.map(([upstreamId, , name]) => [upstreamId, name]),

@@ -522,14 +522,16 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const monitorImplementation = (input: {
-    readonly run: AgentDashboardAutomationRun;
-    readonly result: AgentDashboardImplementationRunResult;
-    readonly project: OrchestrationProjectShell;
-    readonly finding: AgentDashboardFinding;
-    readonly automationSettings: ContinuousImprovementSettings;
-  }): Effect.Effect<void> =>
-    Effect.gen(function* () {
+  const monitorImplementation = Effect.fn(
+    "AgentDashboardContinuousImprovement.monitorImplementation",
+  )(
+    function* (input: {
+      readonly run: AgentDashboardAutomationRun;
+      readonly result: AgentDashboardImplementationRunResult;
+      readonly project: OrchestrationProjectShell;
+      readonly finding: AgentDashboardFinding;
+      readonly automationSettings: ContinuousImprovementSettings;
+    }) {
       const persistedNudges = yield* store.readExternalActions.pipe(
         Effect.map((actions) =>
           actions.filter(
@@ -547,42 +549,43 @@ const make = Effect.gen(function* () {
         return Math.max(latest ?? Number.NEGATIVE_INFINITY, occurredAt);
       }, null);
       let lastNudgedCompletedTurnId: string | null = null;
-      const sendNudge = (reason: AgentDashboardImplementationNudgeReason) =>
-        Effect.gen(function* () {
-          const attempt = nudgeCount + 1;
-          const nudgeResult = yield* Effect.result(
-            runner.nudgeFinding({
-              finding: input.finding,
-              result: input.result,
-              modelSelection: input.automationSettings.modelSelection,
-              runId: input.run.id,
-              reason,
-              attempt,
-              maxAttempts: MAX_IMPLEMENTATION_NUDGES,
-              consolidatePullRequests: input.automationSettings.consolidatePullRequests,
+      const sendNudge = Effect.fn("AgentDashboardContinuousImprovement.sendNudge")(function* (
+        reason: AgentDashboardImplementationNudgeReason,
+      ) {
+        const attempt = nudgeCount + 1;
+        const nudgeResult = yield* Effect.result(
+          runner.nudgeFinding({
+            finding: input.finding,
+            result: input.result,
+            modelSelection: input.automationSettings.modelSelection,
+            runId: input.run.id,
+            reason,
+            attempt,
+            maxAttempts: MAX_IMPLEMENTATION_NUDGES,
+            consolidatePullRequests: input.automationSettings.consolidatePullRequests,
+          }),
+        );
+        if (Result.isFailure(nudgeResult)) {
+          const failedAt = yield* nowIso;
+          yield* persistRun(
+            transitionContinuousImprovementRun(input.run, {
+              state: "needs-attention",
+              error: `Arcwright Code could not send an automated progress check to the implementation agent: ${nudgeResult.failure.message}`,
+              at: failedAt,
             }),
           );
-          if (Result.isFailure(nudgeResult)) {
-            const failedAt = yield* nowIso;
-            yield* persistRun(
-              transitionContinuousImprovementRun(input.run, {
-                state: "needs-attention",
-                error: `Arcwright Code could not send an automated progress check to the implementation agent: ${nudgeResult.failure.message}`,
-                at: failedAt,
-              }),
-            );
-            return false;
-          }
-          nudgeCount = attempt;
-          lastNudgeAtMs = DateTime.toEpochMillis(yield* DateTime.now);
-          yield* Effect.logInfo("Continuous Improvement Mode nudged an implementation agent", {
-            runId: input.run.id,
-            threadId: input.result.threadId,
-            attempt,
-            reason,
-          });
-          return true;
+          return false;
+        }
+        nudgeCount = attempt;
+        lastNudgeAtMs = DateTime.toEpochMillis(yield* DateTime.now);
+        yield* Effect.logInfo("Continuous Improvement Mode nudged an implementation agent", {
+          runId: input.run.id,
+          threadId: input.result.threadId,
+          attempt,
+          reason,
         });
+        return true;
+      });
 
       for (;;) {
         const shell = yield* projection.getShellSnapshot();
@@ -940,20 +943,23 @@ const make = Effect.gen(function* () {
         }
         yield* Effect.sleep(IMPLEMENTATION_MONITOR_INTERVAL);
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Continuous Improvement Mode could not update run history", {
-          runId: input.run.id,
-          threadId: input.result.threadId,
-          cause,
-        }),
+    },
+    (_program, input) =>
+      _program.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Continuous Improvement Mode could not update run history", {
+            runId: input.run.id,
+            threadId: input.result.threadId,
+            cause,
+          }),
+        ),
       ),
-    );
+  );
 
-  const reconcileStaleFindingReservations = (
-    automationSettings: ContinuousImprovementSettings,
-  ): Effect.Effect<void> =>
-    Effect.gen(function* () {
+  const reconcileStaleFindingReservations = Effect.fn(
+    "AgentDashboardContinuousImprovement.reconcileStaleFindingReservations",
+  )(
+    function* (automationSettings: ContinuousImprovementSettings) {
       const { findings, shell, runs } = yield* Effect.all({
         findings: store.readFindings,
         shell: projection.getShellSnapshot(),
@@ -1062,22 +1068,22 @@ const make = Effect.gen(function* () {
           ),
         { concurrency: 1, discard: true },
       );
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Continuous improvement could not inspect stale finding reservations", {
-          cause,
-        }),
-      ),
-    );
+    },
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Continuous improvement could not inspect stale finding reservations", {
+        cause,
+      }),
+    ),
+  );
 
-  const launchSelection = (input: {
-    readonly finding: AgentDashboardFinding;
-    readonly project: OrchestrationProjectShell;
-    readonly automationSettings: ContinuousImprovementSettings;
-    readonly trigger: AgentDashboardAutomationRunTrigger;
-    readonly retryCount: number;
-  }) =>
-    Effect.gen(function* () {
+  const launchSelection = Effect.fn("AgentDashboardContinuousImprovement.launchSelection")(
+    function* (input: {
+      readonly finding: AgentDashboardFinding;
+      readonly project: OrchestrationProjectShell;
+      readonly automationSettings: ContinuousImprovementSettings;
+      readonly trigger: AgentDashboardAutomationRunTrigger;
+      readonly retryCount: number;
+    }) {
       const createdAt = yield* nowIso;
       const queued = createContinuousImprovementRun({
         id: `implementation:${yield* crypto.randomUUIDv4()}`,
@@ -1136,7 +1142,8 @@ const make = Effect.gen(function* () {
         }),
       ).pipe(Effect.forkIn(scope));
       return launchResult.success;
-    });
+    },
+  );
 
   const mapLaunchError = (cause: unknown): AgentDashboardContinuousImprovementError => {
     if (isContinuousImprovementError(cause)) return cause;
@@ -1237,155 +1244,155 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const retryRun: AgentDashboardContinuousImprovementService["retryRun"] = (runId) =>
-    Effect.gen(function* () {
-      const existing = yield* history.get(runId).pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardContinuousImprovementError({
-              operation: "load implementation run",
-              message: cause.message,
-              cause,
-            }),
-        ),
-      );
-      if (existing === null || existing.kind !== CONTINUOUS_IMPROVEMENT_RUN_KIND) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: "That Continuous Improvement run was not found.",
-        });
-      }
-      if (
-        existing.status === "queued" ||
-        existing.status === "running" ||
-        existing.status === "ingesting"
-      ) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: "That implementation is still in progress.",
-        });
-      }
-      if (existing.retryCount >= MAX_IMPLEMENTATION_RETRIES) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: `Continuous Improvement retry limit (${MAX_IMPLEMENTATION_RETRIES}) reached.`,
-        });
-      }
-      if (existing.jobId === null) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: "That run no longer has a finding to retry.",
-        });
-      }
-
-      const currentSettings = yield* settings.getSettings.pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardContinuousImprovementError({
-              operation: "read settings",
-              message: "Continuous Improvement Mode could not read its settings.",
-              cause,
-            }),
-        ),
-      );
-      const [findings, shell] = yield* Effect.all([
-        store.readFindings,
-        projection.getShellSnapshot(),
-      ]).pipe(
-        Effect.mapError(
-          (cause) =>
-            new AgentDashboardContinuousImprovementError({
-              operation: "load retry target",
-              message: "Arcwright Code could not load the finding for this retry.",
-              cause,
-            }),
-        ),
-      );
-      const finding = findings.find((candidate) => candidate.id === existing.jobId) ?? null;
-      const project = shell.projects.find(
-        (candidate) => candidate.id === existing.repository.projectId,
-      );
-      if (finding === null || project === undefined) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: "The finding or repository for that run is no longer available.",
-        });
-      }
-      if (
-        !isFindingEligibleForContinuousImprovement(finding, currentSettings.continuousImprovement)
-      ) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: "That finding is no longer inside the configured automation guardrails.",
-        });
-      }
-      const stable = yield* Effect.tryPromise({
-        try: () => AgentDashboardStore.isStableRepositoryPath(project.workspaceRoot),
-        catch: (cause) =>
+  const retryRun: AgentDashboardContinuousImprovementService["retryRun"] = Effect.fn(
+    "AgentDashboardContinuousImprovement.retryRun",
+  )(function* (runId) {
+    const existing = yield* history.get(runId).pipe(
+      Effect.mapError(
+        (cause) =>
           new AgentDashboardContinuousImprovementError({
-            operation: "validate repository",
-            message: `Continuous Improvement Mode could not validate ${project.title}.`,
+            operation: "load implementation run",
+            message: cause.message,
             cause,
           }),
+      ),
+    );
+    if (existing === null || existing.kind !== CONTINUOUS_IMPROVEMENT_RUN_KIND) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: "That Continuous Improvement run was not found.",
       });
-      if (!stable) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "validate repository",
-          message: `${project.title} is not a stable local repository path.`,
-        });
-      }
+    }
+    if (
+      existing.status === "queued" ||
+      existing.status === "running" ||
+      existing.status === "ingesting"
+    ) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: "That implementation is still in progress.",
+      });
+    }
+    if (existing.retryCount >= MAX_IMPLEMENTATION_RETRIES) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: `Continuous Improvement retry limit (${MAX_IMPLEMENTATION_RETRIES}) reached.`,
+      });
+    }
+    if (existing.jobId === null) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: "That run no longer has a finding to retry.",
+      });
+    }
 
-      const claimedScheduler = yield* SynchronizedRef.modify(busy, (isBusy) =>
-        isBusy ? ([false, true] as const) : ([true, true] as const),
-      );
-      if (!claimedScheduler) {
-        return yield* new AgentDashboardContinuousImprovementError({
-          operation: "retry implementation",
-          message: "Another Continuous Improvement launch is already starting.",
-        });
-      }
-      return yield* Effect.gen(function* () {
-        if (finding.thread !== null) {
-          const linkedThread = shell.threads.find(
-            (candidate) => candidate.id === finding.thread?.threadId,
-          );
-          if (
-            linkedThread?.latestTurn?.state === "running" ||
-            linkedThread?.session?.status === "starting" ||
-            linkedThread?.session?.status === "running"
-          ) {
-            return yield* new AgentDashboardContinuousImprovementError({
-              operation: "retry implementation",
-              message: "The linked implementation agent is still working.",
-            });
-          }
-          yield* store
-            .releaseFindingThread({
-              id: finding.id,
-              projectId: finding.thread.projectId,
-              threadId: finding.thread.threadId,
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new AgentDashboardContinuousImprovementError({
-                    operation: "release previous implementation",
-                    message:
-                      "Arcwright Code could not release the previous implementation session.",
-                    cause,
-                  }),
-              ),
-            );
-        }
-        return yield* launchSelection({
-          finding,
-          project,
-          automationSettings: currentSettings.continuousImprovement,
-          trigger: "retry",
-          retryCount: existing.retryCount + 1,
-        }).pipe(Effect.mapError(mapLaunchError));
-      }).pipe(Effect.ensuring(SynchronizedRef.set(busy, false)));
+    const currentSettings = yield* settings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardContinuousImprovementError({
+            operation: "read settings",
+            message: "Continuous Improvement Mode could not read its settings.",
+            cause,
+          }),
+      ),
+    );
+    const [findings, shell] = yield* Effect.all([
+      store.readFindings,
+      projection.getShellSnapshot(),
+    ]).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AgentDashboardContinuousImprovementError({
+            operation: "load retry target",
+            message: "Arcwright Code could not load the finding for this retry.",
+            cause,
+          }),
+      ),
+    );
+    const finding = findings.find((candidate) => candidate.id === existing.jobId) ?? null;
+    const project = shell.projects.find(
+      (candidate) => candidate.id === existing.repository.projectId,
+    );
+    if (finding === null || project === undefined) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: "The finding or repository for that run is no longer available.",
+      });
+    }
+    if (
+      !isFindingEligibleForContinuousImprovement(finding, currentSettings.continuousImprovement)
+    ) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: "That finding is no longer inside the configured automation guardrails.",
+      });
+    }
+    const stable = yield* Effect.tryPromise({
+      try: () => AgentDashboardStore.isStableRepositoryPath(project.workspaceRoot),
+      catch: (cause) =>
+        new AgentDashboardContinuousImprovementError({
+          operation: "validate repository",
+          message: `Continuous Improvement Mode could not validate ${project.title}.`,
+          cause,
+        }),
     });
+    if (!stable) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "validate repository",
+        message: `${project.title} is not a stable local repository path.`,
+      });
+    }
+
+    const claimedScheduler = yield* SynchronizedRef.modify(busy, (isBusy) =>
+      isBusy ? ([false, true] as const) : ([true, true] as const),
+    );
+    if (!claimedScheduler) {
+      return yield* new AgentDashboardContinuousImprovementError({
+        operation: "retry implementation",
+        message: "Another Continuous Improvement launch is already starting.",
+      });
+    }
+    return yield* Effect.gen(function* () {
+      if (finding.thread !== null) {
+        const linkedThread = shell.threads.find(
+          (candidate) => candidate.id === finding.thread?.threadId,
+        );
+        if (
+          linkedThread?.latestTurn?.state === "running" ||
+          linkedThread?.session?.status === "starting" ||
+          linkedThread?.session?.status === "running"
+        ) {
+          return yield* new AgentDashboardContinuousImprovementError({
+            operation: "retry implementation",
+            message: "The linked implementation agent is still working.",
+          });
+        }
+        yield* store
+          .releaseFindingThread({
+            id: finding.id,
+            projectId: finding.thread.projectId,
+            threadId: finding.thread.threadId,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new AgentDashboardContinuousImprovementError({
+                  operation: "release previous implementation",
+                  message: "Arcwright Code could not release the previous implementation session.",
+                  cause,
+                }),
+            ),
+          );
+      }
+      return yield* launchSelection({
+        finding,
+        project,
+        automationSettings: currentSettings.continuousImprovement,
+        trigger: "retry",
+        retryCount: existing.retryCount + 1,
+      }).pipe(Effect.mapError(mapLaunchError));
+    }).pipe(Effect.ensuring(SynchronizedRef.set(busy, false)));
+  });
 
   const recoveryComplete = yield* Ref.make(false);
   const resumeInterruptedImplementationsAdmitted = Effect.gen(function* () {

@@ -344,8 +344,10 @@ const make = Effect.gen(function* () {
       }),
     );
   };
-  const verifySubmitted: OrganizationWorkArtifactStoreShape["verifySubmitted"] = (target) =>
-    Effect.gen(function* () {
+  const verifySubmitted: OrganizationWorkArtifactStoreShape["verifySubmitted"] = Effect.fn(
+    "OrganizationWorkArtifactStore.verifySubmitted",
+  )(
+    function* (target) {
       const saved = yield* get(target.attemptId);
       if (!saved) return yield* artifactError("not_found", "Artifact receipt was not found.");
       if (
@@ -371,7 +373,9 @@ const make = Effect.gen(function* () {
         scope.verified_stopped_at !== saved.scopeVerifiedStoppedAt
       )
         return yield* conflict("Artifact scope verification has changed.");
-    }).pipe(Effect.mapError((error) => (isArtifactError(error) ? error : unavailable())));
+    },
+    Effect.mapError((error) => (isArtifactError(error) ? error : unavailable())),
+  );
   return { capture, get, verifySubmitted } satisfies OrganizationWorkArtifactStoreShape;
 });
 

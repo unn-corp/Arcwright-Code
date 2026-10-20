@@ -122,31 +122,33 @@ const json = (value: unknown) => Schema.encodeSync(Json)(value);
 const proposalId = (findingId: string) =>
   `proposal:${NodeCrypto.createHash("sha256").update(findingId).digest("hex")}`;
 const backoffSeconds = (attempts: number) => Math.min(300, 5 * 2 ** Math.min(6, attempts));
-const decodeProposal = (row: ProposalRow, staleReason: string | null) =>
-  Effect.gen(function* () {
-    const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(row.evidence_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationWorkProposal)({
-      id: row.proposal_id,
-      organizationId: row.organization_id,
-      findingId: row.finding_id,
-      projectId: row.project_id,
-      bindingId: row.binding_id,
-      bindingVersion: row.binding_version,
-      publishedRevision: row.published_revision,
-      evidence,
-      title: row.title,
-      summary: row.summary,
-      state: row.state,
-      version: row.version,
-      currentlyEligible: staleReason === null,
-      staleReason,
-      decidedBy: row.decided_by,
-      decisionReason: row.decision_reason,
-      reconsiderAfter: row.reconsider_after,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    });
+const decodeProposal = Effect.fn("OrganizationProposalStore.decodeProposal")(function* (
+  row: ProposalRow,
+  staleReason: string | null,
+) {
+  const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(row.evidence_json);
+  return yield* Schema.decodeUnknownEffect(OrganizationWorkProposal)({
+    id: row.proposal_id,
+    organizationId: row.organization_id,
+    findingId: row.finding_id,
+    projectId: row.project_id,
+    bindingId: row.binding_id,
+    bindingVersion: row.binding_version,
+    publishedRevision: row.published_revision,
+    evidence,
+    title: row.title,
+    summary: row.summary,
+    state: row.state,
+    version: row.version,
+    currentlyEligible: staleReason === null,
+    staleReason,
+    decidedBy: row.decided_by,
+    decisionReason: row.decision_reason,
+    reconsiderAfter: row.reconsider_after,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   });
+});
 
 export interface OrganizationProposalStoreShape {
   readonly hasReconciliationWork: Effect.Effect<boolean, SqlError>;
@@ -194,133 +196,135 @@ const make = Effect.gen(function* () {
             : issue("unavailable", "Organization proposal storage is unavailable."),
         ),
       );
-  const requirePrincipal = (principal: OrganizationProposalPrincipal) =>
-    Effect.gen(function* () {
-      if (
-        principal.interactive !== true ||
-        !principal.subject.trim() ||
-        Buffer.byteLength(principal.subject, "utf8") > 256
-      )
-        return yield* issue("forbidden", "An authenticated interactive user is required.");
-    });
-  const organization = (organizationId: OrganizationId) =>
-    Effect.gen(function* () {
-      const row = (yield* sql<OrganizationRow>`SELECT lifecycle, published_revision
+  const requirePrincipal = Effect.fn("OrganizationProposalStore.requirePrincipal")(function* (
+    principal: OrganizationProposalPrincipal,
+  ) {
+    if (
+      principal.interactive !== true ||
+      !principal.subject.trim() ||
+      Buffer.byteLength(principal.subject, "utf8") > 256
+    )
+      return yield* issue("forbidden", "An authenticated interactive user is required.");
+  });
+  const organization = Effect.fn("OrganizationProposalStore.organization")(function* (
+    organizationId: OrganizationId,
+  ) {
+    const row = (yield* sql<OrganizationRow>`SELECT lifecycle, published_revision
       FROM organizations WHERE organization_id = ${organizationId}`)[0];
-      if (!row) return yield* issue("not_found", "Organization not found.");
-      return row;
-    });
-  const mode = (organizationId: OrganizationId) =>
-    Effect.gen(function* () {
-      const org = yield* organization(organizationId);
-      const setting = (yield* sql<SettingRow>`SELECT * FROM organization_proposal_settings
+    if (!row) return yield* issue("not_found", "Organization not found.");
+    return row;
+  });
+  const mode = Effect.fn("OrganizationProposalStore.mode")(function* (
+    organizationId: OrganizationId,
+  ) {
+    const org = yield* organization(organizationId);
+    const setting = (yield* sql<SettingRow>`SELECT * FROM organization_proposal_settings
       WHERE organization_id = ${organizationId}`)[0];
-      return yield* Schema.decodeUnknownEffect(OrganizationObservationMode)({
-        organizationId,
-        enabled: setting?.observation_mode_enabled === 1,
-        effective:
-          setting?.observation_mode_enabled === 1 &&
-          (org.lifecycle === "draft" || org.lifecycle === "active") &&
-          org.published_revision !== null,
-        version: setting?.version ?? 0,
-        enabledAt: setting?.enabled_at ?? null,
-        updatedBy: setting?.updated_by ?? null,
-        updatedAt: setting?.updated_at ?? null,
-      });
+    return yield* Schema.decodeUnknownEffect(OrganizationObservationMode)({
+      organizationId,
+      enabled: setting?.observation_mode_enabled === 1,
+      effective:
+        setting?.observation_mode_enabled === 1 &&
+        (org.lifecycle === "draft" || org.lifecycle === "active") &&
+        org.published_revision !== null,
+      version: setting?.version ?? 0,
+      enabledAt: setting?.enabled_at ?? null,
+      updatedBy: setting?.updated_by ?? null,
+      updatedAt: setting?.updated_at ?? null,
     });
-  const staleReason = (proposal: ProposalRow) =>
-    Effect.gen(function* () {
-      const org =
-        (yield* sql<OrganizationRow>`SELECT lifecycle, published_revision FROM organizations
+  });
+  const staleReason = Effect.fn("OrganizationProposalStore.staleReason")(function* (
+    proposal: ProposalRow,
+  ) {
+    const org = (yield* sql<OrganizationRow>`SELECT lifecycle, published_revision FROM organizations
       WHERE organization_id = ${proposal.organization_id}`)[0];
-      const setting = (yield* sql<SettingRow>`SELECT * FROM organization_proposal_settings
+    const setting = (yield* sql<SettingRow>`SELECT * FROM organization_proposal_settings
       WHERE organization_id = ${proposal.organization_id}`)[0];
-      if (
-        !org ||
-        (org.lifecycle !== "draft" && org.lifecycle !== "active") ||
-        setting?.observation_mode_enabled !== 1
-      )
-        return "observation-mode-inactive";
-      if (setting.enabled_at === null || proposal.created_at < setting.enabled_at)
-        return "prior-opt-in-epoch";
-      if (org.published_revision !== proposal.published_revision) return "published-config-changed";
-      const finding = (yield* sql<FindingRow>`SELECT * FROM organization_intake_findings
+    if (
+      !org ||
+      (org.lifecycle !== "draft" && org.lifecycle !== "active") ||
+      setting?.observation_mode_enabled !== 1
+    )
+      return "observation-mode-inactive";
+    if (setting.enabled_at === null || proposal.created_at < setting.enabled_at)
+      return "prior-opt-in-epoch";
+    if (org.published_revision !== proposal.published_revision) return "published-config-changed";
+    const finding = (yield* sql<FindingRow>`SELECT * FROM organization_intake_findings
       WHERE finding_id = ${proposal.finding_id}`)[0];
-      if (
-        !finding ||
-        finding.organization_id !== proposal.organization_id ||
-        finding.state !== "tentative" ||
-        finding.project_id !== proposal.project_id ||
-        finding.evidence_json !== proposal.evidence_json
-      )
-        return "finding-evidence-changed";
-      const binding = (yield* sql<BindingRow>`SELECT b.* FROM organization_project_bindings b
+    if (
+      !finding ||
+      finding.organization_id !== proposal.organization_id ||
+      finding.state !== "tentative" ||
+      finding.project_id !== proposal.project_id ||
+      finding.evidence_json !== proposal.evidence_json
+    )
+      return "finding-evidence-changed";
+    const binding = (yield* sql<BindingRow>`SELECT b.* FROM organization_project_bindings b
       JOIN projection_projects p ON p.project_id = b.project_id AND p.deleted_at IS NULL
       WHERE b.binding_id = ${proposal.binding_id}`)[0];
-      if (
-        !binding ||
-        binding.organization_id !== proposal.organization_id ||
-        binding.project_id !== proposal.project_id ||
-        binding.detached_at !== null ||
-        binding.updated_at !== proposal.binding_version ||
-        (binding.access !== "proposal" && binding.access !== "write")
-      )
-        return "binding-changed";
-      const capabilities = yield* Schema.decodeUnknownEffect(
-        Schema.fromJsonString(Schema.Array(Schema.String)),
-      )(binding.capabilities_json).pipe(Effect.result);
-      if (capabilities._tag === "Failure" || !capabilities.success.includes("propose-work"))
-        return "binding-changed";
-      const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(proposal.evidence_json).pipe(
-        Effect.result,
-      );
-      if (evidence._tag === "Failure") return "evidence-invalid";
-      for (const ref of evidence.success) {
-        if (ref.projectId !== proposal.project_id) return "evidence-scope-changed";
-        const observed = (yield* sql<EvidenceRow>`SELECT o.observation_id, o.source_id,
+    if (
+      !binding ||
+      binding.organization_id !== proposal.organization_id ||
+      binding.project_id !== proposal.project_id ||
+      binding.detached_at !== null ||
+      binding.updated_at !== proposal.binding_version ||
+      (binding.access !== "proposal" && binding.access !== "write")
+    )
+      return "binding-changed";
+    const capabilities = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(Schema.Array(Schema.String)),
+    )(binding.capabilities_json).pipe(Effect.result);
+    if (capabilities._tag === "Failure" || !capabilities.success.includes("propose-work"))
+      return "binding-changed";
+    const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(proposal.evidence_json).pipe(
+      Effect.result,
+    );
+    if (evidence._tag === "Failure") return "evidence-invalid";
+    for (const ref of evidence.success) {
+      if (ref.projectId !== proposal.project_id) return "evidence-scope-changed";
+      const observed = (yield* sql<EvidenceRow>`SELECT o.observation_id, o.source_id,
         o.project_id, s.enabled AS source_enabled, s.project_id AS source_project_id
         FROM organization_intake_observations o
         LEFT JOIN organization_intake_sources s ON s.source_id = o.source_id
         WHERE o.observation_id = ${ref.observationId}
           AND o.organization_id = ${proposal.organization_id}`)[0];
-        if (
-          !observed ||
-          observed.source_id !== ref.sourceId ||
-          observed.project_id !== proposal.project_id ||
-          observed.source_enabled !== 1 ||
-          (observed.source_project_id !== null &&
-            observed.source_project_id !== proposal.project_id)
-        )
-          return "source-or-evidence-revoked";
-      }
-      return null;
-    });
-  const readProposal = (row: ProposalRow) =>
-    Effect.gen(function* () {
-      return yield* decodeProposal(row, yield* staleReason(row));
-    });
-  const duplicate = (
+      if (
+        !observed ||
+        observed.source_id !== ref.sourceId ||
+        observed.project_id !== proposal.project_id ||
+        observed.source_enabled !== 1 ||
+        (observed.source_project_id !== null && observed.source_project_id !== proposal.project_id)
+      )
+        return "source-or-evidence-revoked";
+    }
+    return null;
+  });
+  const readProposal = Effect.fn("OrganizationProposalStore.readProposal")(function* (
+    row: ProposalRow,
+  ) {
+    return yield* decodeProposal(row, yield* staleReason(row));
+  });
+  const duplicate = Effect.fn("OrganizationProposalStore.duplicate")(function* (
     mutationId: OrganizationProposalMutationId,
     organizationId: OrganizationId,
     proposalId: OrganizationProposalId | null,
     action: string,
     principal: OrganizationProposalPrincipal,
     requestDigest: string,
-  ) =>
-    Effect.gen(function* () {
-      const row = (yield* sql<MutationRow>`SELECT * FROM organization_proposal_mutations
+  ) {
+    const row = (yield* sql<MutationRow>`SELECT * FROM organization_proposal_mutations
       WHERE mutation_id = ${mutationId}`)[0];
-      if (!row) return null;
-      if (
-        row.organization_id !== organizationId ||
-        row.proposal_id !== proposalId ||
-        row.action !== action ||
-        row.actor_subject !== principal.subject ||
-        row.request_digest !== requestDigest
-      )
-        return yield* issue("conflict", "Proposal mutation ID was reused for a different request.");
-      return yield* Schema.decodeUnknownEffect(Json)(row.snapshot_json);
-    });
+    if (!row) return null;
+    if (
+      row.organization_id !== organizationId ||
+      row.proposal_id !== proposalId ||
+      row.action !== action ||
+      row.actor_subject !== principal.subject ||
+      row.request_digest !== requestDigest
+    )
+      return yield* issue("conflict", "Proposal mutation ID was reused for a different request.");
+    return yield* Schema.decodeUnknownEffect(Json)(row.snapshot_json);
+  });
   const audit = (
     mutationId: OrganizationProposalMutationId,
     organizationId: OrganizationId,
@@ -506,23 +510,22 @@ const make = Effect.gen(function* () {
         return result;
       }),
     );
-  const deferCandidate = (
+  const deferCandidate = Effect.fn("OrganizationProposalStore.deferCandidate")(function* (
     findingId: string,
     attempts: number,
     time: string,
     reason: string,
     terminal: boolean,
-  ) =>
-    Effect.gen(function* () {
-      const next = DateTime.formatIso(
-        DateTime.add(yield* DateTime.now, { seconds: backoffSeconds(attempts) }),
-      );
-      yield* sql`UPDATE organization_proposal_candidates
+  ) {
+    const next = DateTime.formatIso(
+      DateTime.add(yield* DateTime.now, { seconds: backoffSeconds(attempts) }),
+    );
+    yield* sql`UPDATE organization_proposal_candidates
       SET state = ${terminal ? "terminal" : "pending"}, attempts = ${Math.min(8, attempts + 1)},
         next_attempt_at = ${next}, last_reason = ${reason}, updated_at = ${time}
       WHERE finding_id = ${findingId}`;
-      return terminal ? ("terminal" as const) : ("deferred" as const);
-    });
+    return terminal ? ("terminal" as const) : ("deferred" as const);
+  });
   const evaluate = (candidate: CandidateRow) =>
     transaction(
       Effect.gen(function* () {

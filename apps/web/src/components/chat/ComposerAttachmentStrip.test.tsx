@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 // @effect-diagnostics nodeBuiltinImport:off - Check the shipped attachment layout rules.
 import * as NodeFS from "node:fs";
 import * as NodeURL from "node:url";

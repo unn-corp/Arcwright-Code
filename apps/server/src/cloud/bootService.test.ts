@@ -697,7 +697,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         yield* service.install();
         commands.length = 0;
         control.recordGuard = true;
-        expect(yield* service.restart).toBe(true);
+        expect(yield* service.restart).toBe("restarted");
         const ordered = commands.filter(
           (command) =>
             command.startsWith("guard:") ||

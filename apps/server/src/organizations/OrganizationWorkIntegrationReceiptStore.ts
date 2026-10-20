@@ -246,8 +246,8 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => (rows[0] ? decode(rows[0]) : null)),
       Effect.mapError(() => unavailable()),
     );
-  const verifyUpstream = (target: TargetRow, saved: OrganizationWorkIntegrationReceiptRecord) =>
-    Effect.gen(function* () {
+  const verifyUpstream = Effect.fn("OrganizationWorkIntegrationReceiptStore.verifyUpstream")(
+    function* (target: TargetRow, saved: OrganizationWorkIntegrationReceiptRecord) {
       const approval = yield* approvals
         .get(target.attempt_id)
         .pipe(Effect.mapError(() => unavailable()));
@@ -270,7 +270,8 @@ const make = Effect.gen(function* () {
       yield* approvals
         .verifyApproval(approval)
         .pipe(Effect.mapError(() => conflict("Approval, QA or artifact evidence is invalid.")));
-    });
+    },
+  );
   const capture: OrganizationWorkIntegrationReceiptStoreShape["capture"] = (callerInput) => {
     const input: OrganizationWorkIntegrationReceiptCaptureInput = {
       attemptId: callerInput.attemptId,
@@ -408,29 +409,33 @@ const make = Effect.gen(function* () {
       }),
     );
   };
-  const verifyIntegration: OrganizationWorkIntegrationReceiptStoreShape["verifyIntegration"] = (
-    target,
-  ) =>
-    Effect.gen(function* () {
-      const saved = yield* get(target.attemptId);
-      if (!saved) return yield* integrationError("not_found", "Integration receipt was not found.");
-      if (!matches(saved, target) || receiptDigest(saved) !== saved.receiptDigest)
-        return yield* conflict("Integration receipt does not match persisted evidence or target.");
-      const attempt = (yield* targetFor(target.attemptId))[0];
-      if (
-        !attempt ||
-        attempt.work_id !== saved.workId ||
-        attempt.project_id !== saved.projectId ||
-        attempt.code_revision !== saved.baseCodeRevision ||
-        attempt.worker_subject !== saved.workerSubject ||
-        attempt.qa_subject !== saved.qaSubject ||
-        attempt.approval_subject !== saved.approvalSubject ||
-        attempt.artifact_digest !== saved.artifactDigest ||
-        attempt.artifact_ref !== saved.artifactRef
-      )
-        return yield* conflict("Integration attempt identity no longer matches.");
-      yield* verifyUpstream(attempt, saved);
-    }).pipe(Effect.mapError((error) => (isIntegrationError(error) ? error : unavailable())));
+  const verifyIntegration: OrganizationWorkIntegrationReceiptStoreShape["verifyIntegration"] =
+    Effect.fn("OrganizationWorkIntegrationReceiptStore.verifyIntegration")(
+      function* (target) {
+        const saved = yield* get(target.attemptId);
+        if (!saved)
+          return yield* integrationError("not_found", "Integration receipt was not found.");
+        if (!matches(saved, target) || receiptDigest(saved) !== saved.receiptDigest)
+          return yield* conflict(
+            "Integration receipt does not match persisted evidence or target.",
+          );
+        const attempt = (yield* targetFor(target.attemptId))[0];
+        if (
+          !attempt ||
+          attempt.work_id !== saved.workId ||
+          attempt.project_id !== saved.projectId ||
+          attempt.code_revision !== saved.baseCodeRevision ||
+          attempt.worker_subject !== saved.workerSubject ||
+          attempt.qa_subject !== saved.qaSubject ||
+          attempt.approval_subject !== saved.approvalSubject ||
+          attempt.artifact_digest !== saved.artifactDigest ||
+          attempt.artifact_ref !== saved.artifactRef
+        )
+          return yield* conflict("Integration attempt identity no longer matches.");
+        yield* verifyUpstream(attempt, saved);
+      },
+      Effect.mapError((error) => (isIntegrationError(error) ? error : unavailable())),
+    );
   return { capture, get, verifyIntegration } satisfies OrganizationWorkIntegrationReceiptStoreShape;
 });
 

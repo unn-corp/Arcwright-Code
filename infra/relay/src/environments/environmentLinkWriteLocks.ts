@@ -18,20 +18,20 @@ const encodeTuple = Schema.encodeSync(
 );
 const encodeTuples = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 
-export const acquireEnvironmentLinkWriteLocks = (
+export const acquireEnvironmentLinkWriteLocks = Effect.fn(
+  "environmentLinkWriteLocks.acquireEnvironmentLinkWriteLocks",
+)(function* (
   db: RelayDb.RelayDb["Service"],
   environmentId: string,
   publicKeys: ReadonlyArray<string>,
-) =>
-  Effect.gen(function* () {
-    if (!(yield* transactionActive(db)))
-      return yield* new EnvironmentLinkWriteTransactionRequired();
-    const tuples = publicKeys.map((key) => encodeTuple([environmentId, key]));
-    const locks = yield* db.$client<{ lock_id: number }>`
+) {
+  if (!(yield* transactionActive(db))) return yield* new EnvironmentLinkWriteTransactionRequired();
+  const tuples = publicKeys.map((key) => encodeTuple([environmentId, key]));
+  const locks = yield* db.$client<{ lock_id: number }>`
       SELECT DISTINCT hashtext(tuple) AS lock_id
       FROM jsonb_array_elements_text(${encodeTuples(tuples)}::jsonb) AS tuples(tuple)
       ORDER BY lock_id`;
-    for (const { lock_id } of locks) {
-      yield* db.$client`SELECT pg_advisory_xact_lock(${ENVIRONMENT_LINK_WRITE_LOCK_NAMESPACE}::integer, ${lock_id}::integer)`;
-    }
-  });
+  for (const { lock_id } of locks) {
+    yield* db.$client`SELECT pg_advisory_xact_lock(${ENVIRONMENT_LINK_WRITE_LOCK_NAMESPACE}::integer, ${lock_id}::integer)`;
+  }
+});
