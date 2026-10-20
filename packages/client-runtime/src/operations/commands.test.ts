@@ -42,6 +42,7 @@ import {
   cancelQueuedRun,
   createProject,
   dismissThreadUserInput,
+  deleteThread,
   editQueuedRun,
   forkThreadFromRun,
   interruptThreadTurn,
@@ -80,6 +81,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   readonly projectionRequests?: ThreadId[];
   readonly advertiseServerResolvedCommandContext?: boolean;
   readonly advertiseThreadStop?: boolean;
+  readonly archiveOnlyDeleteCapability?: boolean;
 }) {
   const client = {
     [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
@@ -128,6 +130,9 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
         capabilities: {
           repositoryIdentity: true,
           ...(input.advertiseThreadStop === true ? { threadStop: true } : {}),
+          ...(input.archiveOnlyDeleteCapability === undefined
+            ? {}
+            : { threadArchiveOnlyDelete: input.archiveOnlyDeleteCapability }),
           ...(input.advertiseServerResolvedCommandContext === false
             ? {}
             : { serverResolvedCommandContext: true }),
@@ -151,6 +156,45 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
 });
 
 describe("V2 environment commands", () => {
+  it.effect.each([undefined, false, true])(
+    "requires archive-only capability %s while preserving ordinary deletion",
+    (archiveOnlyDeleteCapability) =>
+      Effect.gen(function* () {
+        const commands: OrchestrationV2Command[] = [];
+        const supervisor = yield* makeSupervisor({
+          commands,
+          projects: [],
+          ...(archiveOnlyDeleteCapability === undefined ? {} : { archiveOnlyDeleteCapability }),
+        });
+        const guarded = yield* deleteThread({
+          commandId: CommandId.make("purge"),
+          threadId: v2ThreadId,
+          archivedOnly: true,
+        }).pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.result,
+        );
+        if (archiveOnlyDeleteCapability === true) {
+          expect(guarded._tag).toBe("Success");
+          expect(commands).toMatchObject([{ type: "thread.delete", archivedOnly: true }]);
+        } else {
+          expect(guarded).toMatchObject({
+            _tag: "Failure",
+            failure: { _tag: "ThreadArchiveOnlyDeleteUnsupportedError" },
+          });
+          expect(commands).toEqual([]);
+        }
+        yield* deleteThread({ commandId: CommandId.make("ordinary"), threadId: v2ThreadId }).pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        );
+        expect(commands.at(-1)).toEqual({
+          type: "thread.delete",
+          commandId: "ordinary",
+          threadId: v2ThreadId,
+        });
+      }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
   it.effect.each(["start", "auto"] as const)(
     "preserves static model selection without a captured getter in %s mode",
     (dispatchMode) =>

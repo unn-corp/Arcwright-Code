@@ -63,6 +63,7 @@ export function UsageProviderSettings({
     <>
       <SettingsSection
         {...searchableSetting("usage-providers")}
+        title="Usage tracking"
         headerAction={
           !readOnly ? (
             <Button size="xs" variant="outline" onClick={() => setAdding(true)}>
@@ -72,6 +73,10 @@ export function UsageProviderSettings({
           ) : null
         }
       >
+        <SettingsRow
+          title="Usage sources and hubs"
+          description="Hubs report account usage and limits. Configure AI providers under Connections to run conversations."
+        />
         {platform?.os === "darwin" ? (
           <SettingsRow
             id="cursor-keychain-usage"

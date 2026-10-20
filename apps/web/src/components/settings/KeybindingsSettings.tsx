@@ -1,3 +1,8 @@
+import {
+  filterKeybindingRows as filterKeybindingRowsByStatus,
+  summarizeKeybindingCondition,
+  type KeybindingFilter,
+} from "./KeybindingsExperience.logic";
 import { useEnvironmentScope } from "../../state/session";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
 import {
@@ -11,7 +16,7 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { useLocation } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -739,7 +744,7 @@ function useKeybindingRowEditor({
     if (event.key === "Tab" && !isRecording) return;
     event.preventDefault();
     if (event.key === "Escape") {
-      setDraft({ keyDraft: row.key, isRecording: false });
+      setDraft(createKeybindingRowDraft(row));
       return;
     }
     const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
@@ -804,6 +809,21 @@ function KeybindingKeyControl({
         >
           {isSaving ? "Saving" : "Save"}
         </Button>
+      ) : null}
+      {isDirty || isRecording ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isSaving}
+          onClick={() => setDraft(createKeybindingRowDraft(row))}
+        >
+          Cancel
+        </Button>
+      ) : null}
+      {isRecording ? (
+        <span role="status" className="text-xs text-muted-foreground">
+          Recording shortcut
+        </span>
       ) : null}
       {showPill ? (
         <button
@@ -956,17 +976,22 @@ function KeybindingRowWhen({
   variables: ReadonlyArray<WhenVariableOption>;
 }) {
   return (
-    <span className="flex h-6 items-center gap-1.5">
-      <span className="text-xs leading-none text-muted-foreground/70">When</span>
-      <WhenClauseControl
-        label={commandLabel(row.command)}
-        expression={editor.whenDraftExpression}
-        value={editor.whenDraft}
-        variables={variables}
-        onChange={(whenDraft) => editor.setDraft({ whenDraft })}
-        onValidityChange={(isWhenDraftValid) => editor.setDraft({ isWhenDraftValid })}
-      />
-    </span>
+    <details className="text-xs text-muted-foreground">
+      <summary className="cursor-pointer py-1">
+        {summarizeKeybindingCondition(editor.whenDraftExpression)} · When
+      </summary>
+      <div className="flex items-center gap-1.5 py-1">
+        <span className="text-xs leading-none text-muted-foreground/70">When</span>
+        <WhenClauseControl
+          label={commandLabel(row.command)}
+          expression={editor.whenDraftExpression}
+          value={editor.whenDraft}
+          variables={variables}
+          onChange={(whenDraft) => editor.setDraft({ whenDraft })}
+          onValidityChange={(isWhenDraftValid) => editor.setDraft({ isWhenDraftValid })}
+        />
+      </div>
+    </details>
   );
 }
 
@@ -1320,6 +1345,7 @@ export function KeybindingsSettingsPanel() {
     availableEditors,
   );
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<KeybindingFilter>("all");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
@@ -1328,11 +1354,14 @@ export function KeybindingsSettingsPanel() {
 
   if (searchTargetId !== handledSearchTargetId) {
     setHandledSearchTargetId(searchTargetId);
-    if (searchTargetId.startsWith("keybinding-")) setQuery("");
+    if (searchTargetId.startsWith("keybinding-")) {
+      setQuery("");
+      setFilter("all");
+    }
   }
   const whenVariables = buildWhenVariableOptions();
   const { commandOptions, allRows } = useKeybindingCatalog();
-  const rows = filterKeybindingRows(allRows, query);
+  const rows = filterKeybindingRowsByStatus(filterKeybindingRows(allRows, query), filter);
   const groups = groupKeybindingRows(rows);
   const anchorIds = keybindingAnchorIds(rows);
 
@@ -1459,6 +1488,19 @@ export function KeybindingsSettingsPanel() {
       >
         <div className="flex flex-wrap items-center gap-2 px-3 py-3 sm:px-4">
           <KeybindingsSearchInput query={query} onChange={setQuery} inputRef={searchInputRef} />
+          <div role="group" aria-label="Filter keybindings" className="flex gap-1">
+            {(["all", "customized", "conflicts"] as const).map((value) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={filter === value ? "secondary" : "outline"}
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {value === "all" ? "All" : value === "customized" ? "Customized" : "Conflicts"}
+              </Button>
+            ))}
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -1468,6 +1510,21 @@ export function KeybindingsSettingsPanel() {
             <PlusIcon aria-hidden className="size-4" />
             Add keybinding
           </Button>
+        </div>
+      </SettingsSection>
+
+      <div className="flex flex-wrap gap-4 text-sm">
+        <Link className="underline" to="/settings/integrations" hash="dictation-keybinds">
+          Voice & dictation shortcuts
+        </Link>
+        <Link className="underline" to="/settings/snap-shot" hash="snap-shot-shortcut">
+          SnapShot shortcut
+        </Link>
+      </div>
+      <details>
+        <summary className="cursor-pointer text-sm">Advanced</summary>
+        <div className="flex items-center gap-2 py-2">
+          <span className="text-sm">Open keybindings configuration file</span>{" "}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -1486,8 +1543,7 @@ export function KeybindingsSettingsPanel() {
             <TooltipPopup side="top">Open keybindings.json</TooltipPopup>
           </Tooltip>
         </div>
-      </SettingsSection>
-
+      </details>
       {!canWriteSettings ? (
         <p className="text-xs text-muted-foreground">
           {connectedEnvironments.length === 0
@@ -1519,7 +1575,7 @@ export function KeybindingsSettingsPanel() {
         ) : (
           <SettingsGroup>
             <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-              No keybindings match your search.
+              No keybindings match your search and filter.
             </div>
           </SettingsGroup>
         )}

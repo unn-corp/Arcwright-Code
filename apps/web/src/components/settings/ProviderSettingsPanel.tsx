@@ -1,3 +1,9 @@
+import {
+  ProviderTextGenerationSettings,
+  ProviderRunLimitsSettings,
+  ProviderDiscoverySettings,
+} from "./RelocatedGeneralSettings";
+import { Link } from "@tanstack/react-router";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
@@ -28,14 +34,9 @@ import {
   resolveProviderInstanceEnabled,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
-import {
-  getBackgroundActivityPresetSettings,
-  resolveServerBackgroundActivitySettings,
-} from "@t3tools/shared/backgroundActivitySettings";
 import * as Arr from "effect/Array";
-import * as Duration from "effect/Duration";
 import * as Result from "effect/Result";
-import { PlusIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
@@ -48,7 +49,6 @@ import {
 } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
-import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
 import {
   useEnvironments,
@@ -84,13 +84,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "../ui/empty";
-import {
-  NumberField,
-  NumberFieldDecrement,
-  NumberFieldGroup,
-  NumberFieldIncrement,
-  NumberFieldInput,
-} from "../ui/number-field";
+
 import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -105,15 +99,8 @@ import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSectio
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { providerClients } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
+import { buildProviderInstanceUpdatePatch } from "./SettingsPanels.logic";
 import {
-  backgroundActivityOverrideSettings,
-  buildProviderInstanceUpdatePatch,
-  durationToSeconds,
-  normalizeIntervalSeconds,
-  PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
-} from "./SettingsPanels.logic";
-import {
-  PolicyTooltip,
   SettingResetButton,
   SettingsPageContainer,
   SettingsRow,
@@ -199,9 +186,6 @@ function providerEnvironmentDetail(environment: EnvironmentPresentation): string
   return environment.displayUrl ?? "Remote device";
 }
 
-const providerCardHeightClassName =
-  "@min-[48rem]/providers:h-[min(44rem,calc(100dvh-11rem))] @min-[48rem]/providers:min-h-[32rem]";
-
 function ProviderSettingsPlaceholder({
   deviceTabs,
   icon,
@@ -220,13 +204,7 @@ function ProviderSettingsPlaceholder({
       {deviceTabs ? (
         <div className="flex min-h-11 min-w-0 items-center px-3 sm:px-4">{deviceTabs}</div>
       ) : null}
-      <SettingsGroup
-        divided={false}
-        className={cn(
-          providerCardHeightClassName,
-          "scrollbar-gutter-both flex overflow-x-hidden overflow-y-auto",
-        )}
-      >
+      <SettingsGroup divided={false} className="flex min-h-48 overflow-hidden">
         <Empty>
           <EmptyMedia variant="icon">{icon}</EmptyMedia>
           <EmptyHeader>
@@ -602,6 +580,8 @@ export function EnvironmentProviderSettings({
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
   );
+  const searchTargetId = useSettingsSearchTargetId();
+  const [lastSearchTargetId, setLastSearchTargetId] = useState<string | null>(null);
   const [updatingProviderInstanceIds, setUpdatingProviderInstanceIds] = useState<
     ReadonlySet<ProviderInstanceId>
   >(() => new Set());
@@ -645,14 +625,6 @@ export function EnvironmentProviderSettings({
           provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
       ),
   );
-  const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
-  const providerHealthPreset = getBackgroundActivityPresetSettings(
-    resolvedBackgroundActivity.profile,
-  ).providerHealthRefreshInterval;
-  const providerHealthRefreshIntervalSeconds = durationToSeconds(
-    resolvedBackgroundActivity.providerHealthRefreshInterval,
-  );
-  const defaultProviderHealthRefreshIntervalSeconds = durationToSeconds(providerHealthPreset);
 
   const refreshProviders = () => {
     if (refreshingRef.current || !readEnvironmentScope(environmentId, AuthOrchestrationReadScope))
@@ -798,13 +770,26 @@ export function EnvironmentProviderSettings({
     }
   }
 
-  const targetInstanceMissing =
-    targetInstanceId !== undefined &&
-    selectedInstanceId === targetInstanceId &&
-    !rows.some((row) => row.instanceId === targetInstanceId);
-  const selectedRow =
-    rows.find((row) => row.instanceId === selectedInstanceId) ??
-    (targetInstanceMissing ? null : (rows[0] ?? null));
+  if (lastSearchTargetId !== searchTargetId) {
+    setLastSearchTargetId(searchTargetId);
+    if (searchTargetId) {
+      // Match real IDs, longest first: instance IDs may themselves contain hyphens.
+      const targetRow = rows
+        .filter(
+          (row) =>
+            searchTargetId === `provider-instance-${row.instanceId}` ||
+            searchTargetId.startsWith(`provider-instance-${row.instanceId}-`),
+        )
+        .sort((a, b) => b.instanceId.length - a.instanceId.length)[0];
+      if (targetRow) {
+        setSelectedInstanceId(targetRow.instanceId);
+      } else if (!searchTargetId.startsWith("provider-instance-")) {
+        setSelectedInstanceId(null);
+      }
+    }
+  }
+
+  const selectedRow = rows.find((row) => row.instanceId === selectedInstanceId) ?? null;
 
   const persistInstance = async (
     instanceId: ProviderInstanceId,
@@ -987,198 +972,164 @@ export function EnvironmentProviderSettings({
 
   return (
     <>
-      <SettingsSection
-        {...searchableSetting("providers")}
-        variant="plain"
-        titleAction={
-          !readOnly ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost-muted"
-                    onClick={() => setIsAddInstanceDialogOpen(true)}
-                    aria-label="Add provider"
-                  >
-                    <PlusIcon />
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">Add provider</TooltipPopup>
-            </Tooltip>
-          ) : null
-        }
-        headerAction={
-          <div className="flex min-w-0 items-center gap-2">
-            <ProviderUpdatesAction />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="xs"
-                    variant="ghost-muted"
-                    disabled={isRefreshingProviders || !canRefreshProviders}
-                    aria-busy={isRefreshingProviders}
-                    onClick={() => void refreshProviders()}
-                  >
-                    <RefreshIcon refreshing={isRefreshingProviders} />
-                    <span className="sr-only">Refresh provider status</span>
-                    <span className="hidden min-w-0 truncate sm:inline">
-                      {isRefreshingProviders ? (
-                        "Refreshing providers"
-                      ) : (
-                        <ProviderLastChecked environmentId={environmentId} />
-                      )}
-                    </span>
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">Refresh provider status</TooltipPopup>
-            </Tooltip>
+      {selectedInstanceId !== null ? (
+        <>
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <Button variant="ghost" onClick={() => setSelectedInstanceId(null)}>
+              <ArrowLeftIcon aria-hidden /> Back to Providers
+            </Button>
+            <span className="text-sm text-muted-foreground">{environmentLabel}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isRefreshingProviders || !canRefreshProviders}
+              onClick={() => void refreshProviders()}
+              aria-label="Refresh provider status"
+            >
+              <RefreshIcon refreshing={isRefreshingProviders} />
+              <span className="sr-only">Refresh provider status</span> Refresh status
+            </Button>
+            {deviceTabs}
           </div>
-        }
-      >
-        {deviceTabs ? (
-          <div className="flex min-h-11 min-w-0 items-center gap-2 px-3 sm:px-4">{deviceTabs}</div>
-        ) : null}
-        {readOnly ? (
-          <SettingsGroup divided={false} className="overflow-hidden">
+          {readOnly ? (
             <SettingsRow
               title="Limited permissions"
-              description={`This session can view ${environmentLabel}'s providers but can't change their settings.`}
+              description="This session can view providers but cannot change their configuration."
             />
-          </SettingsGroup>
-        ) : null}
-        <SettingsGroup
-          divided={false}
-          className={cn(
-            providerCardHeightClassName,
-            "overflow-hidden @min-[48rem]/providers:grid @min-[48rem]/providers:grid-cols-[17rem_minmax(0,1fr)]",
+          ) : null}
+          {selectedRow ? (
+            renderProviderInstance(selectedRow, "editor")
+          ) : (
+            <SettingsSection id="provider-unavailable" title="Provider unavailable">
+              <SettingsRow title="This provider is no longer available on this computer." />
+            </SettingsSection>
           )}
-        >
-          <div className="border-b border-border/60 bg-muted/10 @min-[48rem]/providers:flex @min-[48rem]/providers:min-h-0 @min-[48rem]/providers:flex-col @min-[48rem]/providers:border-r @min-[48rem]/providers:border-b-0">
-            <ScrollArea
-              scrollFade
-              chainVerticalScroll
-              className="@min-[48rem]/providers:min-h-0 @min-[48rem]/providers:flex-1"
-            >
+        </>
+      ) : (
+        <>
+          <SettingsSection
+            {...searchableSetting("providers")}
+            title="Connections"
+            variant="plain"
+            titleAction={
+              !readOnly ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost-muted"
+                        onClick={() => setIsAddInstanceDialogOpen(true)}
+                        aria-label="Add provider"
+                      >
+                        <PlusIcon />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top">Add provider</TooltipPopup>
+                </Tooltip>
+              ) : null
+            }
+            headerAction={
+              <div className="flex min-w-0 items-center gap-2">
+                <ProviderUpdatesAction />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="xs"
+                        variant="ghost-muted"
+                        disabled={isRefreshingProviders || !canRefreshProviders}
+                        aria-busy={isRefreshingProviders}
+                        onClick={() => void refreshProviders()}
+                      >
+                        <RefreshIcon refreshing={isRefreshingProviders} />
+                        <span className="sr-only">Refresh provider status</span>
+                        <span className="hidden min-w-0 truncate sm:inline">
+                          {isRefreshingProviders ? (
+                            "Refreshing providers"
+                          ) : (
+                            <ProviderLastChecked environmentId={environmentId} />
+                          )}
+                        </span>
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+                </Tooltip>
+              </div>
+            }
+          >
+            {deviceTabs ? (
+              <div className="flex min-h-11 min-w-0 items-center gap-2 px-3 sm:px-4">
+                {deviceTabs}
+              </div>
+            ) : null}
+            {readOnly ? (
+              <SettingsGroup divided={false} className="overflow-hidden">
+                <SettingsRow
+                  title="Limited permissions"
+                  description={`This session can view ${environmentLabel}'s providers but can't change their settings.`}
+                />
+              </SettingsGroup>
+            ) : null}
+            <SettingsGroup divided={false} className="overflow-hidden">
               <div className="divide-y divide-border/50">
                 {rows.map((row) => renderProviderInstance(row, "list"))}
+                {rows.length === 0 ? (
+                  <p className="p-4 text-sm text-muted-foreground">No providers configured.</p>
+                ) : null}
                 {!readOnly ? (
                   <button
                     type="button"
-                    className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left text-sm text-muted-foreground transition-colors outline-none hover:bg-muted/25 hover:text-foreground focus-visible:bg-muted/25 focus-visible:text-foreground sm:px-4"
+                    className="flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left text-sm text-muted-foreground outline-none hover:bg-muted/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() => setIsAddInstanceDialogOpen(true)}
                   >
-                    <PlusIcon className="size-4 shrink-0" />
+                    <PlusIcon className="size-4" aria-hidden />
                     Add provider
                   </button>
                 ) : null}
               </div>
-            </ScrollArea>
-          </div>
+            </SettingsGroup>
+          </SettingsSection>
 
-          <div className="min-w-0 @min-[48rem]/providers:min-h-0">
-            {selectedRow ? (
-              <ScrollArea scrollFade chainVerticalScroll className="@min-[48rem]/providers:h-full">
-                <div className="space-y-6 p-4">{renderProviderInstance(selectedRow, "editor")}</div>
-              </ScrollArea>
-            ) : (
-              <div className="p-6 text-sm text-muted-foreground">
-                {targetInstanceMissing
-                  ? "This provider instance is no longer available on this device."
-                  : "No providers configured."}
-              </div>
-            )}
-          </div>
-        </SettingsGroup>
-      </SettingsSection>
+          <SettingsSection id="provider-text-generation" title="Text generation">
+            <ProviderTextGenerationSettings />
+          </SettingsSection>
+          <ProviderRunLimitsSettings />
+          <UsageProviderSettings
+            key={environmentId}
+            environmentId={environmentId}
+            environmentLabel={environmentLabel}
+            sources={settings.usageLimitSources}
+            cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
+            readOnly={readOnly}
+          />
 
-      <UsageProviderSettings
-        key={environmentId}
-        environmentId={environmentId}
-        environmentLabel={environmentLabel}
-        sources={settings.usageLimitSources}
-        cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
-        readOnly={readOnly}
-      />
-
-      <SettingsSection title="Advanced">
-        <SettingsRow
-          id={searchableSetting("provider-health-check-interval").id}
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              {searchableSetting("provider-health-check-interval").title}
-              <PolicyTooltip>
-                This interval is configured here, then the shared Background activity policy decides
-                whether provider probes may run when the timer fires. Custom intervals appear as
-                Advanced in General settings.
-              </PolicyTooltip>
-            </span>
-          }
-          description="Refresh provider status, versions, and models in the background. Set to 0 to disable."
-          resetAction={
-            providerHealthRefreshIntervalSeconds !== defaultProviderHealthRefreshIntervalSeconds ? (
-              <span
-                inert={!canWriteSettings}
-                className={!canWriteSettings ? "opacity-50" : undefined}
-              >
-                <SettingResetButton
-                  label="provider health check interval"
-                  onClick={() =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        { providerHealthRefreshInterval: undefined },
-                      ),
-                    )
+          <SettingsSection id="provider-updates-discovery" title="Updates & discovery">
+            <ProviderDiscoverySettings />
+            <SettingsRow
+              title="Background provider checks"
+              description="Configure provider health polling with the background performance policy in General."
+              control={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  render={
+                    <Link
+                      to="/settings/general"
+                      search={{ machine: environmentId }}
+                      hash="performance"
+                    />
                   }
-                />
-              </span>
-            ) : null
-          }
-          control={
-            <div
-              inert={!canWriteSettings}
-              aria-disabled={!canWriteSettings || undefined}
-              className={cn(
-                "flex shrink-0 items-center gap-2",
-                !canWriteSettings && "opacity-50 select-none",
-              )}
-            >
-              <NumberField
-                value={providerHealthRefreshIntervalSeconds}
-                min={0}
-                step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
-                size="sm"
-                className="w-32"
-                onValueChange={(value) =>
-                  updateSettings(
-                    backgroundActivityOverrideSettings(
-                      settings.backgroundActivity,
-                      resolvedBackgroundActivity,
-                      {
-                        providerHealthRefreshInterval: Duration.seconds(
-                          normalizeIntervalSeconds(value),
-                        ),
-                      },
-                    ),
-                  )
-                }
-              >
-                <NumberFieldGroup>
-                  <NumberFieldDecrement aria-label="Decrease provider health check interval" />
-                  <NumberFieldInput aria-label="Provider health check interval in seconds" />
-                  <NumberFieldIncrement aria-label="Increase provider health check interval" />
-                </NumberFieldGroup>
-              </NumberField>
-              <span className="text-xs text-muted-foreground">seconds</span>
-            </div>
-          }
-        />
-      </SettingsSection>
+                >
+                  General performance
+                </Button>
+              }
+            />
+          </SettingsSection>
+        </>
+      )}
 
       {isAddInstanceDialogOpen && !readOnly ? (
         <AddProviderInstanceDialog

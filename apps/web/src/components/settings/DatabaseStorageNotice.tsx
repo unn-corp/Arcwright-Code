@@ -27,7 +27,7 @@ export function DatabaseStorageNotice({
   const status = result._tag === "Success" ? result.value : null;
   if (dismissed || status === null || !shouldRecommendDatabaseCompaction(status)) return null;
   return (
-    <SettingsSection id={`storage-database-${environmentId}`} title="Database">
+    <SettingsSection id={`storage-database-${environmentId}`} title="Database maintenance">
       <SettingsGroup>
         <SettingsRow
           title={`Reclaim ${(status.reclaimableBytes / 1024 ** 3).toFixed(1)} GiB on ${label}`}

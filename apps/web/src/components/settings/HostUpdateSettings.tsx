@@ -5,10 +5,12 @@ export function HostUpdateSettings({
   environmentId,
   label,
   supported,
+  mode = "full",
 }: {
   environmentId: EnvironmentId;
   label: string;
   supported: boolean;
+  mode?: "full" | "contextual";
 }) {
   if (!supported)
     return (
@@ -21,6 +23,7 @@ export function HostUpdateSettings({
     <div className="mt-2 rounded-lg border">
       <ForkUpdateControls
         controller={hostForkUpdateController(environmentId)}
+        mode={mode}
         device={label}
         environmentId={environmentId}
       />

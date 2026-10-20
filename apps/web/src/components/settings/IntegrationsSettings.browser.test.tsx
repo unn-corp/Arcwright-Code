@@ -85,18 +85,37 @@ async function openSettings() {
       </StrictMode>,
     ),
   );
-  await vi.waitFor(() => expect(container.querySelector("section#browser")).not.toBeNull());
+  await vi.waitFor(() =>
+    expect(container.querySelector("section#integrations-links")).not.toBeNull(),
+  );
 }
 
 describe("Integrations browser discovery", () => {
-  it("keeps agent browser access in the single Browser section", async () => {
+  it("keeps agent browser access in the Links & previews section", async () => {
     await openSettings();
 
-    expect(page.getByRole("heading", { name: "Browser", exact: true }).elements()).toHaveLength(1);
+    expect(
+      page.getByRole("heading", { name: "Links & previews", exact: true }).elements(),
+    ).toHaveLength(1);
     const access = page.getByRole("switch", { name: "Agent browser access", exact: true });
     await expect.element(access).toBeVisible();
-    expect(access.element().closest("section")).toBe(container.querySelector("section#browser"));
+    expect(access.element().closest("section")).toBe(
+      container.querySelector("section#integrations-links"),
+    );
     expect(access.element().closest("#agent-browser-access")).not.toBeNull();
+  });
+
+  it("groups browser settings before device setup and voice", async () => {
+    await openSettings();
+    const sections = Array.from(container.querySelectorAll("section[id]"), (section) => section.id);
+    expect(sections).toEqual([
+      "integrations-links",
+      "integrations-profiles",
+      "integrations-defaults",
+      "integrations-recordings",
+      "devices",
+      "integrations-voice",
+    ]);
   });
 
   it("does not scan browser files when entering or revisiting settings", async () => {

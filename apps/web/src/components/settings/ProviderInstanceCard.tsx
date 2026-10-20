@@ -877,7 +877,7 @@ export function ProviderInstanceCard({
                   size={mode === "list" ? "icon-micro" : "icon-xs"}
                   variant="ghost-muted"
                   className={mode === "list" ? "pointer-events-auto relative shrink-0" : undefined}
-                  aria-label={`${updateProgress ? "Updating" : versionAdvisory.title} — view details`}
+                  aria-label={`${updateProgress ? "Updating" : versionAdvisory.title}, view details`}
                 >
                   {updateProgress ? (
                     <Spinner tone="muted" {...(mode === "list" ? { size: "sm" as const } : {})} />
@@ -1112,9 +1112,15 @@ export function ProviderInstanceCard({
 
   return (
     <>
-      <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
+      <SettingsSection
+        id={`provider-instance-${instanceId}-account`}
+        title="Account & sign-in"
+        icon={titleIconNode}
+        headerAction={editorHeaderAction}
+      >
         <SettingsRow
           title="Display name"
+          description={displayName}
           status={
             <>
               <ProviderStatusDiagnostic detail={statusDiagnostic}>
@@ -1178,81 +1184,35 @@ export function ProviderInstanceCard({
             </div>
           }
         />
-      </SettingsSection>
-
-      {setup || environmentFields.length > 0 ? (
-        <SettingsSection title="Setup">
-          {setup}
-          {environmentFields.length > 0 ? (
+        {setup || environmentFields.length > 0 ? (
+          <>
+            {setup}
             <div
               inert={readOnly}
               aria-disabled={readOnly || undefined}
               className={readOnly ? "opacity-50 select-none" : undefined}
             >
-              {environmentFields.map((field) => (
-                <ProviderEnvironmentFieldRow
-                  key={field.name}
-                  field={field}
-                  variable={readProviderEnvironmentVariable(instance.environment, field.name)}
-                  idPrefix={`provider-instance-${instanceId}`}
-                  onCommit={updateEnvironmentField}
-                  onRemove={removeEnvironmentField}
-                />
-              ))}
+              {environmentFields.length > 0 ? (
+                <>
+                  {environmentFields.map((field) => (
+                    <ProviderEnvironmentFieldRow
+                      key={field.name}
+                      field={field}
+                      variable={readProviderEnvironmentVariable(instance.environment, field.name)}
+                      idPrefix={`provider-instance-${instanceId}`}
+                      onCommit={updateEnvironmentField}
+                      onRemove={removeEnvironmentField}
+                    />
+                  ))}
+                </>
+              ) : null}
             </div>
-          ) : null}
-        </SettingsSection>
-      ) : null}
-
-      {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
-        <div
-          inert={readOnly}
-          aria-disabled={readOnly || undefined}
-          className={readOnly ? "opacity-50 select-none" : undefined}
-        >
-          <FoldedSettingsSection
-            key={instanceId}
-            id={`provider-instance-${instanceId}-runtime`}
-            title="Runtime"
-            headerPlacement="outside"
-          >
-            {runtime ?? runtimeFields}
-          </FoldedSettingsSection>
-        </div>
-      ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
-        <SettingsSection
-          title="Runtime"
-          inert={readOnly}
-          aria-disabled={readOnly || undefined}
-          className={readOnly ? "opacity-50 select-none" : undefined}
-        >
-          {runtimeFields}
-        </SettingsSection>
-      ) : null}
-
-      <SettingsSection
-        title="Environment"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={readOnly ? "opacity-50 select-none" : undefined}
-      >
-        <ProviderEnvironmentSection
-          environment={genericEnvironment}
-          onChange={updateGenericEnvironment}
-        />
+          </>
+        ) : null}
       </SettingsSection>
-      {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
-        <AcpSessionManagementSection
-          environmentId={environmentId}
-          instanceId={instanceId}
-          provider={liveProvider}
-          projects={acpProjects}
-          readOnly={readOnly}
-        />
-      ) : null}
 
       {driverOption !== undefined ? (
-        <SettingsSection title="Models">
+        <SettingsSection id={`provider-instance-${instanceId}-models`} title="Models">
           <div className="px-3 py-3 sm:px-4">
             <p className="mb-3 text-xs text-muted-foreground">
               Model preferences and custom models are saved on the selected environment and shared
@@ -1277,6 +1237,56 @@ export function ProviderInstanceCard({
           </div>
         </SettingsSection>
       ) : null}
+      <FoldedSettingsSection
+        id={`provider-instance-${instanceId}-advanced`}
+        searchTargetPrefix={`provider-instance-${instanceId}-`}
+        title="Advanced configuration"
+        headerPlacement="outside"
+      >
+        {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
+          <SettingsSection
+            id={`provider-instance-${instanceId}-runtime`}
+            title="Runtime"
+            inert={readOnly}
+            aria-disabled={readOnly || undefined}
+            className={readOnly ? "opacity-50 select-none" : undefined}
+          >
+            {runtime ?? runtimeFields}
+          </SettingsSection>
+        ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
+          <SettingsSection
+            id={`provider-instance-${instanceId}-runtime`}
+            title="Runtime"
+            inert={readOnly}
+            aria-disabled={readOnly || undefined}
+            className={readOnly ? "opacity-50 select-none" : undefined}
+          >
+            {runtimeFields}
+          </SettingsSection>
+        ) : null}
+
+        <SettingsSection
+          id={`provider-instance-${instanceId}-environment`}
+          title="Environment"
+          inert={readOnly}
+          aria-disabled={readOnly || undefined}
+          className={readOnly ? "opacity-50 select-none" : undefined}
+        >
+          <ProviderEnvironmentSection
+            environment={genericEnvironment}
+            onChange={updateGenericEnvironment}
+          />
+        </SettingsSection>
+        {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
+          <AcpSessionManagementSection
+            environmentId={environmentId}
+            instanceId={instanceId}
+            provider={liveProvider}
+            projects={acpProjects}
+            readOnly={readOnly}
+          />
+        ) : null}
+      </FoldedSettingsSection>
     </>
   );
 }

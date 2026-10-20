@@ -10,6 +10,26 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
+vi.mock("@tanstack/react-router", async (original) => ({
+  ...(await original<typeof import("@tanstack/react-router")>()),
+  Link: ({
+    to,
+    search,
+    hash,
+    children,
+  }: {
+    to: string;
+    search?: Record<string, string | number | boolean>;
+    hash?: string;
+    children: ReactNode;
+  }) => {
+    const query = new URLSearchParams(
+      Object.entries(search ?? {}).map(([key, value]) => [key, String(value)]),
+    ).toString();
+    return <a href={`${to}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`}>{children}</a>;
+  },
+}));
+
 const state = vi.hoisted(() => ({
   settings: {} as typeof DEFAULT_SERVER_SETTINGS,
   run: vi.fn(),
@@ -134,7 +154,7 @@ async function render() {
     ),
   );
   return Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Delete now",
+    (button) => button.textContent === "Run cleanup",
   )!;
 }
 
@@ -176,11 +196,11 @@ it.each(["machine-wide immediate", "project custom"])(
     await act(async () => button.click());
     expect(state.run).toHaveBeenCalledExactlyOnceWith({ environmentId: "env", input: {} });
     expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe("Deleting…");
+    expect(button.textContent).toBe("Running cleanup…");
 
     await act(async () => complete({ _tag: "Success", value: report }));
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toBe("Delete now");
+    expect(button.textContent).toBe("Run cleanup");
   },
 );
 

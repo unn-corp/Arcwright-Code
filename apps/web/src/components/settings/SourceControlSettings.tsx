@@ -1,10 +1,9 @@
+import { Link } from "@tanstack/react-router";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { ChevronDownIcon, Trash2Icon } from "lucide-react";
-import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
 import { useState, type ReactNode } from "react";
 import type {
-  BackgroundActivitySettings,
   SourceControlDiscoveryResult,
   SourceControlProviderAuth,
   SourceControlProviderDiscoveryItem,
@@ -14,16 +13,14 @@ import type {
   GitHubAccountPatch,
   GitHubAccountId,
 } from "@t3tools/contracts";
-import {
-  getBackgroundActivityBaseProfile,
-  getBackgroundActivityPresetSettings,
-  resolveServerBackgroundActivitySettings,
-} from "@t3tools/shared/backgroundActivitySettings";
-
-import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { WorktreeStorageSettings } from "./WorktreeStorageSettings";
+import { BranchNamingSettings } from "./BranchNamingSettings";
+import {
+  SourceControlWorktreeSettings,
+  SourceControlDiffSettings,
+} from "./RelocatedGeneralSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
@@ -42,13 +39,7 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import { Skeleton } from "../ui/skeleton";
-import {
-  NumberField,
-  NumberFieldDecrement,
-  NumberFieldGroup,
-  NumberFieldIncrement,
-  NumberFieldInput,
-} from "../ui/number-field";
+
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -59,8 +50,6 @@ import { GitHubTokenSettings } from "./GitHubTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
-  PolicyTooltip,
-  SettingResetButton,
   SettingsPageContainer,
   SettingsSearchTarget,
   SettingsSection,
@@ -80,48 +69,6 @@ const VCS_ICONS: Partial<Record<VcsDriverKind, Icon>> = {
   git: GitIcon,
   jj: JujutsuIcon,
 };
-
-const SOURCE_CONTROL_SKELETON_ROWS = ["primary", "secondary"] as const;
-const GIT_FETCH_INTERVAL_STEP_SECONDS = 5;
-type BackgroundActivityOverridePatch = Partial<{
-  [K in keyof BackgroundActivitySettings["overrides"]]:
-    | BackgroundActivitySettings["overrides"][K]
-    | undefined;
-}>;
-
-function durationToSeconds(duration: Duration.Duration): number {
-  return Math.round(Duration.toMillis(duration) / 1_000);
-}
-
-function normalizeFetchIntervalSeconds(value: number | null): number {
-  if (value === null || !Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.round(value));
-}
-
-function backgroundActivityOverrideSettings(
-  current: BackgroundActivitySettings,
-  overrides: BackgroundActivityOverridePatch,
-) {
-  const nextOverrides: BackgroundActivityOverridePatch = {
-    ...current.overrides,
-    ...overrides,
-  };
-  for (const [key, value] of Object.entries(nextOverrides)) {
-    if (value === undefined) {
-      delete nextOverrides[key as keyof typeof nextOverrides];
-    }
-  }
-  return {
-    backgroundActivity: {
-      schemaVersion: 1 as const,
-      profile: "custom" as const,
-      baseProfile: getBackgroundActivityBaseProfile(current),
-      overrides: nextOverrides as BackgroundActivitySettings["overrides"],
-    },
-  };
-}
 
 function optionLabel(value: Option.Option<string>): string | null {
   return Option.getOrNull(value);
@@ -286,7 +233,6 @@ function DiscoveryItemRow({
   // A search jump to a setting inside this row opens it when the target arrives.
   const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
   const targetsThisRow =
-    (item.kind === "git" && searchTargetId === searchableSetting("git-fetch-interval").id) ||
     searchTargetId === sourceControlHostSettingsSearchId(item.kind) ||
     (item.kind === "github" && searchTargetId === searchableSetting("github-accounts").id);
   if (targetsThisRow && !isExpanded && seenSearchTargetId !== searchTargetId) {
@@ -333,7 +279,10 @@ function DiscoveryItemRow({
                 aria-label={`Toggle ${item.label} details`}
               >
                 <ChevronDownIcon
-                  className={cn("size-3.5 transition-transform", isExpanded && "rotate-180")}
+                  className={cn(
+                    "size-3.5 motion-safe:transition-transform",
+                    isExpanded && "rotate-180",
+                  )}
                 />
               </Button>
             ) : null}
@@ -355,124 +304,6 @@ function DiscoveryItemRow({
   );
 }
 
-function GitFetchIntervalSettings() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
-  const automaticGitFetchIntervalSeconds = durationToSeconds(
-    resolvedBackgroundActivity.automaticGitFetchInterval,
-  );
-  const defaultAutomaticGitFetchIntervalSeconds = durationToSeconds(
-    getBackgroundActivityPresetSettings(
-      getBackgroundActivityBaseProfile(settings.backgroundActivity),
-    ).automaticGitFetchInterval,
-  );
-  const canResetFetchInterval =
-    automaticGitFetchIntervalSeconds !== defaultAutomaticGitFetchIntervalSeconds;
-  const setting = searchableSetting("git-fetch-interval");
-
-  return (
-    <SettingsSearchTarget id={setting.id} className="grid gap-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0 items-center gap-1">
-            <span className="text-xs font-medium text-foreground">{setting.title}</span>
-            <PolicyTooltip>
-              This interval is configured for Git only. The shared Background activity policy still
-              decides whether Git refreshes may run when the timer fires. Custom intervals appear as
-              Advanced in General settings.
-            </PolicyTooltip>
-            <span
-              className={cn(
-                "inline-flex size-5 shrink-0 items-center justify-center transition-opacity",
-                canResetFetchInterval ? "opacity-100" : "pointer-events-none opacity-0",
-              )}
-              aria-hidden={!canResetFetchInterval}
-            >
-              {canResetFetchInterval ? (
-                <SettingResetButton
-                  label="fetch interval"
-                  onClick={() =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(settings.backgroundActivity, {
-                        automaticGitFetchInterval: undefined,
-                      }),
-                    )
-                  }
-                />
-              ) : null}
-            </span>
-          </div>
-          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-            Refresh remote branches in the background. Set to 0 to avoid automatic Git prompts.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <NumberField
-            value={automaticGitFetchIntervalSeconds}
-            min={0}
-            step={GIT_FETCH_INTERVAL_STEP_SECONDS}
-            size="sm"
-            className="w-32"
-            onValueChange={(value) =>
-              updateSettings(
-                backgroundActivityOverrideSettings(settings.backgroundActivity, {
-                  automaticGitFetchInterval: Duration.seconds(normalizeFetchIntervalSeconds(value)),
-                }),
-              )
-            }
-          >
-            <NumberFieldGroup>
-              <NumberFieldDecrement aria-label="Decrease fetch interval" />
-              <NumberFieldInput aria-label="Automatic Git fetch interval in seconds" />
-              <NumberFieldIncrement aria-label="Increase fetch interval" />
-            </NumberFieldGroup>
-          </NumberField>
-          <span className="text-xs text-muted-foreground">seconds</span>
-        </div>
-      </div>
-    </SettingsSearchTarget>
-  );
-}
-
-function SourceControlSectionSkeleton({
-  title,
-  headerAction,
-}: {
-  readonly title: string;
-  readonly headerAction?: ReactNode;
-}) {
-  return (
-    <SettingsSection title={title} headerAction={headerAction}>
-      {SOURCE_CONTROL_SKELETON_ROWS.map((row) => (
-        <div key={row} className="first:rounded-t-xl last:rounded-b-xl px-3 py-3 sm:px-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="relative inline-flex size-5 shrink-0 items-center justify-center">
-                  <Skeleton className="size-4.5" />
-                  <Skeleton
-                    shape="pill"
-                    className="pointer-events-none absolute -left-0.5 -top-0.5 size-2"
-                    aria-hidden
-                  />
-                </span>
-                <Skeleton shape="pill" className="h-4 w-28" />
-                <Skeleton shape="pill" className="h-5 w-14" />
-              </div>
-              <Skeleton shape="pill" className="h-3 w-full max-w-xs" />
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Skeleton className="size-7" />
-              <Skeleton shape="pill" className="h-5 w-9" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </SettingsSection>
-  );
-}
-
 function EmptySourceControlDiscovery({
   error,
   isPending,
@@ -485,29 +316,27 @@ function EmptySourceControlDiscovery({
   const hasError = error !== null;
 
   return (
-    <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
-      <Empty>
-        <EmptyMedia variant="icon">
-          <PullRequestGlyph.pullRequest />
-        </EmptyMedia>
-        <EmptyHeader>
-          <EmptyTitle>
-            {hasError ? "Could not scan the server environment" : "Nothing detected yet"}
-          </EmptyTitle>
-          <EmptyDescription>
-            {hasError
-              ? error
-              : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
-          </EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          <Button size="sm" variant="outline" onClick={onScan} disabled={isPending}>
-            <RefreshIcon size="sm" refreshing={isPending} />
-            Scan
-          </Button>
-        </EmptyContent>
-      </Empty>
-    </SettingsSection>
+    <Empty>
+      <EmptyMedia variant="icon">
+        <PullRequestGlyph.pullRequest />
+      </EmptyMedia>
+      <EmptyHeader>
+        <EmptyTitle>
+          {hasError ? "Could not scan the server environment" : "Nothing detected yet"}
+        </EmptyTitle>
+        <EmptyDescription>
+          {hasError
+            ? error
+            : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button size="sm" variant="outline" onClick={onScan} disabled={isPending}>
+          <RefreshIcon size="sm" refreshing={isPending} />
+          Scan
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }
 
@@ -526,7 +355,7 @@ function PrimaryGitHubAccountSettings() {
   });
 
   return (
-    <SettingsSection title="GitHub accounts">
+    <div className="space-y-3">
       <div className="space-y-3 px-3 py-1 sm:px-4">
         <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
           Add identities here, then choose one in a project’s settings. A configured PAT is kept in
@@ -580,7 +409,7 @@ function PrimaryGitHubAccountSettings() {
           Add GitHub account
         </Button>
       </div>
-    </SettingsSection>
+    </div>
   );
 }
 
@@ -597,65 +426,88 @@ function GitHubAccountRow(props: {
   const [tokenDirty, setTokenDirty] = useState(false);
 
   return (
-    <div className="rounded-xl border border-border/60 p-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Input
-          aria-label={`${props.id} account label`}
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-        />
-        <Input
-          aria-label={`${props.id} GitHub login`}
-          placeholder="GitHub login (optional)"
-          value={login}
-          onChange={(e) => setLogin(e.target.value)}
-        />
-        <Input
-          aria-label={`${props.id} GitHub host`}
-          value={host}
-          onChange={(e) => setHost(e.target.value)}
-        />
-        <Input
-          type="password"
-          aria-label={`${props.id} personal access token`}
-          placeholder={
-            props.account.tokenConfigured
-              ? "PAT configured (leave blank to keep)"
-              : "Personal access token"
-          }
-          value={token}
-          onChange={(e) => {
-            setTokenDirty(true);
-            setToken(e.target.value);
-          }}
-        />
+    <details className="rounded-xl border border-border/60 p-3">
+      <summary className="cursor-pointer text-sm">
+        {props.account.label} · {props.account.host} ·{" "}
+        {props.account.tokenConfigured ? "Token configured" : "No saved token"}
+      </summary>
+      <div className="pt-3">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Input
+            aria-label={`${props.id} account label`}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <Input
+            aria-label={`${props.id} GitHub login`}
+            placeholder="GitHub login (optional)"
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+          />
+          <Input
+            aria-label={`${props.id} GitHub host`}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+          />
+          <Input
+            type="password"
+            aria-label={`${props.id} personal access token`}
+            placeholder={
+              props.account.tokenConfigured
+                ? "PAT configured (leave blank to keep)"
+                : "Personal access token"
+            }
+            value={token}
+            onChange={(e) => {
+              setTokenDirty(true);
+              setToken(e.target.value);
+            }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-end gap-2">
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            onClick={props.onDelete}
+            aria-label={`Remove ${label}`}
+          >
+            <Trash2Icon className="size-3.5" />
+            Remove
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() =>
+              props.onSave({
+                label: label.trim() || props.account.label,
+                ...(login.trim() ? { login: login.trim() } : {}),
+                host: host.trim() || "github.com",
+                ...(tokenDirty ? { token } : {}),
+              })
+            }
+          >
+            Save
+          </Button>
+        </div>
       </div>
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <Button
-          size="xs"
-          variant="ghost-muted"
-          onClick={props.onDelete}
-          aria-label={`Remove ${label}`}
-        >
-          <Trash2Icon className="size-3.5" />
-          Remove
-        </Button>
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() =>
-            props.onSave({
-              label: label.trim() || props.account.label,
-              ...(login.trim() ? { login: login.trim() } : {}),
-              host: host.trim() || "github.com",
-              ...(tokenDirty ? { token } : {}),
-            })
-          }
-        >
-          Save
-        </Button>
-      </div>
-    </div>
+    </details>
+  );
+}
+
+function AdvancedHostConfiguration({ kind, children }: { kind: string; children: ReactNode }) {
+  const searchTargetId = useSettingsSearchTargetId();
+  const [open, setOpen] = useState(false);
+  const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
+  if (seenSearchTargetId !== searchTargetId) {
+    setSeenSearchTargetId(searchTargetId);
+    if (searchTargetId === sourceControlHostSettingsSearchId(kind)) setOpen(true);
+  }
+
+  return (
+    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer text-sm">Advanced host configuration</summary>
+      {children}
+    </details>
   );
 }
 
@@ -708,7 +560,7 @@ export function SourceControlSettingsPanel() {
             size="icon-xs"
             variant="ghost-muted"
             onClick={handleScan}
-            disabled={discovery.isPending}
+            disabled={discovery.isPending || environmentId === null}
             aria-label="Rescan server environment"
           >
             <RefreshIcon refreshing={discovery.isPending} />
@@ -721,86 +573,93 @@ export function SourceControlSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <ProjectDefaultsSettings category="source-control" />
-      <WorktreeStorageSettings />
-      {isPrimaryEnvironment ? <PrimaryGitHubAccountSettings /> : null}
-      {environmentId === null ? (
-        <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
+      <SettingsSection
+        id={searchableSetting("source-control").id}
+        title={`Tools & connection status${environmentSuffix}`}
+        headerAction={scanButton}
+      >
+        {environmentId === null ? (
           <p className="px-4 py-3 text-sm text-muted-foreground">
-            Connect an environment to inspect its version control tools and hosting integrations.
+            Connect a computer to inspect its Git and hosting tools.
           </p>
-        </SettingsSection>
-      ) : isInitialScanPending ? (
-        <>
-          <SourceControlSectionSkeleton
-            title={`Version Control${environmentSuffix}`}
-            headerAction={scanButton}
+        ) : isInitialScanPending ? (
+          <div className="px-4 py-3">
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : hasDiscoveryItems ? (
+          [...result.versionControlSystems, ...result.sourceControlProviders].map((item) => (
+            <DiscoveryItemRow key={`${"auth" in item ? "host" : "vcs"}:${item.kind}`} item={item} />
+          ))
+        ) : (
+          <EmptySourceControlDiscovery
+            error={discovery.error}
+            isPending={discovery.isPending}
+            onScan={handleScan}
           />
-          <SourceControlSectionSkeleton title="Source Control Providers" />
-        </>
-      ) : hasDiscoveryItems ? (
-        <>
-          {hasVersionControlSystems ? (
-            <SettingsSection
-              id={searchableSetting("source-control").id}
-              title={`Version Control${environmentSuffix}`}
-              headerAction={scanButton}
-            >
-              {result.versionControlSystems.map((item) => (
-                <DiscoveryItemRow key={`vcs:${item.kind}`} item={item}>
-                  {item.kind === "git" ? <GitFetchIntervalSettings /> : undefined}
-                </DiscoveryItemRow>
-              ))}
-            </SettingsSection>
-          ) : null}
-
-          {result.sourceControlProviders.length > 0 ? (
-            <SettingsSection
-              id={hasVersionControlSystems ? undefined : searchableSetting("source-control").id}
-              title={
-                hasVersionControlSystems
-                  ? "Source Control Providers"
-                  : `Source Control Providers${environmentSuffix}`
-              }
-              headerAction={hasVersionControlSystems ? null : scanButton}
-            >
-              {result.sourceControlProviders.map((item) => (
-                <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
-                  {item.kind === "github" ? (
-                    <SettingsSearchTarget id={searchableSetting("github-accounts").id}>
-                      <div className="grid gap-6">
-                        {}
-                        <GitHubTokenSettings
-                          key={`token-${environmentId}`}
-                          environmentId={environmentId}
-                          onSaved={handleScan}
-                        />
-                        {item.status === "available" ? (
-                          <GitHubAccountSettings
-                            key={environmentId}
-                            environmentId={environmentId}
-                            auth={item.auth}
-                            onSaved={handleScan}
-                          />
-                        ) : null}
-                      </div>
-                    </SettingsSearchTarget>
-                  ) : (
-                    hostSettingsPanel(item.kind)
-                  )}
-                </DiscoveryItemRow>
-              ))}
-            </SettingsSection>
-          ) : null}
-        </>
-      ) : (
-        <EmptySourceControlDiscovery
-          error={discovery.error}
-          isPending={discovery.isPending}
-          onScan={handleScan}
-        />
-      )}
-
+        )}
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          Automatic Git fetch is configured in{" "}
+          <Link to="/settings/general" hash="git-fetch-interval">
+            General, Performance, Advanced
+          </Link>
+          .
+        </p>
+        <ProjectDefaultsSettings category="source-control" rowsOnly />
+      </SettingsSection>
+      <SettingsSection id="source-control-accounts" title="Accounts & authentication">
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          Saved accounts are available for project selection. Choose a project's account in its
+          project settings.{" "}
+          <Link to="/settings/connections">Shared GitHub access between computers</Link> is managed
+          in Connections.
+        </p>
+        {isPrimaryEnvironment ? <PrimaryGitHubAccountSettings /> : null}
+        {environmentId !== null ? (
+          result.sourceControlProviders.map((item) => (
+            <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
+              {item.kind === "github" ? (
+                <SettingsSearchTarget id={searchableSetting("github-accounts").id}>
+                  <div className="grid gap-6">
+                    <GitHubTokenSettings
+                      key={`token-${environmentId}`}
+                      environmentId={environmentId}
+                      onSaved={handleScan}
+                    />
+                    {item.status === "available" ? (
+                      <GitHubAccountSettings
+                        key={environmentId}
+                        environmentId={environmentId}
+                        auth={item.auth}
+                        onSaved={handleScan}
+                      />
+                    ) : null}
+                  </div>
+                </SettingsSearchTarget>
+              ) : (
+                <AdvancedHostConfiguration kind={item.kind}>
+                  {hostSettingsPanel(item.kind)}
+                </AdvancedHostConfiguration>
+              )}
+            </DiscoveryItemRow>
+          ))
+        ) : (
+          <p className="px-4 py-3 text-sm text-muted-foreground">
+            Connect a computer to manage authentication.
+          </p>
+        )}
+      </SettingsSection>
+      <SettingsSection id="source-control-worktrees" title="Worktrees">
+        <WorktreeStorageSettings />
+        <SourceControlWorktreeSettings />
+        <BranchNamingSettings />
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          Configure the folder for new worktrees and retention in{" "}
+          <Link to="/settings/storage">Storage</Link>.
+        </p>
+      </SettingsSection>
+      <SettingsSection id="source-control-diff-viewer" title="Diff viewer">
+        <SourceControlDiffSettings />
+      </SettingsSection>
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );

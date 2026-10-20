@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type {
   StorageCleanupReport,
   StorageCleanupSettings,
@@ -21,13 +22,7 @@ import { toastManager } from "../ui/toast";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import {
-  NumberField,
-  NumberFieldDecrement,
-  NumberFieldGroup,
-  NumberFieldIncrement,
-  NumberFieldInput,
-} from "../ui/number-field";
+
 import {
   SettingResetButton,
   SettingsPageContainer,
@@ -35,6 +30,7 @@ import {
   SettingsSection,
   useRelativeTimeTick,
 } from "./settingsLayout";
+import { RetentionControl } from "./RetentionControl";
 import { DatabaseStorageNotice } from "./DatabaseStorageNotice";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
@@ -101,69 +97,6 @@ function WorktreesDirectoryRow() {
         />
       }
     />
-  );
-}
-
-function RetentionControl({
-  label,
-  value,
-  onChange,
-  minimum = 1,
-}: {
-  label: string;
-  value: number | null;
-  onChange: (value: number | null) => void;
-  minimum?: number;
-}) {
-  const [draft, setDraft] = useState(value);
-  const [savedValue, setSavedValue] = useState(value);
-  if (savedValue !== value) {
-    setSavedValue(value);
-    setDraft(value);
-  }
-
-  return (
-    <div className="flex items-center gap-3">
-      {value !== null ? (
-        <NumberField
-          value={draft}
-          min={minimum}
-          max={3650}
-          step={1}
-          size="sm"
-          className="w-auto"
-          onValueChange={setDraft}
-          onValueCommitted={(next) => {
-            if (next === null) setDraft(value);
-            else {
-              const days = Math.min(3650, Math.max(minimum, Math.round(next)));
-              setDraft(days);
-              onChange(days);
-            }
-          }}
-        >
-          <NumberFieldGroup>
-            <NumberFieldDecrement aria-label={`Decrease ${label}`} />
-            <NumberFieldInput
-              aria-label={`${label} in days`}
-              size={new Intl.NumberFormat().format(draft ?? value).length}
-              className="field-sizing-content w-auto min-w-[1ch] grow-0 text-right"
-            />
-            <span aria-hidden="true" className="self-center pr-2 text-xs">
-              days
-            </span>
-            <NumberFieldIncrement aria-label={`Increase ${label}`} />
-          </NumberFieldGroup>
-        </NumberField>
-      ) : (
-        <span className="text-xs text-muted-foreground">Off</span>
-      )}
-      <Switch
-        aria-label={label}
-        checked={value !== null}
-        onCheckedChange={(enabled) => onChange(enabled ? 8 : null)}
-      />
-    </div>
   );
 }
 
@@ -368,12 +301,18 @@ function CleanupSection() {
     ).finally(() => setPending(false));
   };
   return (
-    <SettingsSection id="storage-cleanup" title="Cleanup" variant="plain">
+    <SettingsSection id="storage-cleanup" title="Cleanup & results" variant="plain">
       <SettingsGroup>
         <SettingsRow
           {...searchableSetting("storage-delete-now")}
+          title="Run cleanup"
           description={
             <span>
+              <span className="block">
+                Applies configured cleanup rules on{" "}
+                {supported.map((entry) => entry.label).join(", ")}. Computers without cleanup
+                permission are skipped.
+              </span>
               {!hasRules
                 ? "Turn on a cleanup rule to use this."
                 : summaries.map(({ environment, label, description }) => (
@@ -391,7 +330,7 @@ function CleanupSection() {
               disabled={pending || !hasRules || !state.some((entry) => entry.allowed)}
               onClick={() => void deleteNow()}
             >
-              {pending ? "Deleting…" : "Delete now"}
+              {pending ? "Running cleanup…" : "Run cleanup"}
             </Button>
           }
         />
@@ -491,21 +430,16 @@ export function StorageSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {!isProjectScope &&
-        connectedEnvironments
-          .filter(
-            (environment) =>
-              environment.serverConfig?.environment.capabilities.databaseStorage === true,
-          )
-          .map((environment) => (
-            <DatabaseStorageNotice
-              key={environment.environmentId}
-              environmentId={environment.environmentId}
-              label={environment.label}
-            />
-          ))}
-      <SettingsSection id="storage-worktrees" title="Worktrees">
-        {!isProjectScope && <WorktreesDirectoryRow />}
+      {!isProjectScope && (
+        <SettingsSection id="storage-locations" title="Locations">
+          <WorktreesDirectoryRow />
+          <p className="px-4 py-3 text-sm text-muted-foreground">
+            New worktree creation and storage efficiency are configured in{" "}
+            <Link to="/settings/source-control">Source Control</Link>.
+          </p>
+        </SettingsSection>
+      )}
+      <SettingsSection id="storage-worktrees" title="Worktree retention">
         {isProjectScope && (
           <SettingsRow
             title="Automatic worktree cleanup"
@@ -534,16 +468,16 @@ export function StorageSettingsPanel() {
                     {mixedModes
                       ? "Mixed"
                       : mode === "inherit"
-                        ? "Inherit"
+                        ? "Use computer defaults"
                         : mode === "off"
-                          ? "Off"
-                          : "Custom"}
+                          ? "Keep all worktrees"
+                          : "Custom rules"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem value="inherit">Inherit</SelectItem>
-                  <SelectItem value="off">Off</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
+                  <SelectItem value="inherit">Use computer defaults</SelectItem>
+                  <SelectItem value="off">Keep all worktrees</SelectItem>
+                  <SelectItem value="custom">Custom rules</SelectItem>
                 </SelectPopup>
               </Select>
             }
@@ -554,7 +488,7 @@ export function StorageSettingsPanel() {
             <SettingsRow
               title="Delete worktrees with deleted threads"
               status={ruleStatus("worktreeOnDelete")}
-              description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
+              description="Remove unused worktrees when active or archived threads are deleted. Worktrees are kept according to the local-file protections below."
               serverScoped={!isProjectScope}
               control={
                 <Switch
@@ -642,7 +576,7 @@ export function StorageSettingsPanel() {
                 status={ruleStatus("worktreeKeepWhen")}
                 description={
                   settings.worktreeKeepWhen === "any-local-files"
-                    ? "Includes ignored files, except node_modules."
+                    ? "Keeps tracked edits, untracked files, and ignored files including .env, except node_modules."
                     : settings.worktreeKeepWhen === "tracked-changes"
                       ? "Deletes untracked and ignored files, including .env."
                       : "Keeps edits and untracked files. Deletes ignored files, including .env."
@@ -719,7 +653,7 @@ export function StorageSettingsPanel() {
               <SettingsRow
                 title="Delete old conversation evidence"
                 status={ruleStatus("conversationEvidenceAfterDays")}
-                description="Delete generated evidence after this many days, including in conversations you keep. Uploaded attachments and project files are kept."
+                description="Delete generated evidence after this many days, including in conversations you keep. Uploaded attachments and project files are kept. Deleted evidence links will no longer open."
                 serverScoped
                 control={
                   <RetentionControl
@@ -737,7 +671,7 @@ export function StorageSettingsPanel() {
       )}
 
       {!isProjectScope && (
-        <SettingsSection id="storage-artifacts" title="Artifacts and logs">
+        <SettingsSection id="storage-artifacts" title="Artifacts & logs">
           <SettingsRow
             title="Delete old browser artifacts"
             status={ruleStatus("browserArtifactsAfterDays")}
@@ -767,6 +701,19 @@ export function StorageSettingsPanel() {
         </SettingsSection>
       )}
       {!isProjectScope && <CleanupSection />}
+      {!isProjectScope &&
+        connectedEnvironments
+          .filter(
+            (environment) =>
+              environment.serverConfig?.environment.capabilities.databaseStorage === true,
+          )
+          .map((environment) => (
+            <DatabaseStorageNotice
+              key={environment.environmentId}
+              environmentId={environment.environmentId}
+              label={environment.label}
+            />
+          ))}
     </SettingsPageContainer>
   );
 }

@@ -1568,3 +1568,15 @@ describe("latestProviderTurnForAttempt", () => {
     expect(latestProviderTurnForAttempt(turns, null)).toBeUndefined();
   });
 });
+
+const decodeArchiveOnlyDeleteCommand = Schema.decodeSync(OrchestrationV2Command);
+
+it("preserves the archive-only delete precondition across the command wire schema", () => {
+  const command = {
+    type: "thread.delete" as const,
+    commandId: CommandId.make("archive-only-wire"),
+    threadId: ThreadId.make("archive-only-wire"),
+    archivedOnly: true,
+  };
+  expect(decodeArchiveOnlyDeleteCommand(command)).toEqual(command);
+});

@@ -1,8 +1,15 @@
-import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import {
+  Outlet,
+  createFileRoute,
+  redirect,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
+import { useEffect, useState, type ReactNode } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
+import { BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS } from "../components/settings/BackgroundActivitySettings";
 
 import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -26,6 +33,8 @@ import {
   getSettingsSearchTargetScope,
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
+  settingsTargetDestination,
+  settingsTargetAnchor,
 } from "../components/settings/settingsSearch";
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
@@ -43,10 +52,24 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
   );
 }
 
-function SettingsScopeBoundary({ pathname, children }: { pathname: string; children: ReactNode }) {
+export function SettingsScopeBoundary({
+  pathname,
+  children,
+}: {
+  pathname: string;
+  children: ReactNode;
+}) {
   const { scope, connectedEnvironments } = useSettingsScope();
   const { environments } = useEnvironments();
   const hash = useLocation({ select: (location) => location.hash });
+  const targetId = hash.replace(/^#/, "");
+  if (BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS.has(targetId) && scope.environmentIds.length !== 1) {
+    return (
+      <SettingsScopeNotice target="environment" targetId={hash}>
+        Choose one computer to configure its advanced background settings.
+      </SettingsScopeNotice>
+    );
+  }
   const searchTarget = getSettingsSearchTargetScope(hash);
   const autoSettlementAvailability = searchTarget?.requiresThreadAutoSettlement
     ? getThreadAutoSettlementSearchAvailability(environments, scope)
@@ -86,7 +109,12 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
       </SettingsScopeNotice>
     );
   }
-  if (SETTINGS_DEVICE_ONLY_PATHS.has(pathname) || pathname === "/settings/projects") {
+  if (
+    SETTINGS_DEVICE_ONLY_PATHS.has(pathname) ||
+    pathname === "/settings/projects" ||
+    pathname === "/settings/about" ||
+    (pathname === "/settings/diagnostics" && hash.replace(/^#/, "").startsWith("legacy-"))
+  ) {
     return children;
   }
   if (scope.kind === "unavailable")
@@ -109,6 +137,7 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
 
 function SettingsContentLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
   useEscapeToGoBack(navigateToMainApp);
   const { search, environment } = useSettingsScope();
@@ -117,6 +146,23 @@ function SettingsContentLayout() {
       ? environment?.environmentId
       : JSON.stringify(search);
   const [restoreSignal, setRestoreSignal] = useState(0);
+  const targetDestination = settingsTargetDestination(location.hash);
+  const targetAnchor = settingsTargetAnchor(location.hash);
+  useEffect(() => {
+    if (
+      targetDestination &&
+      (targetDestination !== location.pathname || targetAnchor !== location.hash.replace(/^#/, ""))
+    ) {
+      void navigate({
+        to: targetDestination,
+        search: (previous) => previous,
+        hash: targetAnchor,
+        replace: true,
+        resetScroll: false,
+        hashScrollIntoView: false,
+      });
+    }
+  }, [location.hash, location.pathname, navigate, targetDestination, targetAnchor]);
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">

@@ -37,6 +37,7 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsAutomationRouteImport } from './routes/settings.automation'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
+import { Route as SettingsAboutRouteImport } from './routes/settings.about'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as OrganizationsOrganizationIdRouteImport } from './routes/organizations.$organizationId'
 import { Route as AgentDashboardSuggestionsRouteImport } from './routes/agent-dashboard.suggestions'
@@ -190,6 +191,11 @@ const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   path: '/appearance',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAboutRoute = SettingsAboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   id: '/projects/$projectKey',
   path: '/projects/$projectKey',
@@ -275,6 +281,7 @@ export interface FileRoutesByFullPath {
   '/agent-dashboard/suggestions': typeof AgentDashboardSuggestionsRoute
   '/organizations/$organizationId': typeof OrganizationsOrganizationIdRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/settings/about': typeof SettingsAboutRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/automation': typeof SettingsAutomationRoute
@@ -313,6 +320,7 @@ export interface FileRoutesByTo {
   '/agent-dashboard/suggestions': typeof AgentDashboardSuggestionsRoute
   '/organizations/$organizationId': typeof OrganizationsOrganizationIdRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/settings/about': typeof SettingsAboutRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/automation': typeof SettingsAutomationRoute
@@ -356,6 +364,7 @@ export interface FileRoutesById {
   '/agent-dashboard/suggestions': typeof AgentDashboardSuggestionsRoute
   '/organizations/$organizationId': typeof OrganizationsOrganizationIdRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/settings/about': typeof SettingsAboutRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/automation': typeof SettingsAutomationRoute
@@ -400,6 +409,7 @@ export interface FileRouteTypes {
     | '/agent-dashboard/suggestions'
     | '/organizations/$organizationId'
     | '/projects/$projectKey'
+    | '/settings/about'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/automation'
@@ -438,6 +448,7 @@ export interface FileRouteTypes {
     | '/agent-dashboard/suggestions'
     | '/organizations/$organizationId'
     | '/projects/$projectKey'
+    | '/settings/about'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/automation'
@@ -480,6 +491,7 @@ export interface FileRouteTypes {
     | '/agent-dashboard/suggestions'
     | '/organizations/$organizationId'
     | '/projects/$projectKey'
+    | '/settings/about'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/automation'
@@ -714,6 +726,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/about': {
+      id: '/settings/about'
+      path: '/about'
+      fullPath: '/settings/about'
+      preLoaderRoute: typeof SettingsAboutRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/projects/$projectKey': {
       id: '/projects/$projectKey'
       path: '/projects/$projectKey'
@@ -858,6 +877,7 @@ const OrganizationsRouteWithChildren = OrganizationsRoute._addFileChildren(
 )
 
 interface SettingsRouteChildren {
+  SettingsAboutRoute: typeof SettingsAboutRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsAutomationRoute: typeof SettingsAutomationRoute
@@ -876,6 +896,7 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAboutRoute: SettingsAboutRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArchivedRoute: SettingsArchivedRoute,
   SettingsAutomationRoute: SettingsAutomationRoute,

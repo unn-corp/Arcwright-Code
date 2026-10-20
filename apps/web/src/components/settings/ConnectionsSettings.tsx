@@ -1,12 +1,13 @@
+import { Link, useLocation } from "@tanstack/react-router";
 import { LocalConnectCleanup } from "./LocalConnectCleanup";
 import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
-import { HostMaintenanceStatus } from "./HostMaintenanceStatus";
 import { HostUpdateSettings } from "./HostUpdateSettings";
 import { RenameEnvironmentDialog } from "./RenameEnvironmentDialog";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
 import { SessionPermissions } from "./SessionPermissions";
 import { AUTH_SCOPE_OPTIONS as PAIRING_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
 import {
+  ArrowLeftIcon,
   ChevronRightIcon,
   ChevronsLeftRightEllipsisIcon,
   EllipsisIcon,
@@ -97,7 +98,6 @@ import {
   environmentTransportLabel,
   formatDesktopSshTarget,
 } from "./EnvironmentRow";
-import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
 import { Input } from "../ui/input";
@@ -122,7 +122,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { ScrollArea } from "../ui/scroll-area";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -427,19 +426,6 @@ function sortDesktopPairingLinks(links: ReadonlyArray<ServerPairingLinkRecord>) 
   return [...links].toSorted(
     (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
   );
-}
-
-function summarizeAuthorizedClients(
-  sessions: ReadonlyArray<ServerClientSessionRecord>,
-  links: ReadonlyArray<ServerPairingLinkRecord>,
-): string {
-  const parts = [
-    `${sessions.length} ${sessions.length === 1 ? "client" : "clients"}`,
-    links.length > 0
-      ? `${links.length} ${links.length === 1 ? "pairing link" : "pairing links"}`
-      : null,
-  ];
-  return parts.filter((part): part is string => part !== null).join(" · ");
 }
 
 function sortDesktopClientSessions(sessions: ReadonlyArray<ServerClientSessionRecord>) {
@@ -812,7 +798,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                       size={132}
                       level="M"
                       marginSize={2}
-                      title="Pairing link — scan to open on another device"
+                      title="Pairing link, scan to open on another device"
                     />
                   </div>
                 ) : null}
@@ -915,7 +901,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                 size={168}
                 level="M"
                 marginSize={1}
-                title="Pairing link — scan to open on another device"
+                title="Pairing link, scan to open on another device"
               />
             </div>
           ) : (
@@ -1103,7 +1089,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
           render={
             <Button size="xs" variant="default">
               <PlusIcon className="size-3" />
-              Create link
+              Connect another device
             </Button>
           }
         />
@@ -1111,8 +1097,8 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
           <DialogHeader>
             <DialogTitle>Create pairing link</DialogTitle>
             <DialogDescription>
-              Generate a one-time link that another device can use to pair with this backend as an
-              authorized client.
+              Generate a one-time link to grant another device access to this computer. The selected
+              permissions apply on this destination computer.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -1434,6 +1420,8 @@ type SavedBackendListRowProps = {
   onSetEnabled: (environmentId: EnvironmentId, enabled: boolean) => void;
   onRemove: (environment: EnvironmentPresentation) => void;
   onAddRoute: (environment: EnvironmentPresentation) => void;
+  detail?: boolean;
+  onSelect: () => void;
 };
 
 function savedBackendStatus(environment: EnvironmentPresentation): {
@@ -1478,11 +1466,10 @@ function SavedBackendListRow({
   onSetEnabled,
   onRemove,
   onAddRoute,
+  detail = false,
+  onSelect,
 }: SavedBackendListRowProps) {
   const [renameOpen, setRenameOpen] = useState(false);
-  const [routesOpen, setRoutesOpen] = useState(false);
-  const [updatesOpen, setUpdatesOpen] = useState(false);
-  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const environmentId = environment.environmentId;
   const unsupported = environment.connection.phase === "unsupported";
   const blocked = unsupported && !hasSavedBearerRoute(environment.entry);
@@ -1637,16 +1624,16 @@ function SavedBackendListRow({
             </span>
             <button
               type="button"
-              aria-expanded={routesOpen}
-              onClick={() => setRoutesOpen((open) => !open)}
-              className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+              aria-expanded={detail}
+              onClick={onSelect}
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
             >
               {routeCount === 1 ? "Routes" : `${routeCount} routes`}
               <ChevronRightIcon
                 aria-hidden
                 className={cn(
                   "size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
-                  routesOpen && "rotate-90",
+                  detail && "rotate-90",
                 )}
               />
             </button>
@@ -1654,15 +1641,6 @@ function SavedBackendListRow({
         }
         below={
           <>
-            {isConnected ? (
-              <HostMaintenanceStatus
-                environmentId={environmentId}
-                label={environment.label}
-                supported={supportsForkMaintenanceAdmission(
-                  environment.serverConfig?.environment.capabilities.forkMaintenance,
-                )}
-              />
-            ) : null}
             {serverUpdateState.status !== "idle" ? (
               <div className="mt-1 max-w-md">
                 <ServerUpdateProgress state={serverUpdateState} />
@@ -1671,58 +1649,71 @@ function SavedBackendListRow({
           </>
         }
         detail={
-          <>
-            {permissionsOpen ? (
-              <div
-                id={`remote-permissions-${environmentId}`}
-                className="mt-2 border-t border-border/50"
+          detail ? (
+            <div className="mt-4 space-y-6">
+              <SettingsSection
+                id={`computer-${environmentId}-addresses`}
+                title="Addresses & routes"
               >
+                <EnvironmentRoutesList
+                  environment={environment}
+                  onAddRoute={() => onAddRoute(environment)}
+                />
+              </SettingsSection>
+              <SettingsSection id={`computer-${environmentId}-permissions`} title="Permissions">
                 <SessionPermissions
                   environmentId={environmentId}
                   connected={isConnected}
                   routeContext
                 />
-              </div>
-            ) : null}
-            {updatesOpen ? (
-              <HostUpdateSettings
-                environmentId={environmentId}
-                label={environment.label}
-                supported={
-                  isConnected &&
-                  supportsForkMaintenanceAdmission(
-                    environment.serverConfig?.environment.capabilities.forkMaintenance,
-                  )
-                }
-              />
-            ) : null}
-            {routesOpen ? (
-              <EnvironmentRoutesList
-                environment={environment}
-                onAddRoute={() => onAddRoute(environment)}
-              />
-            ) : null}
-          </>
+              </SettingsSection>
+              <SettingsSection
+                id={`computer-${environmentId}-maintenance`}
+                title="Version & maintenance"
+              >
+                <SettingsRow
+                  title="Installed version"
+                  description={serverVersion ?? "Connect to inspect this computer's version."}
+                />
+                {isConnected ? (
+                  <HostUpdateSettings
+                    mode="contextual"
+                    environmentId={environmentId}
+                    label={environment.label}
+                    supported={supportsForkMaintenanceAdmission(
+                      environment.serverConfig?.environment.capabilities.forkMaintenance,
+                    )}
+                  />
+                ) : null}
+                <SettingsRow
+                  title="Update preferences & history"
+                  description="Manage update policy and previous builds in About & updates."
+                  control={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      render={
+                        <Link
+                          to="/settings/about"
+                          search={{ machine: environmentId }}
+                          hash={`host-updates-${environmentId}`}
+                        />
+                      }
+                    >
+                      About & updates
+                    </Button>
+                  }
+                />
+              </SettingsSection>
+            </div>
+          ) : null
         }
       >
-        <Button
-          size="xs"
-          variant="ghost-muted"
-          aria-expanded={permissionsOpen}
-          aria-controls={`remote-permissions-${environmentId}`}
-          onClick={() => setPermissionsOpen((open) => !open)}
-        >
-          Permissions
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost-muted"
-          aria-label={`Updates for ${environment.label}`}
-          aria-expanded={updatesOpen}
-          onClick={() => setUpdatesOpen((open) => !open)}
-        >
-          Updates
-        </Button>
+        {!detail ? (
+          <Button size="xs" variant="outline" onClick={onSelect}>
+            Details
+          </Button>
+        ) : null}
         {unsupported &&
         environment.entry.serverUpdateRequired === true &&
         serverUpdateState.status !== "running" ? (
@@ -1771,9 +1762,9 @@ function SavedBackendListRow({
               environmentId={environmentId}
               serverConfig={environment.serverConfig}
             />
-            <MenuItem onClick={() => setRoutesOpen((open) => !open)}>
+            <MenuItem onClick={onSelect}>
               <RouteIcon />
-              {routesOpen ? "Hide routes" : "Routes"}
+              Addresses & routes
             </MenuItem>
             {mcpUrl ? (
               <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>Copy MCP URL</MenuItem>
@@ -2070,6 +2061,19 @@ function LocalVersionStatusLabel() {
 
 export function ConnectionsSettings() {
   const [renamePrimaryOpen, setRenamePrimaryOpen] = useState(false);
+  const [selectedComputerId, setSelectedComputerId] = useState<EnvironmentId | null>(null);
+  const searchTargetId = useLocation({ select: (location) => location.hash.replace(/^#/, "") });
+  const [lastSearchTargetId, setLastSearchTargetId] = useState(searchTargetId);
+  if (lastSearchTargetId !== searchTargetId) {
+    setLastSearchTargetId(searchTargetId);
+    if (
+      searchTargetId &&
+      searchTargetId !== "remote-environments" &&
+      !searchTargetId.startsWith("computer-")
+    ) {
+      setSelectedComputerId(null);
+    }
+  }
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
@@ -3486,9 +3490,7 @@ export function ConnectionsSettings() {
         <>
           <SettingsSection
             {...searchableSetting("connections-environment")}
-            title={
-              primaryEnvironment?.label ?? (desktopBridge ? "This machine" : "Primary environment")
-            }
+            title="This computer"
             icon={
               <EnvironmentMachineIcon
                 aria-hidden
@@ -3580,12 +3582,32 @@ export function ConnectionsSettings() {
                 }
               />
             ) : null}
+            {canManageLocalBackend && desktopBridge ? renderWslRow() : null}
+            <SettingsRow
+              title="Update preferences & history"
+              control={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  render={
+                    <Link
+                      to="/settings/about"
+                      search={{ machine: primaryEnvironmentId }}
+                      hash={`host-updates-${primaryEnvironmentId}`}
+                    />
+                  }
+                >
+                  About & updates
+                </Button>
+              }
+            />
+          </SettingsSection>
+          <SettingsSection id="connections-remote-access" title="Remote access">
             {canManageLocalBackend && desktopBridge ? (
               <>
                 {renderNetworkAccessRow()}
                 {renderEndpointRows("endpoint-rail")}
                 {renderTailscaleRow()}
-                {renderWslRow()}
                 {canReadRelay || canManageRelay ? (
                   <CloudLinkRow canReadRelay={canReadRelay} canManageRelay={canManageRelay} />
                 ) : null}
@@ -3616,14 +3638,10 @@ export function ConnectionsSettings() {
           </SettingsSection>
 
           {canReadAccess || canWriteAccess ? (
-            <FoldedSettingsSection
+            <SettingsSection
               id="authorized-clients"
-              title="Authorized clients"
-              summary={summarizeAuthorizedClients(
-                desktopClientSessions,
-                visibleDesktopPairingLinks,
-              )}
-              control={
+              title="Authorized devices"
+              headerAction={
                 canWriteAccess ? (
                   <AuthorizedClientsHeaderAction
                     delegatableScopes={currentSessionScopes ?? []}
@@ -3641,12 +3659,11 @@ export function ConnectionsSettings() {
                 ) : undefined
               }
             >
-              <ScrollArea
-                scrollFade
-                chainVerticalScroll
-                className="max-h-[22.5rem]"
-                data-testid="authorized-clients-scroll-area"
-              >
+              <SettingsRow
+                title={`Access to ${primaryEnvironment?.label ?? "this computer"}`}
+                description="Connect another device to grant it access to this computer. This is separate from connecting to another computer."
+              />
+              <div>
                 {canReadAccess ? (
                   renderAuthorizedClients("current")
                 ) : (
@@ -3654,8 +3671,8 @@ export function ConnectionsSettings() {
                     This connection can create access links but cannot view authorized clients.
                   </p>
                 )}
-              </ScrollArea>
-            </FoldedSettingsSection>
+              </div>
+            </SettingsSection>
           ) : null}
           <AlertDialog
             open={isDesktopServerExposureDialogOpen && canManageLocalBackend}
@@ -3950,21 +3967,9 @@ export function ConnectionsSettings() {
           onClose={() => setRenamePrimaryOpen(false)}
         />
       ) : null}
-      {desktopBridge || primaryEnvironment ? primarySettings : null}
-      {primaryEnvironmentId && primaryServerConfig ? (
-        <SettingsSection title={`Updates for ${primaryEnvironment?.label ?? "This machine"}`}>
-          <HostUpdateSettings
-            environmentId={primaryEnvironmentId}
-            label={primaryEnvironment?.label ?? "This machine"}
-            supported={supportsForkMaintenanceAdmission(
-              primaryServerConfig.environment.capabilities.forkMaintenance,
-            )}
-          />
-        </SettingsSection>
-      ) : null}
       <SettingsSection
         {...searchableSetting("remote-environments")}
-        title="Environments"
+        title={selectedComputerId ? "Computer details" : "Connected computers"}
         headerAction={
           <div className="flex items-center gap-1">
             {savedServerUpdateTargets.length > 0 ? (
@@ -3987,25 +3992,25 @@ export function ConnectionsSettings() {
                   render={
                     <DialogTrigger
                       render={
-                        <Button size="xs" variant="ghost-muted" aria-label="Add environment">
+                        <Button size="xs" variant="ghost-muted" aria-label="Connect to a computer">
                           <PlusIcon className="size-3" />
-                          <span>Add environment</span>
+                          <span>Connect to a computer</span>
                         </Button>
                       }
                     />
                   }
                 />
-                <TooltipPopup side="top">Add environment</TooltipPopup>
+                <TooltipPopup side="top">Connect to a computer</TooltipPopup>
               </Tooltip>
               <DialogPopup className="max-h-[80dvh] sm:max-w-3xl">
                 <DialogHeader>
                   <DialogTitle>
-                    {routeTarget ? `Add a route to ${routeTarget.label}` : "Add Environment"}
+                    {routeTarget ? `Add a route to ${routeTarget.label}` : "Connect to a computer"}
                   </DialogTitle>
                   <DialogDescription>
                     {routeTarget
                       ? "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine."
-                      : "Pair another environment to this client."}
+                      : "Connect this client to another computer using that destination computer’s pairing link. To grant another device access to this computer, use Connect another device under Authorized devices."}
                   </DialogDescription>
                 </DialogHeader>
                 <DialogPanel>
@@ -4037,24 +4042,50 @@ export function ConnectionsSettings() {
           </div>
         }
       >
-        {listedEnvironments.map((environment) => (
-          <SavedBackendListRow
-            key={environment.environmentId}
-            environment={environment}
-            removingEnvironmentId={removingSavedEnvironmentId}
-            onSetEnabled={handleSetSavedBackendEnabled}
-            onRemove={handleRemoveSavedBackend}
-            onAddRoute={(target) => {
-              setRouteTarget(target);
-              setSavedBackendError(null);
-              setAddBackendDialogOpen(true);
-            }}
+        {selectedComputerId ? (
+          <div className="px-4 py-2">
+            <Button variant="ghost" onClick={() => setSelectedComputerId(null)}>
+              <ArrowLeftIcon aria-hidden />
+              Back to Connections
+            </Button>
+          </div>
+        ) : null}
+        {selectedComputerId &&
+        !listedEnvironments.some(
+          (environment) => environment.environmentId === selectedComputerId,
+        ) ? (
+          <SettingsRow
+            title="Computer unavailable"
+            description="This computer was removed. Return to Connections to select another computer."
           />
-        ))}
-        <CloudRemoteEnvironmentRows
-          primaryEnvironmentId={primaryEnvironmentId}
-          savedEnvironments={savedEnvironments}
-        />
+        ) : null}
+        {listedEnvironments
+          .filter(
+            (environment) =>
+              selectedComputerId === null || environment.environmentId === selectedComputerId,
+          )
+          .map((environment) => (
+            <SavedBackendListRow
+              key={environment.environmentId}
+              environment={environment}
+              detail={selectedComputerId === environment.environmentId}
+              onSelect={() => setSelectedComputerId(environment.environmentId)}
+              removingEnvironmentId={removingSavedEnvironmentId}
+              onSetEnabled={handleSetSavedBackendEnabled}
+              onRemove={handleRemoveSavedBackend}
+              onAddRoute={(target) => {
+                setRouteTarget(target);
+                setSavedBackendError(null);
+                setAddBackendDialogOpen(true);
+              }}
+            />
+          ))}
+        {!selectedComputerId ? (
+          <CloudRemoteEnvironmentRows
+            primaryEnvironmentId={primaryEnvironmentId}
+            savedEnvironments={savedEnvironments}
+          />
+        ) : null}
       </SettingsSection>
       {hasCloudPublicConfig() ? (
         <RemoveT3ConnectEnvironmentDialog
@@ -4067,8 +4098,21 @@ export function ConnectionsSettings() {
           }}
         />
       ) : null}
-      <LoadBalancingSettings environments={loadBalancingEnvironments} />
-      <GitHubRoutingSettings environments={loadBalancingEnvironments} />
+      {selectedComputerId === null ? (
+        <>
+          {desktopBridge || primaryEnvironment ? primarySettings : null}
+          {loadBalancingEnvironments.length >= 2 ? (
+            <SettingsSection id="connections-work-distribution" title="Work distribution">
+              <LoadBalancingSettings environments={loadBalancingEnvironments} />
+            </SettingsSection>
+          ) : null}
+          {loadBalancingEnvironments.length >= 2 ? (
+            <SettingsSection id="connections-shared-github" title="Shared GitHub access">
+              <GitHubRoutingSettings environments={loadBalancingEnvironments} />
+            </SettingsSection>
+          ) : null}
+        </>
+      ) : null}
     </SettingsPageContainer>
   );
 }

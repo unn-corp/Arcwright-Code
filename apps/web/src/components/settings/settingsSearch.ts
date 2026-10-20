@@ -15,6 +15,7 @@ import {
 
 export type SettingsPath =
   | "/settings/projects"
+  | "/settings/about"
   | "/settings/general"
   | "/settings/automation"
   | "/settings/diagnostics"
@@ -43,7 +44,7 @@ export interface SettingsSearchItem {
   readonly to: SettingsPath;
   readonly targetId?: string;
   readonly searchTerms?: ReadonlyArray<string>;
-  readonly scope?: SettingsSearchScope;
+  readonly scope?: SettingsSearchScope | null;
   readonly desktopOnly?: boolean;
   readonly macOnly?: boolean;
   readonly windowsOnly?: boolean;
@@ -74,7 +75,6 @@ export interface SettingsSearchAvailability {
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
-  "/settings/diagnostics": "Diagnostics",
   "/settings/projects": "Project",
   "/settings/general": "General",
   "/settings/automation": "Automation",
@@ -88,6 +88,8 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
   "/settings/archived": "Archive",
+  "/settings/diagnostics": "Diagnostics",
+  "/settings/about": "About & updates",
 };
 
 export function keybindingSearchAnchorId<Command extends KeybindingCommand>(command: Command) {
@@ -157,7 +159,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "storage-delete-now",
-    title: "Delete now",
+    title: "Run cleanup",
     to: "/settings/storage",
     scope: "environment-defaults",
     searchTerms: ["storage cleanup run now results report removed kept failed"],
@@ -251,7 +253,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "always-compact-composer",
     title: "Always compact composer",
-    to: "/settings/appearance",
+    to: "/settings/general",
     searchTerms: ["small input resting collapsed message draft chat composer layout"],
   },
   {
@@ -332,7 +334,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "composer-context",
     title: "Composer context",
-    to: "/settings/appearance",
+    to: "/settings/general",
   },
   {
     id: "project-grouping",
@@ -418,18 +420,18 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "local-environment",
     title: "Local environment",
-    to: "/settings/general",
+    to: "/settings/connections",
     searchTerms: ["local machine remote environment agents desktop"],
   },
   {
     id: "dictation-microphone",
     title: "Microphone",
-    to: "/settings/general",
+    to: "/settings/integrations",
   },
   {
     id: "dictation-keybinds",
     title: "Dictation keybinds",
-    to: "/settings/general",
+    to: "/settings/integrations",
   },
   {
     id: "auto-open-task-panel",
@@ -439,18 +441,20 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "open-source-licenses",
     title: "Open source licenses",
-    to: "/settings/general",
+    to: "/settings/about",
   },
   {
     id: "hide-whitespace-changes",
+    scope: null,
     title: "Hide whitespace changes",
-    to: "/settings/general",
+    to: "/settings/source-control",
     searchTerms: ["diff ignore spaces edits default"],
   },
   {
     id: "diff-layout",
+    scope: null,
     title: "Diff layout",
-    to: "/settings/general",
+    to: "/settings/source-control",
     searchTerms: ["stacked split side by side unified inline view"],
   },
   {
@@ -491,8 +495,8 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "app-updates",
-    title: "App updates — This device",
-    to: "/settings/general",
+    title: "App updates (this device)",
+    to: "/settings/about",
     targetId: "app-updates",
     searchTerms: [
       "nightly stable channel version check download install waiting rollback recovery pin resume",
@@ -501,7 +505,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "provider-update-checks",
     title: "Provider update checks",
-    to: "/settings/automation",
+    to: "/settings/providers",
     searchTerms: ["installed cli versions newer available codex claude cursor grok opencode"],
     scope: "environment-defaults",
   },
@@ -726,7 +730,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "worktree-submodules",
     title: "Submodules",
-    to: "/settings/general",
+    to: "/settings/source-control",
     scope: "project-defaults",
     searchTerms: ["git submodule init recursive top-level none worktree t3.json"],
   },
@@ -740,7 +744,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "start-from-origin",
     title: "Start from remote",
-    to: "/settings/general",
+    to: "/settings/source-control",
     scope: "project-defaults",
     searchTerms: ["new worktrees start remote origin latest fetched branch local"],
   },
@@ -779,7 +783,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "text-generation-model",
     title: "Text generation model",
-    to: "/settings/general",
+    to: "/settings/providers",
     scope: "project-defaults",
     searchTerms: ["generated thread titles source control content default provider"],
   },
@@ -826,20 +830,20 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "app-version",
     title: "Version",
-    to: "/settings/general",
+    to: "/settings/about",
     searchTerms: ["about check for updates download install upgrade release"],
   },
   {
     id: "update-track",
     title: "Update track",
-    to: "/settings/general",
+    to: "/settings/about",
     searchTerms: ["release channel stable latest nightly prerelease"],
     releaseChannelOnly: true,
   },
   {
     id: "cli-command",
     title: "t3 command",
-    to: "/settings/general",
+    to: "/settings/about",
     searchTerms: ["cli terminal shell path install command line"],
     desktopOnly: true,
   },
@@ -852,7 +856,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "privacy-policy",
     title: "Privacy policy",
-    to: "/settings/general",
+    to: "/settings/about",
     searchTerms: ["telemetry analytics usage data tracking legal opt out"],
   },
   {
@@ -866,32 +870,35 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "diagnostics",
     title: "Diagnostics",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
     searchTerms: ["logs traces processes resource history failures spans cpu memory"],
   },
   {
     id: "legacy-plan-mode",
+    scope: null,
     title: "Plan mode (legacy)",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
     searchTerms: ["build plan composer old"],
   },
   {
     id: "legacy-context-window-indicator",
+    scope: null,
     title: "Context window indicator (legacy)",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
     searchTerms: ["composer meter usage tokens circle old"],
   },
   {
     id: "legacy-token-streaming",
     title: "Stream token by token (legacy)",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
     scope: "project-defaults",
     searchTerms: ["response output old compatibility"],
   },
   {
     id: "legacy-sidebar",
+    scope: null,
     title: "Sidebar (legacy)",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
     searchTerms: ["project thread tree old flat list"],
   },
   {
@@ -966,9 +973,58 @@ export const SETTINGS_SEARCH_ITEMS = [
     macProviderSettingsOnly: true,
   },
   {
+    id: "background-shared-policy",
+    title: "Shared background policy",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
+    id: "host-power-active-interval",
+    title: "Active host power interval",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
+    id: "host-power-idle-interval",
+    title: "Idle host power interval",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
+    id: "pause-when-host-locked",
+    title: "Pause when host is locked",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
+    id: "pause-when-host-low-power",
+    title: "Pause on host low power",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
+    id: "pause-when-client-low-power",
+    title: "Pause on client low power",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
+    id: "pause-when-on-battery",
+    title: "Pause on battery",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["background activity performance advanced power policy"],
+  },
+  {
     id: "provider-health-check-interval",
     title: "Health check interval",
-    to: "/settings/providers",
+    to: "/settings/general",
     searchTerms: ["refresh availability versions auth state models background probes seconds off"],
     providerSettingsOnly: true,
   },
@@ -1010,7 +1066,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "browser-profiles",
     title: "Browser profiles",
     to: "/settings/integrations",
-    targetId: "browser",
+    targetId: "integrations-profiles",
   },
   {
     id: "browser-default-profile",
@@ -1124,7 +1180,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "git-fetch-interval",
     title: "Git fetch interval",
-    to: "/settings/source-control",
+    to: "/settings/general",
     searchTerms: [
       "automatic remote branch refresh background credentials security keys seconds off",
     ],
@@ -1134,7 +1190,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "github-routing",
     title: "GitHub routing",
-    to: "/settings/integrations",
+    to: "/settings/connections",
     searchTerms: ["github accounts machines permissions routing"],
   },
   {
@@ -1322,6 +1378,33 @@ export const SETTINGS_SEARCH_ITEMS = [
 
 export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 
+const LEGACY_SETTINGS_SECTIONS: Readonly<Record<string, { to: SettingsPath; target: string }>> = {
+  browser: { to: "/settings/integrations", target: "integrations-links" },
+  about: { to: "/settings/about", target: "about" },
+  "text-generation": { to: "/settings/providers", target: "provider-text-generation" },
+  "legacy-features": { to: "/settings/diagnostics", target: "legacy-features" },
+  behavior: { to: "/settings/general", target: "composer" },
+  organization: { to: "/settings/general", target: "interface-sidebar" },
+  "projects-and-threads": { to: "/settings/general", target: "thread-organization" },
+  confirmations: { to: "/settings/general", target: "thread-organization" },
+  "project-defaults": { to: "/settings/general", target: "new-threads-projects" },
+  "source-control-defaults": { to: "/settings/source-control", target: "source-control" },
+};
+
+export function settingsTargetAnchor(hash: string): string {
+  const targetId = hash.replace(/^#/, "");
+  return LEGACY_SETTINGS_SECTIONS[targetId]?.target ?? targetId;
+}
+
+export function settingsTargetDestination(hash: string) {
+  const targetId = hash.replace(/^#/, "");
+  return (
+    LEGACY_SETTINGS_SECTIONS[targetId]?.to ??
+    SETTINGS_SEARCH_ITEMS.find((item) => item.id === targetId)?.to ??
+    null
+  );
+}
+
 const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
@@ -1339,6 +1422,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/connections": "connections",
   "/settings/scheduled-tasks": null,
   "/settings/archived": "project-defaults",
+  "/settings/about": null,
 };
 
 export function getSettingsSearchTargetScope(targetId: string) {
@@ -1349,7 +1433,7 @@ export function getSettingsSearchTargetScope(targetId: string) {
   return item
     ? {
         title: item.title,
-        scope: item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to],
+        scope: item.scope !== undefined ? item.scope : SETTINGS_CATEGORY_SCOPES[item.to],
         ...(item.requiresThreadAutoSettlement ? { requiresThreadAutoSettlement: true } : {}),
       }
     : null;

@@ -15,7 +15,7 @@ send configured start and end keybinds to the focused desktop application on Lin
 
 ## One-click setup
 
-Open **Settings** → **General** → **Dictation microphone**, then choose **Set up with agent**. T3
+Open **Settings** → **Integrations** → **Voice & dictation** → **Microphone**, then choose **Set up with agent**. T3
 starts a dedicated setup thread in the primary project. The setup agent checks the machine running
 T3, configures the local transcription service where possible, verifies microphone access, and
 reports any step that still needs your approval.
@@ -49,7 +49,7 @@ or a local development address). This permission is separate from T3's composer 
 
 ## Configure T3
 
-1. In **Settings** → **General** → **Dictation microphone**, click **Detect** and grant microphone
+1. In **Settings** → **Integrations** → **Voice & dictation** → **Microphone**, click **Detect** and grant microphone
    permission when prompted.
 2. Select the microphone to use, or leave **System default** selected.
 3. Under **Dictation keybinds**, click **Record shortcut** for Start or End and press the complete

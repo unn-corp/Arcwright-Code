@@ -397,7 +397,7 @@ export function useThreadActions() {
 
   const deleteThread = async (
     target: ScopedThreadRef,
-    opts: { deletedThreadKeys?: ReadonlySet<string> } = {},
+    opts: { deletedThreadKeys?: ReadonlySet<string>; archivedOnly?: boolean } = {},
   ) => {
     const permissionFailure = threadOperationFailure(target);
     if (permissionFailure) return permissionFailure;
@@ -405,7 +405,10 @@ export function useThreadActions() {
     if (!resolved) {
       const result = await deleteThreadMutation({
         environmentId: target.environmentId,
-        input: { threadId: target.threadId },
+        input: {
+          threadId: target.threadId,
+          ...(opts.archivedOnly ? { archivedOnly: true } : {}),
+        },
       });
       if (result._tag === "Success") {
         refreshArchivedThreadsForEnvironment(target.environmentId);
@@ -483,7 +486,8 @@ export function useThreadActions() {
       shouldDeleteWorktree = confirmationResult.value;
     }
 
-    if (thread.runtime !== null) {
+    // Guarded archive deletion must not stop a thread that has become active.
+    if (thread.runtime !== null && opts.archivedOnly !== true) {
       await stopThreadSession({
         environmentId: threadRef.environmentId,
         input: { threadId: threadRef.threadId },
@@ -503,7 +507,10 @@ export function useThreadActions() {
     });
     const deleteResult = await deleteThreadMutation({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId },
+      input: {
+        threadId: threadRef.threadId,
+        ...(opts.archivedOnly ? { archivedOnly: true } : {}),
+      },
     });
     if (deleteResult._tag === "Failure") {
       return deleteResult;

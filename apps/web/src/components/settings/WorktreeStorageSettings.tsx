@@ -1,7 +1,7 @@
 import { worktreeStorageUnavailableReason } from "@t3tools/shared/worktreeStorage";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
-import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { ScopedSwitch } from "./ScopedSwitch";
 
@@ -18,7 +18,7 @@ export function WorktreeStorageSettings() {
         ),
       );
   return (
-    <SettingsSection title="Worktree storage">
+    <>
       <SettingsRow
         {...searchableSetting("space-efficient-worktrees")}
         serverScoped
@@ -40,6 +40,6 @@ export function WorktreeStorageSettings() {
           />
         }
       />
-    </SettingsSection>
+    </>
   );
 }

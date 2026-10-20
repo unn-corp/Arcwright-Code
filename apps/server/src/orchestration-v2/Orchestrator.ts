@@ -11572,6 +11572,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 }),
             ),
           );
+        // This projection is read under the same thread lock as unarchive, so a stale archived snapshot cannot authorize deletion.
+        if (command.archivedOnly === true && projection.thread.archivedAt === null) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} is not archived.`,
+          });
+        }
         return yield* mapDispatchError(command)(
           planThreadDeletion({
             command,

@@ -120,4 +120,13 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.threadStop,
     ).toBe(true);
   });
+  it("requires an explicit archive-only delete capability", () => {
+    expect(decodeDescriptor(descriptor).capabilities.threadArchiveOnlyDelete).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, threadArchiveOnlyDelete: true },
+      }).capabilities.threadArchiveOnlyDelete,
+    ).toBe(true);
+  });
 });

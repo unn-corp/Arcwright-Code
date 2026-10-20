@@ -83,7 +83,18 @@ export interface ThreadCommandInput extends CommandMetadata {
   readonly threadId: ThreadId;
 }
 
-export type DeleteThreadInput = ThreadCommandInput;
+export interface DeleteThreadInput extends ThreadCommandInput {
+  readonly archivedOnly?: boolean;
+}
+
+export class ThreadArchiveOnlyDeleteUnsupportedError extends Schema.TaggedError<ThreadArchiveOnlyDeleteUnsupportedError>()(
+  "ThreadArchiveOnlyDeleteUnsupportedError",
+  {},
+) {
+  override get message(): string {
+    return "This server does not support safe archived conversation deletion. Update the server first.";
+  }
+}
 export type ArchiveThreadInput = ThreadCommandInput;
 export type UnarchiveThreadInput = ThreadCommandInput;
 export type SettleThreadInput = ThreadCommandInput;
@@ -428,7 +439,19 @@ function simpleThreadCommand(
 export const deleteThread = Effect.fn("EnvironmentCommands.deleteThread")(function* (
   input: DeleteThreadInput,
 ) {
-  return yield* simpleThreadCommand("thread.delete", input);
+  if (input.archivedOnly === true) {
+    const config = yield* getInitialServerConfig();
+    if (config.environment.capabilities.threadArchiveOnlyDelete !== true) {
+      return yield* new ThreadArchiveOnlyDeleteUnsupportedError({});
+    }
+  }
+  const commandId = yield* allocateCommandId(input);
+  return yield* dispatch({
+    type: "thread.delete",
+    commandId,
+    threadId: input.threadId,
+    ...(input.archivedOnly === undefined ? {} : { archivedOnly: input.archivedOnly }),
+  });
 });
 
 export const archiveThread = Effect.fn("EnvironmentCommands.archiveThread")(function* (

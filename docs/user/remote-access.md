@@ -29,7 +29,7 @@ public signup is being prepared. Those pages provide contact and intended inform
 their availability does not mean managed environment access is ready. Public signup is intended
 for anyone, with each account limited to its own linked environments. Your coding provider account
 and its charges remain separate. Signing out does not revoke independent manual pairings.
-In owned builds, the privacy links in Welcome and **Settings → General → About** open the selected
+In owned builds, the privacy links in Welcome and **Settings → About & updates → About** open the selected
 service's public policy, including its account and connection information and service availability.
 When the owned service is commissioned, CLI sign-in must use its approved Connect application;
 old or revoked CLI credentials require signing in again. The native app keeps its own account

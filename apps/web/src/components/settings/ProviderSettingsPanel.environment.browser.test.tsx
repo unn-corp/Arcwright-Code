@@ -8,7 +8,13 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts";
 import { AsyncResult, type Atom } from "effect/reactivity";
-import { act, type ReactNode } from "react";
+import { act, createContext, useContext, type ReactNode } from "react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -117,6 +123,26 @@ vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
   useProjects: (() => []) as never,
 }));
+vi.mock(import("../../state/environments"), async (original) => ({
+  ...(await original()),
+  useEnvironments: (() => ({ environments: [], isReady: true })) as never,
+  usePrimaryEnvironment: () => null,
+  usePrimaryEnvironmentId: () => null,
+  useEnvironmentProviders: () => new Map(),
+}));
+vi.mock(import("./SettingsScopeContext"), async (original) => ({
+  ...(await original()),
+  useSettingsScope: (() => ({
+    scope: { kind: "all", environmentIds: [] },
+    search: {},
+    environment: null,
+    environments: [],
+    target: null,
+    connectedEnvironments: [],
+    targets: [],
+  })) as never,
+  useOptionalSettingsScope: () => null,
+}));
 vi.mock(import("./settingsLayout"), async (original) => ({
   ...(await original()),
   useSettingsSearchTargetId: () => state.searchTargetId,
@@ -187,6 +213,14 @@ function provider(): ServerProvider {
   };
 }
 
+const panelContext = createContext<ReactNode>(null);
+function createTestRouter() {
+  return createRouter({
+    routeTree: createRootRoute({ component: () => useContext(panelContext) }),
+    history: createMemoryHistory(),
+  });
+}
+let router: ReturnType<typeof createTestRouter>;
 let root: Root;
 let container: HTMLDivElement;
 
@@ -199,18 +233,24 @@ async function render(options?: {
 }) {
   await act(async () =>
     root.render(
-      <RegistryContext.Provider value={appAtomRegistry}>
-        <div className="@container/providers">
-          <EnvironmentProviderSettings
-            environmentId={environmentId}
-            environmentLabel="Remote device"
-            {...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly })}
-            {...(options?.targetInstanceId === undefined
-              ? {}
-              : { targetInstanceId: options.targetInstanceId })}
-          />
-        </div>
-      </RegistryContext.Provider>,
+      <panelContext.Provider
+        value={
+          <RegistryContext.Provider value={appAtomRegistry}>
+            <div className="@container/providers">
+              <EnvironmentProviderSettings
+                environmentId={environmentId}
+                environmentLabel="Remote device"
+                {...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly })}
+                {...(options?.targetInstanceId === undefined
+                  ? {}
+                  : { targetInstanceId: options.targetInstanceId })}
+              />
+            </div>
+          </RegistryContext.Provider>
+        }
+      >
+        <RouterProvider router={router} />
+      </panelContext.Provider>,
     ),
   );
 }
@@ -244,6 +284,8 @@ beforeEach(async () => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  router = createTestRouter();
+  await router.load();
 });
 
 afterEach(async () => {
@@ -309,6 +351,7 @@ describe("EnvironmentProviderSettings routing", () => {
       input: { refreshModels: true },
     });
 
+    await userEvent.click(select("Codex"));
     await userEvent.click(page.getByRole("button", { name: /view details/ }).last());
     await userEvent.click(button("Update now"));
     expect(state.updateProvider).toHaveBeenCalledWith({
@@ -337,6 +380,7 @@ describe("EnvironmentProviderSettings routing", () => {
     await setProviders([provider()]);
     await render();
 
+    await userEvent.click(select("Codex"));
     await userEvent.click(button("Add Chosen to favorites"));
     expect(state.toggleFavorite).toHaveBeenCalledExactlyOnceWith(codexId, "chosen");
 
@@ -351,7 +395,7 @@ describe("EnvironmentProviderSettings routing", () => {
     await setProviders([provider()]);
     await render({ targetInstanceId: customId });
     await expect
-      .element(page.getByText("This provider instance is no longer available on this device."))
+      .element(page.getByText("This provider is no longer available on this computer."))
       .toBeVisible();
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
@@ -399,15 +443,93 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
 
-  it("keeps Advanced visible when search targets the provider health interval", async () => {
+  it("links provider polling to its single editor in General", async () => {
     await render();
-    await expect.element(page.getByText("Advanced", { exact: true })).toBeVisible();
-    expect(container.querySelector("#provider-health-check-interval")).not.toBeNull();
+    const link = page.getByRole("link", { name: "General performance" });
+    await expect.element(link).toBeVisible();
+    expect(link.element().getAttribute("href")).toContain(
+      "/settings/general?machine=remote-device#performance",
+    );
+    expect(container.querySelector("#provider-health-check-interval")).toBeNull();
+  });
 
-    state.searchTargetId = "provider-health-check-interval";
+  it("opens a dedicated provider detail and returns to the overview", async () => {
     await render();
-    await expect.element(page.getByText("Advanced", { exact: true })).toBeVisible();
-    expect(container.querySelector("#provider-health-check-interval")).not.toBeNull();
+    expect(button("Back to Providers").elements()).toHaveLength(0);
+    await userEvent.click(select("Codex"));
+    await expect.element(button("Back to Providers")).toBeVisible();
+    expect(select("Claude").elements()).toHaveLength(0);
+    await userEvent.click(button("Back to Providers"));
+    await expect.element(select("Codex")).toBeVisible();
+    await expect.element(select("Claude")).toBeVisible();
+  });
+
+  it("returns from provider detail when search targets shared usage settings", async () => {
+    await render({ targetInstanceId: codexId });
+    await expect.element(button("Back to Providers")).toBeVisible();
+    state.searchTargetId = "usage-providers";
+    await render({ targetInstanceId: codexId });
+    await expect.element(select("Codex")).toBeVisible();
+    expect(button("Back to Providers").elements()).toHaveLength(0);
+  });
+
+  it.each([
+    "runtime",
+    "config",
+    "environment",
+    "account",
+    "models",
+    "display-name",
+    "advanced",
+    "binaryPath",
+    "environment-API_KEY",
+  ])("reenters the same provider through its %s hash after Back to Providers", async (anchor) => {
+    const instanceId = ProviderInstanceId.make("codex-work_config-runtime");
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [ProviderInstanceId.make("codex-work")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          displayName: "Short ID",
+        },
+        [instanceId]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          displayName: "Long ID",
+        },
+      },
+    };
+    state.searchTargetId = `provider-instance-${instanceId}-${anchor}`;
+    await render();
+    await expect.element(deleteButton(instanceId)).toBeVisible();
+    await userEvent.click(button("Back to Providers"));
+    await expect.element(select("Codex")).toBeVisible();
+    state.searchTargetId = null;
+    await render();
+    state.searchTargetId = `provider-instance-${instanceId}-${anchor}`;
+    await render();
+    await expect.element(deleteButton(instanceId)).toBeVisible();
+    expect(state.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("reenters detail with an unchanged instance search parameter", async () => {
+    state.searchTargetId = "provider-instance-codex-runtime";
+    await render({ targetInstanceId: codexId });
+    await userEvent.click(button("Back to Providers"));
+    state.searchTargetId = null;
+    await render({ targetInstanceId: codexId });
+    await expect.element(select("Codex")).toBeVisible();
+    state.searchTargetId = "provider-instance-codex-runtime";
+    await render({ targetInstanceId: codexId });
+    await expect.element(button("Back to Providers")).toBeVisible();
+  });
+
+  it("does not interpret a missing provider prefix as an existing instance", async () => {
+    state.searchTargetId = "provider-instance-missing-runtime";
+    await render();
+    await expect.element(select("Codex")).toBeVisible();
+    expect(button("Back to Providers").elements()).toHaveLength(0);
   });
 
   it("deletes and resets provider configuration without erasing shared preferences", async () => {
@@ -435,6 +557,7 @@ describe("EnvironmentProviderSettings routing", () => {
     });
 
     state.mutateProviderInstance.mockClear();
+    await userEvent.click(button("Back to Providers"));
     await userEvent.click(select("Codex"));
     await userEvent.click(button("Reset Codex provider settings to default"));
     const [resetMutation, resetPatch] = state.mutateProviderInstance.mock.lastCall ?? [];
@@ -517,7 +640,7 @@ describe("EnvironmentProviderSettings routing", () => {
       },
     ]);
     await render({ targetInstanceId: instanceId });
-    await expect.element(page.getByRole("heading", { name: "Account" })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Account & sign-in" })).toBeVisible();
   });
 
   it("routes explicit ACP browser authentication consent to the selected environment", async () => {

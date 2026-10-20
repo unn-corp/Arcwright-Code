@@ -8,7 +8,7 @@ baseline; a scheduled workflow being present does not mean a new release is avai
 
 ## Choose the device
 
-**Desktop:** open **Settings → General → App updates** or the sidebar update
+**Desktop:** open **Settings → About & updates → App updates** or the sidebar update
 button. Choose Stable or Nightly, check, download, then confirm installation.
 This follows upstream T3's Electron updater: it checks shortly after launch and
 every four minutes, downloads only on request, and installs only after your
@@ -29,7 +29,7 @@ pins and recovery. These controls may wait for work to stop. They are separate
 from the desktop's upstream updater. Existing installed accounts and connections
 remain in their existing application data directories.
 
-Android update controls live in **Settings → General → App updates**, and named-host
+Android update controls live in **Settings → About & updates → App updates**, and named-host
 status lives in **Settings → Connections**. Background update checks continue independently
 of these screens. The sidebar keeps upstream desktop and provider update controls.
 
@@ -54,8 +54,9 @@ the thread waits for your next message.
 Desktop sidebar controls and **Check for Updates** use the upstream update status.
 Release history links to this fork.
 
-**Settings → Connections → Environments → Updates for [host]** controls that
-named host. Its channel, automatic installation policy, version, blockers, and
+**Settings → About & updates → Updates for [host]** controls that
+named host. Select the computer using the settings scope, or follow its update-preferences
+link from Connections. Its channel, automatic installation policy, version, blockers, and
 recovery options are independent of the client. Service recovery can affect multiple homes; review those homes before restoring. Standalone and development runtimes participate
 in activity checks but do not replace their own binaries automatically.
 
@@ -103,8 +104,8 @@ share the device coordinator. Do not create a separate maintenance namespace
 for each environment to avoid its activity checks.
 
 Establish the private HTTP/WebSocket route and pair this environment through
-**Settings → Connections → Add environment**. In Connections, open its **Updates**
-controls, complete **Review installations** for the VM's known fork runtimes, then
+**Settings → Connections → Add environment**. Open the computer details for contextual update
+actions, or follow its link to **About & updates** for update preferences. Complete **Review installations** for the VM's known fork runtimes, then
 use **Check and download** and **Install**. **Update all** requests updates for the
 connected hosts. Each host retains its own activity checks, channel, pin, and
 recovery state. New cloud homes have **Automatic installation** enabled by default;
@@ -312,7 +313,7 @@ Android Settings screens and unfinished phone page navigations also hold install
 Enable notifications and the **App updates** notification channel before installing so Android’s confirmation can reach
 you while the app is in the background. Native recovery links to this permission.
 
-In **Settings → General → App updates**, use **Open App updates notification settings**
+In **Settings → About & updates → App updates**, use **Open App updates notification settings**
 to enable that channel. Native recovery offers the same route when the bundled interface cannot load.
 
 ## Storage maintenance

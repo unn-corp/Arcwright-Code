@@ -14,12 +14,16 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 it.effect("maps application lifecycle operations to V2-native commands", () => {
   const threadId = ThreadId.make("thread_lifecycle_service");
   const commands: Array<string> = [];
+  const dispatched: Array<
+    Parameters<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>[0]
+  > = [];
   const projection = { thread: { id: threadId } } as OrchestrationV2ThreadProjection;
   const layer = ThreadLifecycle.layer.pipe(
     Layer.provide(
       Layer.mock(ThreadManagement.ThreadManagementService)({
         dispatch: (command) => {
           commands.push(command.type);
+          dispatched.push(command);
           return Effect.succeed({ sequence: commands.length, storedEvents: [] });
         },
         getThreadRecords: () => Effect.succeed(projection),
@@ -47,6 +51,18 @@ it.effect("maps application lifecycle operations to V2-native commands", () => {
       modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.2" },
     });
     yield* service.delete({ commandId: CommandId.make("delete"), threadId });
+    assert.deepEqual(dispatched.at(-1), {
+      type: "thread.delete",
+      commandId: CommandId.make("delete"),
+      threadId,
+    });
+    yield* service.delete({ commandId: CommandId.make("purge"), threadId, archivedOnly: true });
+    assert.deepEqual(dispatched.at(-1), {
+      type: "thread.delete",
+      commandId: CommandId.make("purge"),
+      threadId,
+      archivedOnly: true,
+    });
     assert.deepEqual(commands, [
       "thread.archive",
       "thread.unarchive",
@@ -54,6 +70,7 @@ it.effect("maps application lifecycle operations to V2-native commands", () => {
       "thread.runtime-mode.set",
       "thread.interaction-mode.set",
       "thread.model-selection.set",
+      "thread.delete",
       "thread.delete",
     ]);
   }).pipe(Effect.provide(layer));

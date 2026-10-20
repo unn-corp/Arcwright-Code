@@ -84,6 +84,22 @@ function fixture(status = waiting) {
   return { controller, action };
 }
 
+it("keeps contextual update actions and safety feedback while policy editing stays in About", async () => {
+  const f = fixture();
+  await act(async () => {
+    root.render(
+      <ForkUpdateControls controller={f.controller} device="Devotek-PC" mode="contextual" />,
+    );
+  });
+  expect(container.textContent).not.toContain("Update channel");
+  expect(container.textContent).not.toContain("Automatic installation");
+  expect(container.textContent).not.toContain("Pin this build");
+  expect(container.textContent).toContain("Activity has not been verified.");
+  expect(button("Update now").disabled).toBe(true);
+  await act(async () => button("Check and download").click());
+  expect(f.action).toHaveBeenCalledWith({ action: "check" });
+});
+
 it("shows the blocked install reason alongside a feed error and refuses a disabled click", async () => {
   const f = fixture({
     ...waiting,

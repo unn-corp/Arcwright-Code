@@ -1231,3 +1231,97 @@ it.effect("explicit settle clears snooze atomically and stays idempotent after r
     assert.deepInclude((yield* projections.getThreadProjection(threadId)).thread, active);
   }).pipe(Effect.provide(layerTest)),
 );
+
+it.effect(
+  "archive-only delete checks the serialized state and leaves ordinary deletion unchanged",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = ThreadId.make("thread:archive-only-delete");
+      const dispatch = orchestrator.dispatch;
+      yield* dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("purge-create"),
+        threadId,
+        projectId: ProjectId.make("project:archive-only-delete"),
+        title: "Archive guard",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const activeDelete = yield* dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("purge-active"),
+        threadId,
+        archivedOnly: true,
+      }).pipe(Effect.result);
+      assert.equal(activeDelete._tag, "Failure");
+      assert.isNull((yield* projections.getThread(threadId)).deletedAt);
+      yield* dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("purge-archive"),
+        threadId,
+      });
+      const staleSnapshot = yield* projections.getThread(threadId);
+      assert.isNotNull(staleSnapshot.archivedAt);
+      // The competing client's unarchive wins serialization before purge's delete.
+      yield* dispatch({
+        type: "thread.unarchive",
+        commandId: CommandId.make("purge-unarchive"),
+        threadId,
+      });
+      const staleDelete = yield* dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("purge-stale"),
+        threadId,
+        archivedOnly: true,
+      }).pipe(Effect.result);
+      assert.equal(staleDelete._tag, "Failure");
+      const preserved = yield* projections.getThread(threadId);
+      assert.isNull(preserved.archivedAt);
+      assert.isNull(preserved.deletedAt);
+      yield* dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("purge-rearchive"),
+        threadId,
+      });
+      const deleted = yield* dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("purge-archived"),
+        threadId,
+        archivedOnly: true,
+      });
+      assert.deepEqual(
+        deleted.storedEvents.map((stored) => stored.event.type),
+        ["thread.deleted"],
+      );
+      assert.isNotNull((yield* projections.getThread(threadId)).deletedAt);
+
+      const ordinaryThreadId = ThreadId.make("thread:ordinary-delete-active");
+      yield* dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("ordinary-create"),
+        threadId: ordinaryThreadId,
+        projectId: ProjectId.make("project:archive-only-delete"),
+        title: "Ordinary delete",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("ordinary-delete"),
+        threadId: ordinaryThreadId,
+      });
+      assert.isNotNull((yield* projections.getThread(ordinaryThreadId)).deletedAt);
+    }).pipe(Effect.provide(layerTest)),
+);

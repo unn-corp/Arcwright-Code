@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { type BackgroundActivityProfile } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -34,6 +35,34 @@ import {
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
 } from "./SettingsPanels.logic";
 import { searchableSetting } from "./settingsSearch";
+import { SettingsSearchTarget, useSettingsSearchTargetId } from "./settingsLayout";
+
+export const BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS: ReadonlySet<string> = new Set([
+  "background-shared-policy",
+  "git-fetch-interval",
+  "provider-health-check-interval",
+  "host-power-active-interval",
+  "host-power-idle-interval",
+  "pause-when-host-locked",
+  "pause-when-host-low-power",
+  "pause-when-client-low-power",
+  "pause-when-on-battery",
+]);
+
+export function BackgroundActivitySearchOpener({
+  enabled,
+  onOpen,
+}: {
+  enabled: boolean;
+  onOpen: (open: boolean) => void;
+}) {
+  const target = useSettingsSearchTargetId();
+  useEffect(() => {
+    if (enabled && target !== null && BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS.has(target))
+      onOpen(true);
+  }, [enabled, onOpen, target]);
+  return null;
+}
 
 export const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
   balanced: "Balanced",
@@ -66,11 +95,24 @@ const BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES: ReadonlyArray<{
     | "pauseWhenClientLowPower"
     | "pauseWhenOnBattery";
   readonly label: string;
+  readonly targetId: string;
 }> = [
-  { key: "pauseWhenHostLocked", label: "Pause when host is locked" },
-  { key: "pauseWhenHostLowPower", label: "Pause on host low power" },
-  { key: "pauseWhenClientLowPower", label: "Pause on client low power" },
-  { key: "pauseWhenOnBattery", label: "Pause on battery" },
+  {
+    key: "pauseWhenHostLocked",
+    label: "Pause when host is locked",
+    targetId: "pause-when-host-locked",
+  },
+  {
+    key: "pauseWhenHostLowPower",
+    label: "Pause on host low power",
+    targetId: "pause-when-host-low-power",
+  },
+  {
+    key: "pauseWhenClientLowPower",
+    label: "Pause on client low power",
+    targetId: "pause-when-client-low-power",
+  },
+  { key: "pauseWhenOnBattery", label: "Pause on battery", targetId: "pause-when-on-battery" },
 ];
 
 export function resetBackgroundActivitySettings() {
@@ -96,6 +138,15 @@ export function BackgroundActivityAdvancedDialog({
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }) {
+  const searchTargetId = useSettingsSearchTargetId();
+  const initialTarget = useRef<string | null>(null);
+  useEffect(() => {
+    if (searchTargetId && BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS.has(searchTargetId)) {
+      initialTarget.current = searchTargetId;
+    } else if (!open) {
+      initialTarget.current = null;
+    }
+  }, [open, searchTargetId]);
   const canWriteSettings = useScopedSettingsWriteAllowed();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -116,7 +167,12 @@ export function BackgroundActivityAdvancedDialog({
 
   return (
     <Dialog open={open && canWriteSettings} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-w-xl">
+      <DialogPopup
+        className="max-w-xl"
+        initialFocus={() =>
+          (initialTarget.current ? document.getElementById(initialTarget.current) : null) ?? true
+        }
+      >
         <DialogHeader>
           <DialogTitle>Background Activity</DialogTitle>
           <DialogDescription>
@@ -128,7 +184,10 @@ export function BackgroundActivityAdvancedDialog({
             disabled={!canWriteSettings}
             className="min-w-0 overflow-hidden rounded-xl border bg-card text-card-foreground"
           >
-            <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <SettingsSearchTarget
+              id="background-shared-policy"
+              className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
               <div className="min-w-0 space-y-1">
                 <div className="text-sm font-medium">Shared policy</div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
@@ -168,9 +227,12 @@ export function BackgroundActivityAdvancedDialog({
                   </SelectItem>
                 </SelectPopup>
               </Select>
-            </div>
+            </SettingsSearchTarget>
 
-            <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <SettingsSearchTarget
+              id="git-fetch-interval"
+              className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
               <div className="min-w-0 space-y-1">
                 <div className="text-sm font-medium">
                   {searchableSetting("git-fetch-interval").title}
@@ -208,9 +270,12 @@ export function BackgroundActivityAdvancedDialog({
                 </NumberField>
                 <span className="text-xs text-muted-foreground">seconds</span>
               </div>
-            </div>
+            </SettingsSearchTarget>
 
-            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <SettingsSearchTarget
+              id="provider-health-check-interval"
+              className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
               <div className="min-w-0 space-y-1">
                 <div className="text-sm font-medium">Provider health interval</div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
@@ -247,9 +312,12 @@ export function BackgroundActivityAdvancedDialog({
                 </NumberField>
                 <span className="text-xs text-muted-foreground">seconds</span>
               </div>
-            </div>
+            </SettingsSearchTarget>
 
-            <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <SettingsSearchTarget
+              id="host-power-active-interval"
+              className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
               <div className="min-w-0 space-y-1">
                 <div className="text-sm font-medium">Host power monitor</div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
@@ -285,9 +353,12 @@ export function BackgroundActivityAdvancedDialog({
                 </NumberField>
                 <span className="text-xs text-muted-foreground">seconds</span>
               </div>
-            </div>
+            </SettingsSearchTarget>
 
-            <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <SettingsSearchTarget
+              id="host-power-idle-interval"
+              className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
               <div className="min-w-0 space-y-1">
                 <div className="text-sm font-medium">Idle host monitor</div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
@@ -323,31 +394,34 @@ export function BackgroundActivityAdvancedDialog({
                 </NumberField>
                 <span className="text-xs text-muted-foreground">seconds</span>
               </div>
-            </div>
+            </SettingsSearchTarget>
 
             <div className="grid gap-0 border-t sm:grid-cols-2">
-              {BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES.map(({ key, label }) => (
-                <label
+              {BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES.map(({ key, label, targetId }) => (
+                <SettingsSearchTarget
                   key={key}
+                  id={targetId}
                   className="flex items-center justify-between gap-3 border-b px-4 py-3 last:border-b-0 sm:border-r sm:even:border-r-0"
                 >
-                  <span className="text-sm font-medium">{label}</span>
-                  <Switch
-                    checked={resolvedBackgroundActivity[key]}
-                    onCheckedChange={(checked) =>
-                      updateSettings(
-                        backgroundActivityOverrideSettings(
-                          settings.backgroundActivity,
-                          resolvedBackgroundActivity,
-                          {
-                            [key]: Boolean(checked),
-                          },
-                        ),
-                      )
-                    }
-                    aria-label={label}
-                  />
-                </label>
+                  <label className="flex w-full items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{label}</span>
+                    <Switch
+                      checked={resolvedBackgroundActivity[key]}
+                      onCheckedChange={(checked) =>
+                        updateSettings(
+                          backgroundActivityOverrideSettings(
+                            settings.backgroundActivity,
+                            resolvedBackgroundActivity,
+                            {
+                              [key]: Boolean(checked),
+                            },
+                          ),
+                        )
+                      }
+                      aria-label={label}
+                    />
+                  </label>
+                </SettingsSearchTarget>
               ))}
             </div>
           </fieldset>

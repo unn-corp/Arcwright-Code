@@ -1,0 +1,66 @@
+import { act, type ComponentProps } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, expect, it, vi } from "vite-plus/test";
+import { BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS } from "./BackgroundActivitySettings";
+
+const state = vi.hoisted(() => ({ hash: "", environmentIds: ["one", "two"] }));
+vi.mock(import("@tanstack/react-router"), async (original) => ({
+  ...(await original()),
+  useLocation: (({ select }: { select: (location: { hash: string }) => unknown }) =>
+    select({ hash: state.hash })) as never,
+}));
+vi.mock(import("./SettingsScopeContext"), async (original) => ({
+  ...(await original()),
+  useSettingsScope: (() => ({
+    scope: { kind: "all", environmentIds: state.environmentIds },
+    connectedEnvironments: [],
+  })) as never,
+}));
+vi.mock(import("../../state/environments"), async (original) => ({
+  ...(await original()),
+  useEnvironments: (() => ({ environments: [] })) as never,
+}));
+vi.mock(import("./SettingsScopeNotice"), () => ({
+  SettingsScopeNotice: ({
+    children,
+    targetId,
+  }: ComponentProps<typeof import("./SettingsScopeNotice").SettingsScopeNotice>) => (
+    <section data-target-id={targetId}>{children}</section>
+  ),
+}));
+import { SettingsScopeBoundary } from "../../routes/settings";
+
+let root: Root | undefined;
+let container: HTMLDivElement | undefined;
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  container?.remove();
+  vi.unstubAllGlobals();
+});
+
+it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
+  "keeps %s reachable by asking for one computer before rendering its settings",
+  async (target) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    state.hash = `#${target}`;
+    state.environmentIds = ["one", "two"];
+    const render = () =>
+      act(async () =>
+        root!.render(
+          <SettingsScopeBoundary pathname="/settings/general">
+            <p>Settings destination</p>
+          </SettingsScopeBoundary>,
+        ),
+      );
+    await render();
+    expect(container.textContent).toContain("Choose one computer");
+    expect(container.textContent).not.toContain("Settings destination");
+    expect(container.querySelector("section")?.getAttribute("data-target-id")).toBe(`#${target}`);
+    state.environmentIds = ["one"];
+    await render();
+    expect(container.textContent).toBe("Settings destination");
+  },
+);

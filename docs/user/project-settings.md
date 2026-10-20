@@ -155,7 +155,7 @@ built-in default. Leave a setting on **Inherit** to let the next tier decide.
 Browser access changes apply when an agent session next starts.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
-declares many nested submodules, set **Submodules** in **Settings → General** (with the project
+declares many nested submodules, set **Submodules** in **Settings → Source Control → Worktrees** (with the project
 selected to override it there) to **Top level only** to stop at the ones the repository declares
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
@@ -242,12 +242,21 @@ Existing captures in the shared browser folder (including desktop-local recordin
 rotated logs still have their separate retention periods. Old files elsewhere are not moved or
 deleted automatically because their ownership is unknown.
 
-Choose **Delete now** to run the enabled rules immediately. The latest results show which
+Choose **Run cleanup** to run the enabled rules immediately. The latest results show which
 worktrees were removed or kept and why, plus any failures.
 Results also list folders in the worktree folder that no thread uses, with their sizes; cleanup never removes them, so remove them manually if you want.
 
 Browser captures and rotated logs have separate retention periods. Expired capture links stop
 working. Current logs, message attachments, and browser profiles are kept.
+
+## Recover or purge archived conversations
+
+Open **Settings → Archive** to find archived conversations and unarchive them. To permanently
+remove archived conversations, use **Purge all** and choose all projects or one project within
+the selected computer scope. Review the scope and count before confirming. Search and browse
+filters do not narrow purge scope. Unavailable computers are reported separately; failed
+conversations remain available for retry. Existing worktree and evidence cleanup policies still
+apply when conversations are deleted.
 
 ## Project icons
 

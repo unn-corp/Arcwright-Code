@@ -12,6 +12,8 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useId,
+  useRef,
   useState,
 } from "react";
 
@@ -25,6 +27,7 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import { SettingsScopeSentence } from "./SettingsScopeSentence";
+import { SettingsSectionNavigation } from "./SettingsSectionNavigation";
 import {
   isProjectScopedSettingKey,
   listProjectOverrides,
@@ -230,12 +233,15 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLElement>(sectionProps.id);
+  const generatedId = useId();
 
   return (
     <section
       {...sectionProps}
+      id={sectionProps.id ?? generatedId}
+      data-settings-section={title}
       ref={targetRef}
-      tabIndex={sectionProps.id ? -1 : sectionProps.tabIndex}
+      tabIndex={sectionProps.tabIndex ?? -1}
       className={cn(!hideTitle && "space-y-2.5", className)}
     >
       {hideTitle ? (
@@ -560,6 +566,8 @@ export function SettingsPageContainer({
   className?: string;
   width?: WorkspacePageWidth;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
   const highlightTarget = useLocation({
@@ -582,14 +590,20 @@ export function SettingsPageContainer({
       highlightTarget={highlightTarget}
       onTargetHandled={clearTargetHash}
     >
-      <div
-        className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
-        data-settings-page-scroll
-      >
-        <WorkspacePageContainer width={width} className={cn("gap-8", className)}>
-          <SettingsScopeSentence />
-          {children}
-        </WorkspacePageContainer>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <SettingsSectionNavigation scrollRef={scrollRef} contentRef={contentRef} />
+        <div
+          ref={scrollRef}
+          className="topbar-scroll-fade scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto pt-8 md:pl-7 md:pt-0"
+          data-settings-page-scroll
+        >
+          <div ref={contentRef} tabIndex={-1}>
+            <WorkspacePageContainer width={width} className={cn("gap-8", className)}>
+              <SettingsScopeSentence />
+              {children}
+            </WorkspacePageContainer>
+          </div>
+        </div>
       </div>
     </SettingsSearchTargetProvider>
   );

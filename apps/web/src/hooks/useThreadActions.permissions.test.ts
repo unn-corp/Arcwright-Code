@@ -27,15 +27,20 @@ const state = vi.hoisted(() => ({
     projectId: ProjectId;
     title: string;
     worktreePath: string | null;
-    session: { status: "ready" | "stopped" } | null;
-    latestTurn: null;
+    runtime: { status: "idle" | "running" } | null;
+    latestRun: null;
   }[],
-  requests: [] as { action: string; environmentId: string; input: { threadId?: string } }[],
+  requests: [] as {
+    action: string;
+    environmentId: string;
+    input: { threadId?: string; archivedOnly?: boolean };
+  }[],
   localEffects: [] as string[],
   confirm: vi.fn<(message: string) => Promise<boolean>>(),
   toasts: [] as string[],
   afterRequest: undefined as ((action: string) => void) | undefined,
   sessionLookupFails: false,
+  archiveDeleteRejected: false,
 }));
 
 vi.mock("react", () => ({
@@ -54,12 +59,18 @@ vi.mock("../state/session", () => ({
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand:
     (action: string) =>
-    async (request: { environmentId: string; input: { threadId?: string } }) => {
+    async (request: {
+      environmentId: string;
+      input: { threadId?: string; archivedOnly?: boolean };
+    }) => {
       state.requests.push({ action, ...request });
       const scope =
         action === "removeWorktree" ? AuthSourceControlWriteScope : AuthOrchestrationOperateScope;
       if (!state.scopes.get(request.environmentId)?.has(scope)) {
         return AsyncResult.failure(Cause.fail(new Error("Server denied the request")));
+      }
+      if (request.input.archivedOnly && state.archiveDeleteRejected) {
+        return AsyncResult.failure(Cause.fail(new Error("Conversation is no longer archived")));
       }
       state.afterRequest?.(action);
       return AsyncResult.success(undefined);
@@ -220,8 +231,8 @@ beforeEach(() => {
       projectId: ProjectId.make("project"),
       title: "Thread",
       worktreePath: null,
-      session: null,
-      latestTurn: null,
+      runtime: { status: "idle" },
+      latestRun: null,
     },
   ];
   state.requests = [];
@@ -230,9 +241,70 @@ beforeEach(() => {
   state.toasts = [];
   state.afterRequest = undefined;
   state.sessionLookupFails = false;
+  state.archiveDeleteRejected = false;
 });
 
 describe("thread action permissions", () => {
+  it("forwards archive-only deletion without stopping a newly active session", async () => {
+    state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
+    state.threads[0]!.runtime = { status: "running" };
+    state.archiveDeleteRejected = true;
+    const result = await useThreadActions().deleteThread(target, { archivedOnly: true });
+    expect(result._tag).toBe("Failure");
+    expect(state.requests).toEqual([
+      {
+        action: "delete",
+        environmentId: secondary,
+        input: { threadId: target.threadId, archivedOnly: true },
+      },
+    ]);
+    expect(state.localEffects).toEqual([]);
+  });
+
+  it("requires the target grant before sending archive-only deletion", async () => {
+    expect((await useThreadActions().deleteThread(target, { archivedOnly: true }))._tag).toBe(
+      "Failure",
+    );
+    expect(state.requests).toEqual([]);
+    expect(state.localEffects).toEqual([]);
+  });
+
+  it("cleans local state only after guarded deletion succeeds", async () => {
+    state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
+    state.threads[0]!.runtime = { status: "running" };
+    expect((await useThreadActions().deleteThread(target, { archivedOnly: true }))._tag).toBe(
+      "Success",
+    );
+    expect(state.requests.map((request) => request.action)).toEqual(["delete"]);
+    expect(state.localEffects).toEqual(
+      expect.arrayContaining([
+        "refresh-archive",
+        "release-uploads",
+        "clear-draft",
+        "clear-project-draft",
+        "clear-terminal-ui",
+      ]),
+    );
+  });
+
+  it("retains the optional worktree prompt and removal after guarded deletion", async () => {
+    state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
+    state.scopes.get(secondary)!.add(AuthSourceControlWriteScope);
+    state.threads[0]!.worktreePath = "/project-worktree";
+    expect((await useThreadActions().deleteThread(target, { archivedOnly: true }))._tag).toBe(
+      "Success",
+    );
+    expect(state.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("Delete the worktree too?"),
+      expect.anything(),
+    );
+    expect(state.requests.map((request) => request.action)).toEqual([
+      "delete",
+      "removeWorktree",
+      "refreshStatus",
+    ]);
+    expect(state.requests[0]?.input).toEqual({ threadId: target.threadId, archivedOnly: true });
+  });
   it.each(operations)("$name requires the target environment's grant", async ({ run }) => {
     const result = await run(useThreadActions(), target);
     expect(result._tag).toBe("Failure");
@@ -312,7 +384,7 @@ describe("thread action permissions", () => {
 
   it("stops before delete and local cleanup when permission is revoked during session stop", async () => {
     state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
-    state.threads[0]!.session = { status: "ready" };
+    state.threads[0]!.runtime = { status: "running" };
     state.afterRequest = () => state.scopes.get(secondary)!.clear();
     expect((await useThreadActions().deleteThread(target))._tag).toBe("Failure");
     expect(state.requests.map((request) => request.action)).toEqual(["stopSession"]);

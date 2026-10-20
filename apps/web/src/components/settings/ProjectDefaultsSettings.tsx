@@ -50,7 +50,13 @@ function isWorktreeSubmodules(value: string | null): value is WorktreeSubmodules
   return value !== null && (WORKTREE_SUBMODULES_OPTIONS as readonly string[]).includes(value);
 }
 
-export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
+export function ProjectDefaultsSettings({
+  category,
+  rowsOnly = false,
+}: {
+  category: ProjectSettingsCategory;
+  rowsOnly?: boolean;
+}) {
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -259,11 +265,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     />
   );
 
-  return (
-    <SettingsSection
-      id={category === "source-control" ? "source-control-defaults" : "project-defaults"}
-      title={category === "source-control" ? "Repositories" : "New threads"}
-    >
+  const rows = (
+    <>
       {category === "project" ? (
         <>
           {modelRow}
@@ -534,6 +537,20 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           />
         </>
       )}
+    </>
+  );
+  return rowsOnly ? (
+    rows
+  ) : (
+    <SettingsSection
+      id={
+        category === "general" || category === "project"
+          ? "project-defaults"
+          : "source-control-defaults"
+      }
+      title={category === "general" || category === "project" ? "New threads" : "Repositories"}
+    >
+      {rows}
     </SettingsSection>
   );
 }

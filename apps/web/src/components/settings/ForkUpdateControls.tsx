@@ -29,10 +29,12 @@ export function ForkUpdateControls({
   controller,
   device,
   environmentId,
+  mode = "full",
 }: {
   controller: ForkUpdateController;
   device: string;
   environmentId?: EnvironmentId;
+  mode?: "full" | "contextual";
 }) {
   const { status, busy, error } = useForkUpdates(controller);
   const [installReview, setInstallReview] = useState<ForkBuildIdentity | null>(null);
@@ -212,43 +214,47 @@ export function ForkUpdateControls({
           }
         />
       ) : null}
-      <SettingsRow
-        title="Update channel"
-        description={`Saved on ${device}. Other devices keep their own preferences.`}
-        control={
-          <Select
-            value={status.policy.channel}
-            onValueChange={(value) => {
-              if (value === "stable" || value === "nightly")
-                request(controller.setPolicy({ channel: value }));
-            }}
-          >
-            <SelectTrigger size="sm" aria-label={`${device} update channel`} disabled={busy}>
-              <SelectValue>
-                {status.policy.channel === "nightly" ? "Nightly" : "Stable"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="stable">Stable</SelectItem>
-              <SelectItem value="nightly">Nightly</SelectItem>
-            </SelectPopup>
-          </Select>
-        }
-      />
-      <SettingsRow
-        title="Automatic installation"
-        description="Install automatically when idle, or turn this off and use Update now to choose when to restart. Update now asks before interrupting running sessions."
-        control={
-          <Switch
-            aria-label={`${device} automatic installation`}
-            checked={status.policy.automaticInstallation}
-            disabled={busy}
-            onCheckedChange={(enabled) =>
-              request(controller.setPolicy({ automaticInstallation: enabled }))
-            }
-          />
-        }
-      />
+      {mode === "full" ? (
+        <SettingsRow
+          title="Update channel"
+          description={`Saved on ${device}. Other devices keep their own preferences.`}
+          control={
+            <Select
+              value={status.policy.channel}
+              onValueChange={(value) => {
+                if (value === "stable" || value === "nightly")
+                  request(controller.setPolicy({ channel: value }));
+              }}
+            >
+              <SelectTrigger size="sm" aria-label={`${device} update channel`} disabled={busy}>
+                <SelectValue>
+                  {status.policy.channel === "nightly" ? "Nightly" : "Stable"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="stable">Stable</SelectItem>
+                <SelectItem value="nightly">Nightly</SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+      ) : null}
+      {mode === "full" ? (
+        <SettingsRow
+          title="Automatic installation"
+          description="Install automatically when idle, or turn this off and use Update now to choose when to restart. Update now asks before interrupting running sessions."
+          control={
+            <Switch
+              aria-label={`${device} automatic installation`}
+              checked={status.policy.automaticInstallation}
+              disabled={busy}
+              onCheckedChange={(enabled) =>
+                request(controller.setPolicy({ automaticInstallation: enabled }))
+              }
+            />
+          }
+        />
+      ) : null}
       {status.storageMigrationPending ? (
         <SettingsRow
           title="Historical database storage"
@@ -290,35 +296,39 @@ export function ForkUpdateControls({
           }
         />
       ) : null}
-      <SettingsRow
-        title={status.policy.pinnedBuild !== null ? "Updates pinned" : "Pin this build"}
-        description={
-          status.policy.pinnedBuild !== null
-            ? `${pinnedBuildLabel ?? "Pinned build"}. Resume updates does not resume agent work.`
-            : "Keep the installed build until you explicitly resume updates."
-        }
-        control={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={
-              busy ||
-              (status.policy.pinnedBuild === null &&
-                !/^[a-f0-9]{64}$/.test(status.currentBuild.artifactSha256))
-            }
-            onClick={() =>
-              request(
-                controller.setPolicy({
-                  pinnedBuild:
-                    status.policy.pinnedBuild !== null ? null : status.currentBuild.artifactSha256,
-                }),
-              )
-            }
-          >
-            {status.policy.pinnedBuild !== null ? "Resume updates" : "Pin build"}
-          </Button>
-        }
-      />
+      {mode === "full" ? (
+        <SettingsRow
+          title={status.policy.pinnedBuild !== null ? "Updates pinned" : "Pin this build"}
+          description={
+            status.policy.pinnedBuild !== null
+              ? `${pinnedBuildLabel ?? "Pinned build"}. Resume updates does not resume agent work.`
+              : "Keep the installed build until you explicitly resume updates."
+          }
+          control={
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={
+                busy ||
+                (status.policy.pinnedBuild === null &&
+                  !/^[a-f0-9]{64}$/.test(status.currentBuild.artifactSha256))
+              }
+              onClick={() =>
+                request(
+                  controller.setPolicy({
+                    pinnedBuild:
+                      status.policy.pinnedBuild !== null
+                        ? null
+                        : status.currentBuild.artifactSha256,
+                  }),
+                )
+              }
+            >
+              {status.policy.pinnedBuild !== null ? "Resume updates" : "Pin build"}
+            </Button>
+          }
+        />
+      ) : null}
       {status.recoveryOptions.length ? (
         <SettingsRow
           title="Recovery"

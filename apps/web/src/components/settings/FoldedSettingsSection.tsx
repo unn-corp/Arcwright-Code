@@ -12,6 +12,7 @@ export function FoldedSettingsSection({
   summary,
   control,
   headerPlacement = "inside",
+  searchTargetPrefix,
   children,
 }: {
   readonly id: string;
@@ -19,6 +20,7 @@ export function FoldedSettingsSection({
   readonly summary?: string | null;
   readonly control?: ReactNode;
   readonly headerPlacement?: "inside" | "outside";
+  readonly searchTargetPrefix?: string;
   readonly children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -26,14 +28,26 @@ export function FoldedSettingsSection({
   const targetRef = useSettingsSearchTarget<HTMLElement>(id);
   // A search jump lands inside the fold, so open it before the scroll runs.
   const [openedForTarget, setOpenedForTarget] = useState<string | null>(null);
-  if (searchTargetId === id && openedForTarget !== id) {
-    setOpenedForTarget(id);
+  if (searchTargetId === null && openedForTarget !== null) setOpenedForTarget(null);
+  if (
+    searchTargetId !== null &&
+    (searchTargetId === id ||
+      (searchTargetPrefix && searchTargetId.startsWith(searchTargetPrefix))) &&
+    openedForTarget !== searchTargetId
+  ) {
+    setOpenedForTarget(searchTargetId);
     if (!open) setOpen(true);
   }
 
   if (headerPlacement === "outside") {
     return (
-      <section id={id} ref={targetRef} tabIndex={-1} className="outline-none">
+      <section
+        id={id}
+        data-settings-section={typeof title === "string" ? title : undefined}
+        ref={targetRef}
+        tabIndex={-1}
+        className="outline-none"
+      >
         <Collapsible open={open} onOpenChange={setOpen}>
           <div className="space-y-2.5">
             <div
@@ -64,7 +78,13 @@ export function FoldedSettingsSection({
   }
 
   return (
-    <section id={id} ref={targetRef} tabIndex={-1} className="outline-none">
+    <section
+      id={id}
+      data-settings-section={typeof title === "string" ? title : undefined}
+      ref={targetRef}
+      tabIndex={-1}
+      className="outline-none"
+    >
       <Collapsible open={open} onOpenChange={setOpen} render={<SettingsGroup divided={false} />}>
         <div className="flex items-center gap-4 px-3 sm:px-4">
           <CollapsibleTrigger className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring rounded-md">

@@ -1,5 +1,5 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -13,6 +13,9 @@ const state = vi.hoisted(() => ({
 vi.mock(import("@tanstack/react-router"), async (original) => ({
   ...(await original()),
   useLocation: (() => "") as never,
+  Link: (({ to, children }: { to: string; children: ReactNode }) => (
+    <a href={to}>{children}</a>
+  )) as never,
 }));
 vi.mock(import("./SettingsScopeContext"), async (original) => ({
   ...(await original()),
@@ -57,7 +60,10 @@ import { KeybindingsSettingsPanel } from "./KeybindingsSettings";
 let root: Root;
 let container: HTMLDivElement;
 
-const render = () => act(async () => root.render(<KeybindingsSettingsPanel />));
+const render = async () => {
+  await act(async () => root.render(<KeybindingsSettingsPanel />));
+  await act(async () => container.querySelector("summary")?.click());
+};
 const openButton = () => {
   const button = container.querySelector<HTMLButtonElement>(
     'button[aria-label="Open keybindings.json"]',

@@ -9,6 +9,8 @@ import {
   isSettingsSearchScopeAvailable,
   searchableSetting,
   searchSettings,
+  settingsTargetDestination,
+  settingsTargetAnchor,
   SETTINGS_SEARCH_ITEMS,
   type SettingsSearchItem,
 } from "./settingsSearch";
@@ -157,14 +159,14 @@ describe("searchSettings", () => {
     expect(SETTINGS_SEARCH_ITEMS.some((item) => item.id === "quit-confirmation")).toBe(true);
     expect(searchSettings("hold to quit")).toEqual([]);
     expect(searchSettings("wsl")).toEqual([]);
-    expect(searchSettings("update track")).toEqual([]);
+    expect(searchSettings("update track").map((item) => item.id)).not.toContain("update-track");
   });
 
   it("finds the About update rows", () => {
     expect(searchSettings("check for updates").map((item) => item.id)).toContain("app-version");
     expect(SETTINGS_SEARCH_ITEMS.find((item) => item.id === "update-track")).toMatchObject({
       title: "Update track",
-      to: "/settings/general",
+      to: "/settings/about",
       releaseChannelOnly: true,
     });
   });
@@ -337,7 +339,7 @@ describe("searchSettings", () => {
   it("routes appearance settings to their current section", () => {
     expect(searchSettings("Always compact composer")[0]).toMatchObject({
       id: "always-compact-composer",
-      to: "/settings/appearance",
+      to: "/settings/general",
     });
     expect(searchSettings("AI message bubbles")[0]).toMatchObject({
       id: "assistant-message-bubbles",
@@ -353,7 +355,7 @@ describe("searchSettings", () => {
     });
     expect(searchSettings("composer context")[0]).toMatchObject({
       id: "composer-context",
-      to: "/settings/appearance",
+      to: "/settings/general",
     });
     expect(searchSettings("environment identification")[0]).toMatchObject({
       id: "environment-identification",
@@ -545,7 +547,13 @@ describe("settings search targets", () => {
     const streaming = getSettingsSearchTargetScope("response-streaming")!;
     expect(streaming.scope).toBe("project-defaults");
     expect(isSettingsSearchScopeAvailable(streaming.scope, "project")).toBe(true);
-    for (const id of ["legacy-plan-mode", "legacy-context-window-indicator", "legacy-sidebar"]) {
+    for (const id of [
+      "legacy-plan-mode",
+      "legacy-context-window-indicator",
+      "legacy-sidebar",
+      "diff-layout",
+      "hide-whitespace-changes",
+    ]) {
       expect(getSettingsSearchTargetScope(id)!.scope).toBeNull();
     }
   });
@@ -654,5 +662,49 @@ describe("settings sidebar scope", () => {
     expect(isSettingsOverviewVisible({ machine: "remote" })).toBe(false);
     expect(isSettingsOverviewVisible({ project: "project" })).toBe(true);
     expect(isSettingsOverviewVisible({ project: "project", checkout: "checkout" })).toBe(true);
+  });
+});
+
+describe("relocated settings links", () => {
+  it("keeps main's remote-start terminology at the relocated destination", () => {
+    expect(searchableSetting("start-from-origin")).toMatchObject({ title: "Start from remote" });
+    expect(searchSettings("start remote")).toContainEqual(
+      expect.objectContaining({ id: "start-from-origin", to: "/settings/source-control" }),
+    );
+  });
+  it("redirects old section anchors to a visible destination", () => {
+    expect(settingsTargetDestination("#browser")).toBe("/settings/integrations");
+    expect(settingsTargetAnchor("#browser")).toBe("integrations-links");
+    expect(settingsTargetDestination("#text-generation")).toBe("/settings/providers");
+    expect(settingsTargetAnchor("#text-generation")).toBe("provider-text-generation");
+    expect(settingsTargetAnchor("#behavior")).toBe("composer");
+    expect(settingsTargetAnchor("#project-defaults")).toBe("new-threads-projects");
+    expect(settingsTargetDestination("#source-control-defaults")).toBe("/settings/source-control");
+    expect(settingsTargetAnchor("#source-control-defaults")).toBe("source-control");
+    expect(settingsTargetAnchor("#dictation-microphone")).toBe("dictation-microphone");
+  });
+  it.each([
+    ["dictation-microphone", "/settings/integrations"],
+    ["diff-layout", "/settings/source-control"],
+    ["start-from-origin", "/settings/source-control"],
+    ["standard-thread-feed", "/settings/appearance"],
+    ["math-rendering", "/settings/appearance"],
+    ["compact-idle-threads", "/settings/general"],
+    ["worktree-submodules", "/settings/source-control"],
+    ["text-generation-model", "/settings/providers"],
+    ["provider-update-checks", "/settings/providers"],
+    ["app-updates", "/settings/about"],
+    ["privacy-policy", "/settings/about"],
+    ["legacy-plan-mode", "/settings/diagnostics"],
+    ["git-fetch-interval", "/settings/general"],
+    ["provider-health-check-interval", "/settings/general"],
+    ["composer-context", "/settings/general"],
+  ])("resolves old anchors for %s to its current page", (id, destination) => {
+    expect(settingsTargetDestination(`#${id}`)).toBe(destination);
+    expect(settingsTargetDestination(id)).toBe(destination);
+  });
+  it("leaves page-local and unknown anchors alone", () => {
+    expect(settingsTargetDestination("provider-instance-example-models")).toBeNull();
+    expect(settingsTargetDestination("")).toBeNull();
   });
 });

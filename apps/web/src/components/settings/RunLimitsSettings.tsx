@@ -117,16 +117,16 @@ export function RunLimitsSettings() {
     environments.find((environment) => `${environment.environmentId}:defaults` === selection) ??
     environments[0];
   return (
-    <SettingsSection title="Run limits">
+    <SettingsSection id="provider-run-limits" title="Run limits">
       <p className="px-4 py-3 text-xs text-muted-foreground">
         Optional limits are enforced on the server, even while this app is closed. Reaching a limit
         stops work and holds queued messages.
       </p>
       <div className="px-4 py-3">
-        <label className="text-xs">
-          Apply to{" "}
+        <label className="flex min-w-0 flex-col gap-2 text-xs sm:flex-row sm:items-center">
+          <span className="shrink-0">Apply to</span>
           <select
-            className="ml-2 rounded border bg-background px-2 py-1"
+            className="min-w-0 w-full rounded border bg-background px-2 py-1 sm:flex-1"
             value={selectedThread ? selection : target ? `${target.environmentId}:defaults` : ""}
             onChange={(event) => setSelection(event.target.value)}
           >

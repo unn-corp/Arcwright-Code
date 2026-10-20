@@ -1,3 +1,4 @@
+import { VoiceDictationSettings } from "./RelocatedGeneralSettings";
 import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -46,7 +47,7 @@ import {
 import { isValidSearchUrlTemplate } from "@t3tools/shared/preview";
 import { PREVIEW_VIEWPORT_PRESETS } from "@t3tools/shared/previewViewport";
 import { MoreVertical, Plus as PlusIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { ScreenRotationIcon } from "~/browser/ScreenRotationIcon";
 import { AnimatedHeight } from "~/components/AnimatedHeight";
@@ -956,6 +957,25 @@ export function DeviceIntegrationControls({
   return (
     <>
       <SettingsRow
+        title="Device readiness"
+        description={
+          !environmentId
+            ? "Connect to a computer to inspect device setup."
+            : !loaded
+              ? "Checking device setup…"
+              : !enabled
+                ? "Enable the device hub below to connect devices to this computer."
+                : hubReady
+                  ? "The device hub is ready. Agent access is controlled separately below."
+                  : "Complete device hub setup below before connecting devices."
+        }
+        status={
+          environmentId && enabled ? (
+            <DeviceHubSetupStatus state={state} pending={pending === "hub"} compact />
+          ) : undefined
+        }
+      />
+      <SettingsRow
         {...searchableSetting("device-hub")}
         serverScoped
         settingKeys={["enableDeviceSupport"]}
@@ -1069,12 +1089,32 @@ export function DeviceIntegrationControls({
           </>
         }
       />
-      {environmentId ? (
-        <DeviceHostUpdates
-          state={{ ...state, hosts: state.hosts.filter((host) => host.kind === "local") }}
-          environmentId={environmentId}
-        />
-      ) : null}
+      <details
+        id="device-host-maintenance"
+        data-settings-section="Host maintenance"
+        className="group px-3 py-2 sm:px-4"
+      >
+        <summary className="min-h-11 cursor-pointer rounded-md py-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+          Host maintenance
+        </summary>
+        {environmentId ? (
+          <DeviceHostUpdates
+            state={{ ...state, hosts: state.hosts.filter((host) => host.kind === "local") }}
+            environmentId={environmentId}
+          />
+        ) : null}
+        {!state.hosts.some(
+          (host) =>
+            host.kind === "local" &&
+            ["installing", "starting", "failed"].includes(
+              state.hostStatuses[host.id]?.status ?? "",
+            ),
+        ) ? (
+          <p className="py-2 text-sm text-muted-foreground">
+            No device host maintenance is pending.
+          </p>
+        ) : null}
+      </details>
       <DeviceHostsSettings environmentId={environmentId} />
     </>
   );
@@ -1162,6 +1202,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
   const { environments, isReady: environmentsReady } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const [sources, setSources] = useState<ReadonlyArray<BrowserImportSource> | null>(null);
+  const [managedProfileId, setManagedProfileId] = useState<string | null>(null);
   const [importSession, setImportSession] = useState<{
     readonly source: BrowserImportSource;
     readonly environmentId: EnvironmentId;
@@ -1418,7 +1459,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
               )}
             >
               <span className="flex min-w-0 flex-1 items-center gap-2">
-                {builtIn ? (
+                {builtIn || managedProfileId !== profile.id ? (
                   <span
                     className={cn(
                       "truncate text-sm text-foreground",
@@ -1459,6 +1500,15 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
                   <MoreVertical />
                 </MenuTrigger>
                 <MenuPopup align="end">
+                  {!builtIn ? (
+                    <MenuItem
+                      onClick={() =>
+                        setManagedProfileId(managedProfileId === profile.id ? null : profile.id)
+                      }
+                    >
+                      {managedProfileId === profile.id ? "Done renaming" : "Rename profile"}
+                    </MenuItem>
+                  ) : null}
                   <MenuItem
                     disabled={!settingsHydrated || isDefault}
                     onClick={() => {
@@ -1618,36 +1668,53 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
 }
 
 export function IntegrationsSettingsPanel() {
-  const previewDefaultsDisabled = !isElectron;
-  const previewDefaults = (
-    <>
-      <BrowserProfilesSetting disabled={previewDefaultsDisabled} />
-      <BrowserViewportSetting disabled={previewDefaultsDisabled} />
-      <BrowserZoomSetting disabled={previewDefaultsDisabled} />
-      <BrowserAppearanceSetting disabled={previewDefaultsDisabled} />
-      <BrowserRecordingFrameRateSetting disabled={previewDefaultsDisabled} />
-      <BrowserRecordingInputSettings disabled={previewDefaultsDisabled} />
-      <BrowserLinkTargetSetting disabled={previewDefaultsDisabled} />
-      <BrowserAutoShowFloatingPreviewSetting disabled={previewDefaultsDisabled} />
-    </>
-  );
+  const desktopOnly = (children: ReactNode) =>
+    isElectron ? (
+      children
+    ) : (
+      <SettingsUnavailableGroup message="Available in the desktop app.">
+        {children}
+      </SettingsUnavailableGroup>
+    );
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="browser" title="Browser">
+      <SettingsSection id="integrations-links" title="Links & previews">
         <AgentBrowserAccessSetting />
-        {previewDefaultsDisabled ? (
-          <SettingsUnavailableGroup message="Only available in the desktop app.">
-            {previewDefaults}
-          </SettingsUnavailableGroup>
-        ) : (
-          previewDefaults
+        {desktopOnly(
+          <>
+            <BrowserLinkTargetSetting disabled={!isElectron} />
+            <BrowserAutoShowFloatingPreviewSetting disabled={!isElectron} />
+          </>,
         )}
         {/* Not desktop-only: web clients search from server-run browser tabs too. */}
         <BrowserSearchEngineSetting />
         <PullRequestLinksOpenInAppSetting />
       </SettingsSection>
+      <SettingsSection id="integrations-profiles" title="Browser profiles">
+        {desktopOnly(<BrowserProfilesSetting disabled={!isElectron} />)}
+      </SettingsSection>
+      <SettingsSection id="integrations-defaults" title="Browser defaults">
+        {desktopOnly(
+          <>
+            <BrowserViewportSetting disabled={!isElectron} />
+            <BrowserZoomSetting disabled={!isElectron} />
+            <BrowserAppearanceSetting disabled={!isElectron} />
+          </>,
+        )}
+      </SettingsSection>
+      <SettingsSection id="integrations-recordings" title="Recordings">
+        {desktopOnly(
+          <>
+            <BrowserRecordingFrameRateSetting disabled={!isElectron} />
+            <BrowserRecordingInputSettings disabled={!isElectron} />
+          </>,
+        )}
+      </SettingsSection>
       <DeviceIntegrationSettings />
+      <SettingsSection id="integrations-voice" title="Voice & dictation">
+        <VoiceDictationSettings />
+      </SettingsSection>
     </SettingsPageContainer>
   );
 }

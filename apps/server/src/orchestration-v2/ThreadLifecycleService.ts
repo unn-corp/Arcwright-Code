@@ -48,6 +48,7 @@ export class ThreadLifecycleService extends Context.Service<
     readonly delete: (input: {
       readonly commandId: CommandId;
       readonly threadId: ThreadId;
+      readonly archivedOnly?: boolean;
     }) => Effect.Effect<Pick<OrchestrationV2ThreadProjection, "thread">, ThreadLifecycleError>;
     readonly updateMetadata: (input: {
       readonly commandId: CommandId;
@@ -105,6 +106,7 @@ const make = Effect.gen(function* () {
         type: "thread.delete",
         commandId: input.commandId,
         threadId: input.threadId,
+        ...(input.archivedOnly === undefined ? {} : { archivedOnly: input.archivedOnly }),
       }),
     updateMetadata: (input) =>
       dispatch("update-metadata", input.threadId, {

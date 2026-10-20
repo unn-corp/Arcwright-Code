@@ -20,6 +20,8 @@ export const WEB_DOM_TEST_FILES = [
   "src/components/organizations/OrganizationGraphView.dom.test.tsx",
   "src/components/organizations/OrganizationsPage.test.tsx",
   "src/components/preview/PreviewAnnotationEditor.test.tsx",
+  "src/components/settings/AutomationSettings.test.tsx",
+  "src/components/settings/BackgroundActivitySettings.test.tsx",
   "src/components/settings/ForkUpdateControls.test.tsx",
   "src/components/settings/PairingQrScanner.test.tsx",
   "src/components/settings/SettingsPanels.privacy.test.tsx",

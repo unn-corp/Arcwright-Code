@@ -36,6 +36,7 @@ import { toastManager } from "../ui/toast";
 import { ExpandableText } from "./ExpandableText";
 import { ResourceTelemetryDiagnostics } from "./ResourceTelemetryDiagnostics";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import { CompatibilitySettingsSection } from "./SettingsPanels";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { TelemetryExportSettings } from "./TelemetryExportSettings";
@@ -927,6 +928,7 @@ export function DiagnosticsSettingsPanel() {
   if (!canReadDiagnostics) {
     return (
       <SettingsPageContainer>
+        <CompatibilitySettingsSection />
         <p className="text-sm text-muted-foreground">
           {environmentId === null
             ? "Connect an environment to see diagnostics."
@@ -940,6 +942,7 @@ export function DiagnosticsSettingsPanel() {
 
   return (
     <SettingsPageContainer width="expanded" className="gap-10">
+      <CompatibilitySettingsSection />
       <ResourceTelemetryDiagnostics environmentId={environmentId} />
 
       <SettingsSection

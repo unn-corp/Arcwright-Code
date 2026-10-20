@@ -28,10 +28,11 @@ vi.mock("./SettingsScopeContext", () => ({
 vi.mock("../../hooks/useSettings", () => ({
   useClientSettings: <T,>(select?: (settings: typeof DEFAULT_CLIENT_SETTINGS) => T) =>
     select ? select(DEFAULT_CLIENT_SETTINGS) : DEFAULT_CLIENT_SETTINGS,
-  useUpdateClientSettings: () => vi.fn(),
+  updateClientSettings: vi.fn(),
   usePrimarySettingsAvailable: () => false,
 }));
 vi.mock("./useScopedModelAvailability", () => ({ useScopedModelDisabledReason: () => null }));
+vi.mock("./SettingsSectionNavigation", () => ({ SettingsSectionNavigation: () => null }));
 // Mount the actual About row and Button; unrelated settings sections do not acquire live state.
 vi.mock("./settingsLayout", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./settingsLayout")>();
@@ -48,7 +49,7 @@ vi.mock("./RunLimitsSettings", () => ({ RunLimitsSettings: () => null }));
 vi.mock("./AppUpdateSettings", () => ({ AppUpdateSettings: () => null }));
 vi.mock("./ClientBuildIdentity", () => ({ ClientBuildIdentity: () => null }));
 
-import { GeneralSettingsPanel } from "./SettingsPanels";
+import { AboutUpdatesSettingsPanel } from "./SettingsPanels";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -70,7 +71,7 @@ it.each(["owned", "legacy", "cloudless"])(
     document.body.append(container);
     const root = createRoot(container);
     try {
-      await act(async () => root.render(<GeneralSettingsPanel />));
+      await act(async () => root.render(<AboutUpdatesSettingsPanel />));
       const policy = [...container.querySelectorAll("a")].find(
         (anchor) => anchor.textContent === "View policy",
       )!;

@@ -496,6 +496,8 @@ function CustomThemeCollectionCard({
 }
 
 export function ThemeLibrary({
+  compact = false,
+  onManage,
   theme,
   setTheme,
   appearanceMode,
@@ -508,6 +510,8 @@ export function ThemeLibrary({
   themeHalves,
   setThemeHalf,
 }: {
+  compact?: boolean;
+  onManage?: () => void;
   theme: string;
   setTheme: (theme: string) => boolean;
   appearanceMode: ThemeMode;
@@ -833,6 +837,45 @@ export function ThemeLibrary({
       </div>
     </TooltipProvider>
   );
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+        <div className="flex min-w-0 flex-col gap-2">
+          <div
+            id={searchableSetting("color-scheme").id}
+            role="group"
+            aria-label="Appearance mode"
+            className="flex gap-1"
+          >
+            {(["system", "light", "dark"] as const).map((mode) => (
+              <Button
+                key={mode}
+                size="sm"
+                variant={appearanceMode === mode ? "secondary" : "outline"}
+                aria-pressed={appearanceMode === mode}
+                onClick={() => setMode(mode)}
+              >
+                {mode === "system" ? "System" : mode === "light" ? "Light" : "Dark"}
+              </Button>
+            ))}
+          </div>
+          <span className="text-sm">
+            Active theme: {activeThemeForAppearance?.label ?? "Arcwright Code"} ({initialAppearance}
+            )
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div aria-hidden="true" className="h-16 w-28 overflow-hidden rounded border">
+            {renderWireframe(initialAppearance)}
+          </div>
+          <Button size="sm" variant="outline" onClick={onManage}>
+            Manage themes
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
