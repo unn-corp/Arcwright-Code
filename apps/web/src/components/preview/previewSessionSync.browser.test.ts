@@ -26,7 +26,7 @@ const harness = vi.hoisted(() => ({
   events: new Map<string, Atom.Writable<EventResult>>(),
 }));
 
-vi.mock("~/env", () => ({ isElectron: true }));
+vi.mock(import("~/env"), async (original) => ({ ...(await original()), isElectron: true }));
 
 vi.mock("~/state/preview", async () => {
   const { AsyncResult, Atom } = await import("effect/reactivity");

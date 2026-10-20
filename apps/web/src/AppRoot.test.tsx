@@ -1,32 +1,91 @@
-import { BrowserProfileReporter } from "./browser/BrowserProfileReporter";
-import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
-import { RouterProvider } from "@tanstack/react-router";
-import { describe, expect, it } from "vite-plus/test";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
+import { act, useContext } from "react";
+import { create, type ReactTestRenderer } from "react-test-renderer";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { DesktopAgentNotificationCoordinator } from "./agentNotifications/DesktopAgentNotificationCoordinator";
-import { AndroidBrowserHosts } from "./android/AndroidBrowserHosts";
-import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
-import { QuitHoldOverlay } from "./components/QuitHoldOverlay";
-import { AppAtomRegistryProvider } from "./rpc/atomRegistry";
+const state = vi.hoisted(() => ({
+  reconcile: vi.fn(() => () => {}),
+}));
+
+vi.mock("./composerDraftStore", async (original) => ({
+  ...(await original<typeof import("./composerDraftStore")>()),
+  subscribeComposerDraftModelReconciliation: state.reconcile,
+}));
+vi.mock("@tanstack/react-router", async (original) => ({
+  ...(await original<typeof import("@tanstack/react-router")>()),
+  RouterProvider: () => <RegistryProbe name="router" />,
+}));
+vi.mock("./agentNotifications/DesktopAgentNotificationCoordinator", () => ({
+  DesktopAgentNotificationCoordinator: () => <RegistryProbe name="notifications" />,
+}));
+vi.mock("./android/AndroidBrowserHosts", () => ({
+  AndroidBrowserHosts: () => <RegistryProbe name="android" />,
+}));
+vi.mock("./browser/ElectronBrowserHost", () => ({
+  ElectronBrowserHost: () => <RegistryProbe name="electron" />,
+}));
+vi.mock("./browser/BrowserProfileReporter", () => ({
+  BrowserProfileReporter: () => <RegistryProbe name="profiles" />,
+}));
+vi.mock("./components/QuitHoldOverlay", () => ({
+  QuitHoldOverlay: () => <RegistryProbe name="quit" />,
+}));
+
+import { appAtomRegistry } from "./rpc/atomRegistry";
 import type { AppRouter } from "./router";
 import { AppRoot } from "./AppRoot";
 
-describe("AppRoot", () => {
-  it("shares the application atom registry with routed UI and renderer-wide desktop hosts", () => {
-    const root = AppRoot({ router: {} as AppRouter });
+const sharedValue = Atom.make("default registry");
+function RegistryProbe({ name }: { name: string }) {
+  const registry = useContext(RegistryContext);
+  const value = useAtomValue(sharedValue);
+  return (
+    <span data-host={name} data-app-registry={registry === appAtomRegistry}>
+      {value}
+    </span>
+  );
+}
 
-    expect(root.type).toBe(AppAtomRegistryProvider);
-    const children = Children.toArray(
-      (root as ReactElement<{ readonly children: ReactNode }>).props.children,
+let root: ReactTestRenderer | undefined;
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  root = undefined;
+  vi.unstubAllGlobals();
+  state.reconcile.mockClear();
+});
+
+describe("AppRoot", () => {
+  it("shares the application atom registry with routed UI and renderer-wide desktop hosts", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    appAtomRegistry.set(sharedValue, "application state");
+    const unsubscribe = vi.fn();
+    state.reconcile.mockReturnValueOnce(unsubscribe);
+    await act(async () => {
+      root = create(<AppRoot router={{} as AppRouter} />);
+    });
+
+    const hosts = root!.root.findAllByType("span");
+    expect(hosts.map((host) => host.props["data-host"])).toEqual([
+      "router",
+      "notifications",
+      "android",
+      "electron",
+      "profiles",
+      "quit",
+    ]);
+    for (const host of hosts) {
+      expect(host.props["data-app-registry"]).toBe(true);
+      expect(host.children).toEqual(["application state"]);
+    }
+    expect(state.reconcile).toHaveBeenCalledWith(
+      expect.objectContaining({ registry: appAtomRegistry }),
     );
-    expect(children).toHaveLength(6);
-    expect(isValidElement(children[0]) && children[0].type).toBe(RouterProvider);
-    expect(isValidElement(children[1]) && children[1].type).toBe(
-      DesktopAgentNotificationCoordinator,
-    );
-    expect(isValidElement(children[2]) && children[2].type).toBe(AndroidBrowserHosts);
-    expect(isValidElement(children[3]) && children[3].type).toBe(ElectronBrowserHost);
-    expect(isValidElement(children[4]) && children[4].type).toBe(BrowserProfileReporter);
-    expect(isValidElement(children[5]) && children[5].type).toBe(QuitHoldOverlay);
+
+    await act(async () => appAtomRegistry.set(sharedValue, "updated state"));
+    for (const host of hosts) expect(host.children).toEqual(["updated state"]);
+    await act(async () => root!.unmount());
+    root = undefined;
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });

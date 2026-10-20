@@ -34,10 +34,11 @@ vi.mock("@effect/atom-react", async () => {
 vi.mock("./media/MediaActions", () => ({
   MediaActions: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock("../state/filesystem", () => ({
+vi.mock("../state/filesystem", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../state/filesystem")>()),
   useFilesystemReadAccess: () => ({ canReadFiles: true, isPending: false }),
 }));
-vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
+vi.mock("../hooks/useTheme", () => ({ useRenderedAppearance: () => "dark" }));
 vi.mock("../hooks/useFileMetadata", () => ({ useFileMetadata: () => undefined }));
 vi.mock("../hooks/useSettings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/useSettings")>();
@@ -76,14 +77,16 @@ vi.mock("../state/entities", () => ({
   useProjects: () => [],
   useServerConfigs: () => new Map(),
 }));
-vi.mock("../remoteOpen", () => ({
+vi.mock("../remoteOpen", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../remoteOpen")>()),
   useRemoteOpenResolution: () => ({ state: { mode: "local-exec" }, isResolved: true }),
 }));
 vi.mock("../editorPreferences", () => ({
   useOpenInPreferredEditor: () => vi.fn(),
   usePreferredEditor: () => [null, vi.fn()],
 }));
-vi.mock("~/lib/openPullRequestLink", () => ({
+vi.mock("~/lib/openPullRequestLink", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/lib/openPullRequestLink")>()),
   findProjectForChangeRequest: () => undefined,
   matchesLinkedPullRequestUrl: () => false,
   parseChangeRequestUrl: () => null,

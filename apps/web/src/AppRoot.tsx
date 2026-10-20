@@ -16,8 +16,7 @@ import type { AppRouter } from "./router";
 /**
  * Owns renderer-wide providers. The Electron browser host intentionally sits
  * outside the router so its webviews survive route transitions, but it must
- * share the same atom registry as routed UI. Kept side-effect-free (no hooks):
- * renderer-wide effects live in the provider children it mounts.
+ * share the same atom registry as routed UI and draft model reconciliation.
  */
 export function AppRoot({ router }: { readonly router: AppRouter }) {
   useEffect(

@@ -209,7 +209,7 @@ it("refreshes once on opening Limits and suppresses rapid returns and remounts",
   await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(2));
 });
 
-it("waits for connection and refreshes new environments during a slow refresh", async () => {
+it("waits for the current connection without refreshing newly added devices", async () => {
   await setPresentations([[environmentId, presentation("disconnected")]]);
   await render();
   expect(state.refreshProviders).not.toHaveBeenCalled();
@@ -226,9 +226,9 @@ it("waits for connection and refreshes new environments during a slow refresh", 
     [environmentId, presentation()],
     [nextId, presentation()],
   ]);
-  await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(2));
-  expect(state.refreshProviders).toHaveBeenLastCalledWith({ environmentId: nextId, input: {} });
+  expect(state.refreshProviders).toHaveBeenCalledExactlyOnceWith({ environmentId, input: {} });
   await act(async () => finishRefresh());
+  expect(state.refreshProviders).toHaveBeenCalledExactlyOnceWith({ environmentId, input: {} });
 });
 
 it("keeps manual refresh busy until the already-running automatic check settles", async () => {

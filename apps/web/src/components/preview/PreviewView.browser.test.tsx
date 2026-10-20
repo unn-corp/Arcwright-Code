@@ -6,6 +6,8 @@ import {
   EnvironmentId,
   FILL_PREVIEW_VIEWPORT,
   ThreadId,
+  type DesktopPreviewAnnotationSnapshot,
+  type PreviewAnnotationPayload,
 } from "@t3tools/contracts";
 import { act, Profiler, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   openPictureInPicture: vi.fn(async (_tabId: string): Promise<void> => undefined),
   closePictureInPicture: vi.fn(async (_tabId: string): Promise<void> => undefined),
   pickElement: vi.fn(),
+  captureAnnotationSnapshot: vi.fn(),
+  renderAnnotationScreenshot: vi.fn(),
   addPreviewAnnotation: vi.fn(),
   addImage: vi.fn(),
   toast: vi.fn(),
@@ -55,6 +59,7 @@ vi.mock(import("./previewBridge"), async (original) => ({
   previewBridge: {
     navigate: mocks.navigate,
     pickElement: mocks.pickElement,
+    captureAnnotationSnapshot: mocks.captureAnnotationSnapshot,
     setAnnotationSendEnabled: mocks.setAnnotationSendEnabled,
     cancelPickElement: mocks.cancelPickElement,
     refresh: vi.fn(async () => undefined),
@@ -163,6 +168,17 @@ import { useBrowserPointerStore } from "~/browser/browserPointerStore";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 import { PreviewView } from "./PreviewView";
+import { PreviewAnnotationEditorHost } from "./PreviewAnnotationEditor";
+import {
+  registerPreviewAnnotationSender,
+  usePreviewAnnotationEditorStore,
+  usePreviewAnnotationSenders,
+} from "~/previewAnnotationEditorStore";
+
+vi.mock(import("~/lib/previewAnnotationEditor"), async (original) => ({
+  ...(await original()),
+  renderAnnotationScreenshot: mocks.renderAnnotationScreenshot,
+}));
 
 const TEST_THREAD_REF = {
   environmentId: EnvironmentId.make("environment-1"),
@@ -178,29 +194,36 @@ async function render(node: ReactNode) {
 }
 
 function view(onSendAnnotation?: ComponentProps<typeof PreviewView>["onSendAnnotation"]) {
+  if (onSendAnnotation) registerPreviewAnnotationSender(TEST_THREAD_REF, onSendAnnotation);
   return (
-    <PreviewView
-      threadRef={TEST_THREAD_REF}
-      tabId="tab-1"
-      visible
-      {...(onSendAnnotation ? { onSendAnnotation } : {})}
-    />
+    <>
+      <PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />
+      <PreviewAnnotationEditorHost />
+    </>
   );
 }
 
-function annotation(id: string, screenshot: unknown = null) {
-  return {
-    id,
-    pageUrl: "https://example.com/dashboard",
-    pageTitle: "Dashboard",
-    comment: "Tighten this spacing",
-    elements: [],
-    regions: [],
-    strokes: [],
-    styleChanges: [],
-    screenshot,
-    createdAt: "2026-07-27T00:00:00.000Z",
-  };
+const snapshot: DesktopPreviewAnnotationSnapshot = {
+  pageUrl: "https://example.com/dashboard",
+  pageTitle: "Dashboard",
+  width: 800,
+  height: 600,
+  elements: [],
+  createdAt: "2026-10-08T00:00:00.000Z",
+  screenshot: {
+    dataUrl:
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7x8AAAAASUVORK5CYII=",
+    width: 800,
+    height: 600,
+    cropRect: { x: 0, y: 0, width: 800, height: 600 },
+  },
+};
+
+async function captureAnnotation() {
+  await act(async () => userEvent.click(page.getByRole("button", { name: "Annotate preview" })));
+  await vi.waitFor(() =>
+    expect(usePreviewAnnotationEditorStore.getState().session?.status).toBe("ready"),
+  );
 }
 
 async function submitAddress(text: string) {
@@ -221,6 +244,12 @@ describe("PreviewView", () => {
     mocks.readEnvironmentScope.mockReset().mockReturnValue(true);
     mocks.setAnnotationSendEnabled.mockReset().mockResolvedValue(undefined);
     mocks.pickElement.mockReset();
+    mocks.captureAnnotationSnapshot.mockReset().mockResolvedValue(snapshot);
+    mocks.renderAnnotationScreenshot
+      .mockReset()
+      .mockImplementation(async (annotation: PreviewAnnotationPayload) => annotation);
+    usePreviewAnnotationEditorStore.setState({ session: null, hydrated: true });
+    usePreviewAnnotationSenders.setState({ senders: new Map() });
     mocks.pictureInPicture = false;
     mocks.showEmptyState = false;
     mocks.loading = false;
@@ -243,6 +272,8 @@ describe("PreviewView", () => {
 
   afterEach(async () => {
     for (const each of roots.splice(0)) await act(async () => each.unmount());
+    usePreviewAnnotationEditorStore.setState({ session: null });
+    usePreviewAnnotationSenders.setState({ senders: new Map() });
     document.body.replaceChildren();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -428,100 +459,155 @@ describe("PreviewView", () => {
     );
   });
 
-  it("forwards Cmd/Ctrl+Enter annotations to the composer send path", async () => {
-    const picked = annotation("annotation-1");
-    const onSendAnnotation = vi.fn();
-    mocks.pickElement.mockResolvedValue({ annotation: picked, submission: "send" });
-    await render(view(onSendAnnotation));
-    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
+  it.each(["Control", "Meta"])(
+    "forwards %s+Enter annotations from the durable modal to the original composer",
+    async (modifier) => {
+      const onSendAnnotation = vi.fn();
+      await render(view(onSendAnnotation));
+      await captureAnnotation();
+      await act(async () =>
+        userEvent.fill(
+          page.getByRole("textbox", { name: "Describe the change" }),
+          "Tighten this spacing",
+        ),
+      );
+      await act(async () => userEvent.keyboard(`{${modifier}>}{Enter}{/${modifier}}`));
 
-    await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledWith(picked, null));
-    expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, picked);
-  });
+      const picked = expect.objectContaining({
+        pageUrl: snapshot.pageUrl,
+        comment: "Tighten this spacing",
+        screenshot: snapshot.screenshot,
+      });
+      await vi.waitFor(() =>
+        expect(onSendAnnotation).toHaveBeenCalledWith(
+          picked,
+          expect.objectContaining({ type: "image", previewUrl: snapshot.screenshot.dataUrl }),
+        ),
+      );
+      expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, picked);
+      expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
+      expect(mocks.pickElement).not.toHaveBeenCalled();
+    },
+  );
 
-  it("retains the annotation locally when its own environment loses access during capture", async () => {
-    const picked = annotation("annotation-revoked");
+  it("retains the annotation locally when its own environment loses access during submission", async () => {
     const onSendAnnotation = vi.fn();
-    let submitPick: (() => void) | undefined;
-    mocks.pickElement.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          submitPick = () => resolve({ annotation: picked, submission: "send" });
-        }),
+    let finishRender!: (annotation: PreviewAnnotationPayload) => void;
+    let pendingAnnotation!: PreviewAnnotationPayload;
+    mocks.renderAnnotationScreenshot.mockImplementationOnce(
+      (annotation: PreviewAnnotationPayload) => {
+        pendingAnnotation = annotation;
+        return new Promise<PreviewAnnotationPayload>((resolve) => {
+          finishRender = resolve;
+        });
+      },
     );
     await render(view(onSendAnnotation));
-    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
-    await vi.waitFor(() => expect(submitPick).toBeDefined());
-    expect(mocks.setAnnotationSendEnabled).toHaveBeenLastCalledWith(TEST_RUNTIME_TAB_ID, true);
-
+    await captureAnnotation();
+    await act(async () =>
+      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
+    );
+    await vi.waitFor(() => expect(finishRender).toBeDefined());
     mocks.readEnvironmentScope.mockImplementation(
       (environmentId?: unknown) => environmentId !== TEST_THREAD_REF.environmentId,
     );
-    await render(view(onSendAnnotation));
-    expect(mocks.setAnnotationSendEnabled).toHaveBeenLastCalledWith(TEST_RUNTIME_TAB_ID, false);
-    await act(async () => submitPick!());
-    await vi.waitFor(() =>
-      expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, picked),
+    await render(view());
+    await act(async () => finishRender(pendingAnnotation));
+    expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, pendingAnnotation);
+    expect(mocks.addImage).toHaveBeenCalledWith(
+      TEST_THREAD_REF,
+      expect.objectContaining({ previewUrl: snapshot.screenshot.dataUrl }),
     );
     expect(onSendAnnotation).not.toHaveBeenCalled();
+    expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
 
     mocks.readEnvironmentScope.mockReturnValue(true);
-    mocks.pickElement.mockResolvedValue({ annotation: picked, submission: "send" });
-    await render(view(onSendAnnotation));
-    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
-    await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledWith(picked, null));
-    expect(mocks.setAnnotationSendEnabled).toHaveBeenLastCalledWith(TEST_RUNTIME_TAB_ID, true);
+    await render(view());
+    await captureAnnotation();
+    await act(async () =>
+      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
+    );
+    await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledOnce());
   });
 
-  it("does not reopen a cancelled picker after the permission update finishes", async () => {
-    let finishUpdate: (() => void) | undefined;
-    mocks.setAnnotationSendEnabled.mockImplementationOnce(
+  it("does not reopen a discarded annotation after its snapshot capture finishes", async () => {
+    let finishCapture!: (value: DesktopPreviewAnnotationSnapshot) => void;
+    mocks.captureAnnotationSnapshot.mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          finishUpdate = resolve;
+        new Promise<DesktopPreviewAnnotationSnapshot>((resolve) => {
+          finishCapture = resolve;
         }),
     );
     await render(view());
-    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
-    await vi.waitFor(() => expect(finishUpdate).toBeDefined());
-    expect(mocks.pickElement).not.toHaveBeenCalled();
-    await userEvent.click(page.getByRole("button", { name: "Cancel annotation" }));
-    expect(mocks.cancelPickElement).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID);
-    await act(async () => finishUpdate!());
-    expect(mocks.pickElement).not.toHaveBeenCalled();
+    await act(async () => userEvent.click(page.getByRole("button", { name: "Annotate preview" })));
+    await vi.waitFor(() => expect(finishCapture).toBeDefined());
+    await act(async () =>
+      userEvent.click(page.getByRole("button", { name: "Close", exact: true })),
+    );
+    expect(usePreviewAnnotationEditorStore.getState().session?.status).toBe("capturing");
+    await act(async () =>
+      userEvent.click(page.getByRole("button", { name: "Discard annotation", exact: true })),
+    );
+    expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
+    await act(async () => finishCapture(snapshot));
+    expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
     expect(mocks.addPreviewAnnotation).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("warns when main dropped the crop before handing over the pick", async () => {
-    const picked = annotation("annotation-3");
+  it("keeps capture failures in the modal without sending an incomplete annotation", async () => {
     const onSendAnnotation = vi.fn();
-    mocks.pickElement.mockResolvedValue({
-      annotation: picked,
-      submission: "send",
-      screenshotFailed: true,
-    });
+    mocks.captureAnnotationSnapshot.mockRejectedValueOnce(
+      new Error("Page reloaded during capture"),
+    );
     await render(view(onSendAnnotation));
-    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
-
-    await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledWith(picked, null));
-    expect(mocks.toast).toHaveBeenCalledOnce();
+    await act(async () => userEvent.click(page.getByRole("button", { name: "Annotate preview" })));
+    await expect.element(page.getByText("Page reloaded during capture")).toBeVisible();
+    expect(usePreviewAnnotationEditorStore.getState().session?.status).toBe("error");
+    await expect
+      .element(page.getByRole("button", { name: "Send annotation", exact: true }))
+      .toBeDisabled();
+    expect(mocks.addPreviewAnnotation).not.toHaveBeenCalled();
+    expect(onSendAnnotation).not.toHaveBeenCalled();
   });
 
-  it("still sends annotation text when the picked element's crop is malformed", async () => {
-    const picked = annotation("annotation-2", {
-      dataUrl: "data:image/png;base64,%%%",
-      width: 10,
-      height: 10,
-      cropRect: { x: 0, y: 0, width: 10, height: 10 },
-    });
+  it("preserves annotation text for retry when the captured screenshot is malformed", async () => {
     const onSendAnnotation = vi.fn();
-    mocks.pickElement.mockResolvedValue({ annotation: picked, submission: "send" });
+    mocks.renderAnnotationScreenshot.mockImplementationOnce(
+      async (annotation: PreviewAnnotationPayload) => ({
+        ...annotation,
+        screenshot: { ...snapshot.screenshot, dataUrl: "data:image/png;base64,%%%" },
+      }),
+    );
     await render(view(onSendAnnotation));
-    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
-
-    const sent = { ...picked, screenshot: null };
-    await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledWith(sent, null));
-    expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, sent);
+    await captureAnnotation();
+    await act(async () =>
+      userEvent.fill(
+        page.getByRole("textbox", { name: "Describe the change" }),
+        "Keep this comment",
+      ),
+    );
+    await act(async () =>
+      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
+    );
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("Could not prepare the screenshot. Your annotation is still saved.");
+    expect(usePreviewAnnotationEditorStore.getState().session).toMatchObject({
+      status: "ready",
+      annotation: { comment: "Keep this comment" },
+    });
+    expect(mocks.addPreviewAnnotation).not.toHaveBeenCalled();
     expect(mocks.addImage).not.toHaveBeenCalled();
+    expect(onSendAnnotation).not.toHaveBeenCalled();
+    await act(async () =>
+      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
+    );
+    await vi.waitFor(() =>
+      expect(onSendAnnotation).toHaveBeenCalledWith(
+        expect.objectContaining({ comment: "Keep this comment", screenshot: snapshot.screenshot }),
+        expect.objectContaining({ type: "image" }),
+      ),
+    );
   });
 });

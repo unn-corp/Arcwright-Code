@@ -289,6 +289,8 @@ scrolling strip, including images, videos, files, and attachments of queued mess
 The glance rail adds project scope, usage, and quick access without replacing thread controls.
 Dictation holds client installation through microphone permission, recording, decoding, and
 transcription; cancelling releases that hold only after the pending operation ends.
+The shared composer voice phase surrounds attached banners, the input, and context strips;
+portalled command and stash drawers retain that phase through their own wrapper.
 Settings microphone detection also holds installation until its permission request settles and
 all acquired microphone tracks are stopped.
 Dictation first reuses the saved custom OpenAI-compatible cloud model from OpenWhispr's native

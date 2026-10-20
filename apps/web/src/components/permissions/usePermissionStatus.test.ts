@@ -41,7 +41,8 @@ afterEach(() => {
 const start = async () => {
   render();
   cleanup = effects[0]!();
-  await Promise.resolve();
+  // Settle the full check/catch/finally chain before treating the read as idle.
+  await vi.advanceTimersByTimeAsync(0);
 };
 
 it("unlocks Continue only for required grants and relocks on revocation", async () => {
@@ -157,7 +158,7 @@ it("rejects hidden in-flight grants and relocks until the return check completes
   page.visibilityState = "hidden";
   page.dispatchEvent(new Event("visibilitychange"));
   resolve({ screen: true, accessibility: true });
-  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(0);
   expect(render().isReady(["screen"])).toBe(false);
   page.visibilityState = "visible";
   page.dispatchEvent(new Event("visibilitychange"));

@@ -807,10 +807,14 @@ it("keeps active supervisor status, progress, and task timing after its child tu
     expect(heading()).toBe(status === "running" ? "Lineage · 1 running" : "Lineage");
     expect(textNodes(" ")).not.toContain("Previous agents");
     expect(buttons().some((button) => button.textContent?.includes("Supervisor"))).toBe(true);
-    const tooltip = container.querySelector('[role="tooltip"]')?.textContent;
-    expect.soft(tooltip).toContain(status);
-    expect.soft(tooltip).toContain("Waiting for the worker to finish");
-    expect.soft(tooltip).toContain("5m 15s");
+    const tooltips = [...container.querySelectorAll('[role="tooltip"]')].map(
+      (tooltip) => tooltip.textContent,
+    );
+    expect(tooltips).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`${status}5m 15sWaiting for the worker to finish`),
+      ]),
+    );
   }
 });
 

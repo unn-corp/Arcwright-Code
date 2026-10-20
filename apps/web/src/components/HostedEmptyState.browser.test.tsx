@@ -15,9 +15,9 @@ const discovery = vi.hoisted(() => ({
   register: vi.fn(),
 }));
 
-vi.mock(import("@clerk/react"), async (original) => ({
+vi.mock(import("../auth/managedAuthContext"), async (original) => ({
   ...(await original()),
-  useAuth: (() => ({ isLoaded: true, isSignedIn: true })) as never,
+  useManagedAuth: (() => ({ isLoaded: true, isSignedIn: true })) as never,
 }));
 vi.mock(import("./clerk/useT3ConnectAuthPrompt"), () => ({
   useT3ConnectAuthPrompt: () => ({ authPrompt: null, openAuthPrompt: vi.fn() }),

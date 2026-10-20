@@ -33,7 +33,6 @@ vi.mock(import("../state/use-atom-query-runner"), async (original) => ({
   useAtomQueryRunner: (() => state.search) as never,
 }));
 vi.mock(import("../state/use-atom-command"), async (original) => {
-  const { threadEnvironment } = await import("../state/threads");
   return {
     ...(await original()),
     useAtomCommand: ((command: unknown) =>
@@ -99,22 +98,17 @@ vi.mock(import("../localApi"), async (original) => ({
       shell: { openExternal: state.openExternal },
     }) as never,
 }));
-vi.mock(import("~/lib/openPullRequestLink"), async (original) => ({
-  ...(await original()),
-  resolvePullRequestPreviewTarget: () => null,
-  findProjectForChangeRequest: ((projects: readonly { id: ProjectId }[]) => projects[0]) as never,
-  matchesLinkedPullRequestUrl: (candidate: ThreadLinkedPullRequest, href: string) =>
-    candidate.url === href,
-  parseChangeRequestUrl: ((href: string) =>
-    href === linkedPullRequest.url
-      ? {
-          host: "github.com",
-          repository: linkedPullRequest.repository,
-          number: linkedPullRequest.number,
-        }
-      : null) as never,
-}));
+// This module and useOpenLink import each other. Automatic spies preserve the
+// original exports without awaiting importOriginal through that cycle.
+vi.mock(import("~/lib/openPullRequestLink"), { spy: true });
+import {
+  resolvePullRequestPreviewTarget,
+  findProjectForChangeRequest,
+  matchesLinkedPullRequestUrl,
+  parseChangeRequestUrl,
+} from "~/lib/openPullRequestLink";
 
+import { threadEnvironment } from "../state/threads";
 import ChatMarkdown from "./ChatMarkdown";
 
 const threadRef = {
@@ -137,6 +131,20 @@ const roots: Root[] = [];
 let container: HTMLDivElement;
 
 beforeEach(() => {
+  vi.mocked(resolvePullRequestPreviewTarget).mockReturnValue(null);
+  vi.mocked(findProjectForChangeRequest).mockImplementation((projects) => projects[0]);
+  vi.mocked(matchesLinkedPullRequestUrl).mockImplementation(
+    (candidate, href) => candidate.url === href,
+  );
+  vi.mocked(parseChangeRequestUrl).mockImplementation((href) =>
+    href === linkedPullRequest.url
+      ? {
+          host: "github.com",
+          repository: linkedPullRequest.repository,
+          number: linkedPullRequest.number,
+        }
+      : null,
+  );
   state.allowed = true;
   state.listeners.clear();
   state.linkedPullRequest = null;

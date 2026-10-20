@@ -159,7 +159,7 @@ it.each([
   { layout: "narrow Git", width: 360, showGitControls: true },
   { layout: "sole primary non-Git", width: 360, showGitControls: false },
 ])(
-  "copies the pending update from the $layout composer chip",
+  "keeps unsupported updates visible without an install bypass in the $layout composer chip",
   async ({ width, showGitControls }) => {
     await page.viewport(1000, 700);
     container.style.width = `${width}px`;
@@ -191,17 +191,22 @@ it.each([
     expect(
       container.querySelector('[data-slot="composer-shell"]')!.getBoundingClientRect().width,
     ).toBe(width);
-    const chip = page.getByRole("button", { name: /Build box|Copy update command/ });
+    const chip = page.getByRole("button", { name: "Bootstrap updater on Build box" });
     await expect.element(chip).toBeVisible();
-    await userEvent.hover(chip);
+    await expect.element(chip).toBeDisabled();
+    // Disabled controls expose their version guidance through the tooltip wrapper.
+    const tooltipTrigger = container.querySelector(
+      '[data-slot="tooltip-trigger"]:has(button[aria-label="Bootstrap updater on Build box"])',
+    )!;
+    await userEvent.hover(tooltipTrigger);
     await expect.element(page.getByRole("tooltip")).toMatchTextContent("0.0.30");
     await expect.element(page.getByRole("tooltip")).toMatchTextContent("0.0.31");
-    await userEvent.click(chip);
-    await vi.waitFor(() =>
-      expect(state.writeTextToClipboard).toHaveBeenCalledWith(
-        "npm install --global --prefix '/opt/node' t3@0.0.31",
-        "update command",
-      ),
+    await expect.element(page.getByRole("tooltip")).toMatchTextContent("Bootstrap updater on");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Bootstrap updater on Build box"]')!
+        .click(),
     );
+    expect(state.writeTextToClipboard).not.toHaveBeenCalled();
   },
 );

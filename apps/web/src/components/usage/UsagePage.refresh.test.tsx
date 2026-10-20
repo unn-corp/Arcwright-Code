@@ -1,6 +1,6 @@
 import { EnvironmentId, ProviderInstanceId, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
 import { mergeUsage } from "@t3tools/shared/usageMerge";
-import { StrictMode, act } from "react";
+import { StrictMode, act, type ReactNode } from "react";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
@@ -81,7 +81,16 @@ vi.mock("../ui/select", () => ({
 vi.mock("../ui/sidebar", () => ({ SidebarInset: "div" }));
 vi.mock("../ui/toggle-group", () => ({ Toggle: "button", ToggleGroup: "div" }));
 vi.mock("../ui/tooltip", () => ({ Tooltip: "div", TooltipPopup: "div", TooltipTrigger: "div" }));
-vi.mock("../ui/popover", () => ({ Popover: "div", PopoverPopup: "div", PopoverTrigger: "div" }));
+vi.mock(import("../ui/popover"), async (original) => ({
+  ...(await original()),
+  Popover: (({
+    children,
+  }: {
+    children: ReactNode | ((context: { payload: undefined }) => ReactNode);
+  }) => (typeof children === "function" ? children({ payload: undefined }) : children)) as never,
+  PopoverPopup: "div" as never,
+  PopoverTrigger: "div" as never,
+}));
 vi.mock("../ui/menu", () => ({
   Menu: "div",
   MenuCheckboxItem: "div",
@@ -174,7 +183,7 @@ it.each([0, 1])(
     });
     expect(
       JSON.stringify(renderer.toJSON(), (key, value) => (key === "props" ? undefined : value)),
-    ).toContain("in 2h 0m");
+    ).toContain("↻ 2h 0m");
     vi.mocked(Date.now).mockReturnValue(Date.parse("2026-09-11T12:30:00Z"));
     await act(async () => {
       renderer.root
@@ -189,10 +198,10 @@ it.each([0, 1])(
     });
     expect(
       JSON.stringify(renderer.toJSON(), (key, value) => (key === "props" ? undefined : value)),
-    ).toContain("in 1h 30m");
+    ).toContain("↻ 1h 30m");
     expect(
       JSON.stringify(renderer.toJSON(), (key, value) => (key === "props" ? undefined : value)),
-    ).not.toContain("in 2h 0m");
+    ).not.toContain("↻ 2h 0m");
   },
 );
 
@@ -210,7 +219,7 @@ it("uses the current time when returning to limits from tokens", async () => {
   await act(() => selectMetric("limits"));
   expect(
     JSON.stringify(renderer.toJSON(), (key, value) => (key === "props" ? undefined : value)),
-  ).toContain("in 1h 0m");
+  ).toContain("↻ 1h 0m");
   expect(state.refreshProviders).toHaveBeenCalledTimes(2);
 });
 
@@ -321,7 +330,7 @@ it.each(["desktop", "phone"])(
     const text = JSON.stringify(renderer.toJSON(), (key, value) =>
       key === "props" ? undefined : value,
     );
-    expect(text).toContain("in 2h 0m");
+    expect(text).toContain("↻ 2h 0m");
     expect(text).not.toContain("Could not read limits on other device.");
     expect(text).not.toContain("All environments");
     await act(() =>

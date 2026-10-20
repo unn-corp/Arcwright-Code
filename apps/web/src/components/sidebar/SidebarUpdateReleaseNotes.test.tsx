@@ -89,7 +89,7 @@ describe("SidebarUpdateReleaseNotes", () => {
     );
 
     expect(anchors.map(({ props }) => props.href)).toEqual([
-      "https://github.com/JustYannicc/t3code/releases/tag/v0.0.36-nightly.3",
+      "https://github.com/JustYannicc/t3code/releases/tag/fork-v0.0.36-nightly.3",
       "https://github.com/JustYannicc/t3code/releases",
     ]);
   });

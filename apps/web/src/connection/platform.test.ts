@@ -16,6 +16,13 @@ import {
   ConnectionTransientError,
 } from "@t3tools/client-runtime/connection";
 
+// This fixture replaces the unused persistence module, not its store contract.
+// The real SSH gateway below never reads or writes the browser's IndexedDB stores.
+vi.mock("./storage", async () => {
+  const Layer = await import("effect/Layer");
+  return { layer: Layer.empty };
+});
+
 import {
   canRetainCachedPlatformRegistrationAfterRefreshFailure,
   canReuseCachedPlatformRegistration,

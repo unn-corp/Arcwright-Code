@@ -18,14 +18,12 @@ const { cachedUrl, refresh, showError, openLink, openChangeRequestLink } = vi.ho
   openLink: vi.fn(),
   openChangeRequestLink: vi.fn(),
 }));
-vi.mock(import("~/browser/useOpenLink"), async (original) => ({
-  ...(await original()),
-  useOpenLink: () => openLink,
-}));
-vi.mock(import("~/lib/openPullRequestLink"), async (original) => ({
-  ...(await original()),
-  useOpenChangeRequestLink: () => openChangeRequestLink,
-}));
+// These link modules import each other. Automatic spies avoid a circular
+// importOriginal wait while retaining every export used by the document frame.
+vi.mock(import("~/browser/useOpenLink"), { spy: true });
+vi.mock(import("~/lib/openPullRequestLink"), { spy: true });
+import { useOpenLink } from "~/browser/useOpenLink";
+import { useOpenChangeRequestLink } from "~/lib/openPullRequestLink";
 vi.mock(import("~/assets/assetUrls"), async (original) => ({
   ...(await original()),
   useAssetUrlState: () => ({
@@ -50,6 +48,8 @@ let container: HTMLDivElement;
 const onClose = vi.fn();
 
 beforeEach(async () => {
+  vi.mocked(useOpenLink).mockReturnValue(openLink);
+  vi.mocked(useOpenChangeRequestLink).mockReturnValue(openChangeRequestLink);
   refresh.mockReset();
   cachedUrl.lifeMs = 60 * 60_000;
   openLink.mockReset().mockResolvedValue(undefined);

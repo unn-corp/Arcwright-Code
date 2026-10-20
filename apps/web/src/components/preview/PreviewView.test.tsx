@@ -75,6 +75,12 @@ vi.mock("~/assets/assetUrls", async () => {
   return { resolveAssetUrl };
 });
 
+// Static-render fixtures have no browser window or zoom subscription. Real zoom
+// changes are exercised in PreviewView.browser.test.tsx.
+vi.mock("~/browser/useBrowserLayoutZoomFactor", () => ({
+  useBrowserLayoutZoomFactor: (previewZoomFactor: number) => previewZoomFactor,
+}));
+
 vi.mock("~/browser/browserDefaults", () => ({
   useBrowserDefaults: () => STUB_BROWSER_DEFAULTS,
   getBrowserDefaults: () => STUB_BROWSER_DEFAULTS,

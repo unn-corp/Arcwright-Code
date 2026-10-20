@@ -8469,7 +8469,8 @@ export default function ChatView(props: ChatViewProps) {
                       </div>
                     </div>
                   ) : null}
-                  <div
+                  <ComposerSurface.VoiceRoot
+                    phase={voiceInputPhase}
                     ref={draftHeroComposerAnchorRef}
                     className="relative z-10"
                     style={
@@ -8770,7 +8771,7 @@ export default function ChatView(props: ChatViewProps) {
                       aria-hidden
                       className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
                     />
-                  </div>
+                  </ComposerSurface.VoiceRoot>
                 </div>
               </div>
             </div>

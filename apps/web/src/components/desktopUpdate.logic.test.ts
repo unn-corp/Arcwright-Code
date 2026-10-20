@@ -210,7 +210,7 @@ describe("desktop update UI helpers", () => {
 
   it("uses the configured desktop update repository for release URLs", () => {
     expect(getDesktopUpdateReleaseUrl("1.2.3", "JustYannicc/t3code")).toBe(
-      "https://github.com/JustYannicc/t3code/releases/tag/v1.2.3",
+      "https://github.com/JustYannicc/t3code/releases/tag/fork-v1.2.3",
     );
     expect(getDesktopUpdateReleaseHistoryUrl("JustYannicc/t3code")).toBe(
       "https://github.com/JustYannicc/t3code/releases",
@@ -223,12 +223,12 @@ describe("desktop update UI helpers", () => {
     "owner/repo#notes",
     "owner?tab=notes/repo",
     "owner/repo?tab=notes",
-  ])("falls back to upstream for an invalid configured repository: %s", (repository) => {
+  ])("falls back to the fork for an invalid configured repository: %s", (repository) => {
     expect(getDesktopUpdateReleaseHistoryUrl(repository)).toBe(
-      "https://github.com/pingdotgg/t3code/releases",
+      "https://github.com/unn-corp/Arcwright-Code/releases",
     );
     expect(getDesktopUpdateReleaseUrl("1.2.3", repository)).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v1.2.3",
+      "https://github.com/unn-corp/Arcwright-Code/releases/tag/fork-v1.2.3",
     );
   });
 
