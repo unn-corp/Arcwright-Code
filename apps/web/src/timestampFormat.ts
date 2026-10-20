@@ -286,13 +286,6 @@ export function formatRelativeTimeUntilLabel(isoDate: string): string {
   return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
 }
 
-export function getRelativeTimeState(isoDate: string | null): RelativeTimeState {
-  if (!isoDate) return { status: "missing" };
-  const relative = formatRelativeTime(isoDate);
-  if (!relative) return { status: "invalid" };
-  return { status: "relative", ...relative };
-}
-
 export function formatRelativeTimeLabel(isoDate: string, nowMs: number = Date.now()) {
   const relative = formatRelativeTime(isoDate, nowMs);
   if (!relative) return "";

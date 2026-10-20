@@ -103,16 +103,3 @@ export function formatElementContextLabel(context: ElementContextSelection): str
   if (context.componentName) return `<${context.componentName}>`;
   return `<${shortenTagLabel(context.tagName)}>`;
 }
-
-function basenameFromPath(filePath: string): string {
-  const parts = filePath.split(/[\\/]/);
-  return parts[parts.length - 1] ?? filePath;
-}
-
-export function formatElementContextSourceLabel(context: ElementContextSelection): string | null {
-  const source = context.source;
-  if (!source?.fileName) return null;
-  const base = basenameFromPath(source.fileName);
-  if (source.lineNumber == null) return base;
-  return `${base}:${source.lineNumber}`;
-}
