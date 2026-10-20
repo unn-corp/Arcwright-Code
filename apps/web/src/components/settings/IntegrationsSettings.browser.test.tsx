@@ -1,16 +1,10 @@
 import { DEFAULT_CLIENT_SETTINGS, DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
-import {
-  createMemoryHistory,
-  createRootRoute,
-  createRouter,
-  RouterProvider,
-} from "@tanstack/react-router";
-import { act, StrictMode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { StrictMode } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
 import "../../index.css";
+import { render } from "../../../test/render";
 
 const { listBrowserImportSources } = vi.hoisted(() => ({
   listBrowserImportSources: vi.fn().mockResolvedValue([]),
@@ -55,44 +49,30 @@ vi.mock(import("./SettingsScopeContext"), async (original) => ({
 
 import { IntegrationsSettingsPanel } from "./IntegrationsSettings";
 
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+function setup() {
   listBrowserImportSources.mockClear();
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+}
 
 async function openSettings() {
-  const router = createRouter({
-    routeTree: createRootRoute({ component: IntegrationsSettingsPanel }),
-    history: createMemoryHistory(),
-  });
-  await router.load();
-  await act(async () =>
-    root.render(
+  await using stack = new AsyncDisposableStack();
+  const screen = stack.use(
+    await render(
       <StrictMode>
-        <RouterProvider router={router} />
+        <IntegrationsSettingsPanel />
       </StrictMode>,
     ),
   );
   await vi.waitFor(() =>
-    expect(container.querySelector("section#integrations-links")).not.toBeNull(),
+    expect(screen.container.querySelector("section#integrations-links")).not.toBeNull(),
   );
+  stack.move();
+  return screen;
 }
 
 describe("Integrations browser discovery", () => {
   it("keeps agent browser access in the Links & previews section", async () => {
-    await openSettings();
+    setup();
+    await using screen = await openSettings();
 
     expect(
       page.getByRole("heading", { name: "Links & previews", exact: true }).elements(),
@@ -100,14 +80,18 @@ describe("Integrations browser discovery", () => {
     const access = page.getByRole("switch", { name: "Agent browser access", exact: true });
     await expect.element(access).toBeVisible();
     expect(access.element().closest("section")).toBe(
-      container.querySelector("section#integrations-links"),
+      screen.container.querySelector("section#integrations-links"),
     );
     expect(access.element().closest("#agent-browser-access")).not.toBeNull();
   });
 
   it("groups browser settings before device setup and voice", async () => {
-    await openSettings();
-    const sections = Array.from(container.querySelectorAll("section[id]"), (section) => section.id);
+    setup();
+    await using screen = await openSettings();
+    const sections = Array.from(
+      screen.container.querySelectorAll("section[id]"),
+      (section) => section.id,
+    );
     expect(sections).toEqual([
       "integrations-links",
       "integrations-profiles",
@@ -119,12 +103,12 @@ describe("Integrations browser discovery", () => {
   });
 
   it("does not scan browser files when entering or revisiting settings", async () => {
-    await openSettings();
+    setup();
+    await using first = await openSettings();
     expect(listBrowserImportSources).not.toHaveBeenCalled();
 
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await openSettings();
+    await first.unmount();
+    await using _second = await openSettings();
     expect(listBrowserImportSources).not.toHaveBeenCalled();
   });
 });

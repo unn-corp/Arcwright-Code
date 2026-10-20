@@ -12,6 +12,7 @@ import { DeviceHostsSettings } from "./DeviceHostsSettings";
  *
  * @module IntegrationsSettings
  */
+import { EasDeviceHostsSettings } from "./EasDeviceHostsSettings";
 import {
   AuthSettingsWriteScope,
   BrowserImportFailureReason,
@@ -1116,6 +1117,7 @@ export function DeviceIntegrationControls({
         ) : null}
       </details>
       <DeviceHostsSettings environmentId={environmentId} />
+      {state.supportsEasHosts ? <EasDeviceHostsSettings environmentId={environmentId} /> : null}
     </>
   );
 }

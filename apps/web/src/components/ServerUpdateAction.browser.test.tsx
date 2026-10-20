@@ -1,5 +1,5 @@
-import { act, useState, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { act, render as renderUi, type Screen } from "../../test/render";
+import { useState, type ReactNode } from "react";
 import {
   AuthSessionState,
   FORK_ACTIVITY_PROTOCOL,
@@ -9,7 +9,7 @@ import {
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -98,15 +98,13 @@ const target = {
   forkMaintenance: capability,
   targetVersion: "1.0.0",
 };
-let container: HTMLDivElement;
-let root: Root;
-async function render(element: ReactNode) {
-  await act(() => root.render(element));
+async function render(root: Screen, element: ReactNode) {
+  await act(() => root.rerender(element));
 }
-function updateButton() {
-  return container.querySelector<HTMLButtonElement>("button")!;
+function updateButton(root: Screen) {
+  return root.container.querySelector<HTMLButtonElement>("button")!;
 }
-beforeEach(() => {
+async function setup() {
   resetConfirmDialogForTests();
   state.action.mockReset().mockResolvedValue(waiting);
   state.bulk.mockReset();
@@ -114,25 +112,32 @@ beforeEach(() => {
   state.session = AsyncResult.success(session);
   state.sessionAtom = Atom.make<SessionValue>(state.session);
   appAtomRegistry.set(state.sessionAtom, state.session);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-afterEach(async () => {
-  await act(() => root.unmount());
-  resetConfirmDialogForTests();
-  container.remove();
-});
+  // Navigation is mocked; this fixture exercises only the panel or bridge.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+      resetConfirmDialogForTests();
+    },
+  };
+}
+
 describe("server update actions", () => {
   it("offers bootstrap guidance when admission capability is absent", async () => {
-    await render(<ServerUpdateAction {...target} forkMaintenance={undefined} />);
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await render(root, <ServerUpdateAction {...target} forkMaintenance={undefined} />);
     expect(container.textContent).toContain("Bootstrap updater on");
     expect(container.querySelector("button")).toBeNull();
     expect(state.action).not.toHaveBeenCalled();
   });
   it("requests the verified artifact and reports waiting instead of installation", async () => {
-    await render(<ServerUpdateAction {...target} />);
-    await act(async () => updateButton().click());
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await render(root, <ServerUpdateAction {...target} />);
+    await act(async () => updateButton(root).click());
     expect(state.action).toHaveBeenNthCalledWith(1, { action: "check" });
     expect(state.action).toHaveBeenNthCalledWith(2, {
       action: "install",
@@ -147,6 +152,8 @@ describe("server update actions", () => {
     );
   });
   it("deduplicates pending requests and permits a later retry", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     let finish!: (value: ForkUpdateStatus) => void;
     state.action.mockImplementationOnce(
       () =>
@@ -154,23 +161,26 @@ describe("server update actions", () => {
           finish = resolve;
         }),
     );
-    await render(<ServerUpdateAction {...target} />);
+    await render(root, <ServerUpdateAction {...target} />);
     await act(() => {
-      updateButton().click();
-      updateButton().click();
+      updateButton(root).click();
+      updateButton(root).click();
     });
     expect(state.action).toHaveBeenCalledOnce();
     await act(async () => finish({ ...waiting, targetBuild: null }));
     expect(state.toast).toHaveBeenCalledOnce();
-    await act(async () => updateButton().click());
+    await act(async () => updateButton(root).click());
     expect(state.action).toHaveBeenCalledTimes(3);
   });
   it("routes bulk requests through coordinator grouping and reports each result", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     state.bulk.mockResolvedValue([
       { label: "Laptop", failed: false, message: "waiting" },
       { label: "Deck", failed: true, message: "Offline" },
     ]);
     await render(
+      root,
       <ServerUpdatesAction
         targets={[
           target,
@@ -178,7 +188,7 @@ describe("server update actions", () => {
         ]}
       />,
     );
-    await act(async () => updateButton().click());
+    await act(async () => updateButton(root).click());
     expect(state.bulk).toHaveBeenCalledOnce();
     expect(state.toast).toHaveBeenCalledWith({
       type: "info",
@@ -192,9 +202,12 @@ describe("server update actions", () => {
     });
   });
   it("keeps installation and restart progress distinct from downloading", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     expect(serverUpdateStageLabel("installing")).toBe("Installing…");
     expect(serverUpdateStageLabel("downloading")).toBe("Downloading…");
     await render(
+      root,
       <ServerUpdateProgress
         state={{
           status: "running",
@@ -206,6 +219,7 @@ describe("server update actions", () => {
     );
     expect(container.textContent).toBe("Installing…");
     await render(
+      root,
       <ServerUpdateProgress
         state={{
           status: "running",
@@ -237,8 +251,11 @@ describe("server updates from the environment selector", () => {
   } satisfies ServerUpdateTarget & { serverVersion: string };
 
   it("confirms a locked chip update and honors cancellation before updating", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     registerConfirmDialogHost();
     await render(
+      root,
       <BranchToolbarEnvironmentSelector
         environmentId={localId}
         availableEnvironments={availableEnvironments}
@@ -268,6 +285,8 @@ describe("server updates from the environment selector", () => {
   });
 
   it("keeps unsupported hosts visible without bypassing admission and selects an action-like environment ID", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     const update = { ...serverUpdate, selfUpdate: null, installation: { kind: "npx" } } as const;
     function Picker() {
       const [environmentId, setEnvironmentId] = useState(localId);
@@ -281,7 +300,7 @@ describe("server updates from the environment selector", () => {
         />
       );
     }
-    await render(<Picker />);
+    await render(root, <Picker />);
     const picker = page.getByRole("combobox", { name: "Run on" });
     await userEvent.click(picker);
     await expect.element(page.getByRole("option", { name: "Other machine" })).toBeVisible();
@@ -300,8 +319,11 @@ describe("server updates from the environment selector", () => {
   });
 
   it("explains an unsupported desktop update in the picker without offering a runnable action", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     registerConfirmDialogHost();
     await render(
+      root,
       <BranchToolbarEnvironmentSelector
         environmentId={localId}
         availableEnvironments={availableEnvironments}

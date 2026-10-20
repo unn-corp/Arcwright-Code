@@ -6,7 +6,7 @@ cannot be migrated by comparing only the highest ID. On startup, the server
 recognizes the pinned upstream ledger, matches those completed migrations by
 name, and moves their ledger records to the fork IDs. It then applies the
 fork-only migrations in the gaps before recording the already-present V2 and
-webhook schema at fork IDs 95–98. Upstream MCP App model context, snapshot window indexes, and pull request review guides map to fork IDs 104–106. Reconciliation runs every missing fork migration through the highest remapped identity before restoring the ledger, including lossless storage and the schema fingerprint at 99–103. Upstream ThreadFailureLookupIndex (62) maps to fork 108; fork CompactHistoryBlocks remains 107. A previous fork at 103 applies 104–113; its existing IDs and timestamps stay intact.
+webhook schema at fork IDs 95–98. Upstream MCP App model context, snapshot window indexes, and pull request review guides map to fork IDs 104–106. Reconciliation runs every missing fork migration through the highest remapped identity before restoring the ledger, including lossless storage and the schema fingerprint at 99–103. Upstream ThreadFailureLookupIndex (62) maps to fork 108; fork CompactHistoryBlocks remains 107. A previous fork at 103 applies 104–114; its existing IDs and timestamps stay intact.
 
 Upstream migration 63 maps to fork 110. It is an intentional no-op in the fork:
 V1 archive and recovery readers still need the projection and checkpoint tables
@@ -19,6 +19,8 @@ Published fork IDs 1–109 stay immutable; an upgrade retains V1 payloads and st
 diffs. The database checker records the reviewed history-preservation exceptions.
 
 Upstream migration 65 maps to fork 112 and indexes native Codex turn usage.
+Migration 67 maps to fork 114, adding webhook replay and coalescing storage without changing deployed migration IDs. The expected schema fingerprint is refreshed with this schema.
+
 Migration 66 maps to fork 113 and repairs settlement times written by older
 clients. It decodes archived payloads, leaves V1 history and compressed blobs
 intact, and refreshes replay byte counts for changed V2 events.

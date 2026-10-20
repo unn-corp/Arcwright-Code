@@ -151,6 +151,9 @@ process.exit(result.status ?? 1);
             }).trim(),
           ).toBe("t3 v1.2.3");
           expect(await NodeFSP.readdir(versions)).toEqual([version]);
+          expect(
+            await NodeFSP.readFile(NodePath.join(root, "home/runtime/launchers"), "utf8"),
+          ).toBe(`${NodePath.join(root, "bin/t3")}\n`);
         }
       } finally {
         if (child.exitCode === null) child.kill();

@@ -165,7 +165,7 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/stripe@1.0.0-rc.13"
   - "@shadcn/lint@0.1.5"
   - cn@0.3.2
-  - uniwind@1.12.1
+  - uniwind@1.13.0
   - "@expo/dom-webview@58.0.2"
   - "expo-auth-session@58.0.13"
   - "expo-camera@58.0.10"
@@ -358,6 +358,7 @@ patchedDependencies:
   # Android: Maven-resolved gradle plugins (expo-widgets) have no sourceDir; without this
   # skip, the fingerprint silently drops every Expo native module and OTAs reach stale binaries.
   "@expo/fingerprint@0.21.5": patches/@expo__fingerprint@0.21.5.patch
+  app-builder-lib@26.16.1: patches/app-builder-lib@26.16.1.patch
 
 peerDependencyRules:
   allowAny:

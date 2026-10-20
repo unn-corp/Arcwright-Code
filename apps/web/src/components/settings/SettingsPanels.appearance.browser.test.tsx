@@ -1,7 +1,7 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
-import { act, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { type ReactNode } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({ hash: "" }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
@@ -35,27 +35,27 @@ vi.mock("./settingsLayout", async (importOriginal) => ({
   SettingsRow: ({ id }: { id?: string }) => <div id={id} />,
 }));
 import { AppearanceSettingsPanel } from "./SettingsPanels";
-let root: Root;
-let container: HTMLDivElement;
-beforeEach(() => {
+async function setup() {
   state.hash = "";
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-});
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-const hasTarget = (id: string) => container.querySelector(`[id="${id}"]`) !== null;
-async function openLibrary() {
-  await act(() => {
-    root.render(<AppearanceSettingsPanel />);
-  });
+  // Navigation is mocked; this fixture exercises only the panel or bridge.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
+const hasTarget = (root: Screen, id: string) =>
+  root.container.querySelector(`[id="${id}"]`) !== null;
+async function openLibrary(root: Screen) {
+  const container = root.container;
+  await root.rerender(<AppearanceSettingsPanel />);
   await act(() => container.querySelector<HTMLButtonElement>("button")!.click());
-  expect(hasTarget("chat-width")).toBe(false);
+  expect(hasTarget(root, "chat-width")).toBe(false);
 }
 describe("Appearance library search navigation", () => {
   it.each([
@@ -68,24 +68,28 @@ describe("Appearance library search navigation", () => {
     "motion",
     "typography",
   ])("returns from Manage themes for %s and allows returning to the library", async (target) => {
-    await openLibrary();
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await openLibrary(root);
     state.hash = target;
-    await act(() => root.render(<AppearanceSettingsPanel />));
-    expect(hasTarget(target)).toBe(true);
+    await act(() => root.rerender(<AppearanceSettingsPanel />));
+    expect(hasTarget(root, target)).toBe(true);
     await act(() => container.querySelector<HTMLButtonElement>("button")!.click());
-    expect(hasTarget("chat-width")).toBe(false);
+    expect(hasTarget(root, "chat-width")).toBe(false);
     state.hash = "";
-    await act(() => root.render(<AppearanceSettingsPanel />));
+    await act(() => root.rerender(<AppearanceSettingsPanel />));
     state.hash = target;
-    await act(() => root.render(<AppearanceSettingsPanel />));
-    expect(hasTarget(target)).toBe(true);
+    await act(() => root.rerender(<AppearanceSettingsPanel />));
+    expect(hasTarget(root, target)).toBe(true);
   });
   it("preserves library controls for theme targets and the Back button", async () => {
-    await openLibrary();
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await openLibrary(root);
     state.hash = "appearance";
-    await act(() => root.render(<AppearanceSettingsPanel />));
-    expect(hasTarget("chat-width")).toBe(false);
+    await act(() => root.rerender(<AppearanceSettingsPanel />));
+    expect(hasTarget(root, "chat-width")).toBe(false);
     await act(() => container.querySelector<HTMLButtonElement>("button")!.click());
-    expect(hasTarget("chat-width")).toBe(true);
+    expect(hasTarget(root, "chat-width")).toBe(true);
   });
 });

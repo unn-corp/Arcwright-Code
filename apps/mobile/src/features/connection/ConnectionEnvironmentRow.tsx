@@ -1,7 +1,11 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { ConnectionTraceId } from "./ConnectionTraceId";
 import { SymbolView } from "../../components/ui/AppSymbol";
-import { environmentNameError, hasSavedBearerRoute } from "@t3tools/client-runtime/connection";
+import {
+  environmentNameError,
+  hasSavedBearerRoute,
+  hostFreezeNotice,
+} from "@t3tools/client-runtime/connection";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { type EnvironmentId, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -20,6 +24,7 @@ import { cn } from "../../lib/cn";
 import type { ConnectedEnvironmentSummary } from "../../state/remote-runtime-types";
 import { serverEnvironment } from "../../state/server";
 import { environmentPresentations } from "../../state/presentation";
+import { ConnectionDiagnosisDetails, useConnectionDiagnosis } from "./ConnectionDiagnosisDetails";
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { environmentCatalog } from "../../connection/catalog";
@@ -77,10 +82,17 @@ export function ConnectionEnvironmentRow(props: {
     environmentPresentations.presentationAtom(props.environment.environmentId),
   );
   const canRetry = presentation !== null && hasSavedBearerRoute(presentation.entry);
+  const { diagnosis, state: connectionState } = useConnectionDiagnosis(
+    props.environment.environmentId,
+    presentation,
+  );
   const enabled = props.environment.isEnabled && !unsupported;
   const statusLabel = connectionStatusLabel(props.environment);
   const statusTraceId = enabled ? props.environment.connectionErrorTraceId : null;
   const hasConnectionFailure = enabled && props.environment.connectionError !== null;
+  const freeze = enabled
+    ? hostFreezeNotice(props.environment.environmentLabel, serverConfig?.lastEventLoopStall)
+    : null;
   const isRetrying =
     enabled &&
     (props.environment.connectionState === "connecting" ||
@@ -137,7 +149,16 @@ export function ConnectionEnvironmentRow(props: {
               {props.environment.displayUrl}
             </Text>
           ) : null}
-          {statusLabel ? (
+          {diagnosis ? (
+            <>
+              <Text className="text-xs text-danger-foreground">{diagnosis.headline}</Text>
+              {connectionState.attempt > 0 ? (
+                <Text className="text-xs text-foreground-muted">
+                  {`Retrying · attempt ${connectionState.attempt}`}
+                </Text>
+              ) : null}
+            </>
+          ) : statusLabel ? (
             <Text
               className={cn(
                 "text-xs",
@@ -154,6 +175,14 @@ export function ConnectionEnvironmentRow(props: {
                   activation="longPress"
                 />
               ) : null}
+            </Text>
+          ) : null}
+          {freeze ? (
+            <Text
+              className="text-xs text-warning-foreground"
+              numberOfLines={props.expanded ? undefined : 1}
+            >
+              {`${freeze.title}. ${freeze.description}`}
             </Text>
           ) : null}
         </Pressable>
@@ -222,6 +251,12 @@ export function ConnectionEnvironmentRow(props: {
               onPress={() => void saveName(null)}
             />
           </View>
+          {diagnosis ? (
+            <ConnectionDiagnosisDetails
+              hostLabel={props.environment.environmentLabel}
+              diagnosis={diagnosis}
+            />
+          ) : null}
           {props.environment.isRelayManaged ? (
             <Text className="text-sm text-foreground-muted">
               Managed by Arcwright Connect. Tunnel details update automatically.

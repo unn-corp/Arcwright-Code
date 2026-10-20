@@ -6,9 +6,10 @@ import {
 } from "@t3tools/contracts";
 import type { RelayManagedEndpointProviderKind } from "@t3tools/contracts/relay";
 import { AsyncResult } from "effect/reactivity";
-import { act, useLayoutEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useLayoutEffect } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { act, render } from "../../test/render";
 
 const testState = vi.hoisted(() => ({
   scopes: new Set<string>(),
@@ -108,14 +109,12 @@ const linkedState: EnvironmentCloudLinkStateResult = {
   publishAgentActivity: false,
 };
 
-let root: Root | null = null;
-let container: HTMLDivElement;
-let controller: ReturnType<typeof useCloudLinkController> | null = null;
+type Controller = ReturnType<typeof useCloudLinkController>;
 
-function ControllerProbe() {
+function ControllerProbe({ onRender }: { onRender: (controller: Controller) => void }) {
   const value = useCloudLinkController();
   useLayoutEffect(() => {
-    controller = value;
+    onRender(value);
   });
   return (
     <LocalConnectCleanup
@@ -130,18 +129,27 @@ function ControllerProbe() {
 }
 
 async function mountController() {
-  container = document.createElement("div");
-  root = createRoot(container);
-  await act(async () => root!.render(<ControllerProbe />));
-}
-
-async function reconcile(desired: CloudLinkDesiredState) {
-  let succeeded = false;
-  await act(async () => {
-    if (controller === null) throw new Error("Controller is not mounted.");
-    succeeded = await controller.reconcileCloudState(desired);
+  let controller: Controller | null = null;
+  const screen = await render(
+    <ControllerProbe
+      onRender={(value) => {
+        controller = value;
+      }}
+    />,
+  );
+  return Object.assign(screen, {
+    get controller() {
+      return controller;
+    },
+    async reconcile(desired: CloudLinkDesiredState) {
+      let succeeded = false;
+      await act(async () => {
+        if (controller === null) throw new Error("Controller is not mounted.");
+        succeeded = await controller.reconcileCloudState(desired);
+      });
+      return succeeded;
+    },
   });
-  return succeeded;
 }
 
 function expectNoMutations() {
@@ -150,9 +158,7 @@ function expectNoMutations() {
   expect(testState.preferences).not.toHaveBeenCalled();
 }
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.spyOn(console, "error").mockImplementation(() => undefined);
+function setup() {
   testState.configured = true;
   testState.signedIn = true;
   testState.scopes = new Set([AuthRelayReadScope, AuthRelayWriteScope]);
@@ -170,34 +176,29 @@ beforeEach(() => {
   }
   testState.refreshLink.mockReset();
   testState.toast.mockReset();
-});
-
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  root = null;
-  controller = null;
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+  return vi.spyOn(console, "error").mockImplementation(() => undefined);
+}
 
 describe("useCloudLinkController", () => {
   it.each([AuthRelayReadScope, AuthRelayWriteScope])(
     "does not mutate without %s, even with a cached link snapshot",
     async (scope) => {
-      await mountController();
+      using _setup = setup();
+      await using screen = await mountController();
       testState.scopes.delete(scope);
 
-      expect(await reconcile({ managedTunnel: true, publish: true })).toBe(false);
+      expect(await screen.reconcile({ managedTunnel: true, publish: true })).toBe(false);
       expect(testState.getToken).not.toHaveBeenCalled();
       expectNoMutations();
     },
   );
 
   it("does not interpret unavailable link state as an unlinked environment", async () => {
+    using _setup = setup();
     testState.snapshot = null;
-    await mountController();
+    await using screen = await mountController();
 
-    expect(await reconcile({ managedTunnel: false, publish: true })).toBe(false);
+    expect(await screen.reconcile({ managedTunnel: false, publish: true })).toBe(false);
     expect(testState.getToken).not.toHaveBeenCalled();
     expectNoMutations();
   });
@@ -205,38 +206,41 @@ describe("useCloudLinkController", () => {
   it.each([AuthRelayReadScope, AuthRelayWriteScope])(
     "rechecks %s after requesting the cloud token",
     async (scope) => {
-      await mountController();
+      using _setup = setup();
+      await using screen = await mountController();
       testState.getToken.mockImplementationOnce(async () => {
         testState.scopes.delete(scope);
         return "clerk-token";
       });
 
-      expect(await reconcile({ managedTunnel: false, publish: false })).toBe(false);
+      expect(await screen.reconcile({ managedTunnel: false, publish: false })).toBe(false);
       expectNoMutations();
     },
   );
 
   it("stops if the link-state read fails while requesting the cloud token", async () => {
-    await mountController();
+    using _setup = setup();
+    await using screen = await mountController();
     testState.getToken.mockImplementationOnce(async () => {
       testState.snapshot = null;
       return "clerk-token";
     });
 
-    expect(await reconcile({ managedTunnel: true, publish: true })).toBe(false);
+    expect(await screen.reconcile({ managedTunnel: true, publish: true })).toBe(false);
     expectNoMutations();
   });
 
   it("uses the latest linked mode to change publishing without replacing the tunnel", async () => {
+    using _setup = setup();
     testState.snapshot = { ...linkedState, linked: false, managedTunnelActive: false };
     testState.renderedSnapshot = testState.snapshot;
-    await mountController();
+    await using screen = await mountController();
     testState.getToken.mockImplementationOnce(async () => {
       testState.snapshot = linkedState;
       return "clerk-token";
     });
 
-    expect(await reconcile({ managedTunnel: true, publish: true })).toBe(true);
+    expect(await screen.reconcile({ managedTunnel: true, publish: true })).toBe(true);
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.unlink).not.toHaveBeenCalled();
     expect(testState.preferences).toHaveBeenCalledExactlyOnceWith({
@@ -246,12 +250,13 @@ describe("useCloudLinkController", () => {
   });
 
   it("shows a link the relay holds as publish-only as off and relinks it as managed", async () => {
+    using _setup = setup();
     testState.relayProviderKind = "manual";
-    await mountController();
+    await using screen = await mountController();
 
-    expect(controller?.managedTunnelActive).toBe(false);
-    expect(controller?.managedTunnelOutOfSync).toBe(true);
-    expect(await reconcile({ managedTunnel: true, publish: false })).toBe(true);
+    expect(screen.controller?.managedTunnelActive).toBe(false);
+    expect(screen.controller?.managedTunnelOutOfSync).toBe(true);
+    expect(await screen.reconcile({ managedTunnel: true, publish: false })).toBe(true);
     expect(testState.link).toHaveBeenCalledExactlyOnceWith({
       target,
       clerkToken: "clerk-token",
@@ -260,17 +265,18 @@ describe("useCloudLinkController", () => {
   });
 
   it("shows a revoked link as off and links it again when turned on", async () => {
+    using _setup = setup();
     testState.snapshot = { ...linkedState, linkRevoked: true };
     testState.renderedSnapshot = testState.snapshot;
-    await mountController();
-    expect(controller).toMatchObject({
+    await using screen = await mountController();
+    expect(screen.controller).toMatchObject({
       linked: false,
       linkRevoked: true,
       managedTunnelActive: false,
       managedTunnelOutOfSync: false,
     });
 
-    expect(await reconcile({ managedTunnel: true, publish: false })).toBe(true);
+    expect(await screen.reconcile({ managedTunnel: true, publish: false })).toBe(true);
     expect(testState.link).toHaveBeenCalledExactlyOnceWith({
       target,
       clerkToken: "clerk-token",
@@ -279,52 +285,57 @@ describe("useCloudLinkController", () => {
   });
 
   it("keeps a managed link that the relay also holds as managed", async () => {
+    using _setup = setup();
     testState.relayProviderKind = "cloudflare_tunnel";
-    await mountController();
+    await using screen = await mountController();
 
-    expect(controller?.managedTunnelActive).toBe(true);
-    expect(controller?.managedTunnelOutOfSync).toBe(false);
-    expect(await reconcile({ managedTunnel: true, publish: false })).toBe(true);
+    expect(screen.controller?.managedTunnelActive).toBe(true);
+    expect(screen.controller?.managedTunnelOutOfSync).toBe(false);
+    expect(await screen.reconcile({ managedTunnel: true, publish: false })).toBe(true);
     expect(testState.link).not.toHaveBeenCalled();
   });
 
   it("stops the preference write if management permission is lost after linking", async () => {
-    await mountController();
+    using _setup = setup();
+    await using screen = await mountController();
     testState.link.mockImplementationOnce(async () => {
       testState.scopes.delete(AuthRelayWriteScope);
       return AsyncResult.success({});
     });
 
-    expect(await reconcile({ managedTunnel: false, publish: true })).toBe(false);
+    expect(await screen.reconcile({ managedTunnel: false, publish: true })).toBe(false);
     expect(testState.link).toHaveBeenCalledOnce();
     expect(testState.preferences).not.toHaveBeenCalled();
     expect(testState.refreshLink).toHaveBeenCalledOnce();
   });
 
   it("still lets an authorized user unlink when the cloud token is unavailable", async () => {
-    await mountController();
+    using _setup = setup();
+    await using screen = await mountController();
     testState.getToken.mockRejectedValueOnce(new Error("Cloud sign-in unavailable"));
 
-    expect(await reconcile({ managedTunnel: false, publish: false })).toBe(true);
+    expect(await screen.reconcile({ managedTunnel: false, publish: false })).toBe(true);
     expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, clerkToken: null });
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.preferences).not.toHaveBeenCalled();
   });
 
   it("unlinks if the link-state read fails while requesting the cloud token", async () => {
-    await mountController();
+    using _setup = setup();
+    await using screen = await mountController();
     testState.getToken.mockImplementationOnce(async () => {
       testState.snapshot = null;
       throw new Error("Cloud sign-in unavailable");
     });
 
-    expect(await reconcile({ managedTunnel: false, publish: false })).toBe(true);
+    expect(await screen.reconcile({ managedTunnel: false, publish: false })).toBe(true);
     expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, clerkToken: null });
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.preferences).not.toHaveBeenCalled();
     expect(testState.refreshLink).toHaveBeenCalledOnce();
   });
   it("requires local unlink before enabling a link saved under another authority", async () => {
+    using _setup = setup();
     testState.snapshot = {
       ...linkedState,
       authorityStatus: "incompatible",
@@ -333,8 +344,8 @@ describe("useCloudLinkController", () => {
       managedTunnelActive: false,
       publishAgentActivity: false,
     };
-    await mountController();
-    const ok = await reconcile({ managedTunnel: true, publish: false });
+    await using screen = await mountController();
+    const ok = await screen.reconcile({ managedTunnel: true, publish: false });
     expect(ok).toBe(false);
     expect(testState.link).not.toHaveBeenCalled();
     expect(testState.unlink).not.toHaveBeenCalled();
@@ -342,6 +353,7 @@ describe("useCloudLinkController", () => {
   it.each(["cloudless", "partial", "locally-disabled"])(
     "allows paired local cleanup of %s state without managed sign-in or replacement",
     async (shape) => {
+      using _setup = setup();
       testState.configured = shape !== "cloudless";
       testState.signedIn = false;
       testState.snapshot = {
@@ -358,16 +370,17 @@ describe("useCloudLinkController", () => {
         managedTunnelActive: false,
       };
       testState.renderedSnapshot = testState.snapshot;
-      await mountController();
-      expect(await reconcile({ managedTunnel: true, publish: true })).toBe(false);
+      await using screen = await mountController();
+      expect(await screen.reconcile({ managedTunnel: true, publish: true })).toBe(false);
       expect(testState.getToken).not.toHaveBeenCalled();
       expectNoMutations();
-      expect(await reconcile({ managedTunnel: false, publish: false })).toBe(true);
+      expect(await screen.reconcile({ managedTunnel: false, publish: false })).toBe(true);
       expect(testState.unlink).toHaveBeenCalledExactlyOnceWith({ target, clerkToken: null });
       expect(testState.refreshDiscovery).not.toHaveBeenCalled();
     },
   );
   it("runs the visible partial cloudless cleanup button through the real controller without managed auth", async () => {
+    using _setup = setup();
     testState.configured = false;
     testState.signedIn = false;
     testState.snapshot = {
@@ -379,8 +392,8 @@ describe("useCloudLinkController", () => {
       remoteCleanupPending: true,
     };
     testState.renderedSnapshot = testState.snapshot;
-    await mountController();
-    const button = container.querySelector<HTMLButtonElement>("button")!;
+    await using screen = await mountController();
+    const button = screen.container.querySelector<HTMLButtonElement>("button")!;
     await act(async () => {
       button.click();
     });

@@ -100,6 +100,7 @@ export default defineConfig({
       "**/routeTree.gen.ts",
       "**/*.graphql.ts",
       "packages/source-control-github/schema/**",
+      "apps/server/schema/**",
       "apps/mobile/android/**",
       "apps/mobile/ios/**",
       "apps/mobile/uniwind-types.d.ts",
@@ -127,6 +128,7 @@ export default defineConfig({
       "**/routeTree.gen.ts",
       "**/*.graphql.ts",
       "packages/source-control-github/schema/**",
+      "apps/server/schema/**",
       "apps/mobile/android/**",
       "apps/mobile/ios/**",
       "apps/mobile/uniwind-types.d.ts",
@@ -194,6 +196,10 @@ export default defineConfig({
           "packages/provider-testing/**",
         ],
         rules: { "t3code/prefer-effect-fn": "off" },
+      },
+      {
+        files: ["apps/web/**/*.test.{ts,tsx}"],
+        rules: { "t3code/require-disposable-render": "error" },
       },
       {
         files: ["apps/**/src/**", "packages/**/src/**"],

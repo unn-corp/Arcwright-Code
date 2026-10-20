@@ -1,3 +1,4 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import { RegistryContext } from "@effect/atom-react";
 import {
   DEFAULT_UNIFIED_SETTINGS,
@@ -8,15 +9,14 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts";
 import { AsyncResult, type Atom } from "effect/reactivity";
-import { act, createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import {
   createMemoryHistory,
   createRootRoute,
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -220,19 +220,20 @@ function createTestRouter() {
     history: createMemoryHistory(),
   });
 }
-let router: ReturnType<typeof createTestRouter>;
-let root: Root;
-let container: HTMLDivElement;
 
 const setProviders = (providers: ReadonlyArray<ServerProvider>) =>
   act(async () => appAtomRegistry.set(state.providers, providers));
 
-async function render(options?: {
-  readonly readOnly?: boolean;
-  readonly targetInstanceId?: ProviderInstanceId;
-}) {
+async function render(
+  root: Screen,
+  router: ReturnType<typeof createTestRouter>,
+  options?: {
+    readonly readOnly?: boolean;
+    readonly targetInstanceId?: ProviderInstanceId;
+  },
+) {
   await act(async () =>
-    root.render(
+    root.rerender(
       <panelContext.Provider
         value={
           <RegistryContext.Provider value={appAtomRegistry}>
@@ -262,8 +263,7 @@ const addProvider = () => page.getByRole("button", { name: "Add provider" }).fir
 const select = (name: string) => button(`Select ${name}`);
 const deleteButton = (id: string) => button(`Delete instance ${id}`);
 
-beforeEach(async () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+async function setup() {
   await page.viewport(1280, 900);
   state.settings = DEFAULT_UNIFIED_SETTINGS;
   state.canManageProviders = true;
@@ -281,22 +281,27 @@ beforeEach(async () => {
   state.uninstall.mockReset().mockResolvedValue(AsyncResult.success({}));
   state.acceptUrlAuth.mockReset().mockResolvedValue(AsyncResult.success({ accepted: true }));
   await setProviders([]);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-  router = createTestRouter();
-  await router.load();
-});
 
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+  const router = createTestRouter();
+  await router.load();
+  // The fixture supplies its own router.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    router,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+      vi.unstubAllGlobals();
+    },
+  };
+}
 
 describe("EnvironmentProviderSettings routing", () => {
   it("shows Codex and Claude while hiding untouched disabled provider slots", async () => {
-    await render();
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
+    await render(root, router);
     await expect.element(select("Codex")).toBeVisible();
     await expect.element(select("Claude")).toBeVisible();
     for (const label of ["Cursor", "Grok", "Pi", "OpenCode", "Antigravity"]) {
@@ -305,6 +310,8 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("keeps explicitly configured providers visible when disabled", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -314,11 +321,13 @@ describe("EnvironmentProviderSettings routing", () => {
         },
       },
     };
-    await render();
+    await render(root, router);
     await expect.element(select("Grok")).toBeVisible();
   });
 
   it("keeps legacy provider configuration visible when disabled", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -329,12 +338,14 @@ describe("EnvironmentProviderSettings routing", () => {
         },
       },
     };
-    await render();
+    await render(root, router);
     await expect.element(select("Grok")).toBeVisible();
   });
 
   it("reads and writes settings on the selected environment", async () => {
-    await render();
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
+    await render(root, router);
     await expect.element(select("Codex")).toBeVisible();
     expect(new Set(state.readEnvironmentIds)).toEqual(new Set([environmentId]));
     expect(new Set(state.updateEnvironmentIds)).toEqual(new Set([environmentId]));
@@ -342,8 +353,10 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("routes refresh and provider update commands to the selected environment", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     await setProviders([provider()]);
-    await render();
+    await render(root, router);
 
     await userEvent.click(refreshButton());
     expect(state.refresh).toHaveBeenCalledWith({
@@ -361,6 +374,8 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("opens the requested provider instance instead of the first provider", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -372,13 +387,15 @@ describe("EnvironmentProviderSettings routing", () => {
       },
     };
     await setProviders([provider()]);
-    await render({ targetInstanceId: customId });
+    await render(root, router, { targetInstanceId: customId });
     await expect.element(deleteButton(customId)).toBeVisible();
   });
 
   it("saves model favorites and visibility on the selected environment", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     await setProviders([provider()]);
-    await render();
+    await render(root, router);
 
     await userEvent.click(select("Codex"));
     await userEvent.click(button("Add Chosen to favorites"));
@@ -392,8 +409,10 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("does not substitute another account when the requested instance was removed", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     await setProviders([provider()]);
-    await render({ targetInstanceId: customId });
+    await render(root, router, { targetInstanceId: customId });
     await expect
       .element(page.getByText("This provider is no longer available on this computer."))
       .toBeVisible();
@@ -401,6 +420,8 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("keeps provider selection available while write controls are read only", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.canWriteSettings = false;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
@@ -413,7 +434,7 @@ describe("EnvironmentProviderSettings routing", () => {
       },
     };
     await setProviders([provider()]);
-    await render({ readOnly: true });
+    await render(root, router, { readOnly: true });
 
     await expect.element(page.getByRole("heading", { name: "Limited permissions" })).toBeVisible();
     await userEvent.click(select("Work"));
@@ -424,8 +445,10 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("keeps the editable layout interactive when not read only", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     await setProviders([provider()]);
-    await render();
+    await render(root, router);
     await expect.element(page.getByText("Limited permissions")).not.toBeInTheDocument();
     await expect.element(refreshButton()).toBeVisible();
     await expect.element(addProvider()).toBeVisible();
@@ -433,18 +456,22 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("removes an open add-instance dialog when the provider grant is revoked", async () => {
-    await render();
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
+    await render(root, router);
     await userEvent.click(addProvider());
     await expect.element(page.getByRole("dialog")).toBeVisible();
 
     state.canManageProviders = false;
-    await render({ readOnly: true });
+    await render(root, router, { readOnly: true });
     await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
 
   it("links provider polling to its single editor in General", async () => {
-    await render();
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
+    await render(root, router);
     const link = page.getByRole("link", { name: "General performance" });
     await expect.element(link).toBeVisible();
     expect(link.element().getAttribute("href")).toContain(
@@ -454,7 +481,9 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("opens a dedicated provider detail and returns to the overview", async () => {
-    await render();
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
+    await render(root, router);
     expect(button("Back to Providers").elements()).toHaveLength(0);
     await userEvent.click(select("Codex"));
     await expect.element(button("Back to Providers")).toBeVisible();
@@ -465,10 +494,12 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("returns from provider detail when search targets shared usage settings", async () => {
-    await render({ targetInstanceId: codexId });
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
+    await render(root, router, { targetInstanceId: codexId });
     await expect.element(button("Back to Providers")).toBeVisible();
     state.searchTargetId = "usage-providers";
-    await render({ targetInstanceId: codexId });
+    await render(root, router, { targetInstanceId: codexId });
     await expect.element(select("Codex")).toBeVisible();
     expect(button("Back to Providers").elements()).toHaveLength(0);
   });
@@ -484,6 +515,8 @@ describe("EnvironmentProviderSettings routing", () => {
     "binaryPath",
     "environment-API_KEY",
   ])("reenters the same provider through its %s hash after Back to Providers", async (anchor) => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     const instanceId = ProviderInstanceId.make("codex-work_config-runtime");
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
@@ -501,38 +534,44 @@ describe("EnvironmentProviderSettings routing", () => {
       },
     };
     state.searchTargetId = `provider-instance-${instanceId}-${anchor}`;
-    await render();
+    await render(root, router);
     await expect.element(deleteButton(instanceId)).toBeVisible();
     await userEvent.click(button("Back to Providers"));
     await expect.element(select("Codex")).toBeVisible();
     state.searchTargetId = null;
-    await render();
+    await render(root, router);
     state.searchTargetId = `provider-instance-${instanceId}-${anchor}`;
-    await render();
+    await render(root, router);
     await expect.element(deleteButton(instanceId)).toBeVisible();
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
 
   it("reenters detail with an unchanged instance search parameter", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.searchTargetId = "provider-instance-codex-runtime";
-    await render({ targetInstanceId: codexId });
+    await render(root, router, { targetInstanceId: codexId });
     await userEvent.click(button("Back to Providers"));
     state.searchTargetId = null;
-    await render({ targetInstanceId: codexId });
+    await render(root, router, { targetInstanceId: codexId });
     await expect.element(select("Codex")).toBeVisible();
     state.searchTargetId = "provider-instance-codex-runtime";
-    await render({ targetInstanceId: codexId });
+    await render(root, router, { targetInstanceId: codexId });
     await expect.element(button("Back to Providers")).toBeVisible();
   });
 
   it("does not interpret a missing provider prefix as an existing instance", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.searchTargetId = "provider-instance-missing-runtime";
-    await render();
+    await render(root, router);
     await expect.element(select("Codex")).toBeVisible();
     expect(button("Back to Providers").elements()).toHaveLength(0);
   });
 
   it("deletes and resets provider configuration without erasing shared preferences", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -548,7 +587,7 @@ describe("EnvironmentProviderSettings routing", () => {
       },
       favorites: [{ provider: customId, model: "favorite" }],
     };
-    await render();
+    await render(root, router);
     await userEvent.click(select("Work"));
     await userEvent.click(deleteButton(customId));
     expect(state.mutateProviderInstance).toHaveBeenLastCalledWith({
@@ -566,6 +605,8 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("updates one provider instance without sending a stale whole map", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -576,7 +617,7 @@ describe("EnvironmentProviderSettings routing", () => {
         },
       },
     };
-    await render();
+    await render(root, router);
     await userEvent.click(page.getByRole("switch", { name: "Enable Work" }).first());
 
     expect(state.mutateProviderInstance).toHaveBeenCalledWith(
@@ -590,6 +631,8 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("lets the server decide managed ACP cleanup after an atomic delete", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     const firstId = ProviderInstanceId.make("acpRegistry_kilo_one");
     const secondId = ProviderInstanceId.make("acpRegistry_kilo_two");
     const registryInstance = (displayName: string) => ({
@@ -605,7 +648,7 @@ describe("EnvironmentProviderSettings routing", () => {
         [secondId]: registryInstance("Kilo two"),
       },
     };
-    await render();
+    await render(root, router);
     await userEvent.click(select("Kilo one"));
     await userEvent.click(deleteButton(firstId));
 
@@ -619,6 +662,8 @@ describe("EnvironmentProviderSettings routing", () => {
   });
 
   it("keeps the signed-in ACP account visible when login methods are no longer advertised", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     const instanceId = ProviderInstanceId.make("acpRegistry_devin");
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
@@ -639,11 +684,13 @@ describe("EnvironmentProviderSettings routing", () => {
         setup: { canAuthenticate: false, canInstall: false },
       },
     ]);
-    await render({ targetInstanceId: instanceId });
+    await render(root, router, { targetInstanceId: instanceId });
     await expect.element(page.getByRole("heading", { name: "Account & sign-in" })).toBeVisible();
   });
 
   it("routes explicit ACP browser authentication consent to the selected environment", async () => {
+    await using _fixture = await setup();
+    const { root, container, router } = _fixture;
     const instanceId = ProviderInstanceId.make("acpRegistry_antigravity");
     const action = {
       elicitationId: "google-login-1",
@@ -668,7 +715,7 @@ describe("EnvironmentProviderSettings routing", () => {
         auth: { status: "unauthenticated", action },
       },
     ]);
-    await render({ targetInstanceId: instanceId });
+    await render(root, router, { targetInstanceId: instanceId });
     const link = page.getByRole("link", { name: "Continue authentication" });
     link.element().addEventListener("click", (event) => event.preventDefault());
     await userEvent.click(link);

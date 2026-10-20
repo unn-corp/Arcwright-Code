@@ -1,5 +1,5 @@
-import { act, useLayoutEffect } from "react";
-import { createRoot } from "react-dom/client";
+import { useLayoutEffect } from "react";
+import { act, render } from "../../../test/render";
 import {
   EnvironmentId,
   MessageId,
@@ -7,7 +7,7 @@ import {
   type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { makeThreadProjectionFixture } from "../../test-fixtures";
 import { useQueuedRunEdit } from "./useQueuedRunEdit";
@@ -15,7 +15,6 @@ import { useQueuedRunEdit } from "./useQueuedRunEdit";
 const state = vi.hoisted(() => ({ edit: vi.fn() }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.edit }));
 vi.mock("../../assets/assetUrls", () => ({ useAssetUrls: () => [] }));
-afterEach(() => vi.restoreAllMocks());
 
 it.each([true, false])(
   "preserves a queued quote through editing, unless removed (keep: %s)",
@@ -90,46 +89,41 @@ it.each([true, false])(
       });
       return <div>{edit.isEditing ? "Editing" : "Ready"}</div>;
     }
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    try {
-      await act(() => root.render(<Probe />));
-      await act(() => editor.beginEdit({ runId, messageId, text: "Follow up", attachments: [] }));
-      const store = useComposerDraftStore.getState();
-      expect(container.textContent).toBe("Editing");
-      expect(store.getComposerDraft(editor.draftTarget)?.replyTo).toEqual(replyTo);
-      if (!keepReply) store.setReplyTo(editor.draftTarget, null);
-      await act(() =>
-        editor.saveEdit(
-          {
-            prompt: "Edited follow up",
-            replyTo: store.getComposerDraft(editor.draftTarget)?.replyTo ?? undefined,
-            images: [],
-            files: [],
-            terminalContexts: [],
-            reviewComments: [],
-            previewAnnotations: [],
-            threadContexts: [],
-          },
-          vi.fn(),
-        ),
-      );
-      expect(state.edit).toHaveBeenCalledExactlyOnceWith({
-        environmentId,
-        input: {
-          threadId,
-          runId,
-          text: "Edited follow up",
-          edit: {
-            messageId,
-            attachments: [],
-            context: { version: 1, records: [], ...(keepReply ? { replyTo } : {}) },
-          },
+    await using screen = await render(<Probe />, { router: false });
+    const container = screen.container;
+    await act(() => editor.beginEdit({ runId, messageId, text: "Follow up", attachments: [] }));
+    const store = useComposerDraftStore.getState();
+    expect(container.textContent).toBe("Editing");
+    expect(store.getComposerDraft(editor.draftTarget)?.replyTo).toEqual(replyTo);
+    if (!keepReply) store.setReplyTo(editor.draftTarget, null);
+    await act(() =>
+      editor.saveEdit(
+        {
+          prompt: "Edited follow up",
+          replyTo: store.getComposerDraft(editor.draftTarget)?.replyTo ?? undefined,
+          images: [],
+          files: [],
+          terminalContexts: [],
+          reviewComments: [],
+          previewAnnotations: [],
+          threadContexts: [],
         },
-      });
-      expect(container.textContent).toBe("Ready");
-    } finally {
-      await act(() => root.unmount());
-    }
+        vi.fn(),
+      ),
+    );
+    expect(state.edit).toHaveBeenCalledExactlyOnceWith({
+      environmentId,
+      input: {
+        threadId,
+        runId,
+        text: "Edited follow up",
+        edit: {
+          messageId,
+          attachments: [],
+          context: { version: 1, records: [], ...(keepReply ? { replyTo } : {}) },
+        },
+      },
+    });
+    expect(container.textContent).toBe("Ready");
   },
 );

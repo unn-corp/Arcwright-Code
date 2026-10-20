@@ -1,3 +1,4 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import {
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
@@ -9,9 +10,8 @@ import {
   type DesktopPreviewAnnotationSnapshot,
   type PreviewAnnotationPayload,
 } from "@t3tools/contracts";
-import { act, Profiler, type ComponentProps, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { Profiler, type ComponentProps, type ReactNode } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -186,11 +186,8 @@ const TEST_THREAD_REF = {
 } as const;
 const TEST_RUNTIME_TAB_ID = previewRuntimeTabId(TEST_THREAD_REF, null, "tab-1");
 
-const roots: Root[] = [];
-let root: Root;
-
-async function render(node: ReactNode) {
-  await act(async () => root.render(node));
+async function render(root: Screen, node: ReactNode) {
+  await act(async () => root.rerender(node));
 }
 
 function view(onSendAnnotation?: ComponentProps<typeof PreviewView>["onSendAnnotation"]) {
@@ -220,7 +217,7 @@ const snapshot: DesktopPreviewAnnotationSnapshot = {
 };
 
 async function captureAnnotation() {
-  await act(async () => userEvent.click(page.getByRole("button", { name: "Annotate preview" })));
+  await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
   await vi.waitFor(() =>
     expect(usePreviewAnnotationEditorStore.getState().session?.status).toBe("ready"),
   );
@@ -238,8 +235,7 @@ function hasCursor() {
 }
 
 describe("PreviewView", () => {
-  beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  async function setup() {
     vi.clearAllMocks();
     mocks.readEnvironmentScope.mockReset().mockReturnValue(true);
     mocks.setAnnotationSendEnabled.mockReset().mockResolvedValue(undefined);
@@ -264,22 +260,24 @@ describe("PreviewView", () => {
     });
     usePreviewMiniPlayerStore.setState({ byThreadKey: {} });
     useBrowserPointerStore.setState({ byTabId: {} });
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-    roots.push(root);
-  });
-
-  afterEach(async () => {
-    for (const each of roots.splice(0)) await act(async () => each.unmount());
-    usePreviewAnnotationEditorStore.setState({ session: null });
-    usePreviewAnnotationSenders.setState({ senders: new Map() });
-    document.body.replaceChildren();
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
+    // Navigation is mocked; this fixture exercises only the panel or bridge.
+    const root = await renderUi(null, { router: false });
+    return {
+      root,
+      container: root.container,
+      async [Symbol.asyncDispose]() {
+        await root[Symbol.asyncDispose]();
+        usePreviewAnnotationEditorStore.setState({ session: null });
+        usePreviewAnnotationSenders.setState({ senders: new Map() });
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+      },
+    };
+  }
 
   it("shows the cursor in a replacement browser while the old instance still records", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     mocks.recordingTabIds.add(TEST_RUNTIME_TAB_ID);
     mocks.recordingRuntimeTabId = TEST_RUNTIME_TAB_ID;
     const replacementTabId = previewRuntimeTabId(TEST_THREAD_REF, "replacement-server", "tab-1");
@@ -291,10 +289,10 @@ describe("PreviewView", () => {
         ]),
       ),
     });
-    await render(view());
+    await render(root, view());
     expect(hasCursor()).toBe(false);
     mocks.serverEpoch = "replacement-server";
-    await render(view());
+    await render(root, view());
     expect(hasCursor()).toBe(true);
     expect(mocks.recordingTabIds.has(TEST_RUNTIME_TAB_ID)).toBe(true);
   });
@@ -302,6 +300,8 @@ describe("PreviewView", () => {
   it.each([false, true])(
     "aligns the cursor and responsive viewport after host zoom changes (native server tab: %s)",
     async (nativeServerTab) => {
+      await using _fixture = await setup();
+      const { root, container } = _fixture;
       mocks.nativeServerTab = nativeServerTab;
       let windowZoom = 1;
       vi.stubGlobal("desktopBridge", {
@@ -310,7 +310,7 @@ describe("PreviewView", () => {
       });
       const commit = vi.mocked(commitBrowserViewportChange).mockResolvedValueOnce(undefined);
       try {
-        await render(view());
+        await render(root, view());
         await act(() => {
           const surfaces = useBrowserSurfaceStore.getState();
           const slot = document.querySelector<HTMLElement>("[data-browser-surface-slot]")!;
@@ -361,10 +361,13 @@ describe("PreviewView", () => {
   );
 
   it("does not rerender while loading time passes", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     vi.useFakeTimers();
     mocks.loading = true;
     const onRender = vi.fn();
     await render(
+      root,
       <Profiler id="preview" onRender={onRender}>
         {view()}
       </Profiler>,
@@ -383,7 +386,9 @@ describe("PreviewView", () => {
   ])(
     "preserves a direct localhost URL %s in a WSL environment and records it",
     async (submitted, expected) => {
-      await render(view());
+      await using _fixture = await setup();
+      const { root, container } = _fixture;
+      await render(root, view());
       await submitAddress(submitted);
       await vi.waitFor(() =>
         expect(mocks.navigate).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID, expected),
@@ -394,6 +399,8 @@ describe("PreviewView", () => {
   );
 
   it("maps an empty-state localhost server onto the WSL host", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     mocks.showEmptyState = true;
     mocks.servers = [
       {
@@ -407,7 +414,7 @@ describe("PreviewView", () => {
         source: "scanner",
       } as unknown as PreviewableServer,
     ];
-    await render(view());
+    await render(root, view());
     await userEvent.click(page.getByRole("button", { name: /vite/ }));
 
     await vi.waitFor(() =>
@@ -430,7 +437,9 @@ describe("PreviewView", () => {
   });
 
   it("opens and closes a thread-scoped floating preview for the active tab", async () => {
-    await render(view());
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await render(root, view());
     await userEvent.click(page.getByRole("button", { name: "Float preview over chat" }));
     expect(usePreviewMiniPlayerStore.getState().byThreadKey).toMatchObject({
       "environment-1:thread-1": { source: { kind: "browser", tabId: "tab-1" } },
@@ -442,7 +451,9 @@ describe("PreviewView", () => {
   });
 
   it("keeps the native preview window as a secondary menu action", async () => {
-    await render(view());
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await render(root, view());
     await userEvent.click(page.getByRole("button", { name: "Preview menu" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Open separate preview window" }));
     await vi.waitFor(() =>
@@ -451,7 +462,7 @@ describe("PreviewView", () => {
     await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
 
     mocks.pictureInPicture = true;
-    await render(view());
+    await render(root, view());
     await userEvent.click(page.getByRole("button", { name: "Preview menu" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Close separate preview window" }));
     await vi.waitFor(() =>
@@ -462,16 +473,16 @@ describe("PreviewView", () => {
   it.each(["Control", "Meta"])(
     "forwards %s+Enter annotations from the durable modal to the original composer",
     async (modifier) => {
+      await using _fixture = await setup();
+      const { root, container } = _fixture;
       const onSendAnnotation = vi.fn();
-      await render(view(onSendAnnotation));
+      await render(root, view(onSendAnnotation));
       await captureAnnotation();
-      await act(async () =>
-        userEvent.fill(
-          page.getByRole("textbox", { name: "Describe the change" }),
-          "Tighten this spacing",
-        ),
+      await userEvent.fill(
+        page.getByRole("textbox", { name: "Describe the change" }),
+        "Tighten this spacing",
       );
-      await act(async () => userEvent.keyboard(`{${modifier}>}{Enter}{/${modifier}}`));
+      await userEvent.keyboard(`{${modifier}>}{Enter}{/${modifier}}`);
 
       const picked = expect.objectContaining({
         pageUrl: snapshot.pageUrl,
@@ -491,6 +502,8 @@ describe("PreviewView", () => {
   );
 
   it("retains the annotation locally when its own environment loses access during submission", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     const onSendAnnotation = vi.fn();
     let finishRender!: (annotation: PreviewAnnotationPayload) => void;
     let pendingAnnotation!: PreviewAnnotationPayload;
@@ -502,16 +515,14 @@ describe("PreviewView", () => {
         });
       },
     );
-    await render(view(onSendAnnotation));
+    await render(root, view(onSendAnnotation));
     await captureAnnotation();
-    await act(async () =>
-      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
-    );
+    await userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true }));
     await vi.waitFor(() => expect(finishRender).toBeDefined());
     mocks.readEnvironmentScope.mockImplementation(
       (environmentId?: unknown) => environmentId !== TEST_THREAD_REF.environmentId,
     );
-    await render(view());
+    await render(root, view());
     await act(async () => finishRender(pendingAnnotation));
     expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, pendingAnnotation);
     expect(mocks.addImage).toHaveBeenCalledWith(
@@ -522,15 +533,15 @@ describe("PreviewView", () => {
     expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
 
     mocks.readEnvironmentScope.mockReturnValue(true);
-    await render(view());
+    await render(root, view());
     await captureAnnotation();
-    await act(async () =>
-      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
-    );
+    await userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true }));
     await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledOnce());
   });
 
   it("does not reopen a discarded annotation after its snapshot capture finishes", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     let finishCapture!: (value: DesktopPreviewAnnotationSnapshot) => void;
     mocks.captureAnnotationSnapshot.mockImplementationOnce(
       () =>
@@ -538,16 +549,12 @@ describe("PreviewView", () => {
           finishCapture = resolve;
         }),
     );
-    await render(view());
-    await act(async () => userEvent.click(page.getByRole("button", { name: "Annotate preview" })));
+    await render(root, view());
+    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
     await vi.waitFor(() => expect(finishCapture).toBeDefined());
-    await act(async () =>
-      userEvent.click(page.getByRole("button", { name: "Close", exact: true })),
-    );
+    await userEvent.click(page.getByRole("button", { name: "Close", exact: true }));
     expect(usePreviewAnnotationEditorStore.getState().session?.status).toBe("capturing");
-    await act(async () =>
-      userEvent.click(page.getByRole("button", { name: "Discard annotation", exact: true })),
-    );
+    await userEvent.click(page.getByRole("button", { name: "Discard annotation", exact: true }));
     expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
     await act(async () => finishCapture(snapshot));
     expect(usePreviewAnnotationEditorStore.getState().session).toBeNull();
@@ -556,12 +563,14 @@ describe("PreviewView", () => {
   });
 
   it("keeps capture failures in the modal without sending an incomplete annotation", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     const onSendAnnotation = vi.fn();
     mocks.captureAnnotationSnapshot.mockRejectedValueOnce(
       new Error("Page reloaded during capture"),
     );
-    await render(view(onSendAnnotation));
-    await act(async () => userEvent.click(page.getByRole("button", { name: "Annotate preview" })));
+    await render(root, view(onSendAnnotation));
+    await userEvent.click(page.getByRole("button", { name: "Annotate preview" }));
     await expect.element(page.getByText("Page reloaded during capture")).toBeVisible();
     expect(usePreviewAnnotationEditorStore.getState().session?.status).toBe("error");
     await expect
@@ -572,6 +581,8 @@ describe("PreviewView", () => {
   });
 
   it("preserves annotation text for retry when the captured screenshot is malformed", async () => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     const onSendAnnotation = vi.fn();
     mocks.renderAnnotationScreenshot.mockImplementationOnce(
       async (annotation: PreviewAnnotationPayload) => ({
@@ -579,17 +590,13 @@ describe("PreviewView", () => {
         screenshot: { ...snapshot.screenshot, dataUrl: "data:image/png;base64,%%%" },
       }),
     );
-    await render(view(onSendAnnotation));
+    await render(root, view(onSendAnnotation));
     await captureAnnotation();
-    await act(async () =>
-      userEvent.fill(
-        page.getByRole("textbox", { name: "Describe the change" }),
-        "Keep this comment",
-      ),
+    await userEvent.fill(
+      page.getByRole("textbox", { name: "Describe the change" }),
+      "Keep this comment",
     );
-    await act(async () =>
-      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
-    );
+    await userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true }));
     await expect
       .element(page.getByRole("alert"))
       .toHaveTextContent("Could not prepare the screenshot. Your annotation is still saved.");
@@ -600,9 +607,7 @@ describe("PreviewView", () => {
     expect(mocks.addPreviewAnnotation).not.toHaveBeenCalled();
     expect(mocks.addImage).not.toHaveBeenCalled();
     expect(onSendAnnotation).not.toHaveBeenCalled();
-    await act(async () =>
-      userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true })),
-    );
+    await userEvent.click(page.getByRole("button", { name: "Send annotation", exact: true }));
     await vi.waitFor(() =>
       expect(onSendAnnotation).toHaveBeenCalledWith(
         expect.objectContaining({ comment: "Keep this comment", screenshot: snapshot.screenshot }),

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "bf5cfd0c31a79521e130200eefbdabb52b080144aacf6f3ad77cd756d1de2779",
+  "schemaSha256": "d88db366e11d44fb305fdf6bd27fe2bbe1d147e0e391ec0bf79d5c36d974e6ff",
   "objects": [
     {
       "type": "index",
@@ -223,6 +223,30 @@
       "name": "idx_scheduled_tasks_project",
       "tbl_name": "scheduled_tasks",
       "sql": "CREATE INDEX idx_scheduled_tasks_project\n    ON scheduled_tasks(project_id, updated_at)\n  "
+    },
+    {
+      "type": "index",
+      "name": "idx_webhook_pending_due",
+      "tbl_name": "scheduled_task_webhook_pending",
+      "sql": "CREATE INDEX idx_webhook_pending_due ON scheduled_task_webhook_pending(state, due_at)"
+    },
+    {
+      "type": "index",
+      "name": "idx_webhook_pending_key",
+      "tbl_name": "scheduled_task_webhook_pending",
+      "sql": "CREATE UNIQUE INDEX idx_webhook_pending_key\n    ON scheduled_task_webhook_pending(task_id, coalesce_key) WHERE state = 'pending'"
+    },
+    {
+      "type": "index",
+      "name": "idx_webhook_replay_delivery",
+      "tbl_name": "scheduled_task_webhook_replay_keys",
+      "sql": "CREATE INDEX idx_webhook_replay_delivery ON scheduled_task_webhook_replay_keys(delivery_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_webhook_replay_expiry",
+      "tbl_name": "scheduled_task_webhook_replay_keys",
+      "sql": "CREATE INDEX idx_webhook_replay_expiry ON scheduled_task_webhook_replay_keys(expires_at)"
     },
     {
       "type": "index",
@@ -1570,15 +1594,27 @@
     },
     {
       "type": "table",
+      "name": "scheduled_task_webhook_pending",
+      "tbl_name": "scheduled_task_webhook_pending",
+      "sql": "CREATE TABLE scheduled_task_webhook_pending (\n    delivery_id TEXT PRIMARY KEY,\n    task_id TEXT NOT NULL REFERENCES scheduled_tasks(task_id) ON DELETE CASCADE,\n    coalesce_key TEXT NOT NULL,\n    due_at INTEGER NOT NULL,\n    state TEXT NOT NULL DEFAULT 'pending',\n    task_json TEXT NOT NULL,\n    request_json TEXT NOT NULL,\n    delivery_ids_json TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
       "name": "scheduled_task_webhook_relay_deliveries",
       "tbl_name": "scheduled_task_webhook_relay_deliveries",
       "sql": "CREATE TABLE scheduled_task_webhook_relay_deliveries (\n      relay_delivery_id TEXT PRIMARY KEY,\n      task_id TEXT NOT NULL,\n      seen_at TEXT NOT NULL\n    )"
     },
     {
       "type": "table",
+      "name": "scheduled_task_webhook_replay_keys",
+      "tbl_name": "scheduled_task_webhook_replay_keys",
+      "sql": "CREATE TABLE scheduled_task_webhook_replay_keys (\n    task_id TEXT NOT NULL REFERENCES scheduled_tasks(task_id) ON DELETE CASCADE,\n    replay_key TEXT NOT NULL,\n    delivery_id TEXT NOT NULL,\n    expires_at INTEGER NOT NULL,\n    PRIMARY KEY (task_id, replay_key)\n  )"
+    },
+    {
+      "type": "table",
       "name": "scheduled_tasks",
       "tbl_name": "scheduled_tasks",
-      "sql": "CREATE TABLE scheduled_tasks (\n      task_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      enabled INTEGER NOT NULL,\n      schedule_json TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      thread_id TEXT,\n      workspace_strategy_json TEXT NOT NULL,\n      model_selection_json TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      created_by TEXT NOT NULL,\n      creation_source TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      next_run_at TEXT,\n      last_run_at TEXT,\n      last_run_status TEXT NOT NULL,\n      last_run_error TEXT,\n      run_count INTEGER NOT NULL\n    , webhook_token TEXT, webhook_secret TEXT)"
+      "sql": "CREATE TABLE scheduled_tasks (\n      task_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      enabled INTEGER NOT NULL,\n      schedule_json TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      thread_id TEXT,\n      workspace_strategy_json TEXT NOT NULL,\n      model_selection_json TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      created_by TEXT NOT NULL,\n      creation_source TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      next_run_at TEXT,\n      last_run_at TEXT,\n      last_run_status TEXT NOT NULL,\n      last_run_error TEXT,\n      run_count INTEGER NOT NULL\n    , webhook_token TEXT, webhook_secret TEXT, last_run_webhook_delivery_id TEXT)"
     },
     {
       "type": "trigger",

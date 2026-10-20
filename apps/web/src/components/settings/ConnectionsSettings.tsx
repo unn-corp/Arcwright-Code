@@ -22,6 +22,7 @@ import {
   type ReactNode,
   memo,
   useEffect,
+  useEffectEvent,
   useId,
   useRef,
   useState,
@@ -48,6 +49,8 @@ import {
   type DesktopServerExposureState,
   type DesktopWslState,
   type EnvironmentId,
+  connectReachabilityHelpUrl,
+  formatConnectReachable,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import {
@@ -92,6 +95,11 @@ import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
+import {
+  ConnectionDiagnosisPanel,
+  ConnectionDiagnosisSummary,
+  useConnectionDiagnosis,
+} from "./ConnectionDiagnosisDetails";
 import { usePreparedConnection } from "~/state/session";
 import {
   EnvironmentRow,
@@ -1470,6 +1478,7 @@ function SavedBackendListRow({
   onSelect,
 }: SavedBackendListRowProps) {
   const [renameOpen, setRenameOpen] = useState(false);
+  const [diagnosisOpen, setDiagnosisOpen] = useState(false);
   const environmentId = environment.environmentId;
   const unsupported = environment.connection.phase === "unsupported";
   const blocked = unsupported && !hasSavedBearerRoute(environment.entry);
@@ -1546,6 +1555,13 @@ function SavedBackendListRow({
   ) {
     setLastRelayHttpBaseUrl(discoveredRelayHttpBaseUrl);
   }
+  const retryNow = useAtomCommand(environmentCatalog.retryNow);
+  const {
+    diagnosis: currentDiagnosis,
+    state: connectionState,
+    relayOnly,
+  } = useConnectionDiagnosis(environment);
+  const diagnosis = resumingServerUpdate ? null : currentDiagnosis;
   const prepared = usePreparedConnection(environmentId);
   const connectedTarget = isConnected && prepared._tag === "Some" ? prepared.value.target : null;
   const mcpUrl = environmentMcpUrl({
@@ -1560,7 +1576,7 @@ function SavedBackendListRow({
   const routeCount = connectionRoutes(environment.entry).length;
   const subtitleText = [
     environmentTransportLabel(environment, connectedTarget),
-    resumingServerUpdate ? "Restarting" : status.text,
+    diagnosis ? null : resumingServerUpdate ? "Restarting" : status.text,
     enabled && serverVersion
       ? formatBuildVersion(environment.serverConfig?.buildIdentity ?? { version: serverVersion })
       : null,
@@ -1641,6 +1657,23 @@ function SavedBackendListRow({
         }
         below={
           <>
+            {diagnosis ? (
+              <ConnectionDiagnosisSummary
+                diagnosis={diagnosis}
+                retryAt={connectionState.phase === "backoff" ? connectionState.retryAt : null}
+                attempt={connectionState.attempt}
+                expanded={diagnosisOpen}
+                onToggle={() => setDiagnosisOpen((open) => !open)}
+              />
+            ) : null}
+            {diagnosis && diagnosisOpen ? (
+              <ConnectionDiagnosisPanel
+                hostLabel={environment.label}
+                diagnosis={diagnosis}
+                onRetry={() => void retryNow(environmentId)}
+                onAddRoute={relayOnly ? () => onAddRoute(environment) : null}
+              />
+            ) : null}
             {serverUpdateState.status !== "idle" ? (
               <div className="mt-1 max-w-md">
                 <ServerUpdateProgress state={serverUpdateState} />
@@ -1844,6 +1877,32 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       primaryCloudLinkState.data?.persistedLinkPresent === true &&
       !primaryCloudLinkState.data.linked
     );
+  const refreshLinkState = useEffectEvent(primaryCloudLinkState.refresh);
+  // The server rechecks reachability when the tunnel's 30 s readiness poll changes.
+  // Poll while mounted, so a failed read does not stop later ones.
+  useEffect(() => {
+    const interval = window.setInterval(() => refreshLinkState(), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+  const reachability = managedTunnelActive ? primaryCloudLinkState.data?.reachability : undefined;
+  const reachabilityStatus =
+    reachability?.status === "reachable" ? (
+      formatConnectReachable(reachability)
+    ) : reachability?.status === "unreachable" ? (
+      <span className="block text-destructive">
+        {[reachability.reason, reachability.hint, `Fix: ${reachability.fix}`]
+          .filter(Boolean)
+          .join(" ")}{" "}
+        <a
+          href={connectReachabilityHelpUrl(reachability.cause)}
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2"
+        >
+          More info
+        </a>
+      </span>
+    ) : null;
 
   const updateManagedTunnel = async (enabled: boolean) => {
     if (
@@ -3322,16 +3381,9 @@ export function ConnectionsSettings() {
                   Off
                 </SelectItem>
                 {desktopWslState.distros.length === 0 ? (
-                  <>
-                    <SelectItem hideIndicator value={BACKEND_VALUE_DEFAULT_WSL}>
-                      Default distro
-                    </SelectItem>
-                    {desktopWslState.distro !== null ? (
-                      <SelectItem hideIndicator value={desktopWslState.distro}>
-                        {desktopWslState.distro}
-                      </SelectItem>
-                    ) : null}
-                  </>
+                  <SelectItem hideIndicator value={BACKEND_VALUE_DEFAULT_WSL}>
+                    Default distro
+                  </SelectItem>
                 ) : (
                   desktopWslState.distros.map((distro) => (
                     <SelectItem hideIndicator key={distro.name} value={distro.name}>

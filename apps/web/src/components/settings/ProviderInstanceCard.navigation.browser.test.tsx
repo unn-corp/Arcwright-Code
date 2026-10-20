@@ -1,7 +1,7 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
-import { act, useSyncExternalStore, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { useSyncExternalStore, type ReactNode } from "react";
+import { expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
   target: null as string | null,
@@ -28,8 +28,6 @@ vi.mock("./settingsLayout", async (importOriginal) => ({
 vi.mock("./ProviderModelsSection", () => ({ ProviderModelsSection: () => null }));
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 
-let root: Root;
-let container: HTMLDivElement;
 const noop = () => undefined;
 const props = {
   instanceId: ProviderInstanceId.make("codex_work"),
@@ -47,22 +45,26 @@ const props = {
   onToggleFavorite: noop,
   onModelOrderChange: noop,
 };
-beforeEach(() => {
+async function setup() {
   state.target = null;
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+  // Navigation is mocked; this fixture exercises only the panel or bridge.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
 it.each(["runtime", "environment", "advanced"])(
   "reveals managed Codex %s targets inside Advanced",
   async (suffix) => {
-    await act(async () => root.render(<ProviderInstanceCard {...props} />));
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
+    await act(async () => root.rerender(<ProviderInstanceCard {...props} />));
     expect(container.querySelector("#provider-instance-codex_work-runtime")).toBeNull();
     await act(async () => {
       state.target = `provider-instance-codex_work-${suffix}`;

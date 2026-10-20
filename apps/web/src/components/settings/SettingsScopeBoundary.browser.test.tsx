@@ -1,6 +1,6 @@
-import { act, type ComponentProps } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import type { ComponentProps } from "react";
+import { render as renderUi } from "../../../test/render";
+import { expect, it, vi } from "vite-plus/test";
 import { BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS } from "./BackgroundActivitySettings";
 
 const state = vi.hoisted(() => ({ hash: "", environmentIds: ["one", "two"] }));
@@ -30,30 +30,18 @@ vi.mock(import("./SettingsScopeNotice"), () => ({
 }));
 import { SettingsScopeBoundary } from "../../routes/settings";
 
-let root: Root | undefined;
-let container: HTMLDivElement | undefined;
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  container?.remove();
-  vi.unstubAllGlobals();
-});
-
 it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
   "keeps %s reachable by asking for one computer before rendering its settings",
   async (target) => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
     state.hash = `#${target}`;
     state.environmentIds = ["one", "two"];
+    await using screen = await renderUi(null, { router: false });
+    const container = screen.container;
     const render = () =>
-      act(async () =>
-        root!.render(
-          <SettingsScopeBoundary pathname="/settings/general">
-            <p>Settings destination</p>
-          </SettingsScopeBoundary>,
-        ),
+      screen.rerender(
+        <SettingsScopeBoundary pathname="/settings/general">
+          <p>Settings destination</p>
+        </SettingsScopeBoundary>,
       );
     await render();
     expect(container.textContent).toContain("Choose one computer");

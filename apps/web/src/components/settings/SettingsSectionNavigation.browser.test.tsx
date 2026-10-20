@@ -1,6 +1,6 @@
-import { act, useRef, type ReactElement, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { useRef, type ReactElement, type ReactNode } from "react";
+import { act, render } from "../../../test/render";
+import { expect, it, vi } from "vite-plus/test";
 
 import { SettingsSectionNavigation } from "./SettingsSectionNavigation";
 
@@ -16,10 +16,8 @@ vi.mock("../ui/tooltip", () => ({
   }) => ({ ...render, props: { ...render.props, children } }),
 }));
 
-afterEach(() => vi.unstubAllGlobals());
-
 it("jumps and focuses sections through ticks and the compact menu, then follows scrolling", async () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  using _globals = { [Symbol.dispose]: () => vi.unstubAllGlobals() };
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -74,45 +72,39 @@ it("jumps and focuses sections through ticks and the compact menu, then follows 
   }
   const container = document.createElement("div");
   document.body.append(container);
-  const root = createRoot(container);
-  try {
-    await act(async () => root.render(<Fixture />));
-    container.querySelector<HTMLElement>("[data-settings-section-menu]")!.getBoundingClientRect =
-      () => new DOMRect();
-    const tick = container.querySelector<HTMLButtonElement>('[aria-label="Go to Performance"]')!;
-    await act(async () => tick.click());
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 776, behavior: "instant" });
-    expect(document.activeElement?.textContent).toBe("Performance");
-    expect(tick.getAttribute("aria-current")).toBe("location");
-    const menu = container.querySelector("select")!;
-    await act(async () => {
-      menu.value = "0";
-      menu.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(document.activeElement?.textContent).toBe("Profile");
-    const beforeRepeat = scrollTo.mock.calls.length;
-    await act(async () => {
-      menu.value = "0";
-      menu.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(scrollTo.mock.calls.length).toBe(beforeRepeat + 1);
-    container.querySelector<HTMLElement>("[data-settings-section-menu]")!.getBoundingClientRect =
-      () => new DOMRect(0, 8, 300, 28);
-    await act(async () => {
-      menu.value = "1";
-      menu.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 752, behavior: "instant" });
-    const scroll = container.querySelector<HTMLElement>("nav + div")!;
-    await act(async () => {
-      scroll.scrollTop = 900;
-      scroll.dispatchEvent(new Event("scroll"));
-      frames.splice(0).forEach((frame) => frame(0));
-    });
-    expect(tick.getAttribute("aria-current")).toBe("location");
-    expect(menu.selectedOptions[0]?.textContent).toBe("Performance (current)");
-  } finally {
-    await act(async () => root.unmount());
-    container.remove();
-  }
+  await using screen = await render(<Fixture />, { container, router: false });
+  container.querySelector<HTMLElement>("[data-settings-section-menu]")!.getBoundingClientRect =
+    () => new DOMRect();
+  const tick = container.querySelector<HTMLButtonElement>('[aria-label="Go to Performance"]')!;
+  await act(async () => tick.click());
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 776, behavior: "instant" });
+  expect(document.activeElement?.textContent).toBe("Performance");
+  expect(tick.getAttribute("aria-current")).toBe("location");
+  const menu = container.querySelector("select")!;
+  await act(async () => {
+    menu.value = "0";
+    menu.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(document.activeElement?.textContent).toBe("Profile");
+  const beforeRepeat = scrollTo.mock.calls.length;
+  await act(async () => {
+    menu.value = "0";
+    menu.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(scrollTo.mock.calls.length).toBe(beforeRepeat + 1);
+  container.querySelector<HTMLElement>("[data-settings-section-menu]")!.getBoundingClientRect =
+    () => new DOMRect(0, 8, 300, 28);
+  await act(async () => {
+    menu.value = "1";
+    menu.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 752, behavior: "instant" });
+  const scroll = container.querySelector<HTMLElement>("nav + div")!;
+  await act(async () => {
+    scroll.scrollTop = 900;
+    scroll.dispatchEvent(new Event("scroll"));
+    frames.splice(0).forEach((frame) => frame(0));
+  });
+  expect(tick.getAttribute("aria-current")).toBe("location");
+  expect(menu.selectedOptions[0]?.textContent).toBe("Performance (current)");
 });

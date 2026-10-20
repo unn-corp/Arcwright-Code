@@ -68,6 +68,8 @@ import Migration0111 from "./Migrations/064_CanonicalizeThreadPullRequestLinks.t
 import Migration0112 from "./Migrations/065_CodexUsageNativeTurnIndex.ts";
 import Migration0113 from "./Migrations/066_RepairClientSettlementTimestamps.ts";
 
+import Migration0114 from "./Migrations/067_WebhookDedupe.ts";
+
 export const upstreamMigrationEntries = [
   [1, 1, "OrchestrationEvents", Migration0001],
   [2, 2, "OrchestrationCommandReceipts", Migration0002],
@@ -135,4 +137,5 @@ export const upstreamMigrationEntries = [
   [64, 111, "CanonicalizeThreadPullRequestLinks", Migration0111],
   [65, 112, "CodexUsageNativeTurnIndex", Migration0112],
   [66, 113, "RepairClientSettlementTimestamps", Migration0113],
+  [67, 114, "WebhookDedupe", Migration0114],
 ] as const;

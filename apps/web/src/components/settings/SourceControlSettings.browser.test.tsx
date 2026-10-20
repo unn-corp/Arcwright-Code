@@ -1,3 +1,4 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import {
   EnvironmentId,
   SourceControlProviderKind,
@@ -10,9 +11,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import * as Option from "effect/Option";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "../../index.css";
@@ -95,28 +94,28 @@ vi.mock(import("./SourceControlWritingSettings"), async (original) => ({
 import { SourceControlSettingsPanel } from "./SourceControlSettings";
 import { sourceControlHostSettingsSearchId } from "./settingsSearch";
 
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+async function setup() {
+  // The fixture supplies its own router.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+      vi.unstubAllGlobals();
+    },
+  };
+}
 
 it("reveals non-GitHub host settings through the page search provider and keeps them open after the hash clears", async () => {
+  await using _fixture = await setup();
+  const { root, container } = _fixture;
   const router = createRouter({
     routeTree: createRootRoute({ component: SourceControlSettingsPanel }),
     history: createMemoryHistory(),
   });
   await router.load();
-  await act(async () => root.render(<RouterProvider router={router} />));
+  await act(async () => root.rerender(<RouterProvider router={router} />));
   const host = page.getByRole("textbox", { name: "GitCafe host" });
   expect(host.elements()).toHaveLength(0);
 

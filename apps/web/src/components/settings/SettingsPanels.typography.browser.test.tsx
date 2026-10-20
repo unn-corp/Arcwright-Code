@@ -1,7 +1,7 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
-import { act, createContext, useContext, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { createContext, useContext, type ReactNode } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 const SearchTargetContext = createContext<string | null>(null);
 const state = vi.hoisted(() => ({ hash: "", updateSettings: vi.fn() }));
@@ -61,50 +61,52 @@ vi.mock("./settingsLayout", async (importOriginal) => ({
   SettingsRow: ({ id }: { id?: string }) => <div id={id} />,
 }));
 import { AppearanceSettingsPanel } from "./SettingsPanels";
-let root: Root;
-let container: HTMLDivElement;
-beforeEach(() => {
+async function setup() {
   state.hash = "";
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+
   localStorage.clear();
   state.updateSettings.mockClear();
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-});
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+  // Navigation is mocked; this fixture exercises only the panel or bridge.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
 const panel = () => (
   <SearchTargetContext value={state.hash || null}>
     <AppearanceSettingsPanel />
   </SearchTargetContext>
 );
-const hasTarget = (id: string) => container.querySelector(`[id="${id}"]`) !== null;
+const hasTarget = (root: Screen, id: string) =>
+  root.container.querySelector(`[id="${id}"]`) !== null;
 describe("Typography search navigation", () => {
   it.each(["prompt-font", "terminal-font"])(
     "reopens Advanced for repeated %s after clearing the search target",
     async (target) => {
-      await act(() => {
-        root.render(panel());
-      });
-      expect(hasTarget(target)).toBe(false);
+      await using _fixture = await setup();
+      const { root, container } = _fixture;
+      await root.rerender(panel());
+      expect(hasTarget(root, target)).toBe(false);
       state.hash = target;
-      await act(() => root.render(panel()));
-      expect(hasTarget(target)).toBe(true);
+      await act(() => root.rerender(panel()));
+      expect(hasTarget(root, target)).toBe(true);
       await act(() =>
         container
           .querySelector<HTMLButtonElement>('[aria-label="Show advanced typography settings"]')!
           .click(),
       );
-      expect(hasTarget(target)).toBe(false);
+      expect(hasTarget(root, target)).toBe(false);
       state.hash = "";
-      await act(() => root.render(panel()));
+      await act(() => root.rerender(panel()));
       state.hash = target;
-      await act(() => root.render(panel()));
-      expect(hasTarget(target)).toBe(true);
+      await act(() => root.rerender(panel()));
+      expect(hasTarget(root, target)).toBe(true);
       expect(state.updateSettings).not.toHaveBeenCalled();
     },
   );

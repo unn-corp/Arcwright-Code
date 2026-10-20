@@ -1,10 +1,10 @@
 # October 20 upstream integration
 
-The integration starts from fork `383d8dd6194f0fea74faef3c863a24ee726c99b5`
-and includes upstream `4836fa793816bd65bb0e36171e8d75455b0f82cc`, replacing
-the previous base `99c692bb1f7dc31a6b1a28eddcff48aee6fd8186`. The range contains
-502 commits. `fork-upstream.json` records the included T3 base separately from
-the allocated Arcwright build identity.
+The latest integration starts from fork `021dcfc1fb077a1c26b7dfb3d52ccf6ef9c79e8f`
+and includes upstream `f9dd25914dbd5f061f2685965bcbe2db8cfb912e`, adding
+75 commits after the previously integrated `4836fa793816bd65bb0e36171e8d75455b0f82cc`.
+`fork-upstream.json` records the included T3 base separately from the allocated
+Arcwright build identity.
 
 ## Compatibility decisions
 
@@ -24,7 +24,7 @@ profile identities remain compatible. Keychain recovery accepts historical
 Arcwright channel names after upstream freezes its encryption identity earlier
 in startup. Codex daemon state remains private to each shadow home.
 
-Upstream migrations 65 and 66 map to fork IDs 112 and 113. Existing migration
+Upstream migrations 65, 66 and 67 map to fork IDs 112, 113 and 114. Webhook replay deduplication and coalescing use the new schema at 114; the expected schema fingerprint includes its column, tables and indexes. Existing migration
 identities remain unchanged. Settlement repair decodes compressed historical
 payloads, preserves V1 records and blob bodies, and updates replay byte counts
 for changed V2 events. The latest-todo projection query also decodes archived
@@ -41,6 +41,22 @@ rate-limit pauses wrap the retained transports; mutating calls remain single
 attempts. The upstream legacy ready-tunnel shortcut is not used because it
 would bypass this fork's resource verification and publication boundaries.
 
+Connection diagnostics and managed-tunnel reachability checks retain the fork's
+local-disabled and cloud authority checks. Connections keeps its selected-computer
+navigation, rename and Android pairing paths. Scheduled task details retain the
+new webhook filters, replay keys and coalescing controls. Embedded app messages
+persist branch and thread settings before dispatch, just like composer sends.
+
+Upstream's desktop reversions overlap deployed credential, launcher, topology,
+process ownership and update protections. The fork retains these implementations
+and their regression suites, including updater cache validation and bounded
+backend shutdown. It also retains responsive sidebar and composer masking and
+update controls. Browser regression fixtures use upstream's disposable renderer.
+Upstream runtime pruning has no automatic caller here: recovery retention remains
+owned by the maintenance coordinator. The release test split is adopted on the
+shared self-hosted pool; desktop packaging keeps native platform workers rather
+than the incoming Windows cross-build/hosted verification workflow.
+
 Release discovery and feeds remain fork-owned. Format-1 manifests still emit
 the original repository identity for installed clients, while new readers accept
 both repository names. Six automatic-work policies remain off unless explicitly
@@ -53,8 +69,8 @@ Focused checks cover migration/reconciliation and compressed history, memory
 admission, provider and MCP paths, retained client/Android bridges, desktop
 updater/keychain identity, release artifacts, shared storage, and relay transport,
 DPoP and HTTP behavior. Scoped typechecks and lint accompany the affected packages.
-The database source audit checks 66 upstream migrations, 109 published identities,
-77 sources and four reviewed exceptions. The fork documentation checker passes.
+The database source audit checks 67 upstream migrations, 109 published identities,
+78 sources and four reviewed exceptions. The fork documentation checker passes.
 Independent spec and quality reviews cover server/recovery safety and
 UI/Android/desktop integration. Detailed commands, source manifests and results
 remain in the conversation's local evidence directory.

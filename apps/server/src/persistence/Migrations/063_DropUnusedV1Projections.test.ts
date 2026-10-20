@@ -34,6 +34,7 @@ layer("063_DropUnusedV1Projections", (it) => {
           { migration_id: 111, name: "CanonicalizeThreadPullRequestLinks" },
           { migration_id: 112, name: "CodexUsageNativeTurnIndex" },
           { migration_id: 113, name: "RepairClientSettlementTimestamps" },
+          { migration_id: 114, name: "WebhookDedupe" },
         ],
       );
       assert.deepEqual(yield* runMigrations(), []);

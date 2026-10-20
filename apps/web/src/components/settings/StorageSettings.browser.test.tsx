@@ -1,3 +1,4 @@
+import { act, render as renderUi, type Screen } from "../../../test/render";
 import { RegistryProvider } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -5,9 +6,8 @@ import {
   ThreadId,
   type StorageCleanupReport,
 } from "@t3tools/contracts";
-import { act, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { type ReactNode } from "react";
+import { expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
 vi.mock("@tanstack/react-router", async (original) => ({
@@ -113,10 +113,7 @@ vi.mock(import("../ui/toast"), async (original) => {
 
 import { StorageSettingsPanel } from "./StorageSettings";
 
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
+async function setup() {
   state.settings = {
     ...DEFAULT_SERVER_SETTINGS,
     storageCleanup: {
@@ -135,19 +132,21 @@ beforeEach(() => {
   };
   state.report = null;
   state.run.mockReset();
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
+  // Navigation is mocked; this fixture exercises only the panel or bridge.
+  const root = await renderUi(null, { router: false });
+  return {
+    root,
+    container: root.container,
+    async [Symbol.asyncDispose]() {
+      await root[Symbol.asyncDispose]();
+    },
+  };
+}
 
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-});
-
-async function render() {
+async function render(root: Screen) {
+  const container = root.container;
   await act(async () =>
-    root.render(
+    root.rerender(
       <RegistryProvider>
         <StorageSettingsPanel />
       </RegistryProvider>,
@@ -161,6 +160,8 @@ async function render() {
 it.each(["machine-wide immediate", "project custom"])(
   "runs cleanup when only %s settled retention is enabled",
   async (scope) => {
+    await using _fixture = await setup();
+    const { root, container } = _fixture;
     if (scope === "machine-wide immediate") {
       state.settings = {
         ...state.settings,
@@ -190,7 +191,7 @@ it.each(["machine-wide immediate", "project custom"])(
     };
     let complete!: (result: { _tag: "Success"; value: StorageCleanupReport }) => void;
     state.run.mockImplementation(() => new Promise((resolve) => (complete = resolve)));
-    const button = await render();
+    const button = await render(root);
 
     expect(button.disabled).toBe(false);
     await act(async () => button.click());
@@ -205,7 +206,9 @@ it.each(["machine-wide immediate", "project custom"])(
 );
 
 it("keeps cleanup disabled when settled retention and all other rules are off", async () => {
-  const button = await render();
+  await using _fixture = await setup();
+  const { root, container } = _fixture;
+  const button = await render(root);
 
   expect(button.disabled).toBe(true);
   await act(async () => button.click());
@@ -213,6 +216,8 @@ it("keeps cleanup disabled when settled retention and all other rules are off", 
 });
 
 it("shows orphan sizes and identifies failed worktrees with one connected machine", async () => {
+  await using _fixture = await setup();
+  const { root, container } = _fixture;
   state.settings = {
     ...state.settings,
     storageCleanup: { ...state.settings.storageCleanup, worktreeSettledAfterDays: 0 },
@@ -249,7 +254,7 @@ it("shows orphan sizes and identifies failed worktrees with one connected machin
     omittedCount: 0,
     bytesFreed: 0,
   };
-  await render();
+  await render(root);
   const lastRun = Array.from(container.querySelectorAll("button")).find((button) =>
     button.textContent?.includes("Last run"),
   )!;

@@ -27,6 +27,7 @@ import { ownedHostedBuildEnv } from "../../scripts/lib/owned-connect-web-env.ts"
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
 import { ownedConnectProfileProofPlugin } from "./vite/ownedConnectProfileProof.ts";
+import { warmBundledDevPlugin } from "./vite/warmBundledDev";
 
 const isOwnedHostedBuild = process.env.T3CODE_OWNED_CONNECT_WEB === "1";
 // This opt-in path has no dotenv/Vite ambient inputs. Other surfaces keep their selection.
@@ -136,6 +137,13 @@ const browserTestProject = {
       provider: playwright(),
       instances: [{ browser: "chromium" }],
       screenshotFailures: false,
+      commands: {
+        // Playwright's mouse outlives each test, so whatever mounts under its last
+        // position starts hovered. test/render.tsx parks it off the page after each test.
+        resetPointer: async ({ page }) => {
+          await page.mouse.move(-1, -1);
+        },
+      },
     },
   },
 } satisfies TestProjectInlineConfiguration;
@@ -217,6 +225,7 @@ export default defineConfig(() => {
       tanstackRouter({ autoCodeSplitting: true }),
       react({ compiler: true }),
       tailwindPlugins(bundledDev),
+      warmBundledDevPlugin(),
     ],
     optimizeDeps: {
       include: [
@@ -281,7 +290,8 @@ export default defineConfig(() => {
       // Transform the whole module graph at server start instead of on the
       // first request. Without this, a cold worktree discovers and transforms
       // modules one import-level at a time while the browser waits — which
-      // over a tailnet origin turns into minutes of waterfall.
+      // over a tailnet origin turns into minutes of waterfall. Bundled dev
+      // ignores this; warmBundledDevPlugin covers it there.
       warmup: {
         clientFiles: ["./src/main.tsx"],
       },
