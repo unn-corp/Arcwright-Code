@@ -184,7 +184,11 @@ const withDescriptorServer = <A, E, R>(
         response.end();
       });
       Object.assign(server, { pairingRequests: requests });
+      server.once("error", (cause) => resume(Effect.die(cause)));
       server.listen(0, host, () => resume(Effect.succeed(server)));
+      return Effect.sync(() => {
+        server.close();
+      });
     }),
     (server) => {
       const address = server.address();
@@ -207,11 +211,14 @@ const withDescriptorServer = <A, E, R>(
   );
 
 describe("t3 pair", () => {
-  it.effect("publishes an IPv6-only server through Tailscale Serve when pairing", () =>
+  it.effect("publishes an IPv6-only server URL through Tailscale Serve when pairing", () =>
     withDescriptorServer(
-      (origin) =>
+      (origin, requests) =>
         Effect.gen(function* () {
           const fetch = yield* FetchHttpClient.Fetch;
+          // Exercise the IPv6 URL contract even on CI runners without IPv6 loopback.
+          // Only transport is redirected to the real HTTP fixture below.
+          const ipv6Origin = `http://[::1]:${new URL(origin).port}`;
           let serving = false;
           const spawner = ChildProcessSpawner.make((command) =>
             Effect.gen(function* () {
@@ -219,8 +226,9 @@ describe("t3 pair", () => {
                 return yield* Effect.die("Unexpected pipeline");
               if (command.args[0] === "serve") {
                 const target = command.args.at(-1)!;
+                expect(target).toBe(ipv6Origin);
                 const descriptor = yield* Effect.promise(async () =>
-                  (await fetch(new URL("/.well-known/t3/environment", target))).json(),
+                  (await fetch(new URL("/.well-known/t3/environment", origin))).json(),
                 );
                 expect(descriptor).toEqual(testDescriptor);
                 serving = true;
@@ -257,11 +265,29 @@ describe("t3 pair", () => {
             }),
           });
           const output = yield* captureStdout(
-            runCli(["pair", "--base-dir", baseDir, "--tailscale"]).pipe(
+            runCli([
+              "pair",
+              "--base-dir",
+              baseDir,
+              "--tailscale",
+              "--scope",
+              "orchestration:read",
+            ]).pipe(
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
               Effect.provideService(HostProcess.Platform, "linux"),
               Effect.provideService(FetchHttpClient.Fetch, async (input, init) => {
-                if (String(input).startsWith(origin)) return fetch(input, init);
+                const url = new URL(String(input));
+                if (url.origin === ipv6Origin) {
+                  assert.oneOf(url.href, [
+                    `${ipv6Origin}/.well-known/t3/environment`,
+                    `${ipv6Origin}/api/maintenance/operator/pairing`,
+                  ]);
+                  assert.equal(
+                    init?.method,
+                    url.pathname === "/.well-known/t3/environment" ? "GET" : "POST",
+                  );
+                  return fetch(new URL(url.pathname, origin), init);
+                }
                 assert.equal(
                   String(input),
                   "https://pair-test.tail.ts.net/.well-known/t3/environment",
@@ -275,8 +301,9 @@ describe("t3 pair", () => {
 
           expect(serving).toBe(true);
           assert.include(output, "Pairing URL: https://pair-test.tail.ts.net/pair#token=");
+          expect(requests).toEqual([{ scopes: ["orchestration:read"], label: "t3 pair" }]);
         }),
-      "::1",
+      "127.0.0.1",
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
