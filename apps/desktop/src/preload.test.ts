@@ -41,20 +41,34 @@ describe("desktop preload local environment controls", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("removes the exact topology listener and treats invalid sync responses as failed reads", async () => {
+  it("removes the exact topology listener after refreshing the asynchronous snapshot", async () => {
+    mocks.sendSync.mockReturnValue([]);
     const bridge = await loadBridge();
+    expect(bridge.getLocalEnvironmentBootstraps()).toEqual([]);
     const listener = vi.fn();
     const cleanup = bridge.onLocalEnvironmentBootstrapsChanged!(listener);
     const [channel, handler] = mocks.on.mock.calls[0]!;
     expect(channel).toBe(IpcChannels.LOCAL_ENVIRONMENT_TOPOLOGY_CHANGED_CHANNEL);
+    mocks.invoke.mockResolvedValue([]);
     handler();
+    expect(listener).not.toHaveBeenCalled();
+    await bridge.readLocalEnvironmentBootstraps!();
     expect(listener).toHaveBeenCalledOnce();
+    expect(mocks.invoke).toHaveBeenCalledWith(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
     cleanup();
     expect(mocks.removeListener).toHaveBeenCalledWith(channel, handler);
+  });
+
+  it("rejects invalid topology reads and preserves the last valid snapshot", async () => {
+    const bridge = await loadBridge();
     expect(() => bridge.getLocalEnvironmentBootstraps()).toThrow(
       "Could not read desktop environment topology.",
     );
     mocks.sendSync.mockReturnValue([]);
+    expect(bridge.getLocalEnvironmentBootstraps()).toEqual([]);
+    await expect(bridge.readLocalEnvironmentBootstraps!()).rejects.toThrow(
+      "Could not read desktop environment topology.",
+    );
     expect(bridge.getLocalEnvironmentBootstraps()).toEqual([]);
   });
 

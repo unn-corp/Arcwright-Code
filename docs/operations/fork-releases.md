@@ -414,7 +414,10 @@ interaction, update, and recovery checks before adoption. This does not establis
 the APK's supported Android versions. Older images remain available through the read-only
 diagnostic workflow; emulator results do not replace real-phone commissioning.
 
-The host-runtime suite runs real Git operations on both supported host platforms. Windows Git
+The host-runtime suite runs real Git operations on both supported host platforms. It loads
+`apps/server/vite.config.ts`, including the isolated Git configuration and serialized
+server test execution. Updater cache fixtures compare native paths, including Windows
+separators; no required test may be skipped to obtain a release receipt. Windows Git
 uses `NUL` to disable global configuration; Node's extended Windows null-device path is rejected
 by Git for Windows. Unix hosts retain `/dev/null`, and system configuration and inherited Git
 overrides remain disabled.

@@ -248,7 +248,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       if (installRecord !== undefined) return Effect.succeed(installRecord);
       return path === packageTypePath && options.packageType !== undefined
         ? Effect.succeed(options.packageType)
-        : path === `${PENDING_DOWNLOAD_DIRECTORY}/update-info.json` &&
+        : path === nativePath.join(PENDING_DOWNLOAD_DIRECTORY, "update-info.json") &&
             options.cachedDownloadSha512 !== undefined
           ? Effect.succeed(
               options.cachedDownloadInfo ??
@@ -268,7 +268,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     },
     exists: (path) =>
       Effect.succeed(
-        options.cachedFileExists !== false && path === `${PENDING_DOWNLOAD_DIRECTORY}/update.zip`,
+        options.cachedFileExists !== false &&
+          path === nativePath.join(PENDING_DOWNLOAD_DIRECTORY, "update.zip"),
       ),
     makeDirectory: () => Effect.void,
     writeFileString: (path, data) =>

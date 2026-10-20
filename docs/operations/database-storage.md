@@ -286,3 +286,8 @@ The copy remains an Arcwright-compatible database with ordinary JSON. Historical
 and fork extensions are intentionally retained, so it is not an unmodified-upstream downgrade.
 A later live cutover still requires separately authorized native maintenance and app/recovery
 validation on the exact artifact. See [migration ownership](../orchestration-v2/migration-upgrades.md).
+
+Worktree cleanup reports allocated bytes on POSIX and file lengths on Windows,
+where Node does not expose allocated block counts. Shared hardlinks and symbolic
+links remain excluded from the estimate. POSIX sparse files retain their allocated
+size rather than their logical length.

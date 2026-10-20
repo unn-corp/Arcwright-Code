@@ -77,8 +77,10 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 
 const readBootstraps = (
   result: unknown,
-): ReturnType<DesktopBridge["getLocalEnvironmentBootstraps"]> =>
-  Array.isArray(result) ? result : [];
+): ReturnType<DesktopBridge["getLocalEnvironmentBootstraps"]> => {
+  if (!Array.isArray(result)) throw new Error("Could not read desktop environment topology.");
+  return result;
+};
 const localEnvironmentBootstraps = createPreloadSnapshot(
   () => readBootstraps(ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL)),
   async () =>

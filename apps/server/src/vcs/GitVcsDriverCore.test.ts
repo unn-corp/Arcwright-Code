@@ -2,7 +2,6 @@
 import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 import { assert, it, describe } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -839,35 +838,45 @@ describe("pullCurrentBranch", () => {
     ),
   );
 
-  it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-    "bounds cleanup when a Git subprocess ignores SIGTERM",
-    () =>
-      Effect.gen(function* () {
-        const driver = yield* GitVcsDriver.GitVcsDriver;
-        const directory = yield* makeTmpDir();
-        const probe = yield* makeProcessProbe;
-        writeFakeCli({
-          directory,
-          name: "git",
-          source: `process.on("SIGTERM", () => {}); ${processProbeSource(probe.port)}`,
-        });
-        const run = yield* driver
-          .execute({
-            operation: "test.stalledStatusFetch",
-            cwd: directory,
-            args: ["fetch"],
-            env: { PATH: `${directory}:${process.env.PATH ?? ""}` },
-            timeoutMs: 1_000,
-            forceKillAfterMs: 100,
-          })
-          .pipe(Effect.flip, Effect.forkScoped);
-        yield* probe.started;
+  it.effect("bounds cleanup when a Git subprocess ignores SIGTERM", () =>
+    Effect.gen(function* () {
+      const directory = yield* makeTmpDir();
+      const probe = yield* makeProcessProbe;
+      const path = yield* Path.Path;
+      const stub = path.join(directory, "stalled-git.mjs");
+      yield* writeTextFile(
+        directory,
+        "stalled-git.mjs",
+        `process.on("SIGTERM", () => {}); ${processProbeSource(probe.port)}`,
+      );
+      const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const spawner = ChildProcessSpawner.make((command) =>
+        delegate.spawn(
+          ChildProcess.isStandardCommand(command)
+            ? ChildProcess.make(process.execPath, [stub], command.options)
+            : command,
+        ),
+      );
+      const driver = yield* makeGitVcsDriverCore().pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provide(ServerConfigLayer),
+      );
+      const run = yield* driver
+        .execute({
+          operation: "test.stalledStatusFetch",
+          cwd: directory,
+          args: ["fetch"],
+          timeoutMs: 1_000,
+          forceKillAfterMs: 100,
+        })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* probe.started;
 
-        yield* TestClock.adjust("1 second");
+      yield* TestClock.adjust("1 second");
 
-        yield* probe.exited;
-        assert.equal((yield* Fiber.join(run)).detail, "Git command timed out.");
-      }).pipe(Effect.scoped, Effect.provide(TestLayer)),
+      yield* probe.exited;
+      assert.equal((yield* Fiber.join(run)).detail, "Git command timed out.");
+    }).pipe(Effect.scoped, Effect.provide(TestLayer)),
   );
 
   it.effect("releases stalled background worker slots at their lifetime limit", () =>
@@ -2087,7 +2096,10 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
               operation: "GitVcsDriver.test.sshRefusal",
               cwd,
               args: ["fetch", "origin"],
-              env: { LC_ALL: "C", GIT_SSH_COMMAND: fakeSsh },
+              env: {
+                LC_ALL: "C",
+                GIT_SSH_COMMAND: `sh "${fakeSsh.replaceAll("\\", "/")}"`,
+              },
             })
             .pipe(Effect.flip);
 
@@ -2119,7 +2131,10 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
             operation: "GitVcsDriver.test.osPermission",
             cwd,
             args: ["fetch", "origin"],
-            env: { LC_ALL: "C", GIT_SSH_COMMAND: fakeSsh },
+            env: {
+              LC_ALL: "C",
+              GIT_SSH_COMMAND: `sh "${fakeSsh.replaceAll("\\", "/")}"`,
+            },
           })
           .pipe(Effect.flip);
 
@@ -3736,8 +3751,12 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     it.effect("commits selected files from a nested project directory", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
-        // A root basename ending in whitespace catches a root lookup that trims Git's output.
-        const cwd = path.join(yield* makeTmpDir(), "repo ");
+        // Preserve trailing whitespace where supported; Windows rejects that basename.
+        // Leading and internal spaces still exercise path handling on Windows.
+        const cwd = path.join(
+          yield* makeTmpDir(),
+          (yield* HostProcess.isWindows) ? " repo with spaces" : "repo ",
+        );
         yield* (yield* FileSystem.FileSystem).makeDirectory(cwd);
         yield* initRepoWithCommit(cwd);
         yield* writeTextFile(cwd, "nested/tracked.txt", "one\n");

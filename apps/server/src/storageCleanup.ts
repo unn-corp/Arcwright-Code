@@ -296,10 +296,14 @@ const make = Effect.gen(function* () {
         if (stat.type === "File") {
           // Removing a shared hardlink leaves its blocks allocated.
           if (Option.getOrElse(stat.nlink, () => 1n) !== 1n) continue;
-          bytes += Option.match(stat.blocks, {
-            onNone: () => Number(stat.size),
-            onSome: (blocks) => Number(blocks * 512n),
-          });
+          // Node reports zero blocks on Windows, where allocated block counts
+          // are unavailable. Keep real zero-block sparse files at zero on POSIX.
+          bytes += isWindows
+            ? Number(stat.size)
+            : Option.match(stat.blocks, {
+                onNone: () => Number(stat.size),
+                onSome: (blocks) => Number(blocks * 512n),
+              });
         } else if (stat.type === "Directory") {
           const names = yield* fs.readDirectory(target);
           entries += names.length;

@@ -543,7 +543,11 @@ const allocatedBytes = (fs: FileSystem.FileSystem, file: string) =>
   fs.stat(file).pipe(
     Effect.map((stat) =>
       Option.getOrElse(
-        Option.map(stat.blocks, (blocks) => Number(blocks) * 512),
+        Option.map(stat.blocks, (blocks) =>
+          HostProcess.Platform.defaultValue() === "win32"
+            ? Number(stat.size)
+            : Number(blocks) * 512,
+        ),
         () => Number(stat.size),
       ),
     ),
@@ -1949,6 +1953,39 @@ describe("storage cleanup reports and local file policies", () => {
         expect(yield* fs.exists(worktree)).toBe(false);
       }),
     ),
+  );
+  it.live.each(["win32", "linux"] as const)(
+    "reports zero stat blocks appropriately on %s",
+    (platform) =>
+      runCleanupTest(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const { service, worktree } = yield* cleanupFixture().pipe(
+            Effect.provideService(FileSystem.FileSystem, {
+              ...fs,
+              stat: (path) =>
+                fs.stat(path).pipe(
+                  Effect.map((stat) => ({
+                    ...stat,
+                    blocks: Option.some(0n),
+                  })),
+                ),
+            }),
+            Effect.provideService(HostProcess.Platform, platform),
+          );
+          const sizes = yield* Effect.forEach(yield* fs.readDirectory(worktree), (name) =>
+            fs.stat(`${worktree}/${name}`).pipe(Effect.map((stat) => Number(stat.size))),
+          );
+          const bytes = platform === "win32" ? sizes.reduce((sum, size) => sum + size, 0) : 0;
+          const report = yield* service.runNow;
+          expect(report.entries[0]).toMatchObject({
+            outcome: "removed",
+            bytes,
+          });
+          expect(report.bytesFreed).toBe(bytes);
+          expect(yield* fs.exists(worktree)).toBe(false);
+        }),
+      ),
   );
   it.live("still removes a worktree when measuring its size fails", () =>
     runCleanupTest(

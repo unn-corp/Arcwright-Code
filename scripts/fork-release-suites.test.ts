@@ -107,6 +107,11 @@ describe("the required suites", () => {
     ]);
   });
 
+  it("uses the server test configuration for runtime Git fixtures", () => {
+    const command = SUITES["host-runtime"].command;
+    assert.equal(command[command.indexOf("--config") + 1], "vite.config.ts");
+  });
+
   it("change their specification digest whenever a required file or the command changes", () => {
     const base = SUITES.coordinator;
     assert.notEqual(

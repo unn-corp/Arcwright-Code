@@ -64,3 +64,15 @@ keychain checks remain release validation. Browser interaction was not commissio
 Disposable PostgreSQL fixtures require their explicit test database; skipped
 fixtures are not passing evidence. No running installation or live data home is
 changed by this integration.
+
+## Scheduled release follow-up
+
+The first scheduled release for the merge, run `39424840015`, reserved Nightly 149
+but failed mandatory desktop and Windows host suites before publication. The
+completion gate correctly refused to publish. Follow-up fixes restore errors for
+invalid desktop topology replies while retaining asynchronous snapshot refresh,
+and use file lengths for Windows cleanup estimates where stat block counts are
+unavailable. Release runtime tests load the server Git fixture configuration;
+updater cache paths, SSH stubs, whitespace paths, and the real subprocess timeout
+fixture now run portably without skipping required checks. Test diagnostics do
+not commission replacement release packages or reuse the failed build counter.

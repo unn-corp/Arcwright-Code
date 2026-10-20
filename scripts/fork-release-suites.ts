@@ -106,7 +106,9 @@ export const SUITES: Readonly<Record<SuiteId, SuiteSpec>> = {
       "Runtime integration: registration before database opening, autonomous and resumed work admission, restored automation holds, Discord delivery retries, operator authorization, launcher trial and health boundaries, and server-owned browser recording attachments.",
     targets: ["linux-x64", "windows-x64"],
     workdir: "apps/server",
-    command: VITEST,
+    command: VITEST.map((argument) =>
+      argument === "../../vite.config.ts" ? "vite.config.ts" : argument,
+    ),
     results: "vitest",
     required: [
       "src/maintenance/MaintenanceHost.test.ts",

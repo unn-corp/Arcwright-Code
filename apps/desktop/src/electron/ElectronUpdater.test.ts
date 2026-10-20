@@ -470,7 +470,8 @@ describe("installed electron-updater cache recovery", () => {
                 fileSystem: {
                   ...fs,
                   readFileString: (path, encoding) =>
-                    path === "/missing/resources/package-type" && scenario.selected.endsWith("deb")
+                    path === NodePath.join("/missing/resources", "package-type") &&
+                    scenario.selected.endsWith("deb")
                       ? Effect.succeed("deb")
                       : fs.readFileString(path, encoding),
                   exists: (path) =>
