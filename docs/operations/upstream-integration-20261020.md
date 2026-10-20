@@ -59,8 +59,9 @@ Independent spec and quality reviews cover server/recovery safety and
 UI/Android/desktop integration. Detailed commands, source manifests and results
 remain in the conversation's local evidence directory.
 
-Full CI, packaged update/recovery, physical Android, Windows/WSL and real platform
-keychain checks remain release validation. Browser interaction was not commissioned.
+Full CI, packaged update/recovery, physical Android, Windows/WSL installation and real
+platform keychain checks remain release validation. Repository browser regressions use
+headless Chromium fixtures.
 Disposable PostgreSQL fixtures require their explicit test database; skipped
 fixtures are not passing evidence. No running installation or live data home is
 changed by this integration.
@@ -85,3 +86,20 @@ restart-result, model-preference, and ACP branding assertions now match the
 integrated contracts. Review fixtures use an isolated stable checkout, stream
 clients connect through loopback, and process-exit probes handle forced TCP resets
 without swallowing unrelated socket errors. No additional nightly was commissioned.
+
+Client follow-up restores the composer's shared voice-phase wrapper and aligns
+fixtures with fork release links, maintenance capability admission, current-device
+usage limits, managed authentication, and the durable preview annotation editor.
+Cyclic partial mocks no longer block browser test collection. The IPv6 pairing
+regression retains exact bracketed Tailscale target checks through an isolated HTTP
+transport, so it also runs on Linux workers without IPv6 loopback. Mobile callbacks
+retain their error and cleanup behavior while compiling without compiler exemptions.
+
+Relay transaction adapters defer database access until the operation runs, preserving
+owned-policy rejection before persistence or crypto. A forward reconciliation snapshot
+joins the fork account-deletion and upstream API-pause migration histories without
+rewriting historical migrations or changing the SQL schema. PostgreSQL checks use
+the owned, socket-only native fixture; fixtures requiring a separate Docker receipt
+remain outside that verification. Desktop and host diagnostic suites pass on Windows,
+and host diagnostics pass on Linux. These diagnostics do not establish packaged
+update/recovery or hardware validation.

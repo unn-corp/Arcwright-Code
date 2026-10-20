@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { WS_METHODS } from "@t3tools/contracts";
 import { connectionAtomRuntime } from "../../connection/runtime";
+import { shareThreadExport } from "../../lib/threadExport";
 import { RunLimitsPanel } from "../settings/RunLimitsPanel";
 import { AppText as Text } from "../../components/ui/AppText";
 import * as Dialog from "../../components/ui/Dialog";
@@ -432,36 +433,24 @@ function ThreadRouteContent(
     async (format: "markdown" | "json") => {
       if (!selectedThread || exporting) return;
       setExporting(true);
-      try {
-        const result = await exportThread({
-          environmentId: selectedThread.environmentId,
-          input: { threadId: selectedThread.id, format },
+      await exportThread({
+        environmentId: selectedThread.environmentId,
+        input: { threadId: selectedThread.id, format },
+      })
+        .then(async (result) => {
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          await shareThreadExport(result.value);
+          setThreadToolsPanel(null);
+        })
+        .catch((cause: unknown) => {
+          Alert.alert(
+            "Could not export thread",
+            cause instanceof Error ? cause.message : "Reconnect and try again.",
+          );
+        })
+        .finally(() => {
+          setExporting(false);
         });
-        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        const { Directory, File, Paths } = await import("expo-file-system");
-        const { shareAsync } = await import("expo-sharing");
-        const directory = new Directory(Paths.cache, `thread-export-${Date.now()}`);
-        directory.create({ intermediates: true });
-        const file = new File(directory, result.value.filename);
-        try {
-          file.create();
-          file.write(result.value.content);
-          await shareAsync(file.uri, {
-            mimeType: result.value.mimeType,
-            dialogTitle: "Export thread",
-          });
-        } finally {
-          directory.delete();
-        }
-        setThreadToolsPanel(null);
-      } catch (cause) {
-        Alert.alert(
-          "Could not export thread",
-          cause instanceof Error ? cause.message : "Reconnect and try again.",
-        );
-      } finally {
-        setExporting(false);
-      }
     },
     [selectedThread, exporting, exportThread],
   );

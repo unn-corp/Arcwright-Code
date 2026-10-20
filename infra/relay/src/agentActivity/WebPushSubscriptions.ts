@@ -632,7 +632,7 @@ export const make = Effect.gen(function* () {
         );
         return items.filter((item) => item !== null);
       },
-      db.$client.withTransaction,
+      (effect) => db.$client.withTransaction(effect),
       mapPersistenceError,
     ),
     transitionEnvironment: Effect.fn("relay.web_push_subscriptions.transition_environment")(

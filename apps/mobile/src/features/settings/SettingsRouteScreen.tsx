@@ -870,17 +870,15 @@ function AppSettingsSection() {
     // same frame would both get through. The ref closes that window.
     if (updateInFlight.current) return;
     updateInFlight.current = true;
-    try {
-      // The user asked for this restart by tapping the version row, so it may
-      // apply immediately instead of prompting.
-      await runAppUpdateCheck({
-        applyMode: "immediate",
-        onFailure: (message) => Alert.alert("Update failed", message),
-        onStateChange: setUpdateState,
-      });
-    } finally {
+    // The user asked for this restart by tapping the version row, so it may
+    // apply immediately instead of prompting.
+    await runAppUpdateCheck({
+      applyMode: "immediate",
+      onFailure: (message) => Alert.alert("Update failed", message),
+      onStateChange: setUpdateState,
+    }).finally(() => {
       updateInFlight.current = false;
-    }
+    });
   }, []);
 
   const handleVersionPress = useCallback(() => {

@@ -9,6 +9,14 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsSection } from "./components/SettingsSection";
 
+function parseRunLimit(value: string, max: number) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max)
+    throw new Error(`Enter a whole number from 1 to ${max}, or leave blank.`);
+  return parsed;
+}
+
 export function RunLimitsPanel({
   environmentId,
   threadId,
@@ -53,33 +61,32 @@ function RunLimitsForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   async function save(inherit: boolean, clear: boolean) {
-    function parse(value: string, max: number) {
-      if (!value.trim()) return null;
-      const parsed = Number(value);
-      if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max)
-        throw new Error(`Enter a whole number from 1 to ${max}, or leave blank.`);
-      return parsed;
-    }
-    try {
-      setError(null);
-      setSaving(true);
-      const value = clear
-        ? { maxDurationMinutes: null, maxOutputTokens: null }
-        : { maxDurationMinutes: parse(minutes, 10080), maxOutputTokens: parse(tokens, 1000000000) };
-      const result = await update({
-        environmentId,
-        input: {
-          patch: threadId
-            ? { threadRunLimits: { [threadId]: inherit ? null : value } }
-            : { runLimits: value },
-        },
+    setError(null);
+    setSaving(true);
+    await Promise.resolve()
+      .then(async () => {
+        const value = clear
+          ? { maxDurationMinutes: null, maxOutputTokens: null }
+          : {
+              maxDurationMinutes: parseRunLimit(minutes, 10080),
+              maxOutputTokens: parseRunLimit(tokens, 1000000000),
+            };
+        const result = await update({
+          environmentId,
+          input: {
+            patch: threadId
+              ? { threadRunLimits: { [threadId]: inherit ? null : value } }
+              : { runLimits: value },
+          },
+        });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "Could not save limits.");
+      })
+      .finally(() => {
+        setSaving(false);
       });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save limits.");
-    } finally {
-      setSaving(false);
-    }
   }
   return (
     <SettingsSection title={threadId ? "Thread run limits" : "Default run limits"}>

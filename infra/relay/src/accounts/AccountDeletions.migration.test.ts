@@ -72,7 +72,15 @@ describe("Account deletion isolated actual PostgreSQL DDL", () => {
           before.push(yield* db.$client`SELECT to_jsonb(t) AS row FROM ${db.$client(table)} t`);
         const oldColumns =
           yield* db.$client`SELECT table_name, column_name, column_default, is_nullable, data_type FROM information_schema.columns WHERE table_schema = 'task4c_account_deletion_migration' ORDER BY table_name, ordinal_position`;
-        yield* runFixtureMigrations(db, "task4c_account_deletion_migration");
+        const fs = yield* FileSystem.FileSystem;
+        const folder = yield* fs.makeTempDirectoryScoped({ prefix: "account-deletion-boundary-" });
+        // Later migrations have their own schema changes; this proves the historical upgrade boundary.
+        for (const directory of (yield* fs.readDirectory(migrationDirectory))
+          .filter((name) => name <= deletionMigration)
+          .sort()) {
+          yield* fs.copy(`${migrationDirectory}/${directory}`, `${folder}/${directory}`);
+        }
+        yield* runFixtureMigrations(db, "task4c_account_deletion_migration", folder);
         for (const [i, table] of tables.entries())
           expect(yield* db.$client`SELECT to_jsonb(t) AS row FROM ${db.$client(table)} t`).toEqual(
             before[i],
@@ -92,7 +100,10 @@ describe("Account deletion isolated actual PostgreSQL DDL", () => {
           { lifecycle_state: "legacy_unverified" },
           { lifecycle_state: "legacy_unverified" },
         ]);
-      }).pipe(Effect.provide(Layer.fresh(layerLegacyDb))),
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(Layer.merge(Layer.fresh(layerLegacyDb), NodeFileSystem.layer)),
+      ),
   );
 
   it.effect(
@@ -446,7 +457,7 @@ describe("Account deletion isolated actual PostgreSQL DDL", () => {
   );
 
   it.effect(
-    "snapshot matches generated schema, actual columns/defaults/constraints/FKs, and the four custom trigger guards",
+    "reconciled snapshot matches generated schema and deletion snapshot matches actual columns/defaults/constraints/FKs and the four trigger guards",
     () =>
       fixture(
         Effect.gen(function* () {
@@ -465,14 +476,29 @@ describe("Account deletion isolated actual PostgreSQL DDL", () => {
             dialect: "postgres",
             prevIds: [prior.id],
           });
+          const upstream = yield* decodeSnapshot(
+            yield* fs.readFileString(
+              `${migrationDirectory}/20261020013101_upstream_api_pauses/snapshot.json`,
+            ),
+          );
+          const reconciled = yield* decodeSnapshot(
+            yield* fs.readFileString(
+              `${migrationDirectory}/20261020154500_reconcile_fork_snapshot/snapshot.json`,
+            ),
+          );
+          expect(reconciled).toMatchObject({
+            version: "8",
+            dialect: "postgres",
+            prevIds: [snapshot.id, upstream.id],
+          });
           const regenerated = yield* Effect.promise(() =>
-            generateDrizzleJson(databaseSchema, prior.id),
+            generateDrizzleJson(databaseSchema, reconciled.id),
           );
           // Node's module namespace enumerates exports alphabetically; Vite retains
           // source insertion order. Compare every full descriptor, independent of
           // that import enumeration order (including all column/check/FK fields).
           expect(regenerated.ddl.map((entry) => JSON.stringify(entry)).sort()).toEqual(
-            snapshot.ddl.map((entry) => JSON.stringify(entry)).sort(),
+            reconciled.ddl.map((entry) => JSON.stringify(entry)).sort(),
           );
           const oldDdl = snapshot.ddl.filter(
             (entry) =>
