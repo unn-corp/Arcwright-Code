@@ -625,7 +625,7 @@ describe("withdrawal and restoration", () => {
 
   it("reports an unknown version rather than guessing", async () => {
     let failure: unknown;
-    await withdrawRelease(new FakeGitHub(), "1.0.0", "x", new Date()).catch(
+    await withdrawRelease(new FakeGitHub(), "1.0.0", "x", new Date("2026-10-21T00:00:00Z")).catch(
       (cause) => (failure = cause),
     );
     assert.match(String(failure), /fork-v1\.0\.0 does not exist/);

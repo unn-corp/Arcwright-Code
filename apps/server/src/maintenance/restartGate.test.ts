@@ -1,11 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off
-import { afterEach, describe, expect, it } from "@effect/vitest";
+import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 import { deviceRestartBlockers } from "./restartGate.ts";
 
+const fixtureNow = Date.parse("2026-01-01T00:00:00.000Z");
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -23,16 +24,18 @@ async function device() {
 
 describe("operator restart gate", () => {
   it("refuses when no runtime is registered, because activity then cannot be known", async () => {
+    using _now = vi.spyOn(Date, "now").mockReturnValue(fixtureNow);
     const d = await device();
     expect((await deviceRestartBlockers(d.namespace))[0]).toContain("activity cannot be known");
   });
 
   it("refuses while the device is not bootstrapped or a runtime has not reported idle", async () => {
+    using _now = vi.spyOn(Date, "now").mockReturnValue(fixtureNow);
     const d = await device();
     const store = await d.open();
     await store.register(
       { id: "svc", label: "Service", kind: "service", homes: [d.home], updateTarget: true },
-      Date.now(),
+      fixtureNow,
     );
     expect(await deviceRestartBlockers(d.namespace)).toEqual([
       "Known fork installations must be registered before automatic installation.",
@@ -44,11 +47,12 @@ describe("operator restart gate", () => {
   });
 
   it("names the active work that blocks the restart and allows it only when nothing is active", async () => {
+    using _now = vi.spyOn(Date, "now").mockReturnValue(fixtureNow);
     const d = await device();
     const store = await d.open();
     await store.register(
       { id: "svc", label: "Service", kind: "service", homes: [d.home], updateTarget: true },
-      Date.now(),
+      fixtureNow,
     );
     await store.confirmBootstrap();
     await store.observe(
@@ -60,7 +64,7 @@ describe("operator restart gate", () => {
           label: "Agent, approval, provider, command, or background work is still active.",
         },
       ],
-      Date.now(),
+      fixtureNow,
     );
     expect(await deviceRestartBlockers(d.namespace)).toEqual([
       "Agent, approval, provider, command, or background work is still active.",
@@ -68,6 +72,7 @@ describe("operator restart gate", () => {
   });
 
   it("fails closed when the coordinator cannot be read", async () => {
+    using _now = vi.spyOn(Date, "now").mockReturnValue(fixtureNow);
     const d = await device();
     await NodeFSP.writeFile(d.namespace, "not a directory");
     expect((await deviceRestartBlockers(d.namespace))[0]).toContain("could not be read");

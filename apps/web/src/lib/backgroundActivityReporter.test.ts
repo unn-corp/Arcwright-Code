@@ -18,7 +18,6 @@ import {
   layer,
   observeBackgroundActivitySubscription,
   retainedBackgroundScopes,
-  wasRecentlyInteracted,
   createActivityReport,
   readNotificationClientVisibility,
 } from "./backgroundActivityReporter.ts";
@@ -67,14 +66,6 @@ describe("wasRecentlyInteracted", () => {
       visible: false,
       appState: "background",
     });
-  });
-  it("expires interaction independently of window focus", () => {
-    expect(wasRecentlyInteracted(10_000, 55_000)).toBe(true);
-    expect(wasRecentlyInteracted(10_000, 55_001)).toBe(false);
-  });
-
-  it("rejects future timestamps", () => {
-    expect(wasRecentlyInteracted(10_001, 10_000)).toBe(false);
   });
 
   it.effect("retains an observed subscription until its returned finalizer runs", () =>

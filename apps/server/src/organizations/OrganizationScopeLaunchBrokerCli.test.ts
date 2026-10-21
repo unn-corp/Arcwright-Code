@@ -58,11 +58,9 @@ it("registers native broker commands and enforces the host platform", async () =
     await new Promise<void>((resolve, reject) => {
       let output = "";
       let error = "";
-      const timer = setTimeout(() => reject(new Error(`Broker CLI timed out: ${error}`)), 10_000);
       child.stdout?.on("data", (chunk: Buffer) => {
         output += chunk.toString("utf8");
         if (output.includes("READY\n")) {
-          clearTimeout(timer);
           resolve();
         }
       });
@@ -83,4 +81,4 @@ it("registers native broker commands and enforces the host platform", async () =
     if (child.exitCode === null) await new Promise<void>((resolve) => child.once("exit", resolve));
     await NodeFSP.rm(baseDir, { recursive: true, force: true });
   }
-}, 130_000);
+});

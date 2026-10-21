@@ -114,7 +114,7 @@ Use a disposable home directory such as `t3code/.t3` for local migration and bro
 
 From the `t3code` directory, run `vp test apps/server/src/organizations/*.test.ts apps/server/src/auth/OrganizationGovernanceAuthorization.test.ts apps/server/src/auth/RpcAuthorization.test.ts packages/contracts/src/organization*.test.ts packages/contracts/src/rpc.test.ts --run` for the Organization/auth/contracts regression set. The scoped QA cases use a real Linux sandbox when `isOrganizationScopedSandboxAvailable()` succeeds and are skipped otherwise; inspect the test summary before counting them as executed. `vp check` accepts explicit touched file paths, and `git diff --check` checks tracked changes. The server-wide TypeScript check currently reports baseline diagnostics; compare targeted diagnostics against the ledger rather than treating a clean contracts or web check as server-wide success.
 
-The 70-second fixture intake soak is opt-in: `T3_ORGANIZATION_INTAKE_SOAK=1 vp test apps/server/src/organizations/OrganizationIntakeSoak.test.ts --run --reporter verbose`. It uses fresh in-memory SQLite, no provider or worker, and prints aggregate duration, counts, backlog, failure and process RSS measurements. Keep it out of normal quick suites; the recorded run and its limits are in the build ledger.
+The 70-second fixture intake soak is opt-in: `T3_ORGANIZATION_INTAKE_SOAK=1 node apps/server/src/organizations/OrganizationIntakeSoak.bench.ts`. It uses fresh in-memory SQLite, no provider or worker, and prints aggregate duration, counts, backlog, failure and process RSS measurements. Keep it out of normal quick suites; the recorded run and its limits are in the build ledger.
 
 ## Scope recovery and held permits
 

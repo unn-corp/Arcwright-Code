@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as NodeFSP from "node:fs/promises";
@@ -166,10 +167,11 @@ describe("pull request rollup schedule", () => {
         yield* Effect.promise(() =>
           NodeFSP.mkdir(NodePath.dirname(schedulePath), { recursive: true }),
         );
+        const now = yield* Clock.currentTimeMillis;
         const due = {
-          ...__testing.defaultSchedule(Date.now() - 60_000),
+          ...__testing.defaultSchedule(now - 60_000),
           enabled: false,
-          nextRunAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+          nextRunAt: new Date(now + 60 * 60_000).toISOString(),
           runCount: 7,
         };
         const before = `${JSON.stringify(due, null, 2)}\n`;

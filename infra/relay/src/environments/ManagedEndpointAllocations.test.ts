@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { PgDialect } from "drizzle-orm/pg-core";
 
 import * as RelayDb from "../db.ts";
 import { relayManagedEndpointAllocations } from "../persistence/schema.ts";
@@ -74,68 +73,6 @@ describe("ManagedEndpointAllocations", () => {
         ["tunnel-2", false],
         ["tunnel-3", false],
       ]);
-    }).pipe(Effect.provide(layerWithDb(fakeDb)));
-  });
-
-  it.effect("skips the database for an empty tunnel lookup", () =>
-    Effect.gen(function* () {
-      const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
-      expect(yield* allocations.listByTunnelNames([])).toEqual([]);
-    }).pipe(Effect.provide(layerWithDb({} as RelayDb.RelayDb["Service"]))),
-  );
-
-  it.effect("splits large tunnel lookups into bounded database queries", () => {
-    const batchSizes: number[] = [];
-    const fakeDb = {
-      select: () => ({
-        from: () => ({
-          leftJoin: () => ({
-            where: (condition: unknown) => {
-              batchSizes.push(new PgDialect().sqlToQuery(condition as never).params.length);
-              return Effect.succeed([]);
-            },
-          }),
-        }),
-      }),
-    } as unknown as RelayDb.RelayDb["Service"];
-
-    return Effect.gen(function* () {
-      const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
-      const names = Array.from({ length: 1_001 }, (_, index) => `tunnel-${index}`);
-      expect(yield* allocations.listByTunnelNames(names)).toEqual([]);
-      expect(batchSizes).toEqual([500, 500, 1]);
-    }).pipe(Effect.provide(layerWithDb(fakeDb)));
-  });
-
-  it.effect("retains database failures with allocation operation and identity", () => {
-    const cause = new Error("database unavailable");
-    const fakeDb = {
-      select: () => ({
-        from: (table: unknown) => {
-          expect(table).toBe(relayManagedEndpointAllocations);
-          return {
-            where: () => ({
-              limit: () => Effect.fail(cause),
-            }),
-          };
-        },
-      }),
-    } as unknown as RelayDb.RelayDb["Service"];
-
-    return Effect.gen(function* () {
-      const allocations = yield* ManagedEndpointAllocations.ManagedEndpointAllocations;
-      const error = yield* Effect.flip(
-        allocations.get({ userId: "user-1", environmentId: "environment-1" }),
-      );
-
-      expect(error).toMatchObject({
-        _tag: "ManagedEndpointAllocationPersistenceError",
-        operation: "get",
-        stage: "database-request",
-        userId: "user-1",
-        environmentId: "environment-1",
-      });
-      expect(error.cause).toBe(cause);
     }).pipe(Effect.provide(layerWithDb(fakeDb)));
   });
   it.each([

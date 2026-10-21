@@ -1,14 +1,13 @@
+import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { page } from "vite-plus/test/browser";
 import { act, render as renderUi, type Screen } from "../../../test/render";
 import { RegistryProvider } from "@effect/atom-react";
-import {
-  DEFAULT_SERVER_SETTINGS,
-  ProjectId,
-  ThreadId,
-  type StorageCleanupReport,
-} from "@t3tools/contracts";
+
+import { DEFAULT_SERVER_SETTINGS, type StorageCleanupReport } from "@t3tools/contracts";
 import { type ReactNode } from "react";
 import { expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+
+import { StorageSettingsPanel } from "./StorageSettings";
 
 vi.mock("@tanstack/react-router", async (original) => ({
   ...(await original<typeof import("@tanstack/react-router")>()),
@@ -110,8 +109,6 @@ vi.mock(import("../ui/toast"), async (original) => {
   const actual = await original();
   return { ...actual, toastManager: { ...actual.toastManager, add: vi.fn() } };
 });
-
-import { StorageSettingsPanel } from "./StorageSettings";
 
 async function setup() {
   state.settings = {

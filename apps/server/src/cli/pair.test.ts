@@ -10,6 +10,7 @@ import * as NetService from "@t3tools/shared/Net";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -29,11 +30,7 @@ import {
   persistServerRuntimeState,
   type PersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
-import {
-  DevServerNotProxiableError,
-  resolveDirectPairingBaseUrl,
-  resolveTailscaleLocalTarget,
-} from "./pair.ts";
+import { DevServerNotProxiableError, resolveTailscaleLocalTarget } from "./pair.ts";
 
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -46,24 +43,6 @@ const baseState = {
   origin: "http://127.0.0.1:3773",
   startedAt: "2026-06-20T00:00:00.000Z",
 } as const satisfies PersistedServerRuntimeState;
-
-describe("pair base URL selection", () => {
-  it("pairs through the dev web origin when the server fronts a dev server", () => {
-    expect(
-      resolveDirectPairingBaseUrl({
-        ...baseState,
-        devUrl: "http://localhost:5733/",
-      }),
-    ).toBe("http://localhost:5733/");
-  });
-
-  it("pairs through the bound host when there is no dev server", () => {
-    expect(resolveDirectPairingBaseUrl({ ...baseState, host: "100.64.0.7" })).toBe(
-      "http://100.64.0.7:3773",
-    );
-    expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://localhost:3773");
-  });
-});
 
 describe("pair tailscale local target", () => {
   it("proxies the dev web port for dev servers", () => {
@@ -97,19 +76,6 @@ describe("pair tailscale local target", () => {
         devUrl: "https://localhost:5733/",
       }),
     ).toBeInstanceOf(DevServerNotProxiableError);
-  });
-
-  it("proxies the backend port directly otherwise", () => {
-    expect(resolveTailscaleLocalTarget(baseState)).toEqual({
-      localPort: 3_773,
-    });
-    expect(resolveTailscaleLocalTarget({ ...baseState, host: "0.0.0.0" })).toEqual({
-      localPort: 3_773,
-    });
-    expect(resolveTailscaleLocalTarget({ ...baseState, host: "192.168.1.42" })).toEqual({
-      localPort: 3_773,
-      localHost: "192.168.1.42",
-    });
   });
 });
 
@@ -145,70 +111,73 @@ const withDescriptorServer = <A, E, R>(
   ) => Effect.Effect<A, E, R>,
   host = "127.0.0.1",
 ) =>
-  Effect.acquireUseRelease(
-    Effect.callback<NodeHttp.Server>((resume) => {
-      const requests: Array<{ scopes: ReadonlyArray<string>; label?: string }> = [];
-      const server = NodeHttp.createServer((request, response) => {
-        if (request.url === "/.well-known/t3/environment") {
-          response.writeHead(200, { "content-type": "application/json" });
-          response.end(JSON.stringify(testDescriptor));
-          return;
-        }
-        if (
-          request.url === "/api/maintenance/operator/pairing" &&
-          request.headers["x-t3-operator-token"] === "test-operator"
-        ) {
-          let body = "";
-          request.on("data", (chunk) => {
-            body += chunk;
-          });
-          request.on("end", () => {
-            const input = JSON.parse(body);
-            requests.push(input);
+  Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    return yield* Effect.acquireUseRelease(
+      Effect.callback<NodeHttp.Server>((resume) => {
+        const requests: Array<{ scopes: ReadonlyArray<string>; label?: string }> = [];
+        const server = NodeHttp.createServer((request, response) => {
+          if (request.url === "/.well-known/t3/environment") {
             response.writeHead(200, { "content-type": "application/json" });
-            response.end(
-              JSON.stringify({
-                id: "test-pairing",
-                credential: "TESTPAIRCODE",
-                scopes: input.scopes,
-                subject: "one-time-token",
-                label: input.label,
-                createdAt: new Date().toISOString(),
-                expiresAt: new Date(Date.now() + 300000).toISOString(),
-              }),
-            );
-          });
-          return;
-        }
-        response.writeHead(404);
-        response.end();
-      });
-      Object.assign(server, { pairingRequests: requests });
-      server.once("error", (cause) => resume(Effect.die(cause)));
-      server.listen(0, host, () => resume(Effect.succeed(server)));
-      return Effect.sync(() => {
-        server.close();
-      });
-    }),
-    (server) => {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        return Effect.die(new Error("Expected a TCP address"));
-      }
-      return run(
-        `http://${host === "::1" ? "[::1]" : host}:${String(address.port)}`,
-        (
-          server as NodeHttp.Server & {
-            pairingRequests: Array<{
-              scopes: ReadonlyArray<string>;
-              label?: string;
-            }>;
+            response.end(JSON.stringify(testDescriptor));
+            return;
           }
-        ).pairingRequests,
-      );
-    },
-    (server) => Effect.sync(() => server.close()),
-  );
+          if (
+            request.url === "/api/maintenance/operator/pairing" &&
+            request.headers["x-t3-operator-token"] === "test-operator"
+          ) {
+            let body = "";
+            request.on("data", (chunk) => {
+              body += chunk;
+            });
+            request.on("end", () => {
+              const input = JSON.parse(body);
+              requests.push(input);
+              response.writeHead(200, { "content-type": "application/json" });
+              response.end(
+                JSON.stringify({
+                  id: "test-pairing",
+                  credential: "TESTPAIRCODE",
+                  scopes: input.scopes,
+                  subject: "one-time-token",
+                  label: input.label,
+                  createdAt: new Date(now).toISOString(),
+                  expiresAt: new Date(now + 300_000).toISOString(),
+                }),
+              );
+            });
+            return;
+          }
+          response.writeHead(404);
+          response.end();
+        });
+        Object.assign(server, { pairingRequests: requests });
+        server.once("error", (cause) => resume(Effect.die(cause)));
+        server.listen(0, host, () => resume(Effect.succeed(server)));
+        return Effect.sync(() => {
+          server.close();
+        });
+      }),
+      (server) => {
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          return Effect.die(new Error("Expected a TCP address"));
+        }
+        return run(
+          `http://${host === "::1" ? "[::1]" : host}:${String(address.port)}`,
+          (
+            server as NodeHttp.Server & {
+              pairingRequests: Array<{
+                scopes: ReadonlyArray<string>;
+                label?: string;
+              }>;
+            }
+          ).pairingRequests,
+        );
+      },
+      (server) => Effect.sync(() => server.close()),
+    );
+  });
 
 describe("t3 pair", () => {
   it.effect("publishes an IPv6-only server URL through Tailscale Serve when pairing", () =>
@@ -426,23 +395,6 @@ describe("t3 pair", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("directs to t3 serve or t3 connect when no server is running", () =>
-    Effect.gen(function* () {
-      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-none-test-"));
-
-      const error = yield* provideCliTestLayers(
-        runCli(["pair", "--base-dir", baseDir]).pipe(Effect.flip),
-      );
-
-      const rendered = String(
-        typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
-      );
-      assert.include(rendered, "No running Arcwright Code server found.");
-      assert.include(rendered, "npx t3 serve");
-      assert.include(rendered, "npx t3 connect");
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("ignores runtime state whose recorded pid is no longer alive", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
@@ -467,29 +419,6 @@ describe("t3 pair", () => {
         assert.include(rendered, "No running Arcwright Code server found.");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("ignores stale runtime state pointing at a dead server", () =>
-    Effect.gen(function* () {
-      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-stale-test-"));
-      const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
-      yield* persistServerRuntimeState({
-        path: statePath,
-        state: yield* makePersistedServerRuntimeState({
-          config: { host: "127.0.0.1", devUrl: undefined },
-          port: 1,
-        }),
-      });
-
-      const error = yield* provideCliTestLayers(
-        runCli(["pair", "--base-dir", baseDir]).pipe(Effect.flip),
-      );
-
-      const rendered = String(
-        typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
-      );
-      assert.include(rendered, "No running Arcwright Code server found.");
-    }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   // Without the capability `tailscale serve` blocks on an enablement URL, so

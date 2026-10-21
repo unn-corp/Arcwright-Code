@@ -2,13 +2,16 @@ import * as NodeModule from "node:module";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import { ChildProcessSpawner } from "effect/process/ChildProcessSpawner";
+import type { ChildProcessHandle } from "effect/process/ChildProcessSpawner";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Undici from "@effect/platform-node/Undici";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
@@ -34,6 +37,20 @@ const workerd = require("workerd") as { readonly default: string };
 
 const TOKEN = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const SYNTHETIC_URL = "postgres://fixture:fixture@192.0.2.1:5432/fixture";
+
+const waitForWorkerdListen = Effect.fnUntraced(function* (
+  child: ChildProcessHandle,
+  socket: string,
+) {
+  const event = yield* child.getOutputFd(3).pipe(
+    Stream.decodeText(),
+    Stream.splitLines,
+    Stream.map((line) => JSON.parse(line) as { readonly event: string; readonly socket: string }),
+    Stream.filter((message) => message.event === "listen" && message.socket === socket),
+    Stream.runHead,
+  );
+  if (Option.isNone(event)) return yield* new WorkerdFixtureFailed();
+});
 
 const request = Effect.fnUntraced(
   function* (socketPath: string, method: "GET" | "POST", path: string, token?: string) {
@@ -140,12 +157,14 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
                 [
                   "serve",
                   "--experimental",
+                  "--control-fd=3",
                   config,
                   "config",
                   "--socket-addr",
                   `http=unix:${socket}`,
                 ],
                 {
+                  additionalFds: { fd3: { type: "output" } },
                   env: {},
                   cwd: root,
                   detached: false,
@@ -155,24 +174,30 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
               ),
             );
             const logs: string[] = [];
+            const cleanupDone = yield* Deferred.make<void>();
+            const collectLog = (bytes: Uint8Array) =>
+              Effect.sync(() => logs.push(new TextDecoder().decode(bytes))).pipe(
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    logs.join("").includes("ARCWRIGHT_DEADLINE_FIXTURE_CLEANUP_DONE")
+                      ? Deferred.succeed(cleanupDone, undefined)
+                      : Effect.void,
+                  ),
+                ),
+              );
             const stderr = yield* child.stderr.pipe(
-              Stream.runForEach((bytes) =>
-                Effect.sync(() => {
-                  logs.push(new TextDecoder().decode(bytes));
-                }),
-              ),
+              Stream.runForEach(collectLog),
               Effect.forkScoped,
             );
-            yield* child.stdout.pipe(Stream.runDrain, Effect.forkScoped);
+            const stdout = yield* child.stdout.pipe(
+              Stream.runForEach(collectLog),
+              Effect.forkScoped,
+            );
             let elapsedMs = 0;
             let completed = false;
+            let cleanupPendingAtResponse = false;
             yield* Effect.gen(function* () {
-              yield* Effect.gen(function* () {
-                while (!(yield* fs.exists(socket))) {
-                  if (!(yield* child.isRunning)) return yield* new WorkerdFixtureFailed();
-                  yield* Effect.sleep("20 millis");
-                }
-              }).pipe(Effect.timeout("10 seconds"));
+              yield* waitForWorkerdListen(child, "http");
               expect(JSON.parse((yield* request(socket, "GET", "/status")).body)).toEqual({
                 completed: [],
                 finalized: [],
@@ -193,8 +218,11 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
                 completed: [],
                 finalized: [],
               });
-              yield* Effect.sleep("2500 millis");
-              const status: unknown = JSON.parse((yield* request(socket, "GET", "/status")).body);
+              cleanupPendingAtResponse = true;
+              yield* Deferred.await(cleanupDone);
+              const completion = yield* request(socket, "GET", "/status");
+              expect(completion.status).toBe(200);
+              const status: unknown = JSON.parse(completion.body);
               if (
                 typeof status !== "object" ||
                 status === null ||
@@ -213,6 +241,7 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
                   if (yield* child.isRunning) yield* child.kill();
                   yield* child.exitCode.pipe(Effect.timeout("5 seconds"), Effect.ignore);
                   yield* Fiber.join(stderr).pipe(Effect.timeout("2 seconds"), Effect.orDie);
+                  yield* Fiber.join(stdout).pipe(Effect.timeout("2 seconds"), Effect.orDie);
                   expect(yield* child.isRunning).toBe(false);
                   expect(logs.join("")).not.toMatch(/unhandled|uncaught/i);
                   const evidence = process.env.ARCWRIGHT_DRIVER_CANARY_TEST_EVIDENCE;
@@ -232,7 +261,7 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
                         bundleHash: built.bundle?.hash,
                         phases: ["begin", "commit", "rollback", "scope-finalizer"],
                         deadlineStatuses: [503, 503, 503, 503],
-                        cleanupPendingAtResponse: completed,
+                        cleanupPendingAtResponse,
                         allFourFinalizedLater: completed,
                       }),
                       { mode: 0o600 },
@@ -245,7 +274,6 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
         );
       }).pipe(Effect.ensuring(fs.remove(root, { recursive: true }).pipe(Effect.orDie)));
     }).pipe(Effect.provide(NodeServices.layer)),
-  60000,
 );
 
 it.live(
@@ -352,12 +380,14 @@ const config :Workerd.Config = (
                   [
                     "serve",
                     "--experimental",
+                    "--control-fd=3",
                     configFile,
                     "config",
                     "--socket-addr",
                     `http=unix:${socketPath}`,
                   ],
                   {
+                    additionalFds: { fd3: { type: "output" } },
                     env: {},
                     cwd: root,
                     detached: false,
@@ -379,12 +409,7 @@ const config :Workerd.Config = (
               );
               yield* child.stdout.pipe(Stream.runDrain, Effect.forkScoped);
               yield* Effect.gen(function* () {
-                yield* Effect.gen(function* () {
-                  while (!(yield* fs.exists(socketPath))) {
-                    if (!(yield* child.isRunning)) return yield* new WorkerdFixtureFailed();
-                    yield* Effect.sleep("20 millis");
-                  }
-                }).pipe(Effect.timeout("10 seconds"));
+                yield* waitForWorkerdListen(child, "http");
                 const missing = yield* request(socketPath, "POST", "/probe");
                 expect(missing).toEqual({ status: 401, body: '{"error":"unauthorized"}' });
                 expect((yield* request(socketPath, "POST", "/probe", "wrong")).status).toBe(401);
@@ -467,5 +492,4 @@ const config :Workerd.Config = (
         }
       }).pipe(Effect.ensuring(fs.remove(root, { recursive: true }).pipe(Effect.orDie)));
     }).pipe(Effect.provide(NodeServices.layer)),
-  60000,
 );

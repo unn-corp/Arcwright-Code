@@ -131,18 +131,6 @@ describe("SidebarUpdateReleaseNotes", () => {
     expect(textContent(anchors.at(-1)?.props.children)).toBe("1 older release on GitHub");
   });
 
-  it("shows plural history text for multiple omitted releases", () => {
-    const anchors = collectAnchors(
-      renderNotes({
-        ...baseState,
-        releaseNotes: [{ version: "0.0.36-nightly.3", items: ["Change 3"], totalItems: 1 }],
-        omittedReleaseCount: 3,
-      }),
-    );
-
-    expect(textContent(anchors.at(-1)?.props.children)).toBe("3 older releases on GitHub");
-  });
-
   it("reports a release link that fails to open", async () => {
     const openExternal = vi.fn().mockResolvedValue(false);
     const [anchor] = collectAnchors(

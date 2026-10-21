@@ -71,7 +71,7 @@ async function makeHome(root: string, name: string) {
 function fakeWsl(
   distros: Record<string, { home: string; store: CoordinatorStore }>,
   calls: string[] = [],
-  now: () => number = () => Date.now(),
+  now: () => number,
 ): Exec {
   return async (command, args) => {
     expect(command).toBe("wsl.exe");

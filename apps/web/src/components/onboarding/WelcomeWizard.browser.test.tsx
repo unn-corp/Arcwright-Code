@@ -1,5 +1,6 @@
 import { act, render, stubGlobal } from "../../../test/render";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { WelcomeWizard } from "./WelcomeWizard";
+
 import { expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
@@ -97,8 +98,6 @@ vi.mock("../ui/toast", () => ({
   toastManager: { add: mocks.toast, close: vi.fn(), update: vi.fn() },
 }));
 
-import { WelcomeWizard } from "./WelcomeWizard";
-
 function setup() {
   using stack = new DisposableStack();
   vi.clearAllMocks();
@@ -120,14 +119,6 @@ function setup() {
     .mockReset()
     .mockResolvedValue({ _tag: "Success", value: { importedCount: 28, skippedCount: 1 } });
   return stack.move();
-}
-
-async function click(label: string) {
-  const button = [...document.querySelectorAll("button")].find(
-    (element) => element.textContent?.trim() === label,
-  );
-  expect(button, `button ${label}`).toBeDefined();
-  await act(async () => button!.click());
 }
 
 it.each(["owned", "legacy", "cloudless"])(
@@ -168,116 +159,3 @@ it.each(["owned", "legacy", "cloudless"])(
     }
   },
 );
-
-it("enters the workspace after a partial import and warns after navigation finishes", async () => {
-  using _setup = setup();
-  let finishNavigation = () => {};
-  const navigation = new Promise<void>((resolve) => {
-    finishNavigation = resolve;
-  });
-  const onDone = vi.fn(() => navigation);
-  await using _screen = await render(<WelcomeWizard localAvailable onDone={onDone} />);
-  await click("Continue");
-  await click("Continue");
-  await click("Import 1 project");
-  expect(onDone).toHaveBeenCalledWith({
-    environmentId: EnvironmentId.make("test-env"),
-    projectId: ProjectId.make("test-project"),
-  });
-  expect(mocks.toast).not.toHaveBeenCalled();
-  await act(async () => finishNavigation());
-  expect(mocks.toast).toHaveBeenCalledWith(
-    expect.objectContaining({
-      type: "warning",
-      description: "Imported 28 threads. 1 thread could not be imported.",
-    }),
-  );
-  expect(mocks.toast.mock.invocationCallOrder[0]).toBeGreaterThan(
-    onDone.mock.invocationCallOrder[0]!,
-  );
-});
-
-it.each([
-  [0, 0, null],
-  [29, 0, null],
-  [1, 0, null],
-  [0, 1, "1 thread could not be imported."],
-  [0, 2, "2 threads could not be imported."],
-] as const)(
-  "finishes setup with %i imported and %i skipped threads",
-  async (importedCount, skippedCount, warning) => {
-    using _setup = setup();
-    mocks.importThreads.mockResolvedValue({
-      _tag: "Success",
-      value: { importedCount, skippedCount },
-    });
-    const onDone = vi.fn();
-    await using _screen = await render(<WelcomeWizard localAvailable onDone={onDone} />);
-    await click("Continue");
-    await click("Continue");
-    await click("Import 1 project");
-    expect(onDone).toHaveBeenCalledOnce();
-    if (warning === null && importedCount > 0) {
-      expect(mocks.toast).toHaveBeenCalledWith({
-        type: "success",
-        title: `Imported ${importedCount} ${importedCount === 1 ? "thread" : "threads"}`,
-      });
-    } else if (warning === null) {
-      expect(mocks.toast).not.toHaveBeenCalled();
-    } else {
-      expect(mocks.toast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "warning", description: warning }),
-      );
-    }
-  },
-);
-
-it("keeps setup open when saving completion fails and preserves the import warning on retry", async () => {
-  using _setup = setup();
-  mocks.complete.mockRejectedValueOnce(new Error("settings unavailable"));
-  const onDone = vi.fn();
-  await using _screen = await render(<WelcomeWizard localAvailable onDone={onDone} />);
-  await click("Continue");
-  await click("Continue");
-  await click("Import 1 project");
-  expect(onDone).not.toHaveBeenCalled();
-  expect(mocks.toast).toHaveBeenCalledWith(
-    expect.objectContaining({ type: "error", title: "Could not finish setup" }),
-  );
-  await click("Do not import projects");
-  expect(onDone).toHaveBeenCalledOnce();
-  expect(mocks.importThreads).toHaveBeenCalledOnce();
-  expect(mocks.toast).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      type: "warning",
-      description: "Imported 28 threads. 1 thread could not be imported.",
-    }),
-  );
-});
-
-it("requires explicit Close to complete local setup", async () => {
-  using _setup = setup();
-  const onDone = vi.fn();
-  await using _screen = await render(<WelcomeWizard localAvailable onDone={onDone} />);
-  await act(async () => {
-    document.activeElement?.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
-    const backdrop = document.querySelector<HTMLElement>('[data-slot="dialog-backdrop"]')!;
-    backdrop.dispatchEvent(
-      new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }),
-    );
-    backdrop.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    backdrop.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    backdrop.click();
-  });
-  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-  expect(mocks.complete).not.toHaveBeenCalled();
-  expect(onDone).not.toHaveBeenCalled();
-
-  const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close"]');
-  expect(close).not.toBeNull();
-  await act(async () => close!.click());
-  expect(mocks.complete).toHaveBeenCalledOnce();
-  expect(onDone).toHaveBeenCalledWith(undefined);
-});

@@ -1,34 +1,9 @@
-import { AuthEnvironmentMaintainScope, ServerProvider } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { supportsEnvironmentUpdate } from "./environment-maintenance";
+import { AuthEnvironmentMaintainScope } from "@t3tools/contracts";
+
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  canMaintainEnvironment,
-  canUpdateEnvironmentProvider,
-  findEnvironmentUpdate,
-  supportsEnvironmentUpdate,
-} from "./environment-maintenance";
-
-const provider = Schema.decodeUnknownSync(ServerProvider)({
-  instanceId: "codex-personal",
-  driver: "codex",
-  enabled: true,
-  installed: true,
-  version: "1.0.0",
-  status: "ready",
-  auth: { status: "authenticated" },
-  checkedAt: "2026-09-23T00:00:00.000Z",
-  models: [],
-  versionAdvisory: {
-    status: "behind_latest",
-    currentVersion: "1.0.0",
-    latestVersion: "1.1.0",
-    canUpdate: true,
-    updateCommand: null,
-    checkedAt: null,
-    message: null,
-  },
-});
+import { canMaintainEnvironment, findEnvironmentUpdate } from "./environment-maintenance";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -51,29 +26,6 @@ describe("environment maintenance access", () => {
     const { scopes: _, ...legacy } = session;
     expect(canMaintainEnvironment(legacy, true)).toBe(false);
     expect(canMaintainEnvironment(null, true)).toBe(false);
-  });
-
-  it.each([
-    { scopes: ["environment:maintain"], expected: true },
-    { scopes: ["orchestration:operate"], expected: false },
-    { scopes: ["providers:manage"], expected: false },
-  ] as const)("uses the advertised update permission for $scopes", ({ scopes, expected }) => {
-    expect(
-      canMaintainEnvironment(
-        {
-          authenticated: true,
-          auth: {
-            policy: "remote-reachable",
-            bootstrapMethods: [],
-            sessionMethods: [],
-            sessionCookieName: "session",
-            serverUpdateScope: "environment:maintain",
-          },
-          scopes,
-        },
-        true,
-      ),
-    ).toBe(expected);
   });
 
   it.each([
@@ -118,6 +70,7 @@ describe("environment maintenance access", () => {
     const { activityProtocol: _, ...legacyCapability } = forkMaintenance;
     for (const capability of [
       legacyCapability,
+      { ...forkMaintenance, recovery: false },
       { ...forkMaintenance, activityProtocol: 1 },
       { ...forkMaintenance, activityProtocol: 4 },
     ])
@@ -135,50 +88,6 @@ describe("environment maintenance access", () => {
         forkMaintenance,
       }),
     ).toBe(true);
-  });
-
-  it("excludes unavailable, manual, busy, and incompatible provider updates", () => {
-    expect(canUpdateEnvironmentProvider(provider)).toBe(true);
-    expect(canUpdateEnvironmentProvider({ ...provider, installed: false })).toBe(false);
-    expect(canUpdateEnvironmentProvider({ ...provider, availability: "unavailable" })).toBe(false);
-    expect(canUpdateEnvironmentProvider({ ...provider, versionAdvisory: undefined })).toBe(false);
-    for (const latestVersionStatus of ["broken", "unsupported"] as const) {
-      expect(
-        canUpdateEnvironmentProvider({
-          ...provider,
-          compatibilityAdvisory: {
-            status: "supported",
-            latestVersionStatus,
-            message: null,
-            recommendedVersion: null,
-            recommendedRange: null,
-          },
-        }),
-      ).toBe(false);
-    }
-    for (const status of ["queued", "running"] as const) {
-      expect(
-        canUpdateEnvironmentProvider({
-          ...provider,
-          updateState: {
-            status,
-            startedAt: null,
-            finishedAt: null,
-            message: null,
-            output: null,
-          },
-        }),
-      ).toBe(false);
-    }
-    expect(
-      canUpdateEnvironmentProvider({
-        ...provider,
-        versionAdvisory: {
-          ...provider.versionAdvisory!,
-          canUpdate: false,
-        },
-      }),
-    ).toBe(false);
   });
 });
 

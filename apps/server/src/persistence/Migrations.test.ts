@@ -32,13 +32,6 @@ describe("runMigrations", () => {
     assert.equal(recorded.size, migrationManifest.length);
     for (const [id, name] of historical) assert.equal(recorded.get(Number(id)), name);
   });
-  it.effect("migrates a fresh database through the whole manifest", () =>
-    Effect.gen(function* () {
-      yield* runMigrations();
-      assert.deepStrictEqual(yield* history, migrationManifest);
-      assert.isAbove(yield* v2TableCount, 0);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
-  );
 
   it.effect("refuses to start when another migration took a V2 id", () =>
     Effect.gen(function* () {

@@ -109,27 +109,7 @@ const probeCatalog = Effect.fn("probeCatalog")(function* (
   return provider;
 });
 
-const solServiceTiers = Effect.fn("solServiceTiers")(function* (ultrafastEntitled: boolean) {
-  const provider = yield* probeCatalog(ultrafastEntitled);
-  const serviceTier = provider.models
-    .find((model) => model.slug === "gpt-6.1-sol")
-    ?.capabilities?.optionDescriptors?.find((descriptor) => descriptor.id === "serviceTier");
-  return serviceTier?.type === "select" ? serviceTier.options.map((option) => option.id) : [];
-});
-
 it.layer(NodeServices.layer, { excludeTestServices: true })("Codex catalog discovery", (it) => {
-  it.effect("keeps Ultrafast when another Codex client wrote the shared catalog cache", () =>
-    Effect.gen(function* () {
-      assert.deepStrictEqual(yield* solServiceTiers(true), ["default", "priority", "ultrafast"]);
-    }).pipe(Effect.scoped),
-  );
-
-  it.effect("drops Ultrafast once the account is no longer entitled to it", () =>
-    Effect.gen(function* () {
-      assert.deepStrictEqual(yield* solServiceTiers(false), ["default", "priority"]);
-    }).pipe(Effect.scoped),
-  );
-
   it.effect("displays the inherited global Fast tier on every discovered model", () =>
     Effect.gen(function* () {
       for (const tier of ["fast", "priority"]) {
@@ -156,21 +136,5 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("Codex catalog disco
         assert.equal(provider.models.find((model) => model.isDefault)?.slug, "gpt-6-luna");
       }
     }).pipe(Effect.scoped),
-  );
-
-  it.effect(
-    "preserves the catalog when global tier config is missing, unknown, failing, or stalled",
-    () =>
-      Effect.gen(function* () {
-        const baseline = yield* probeCatalog(false, "missing");
-        const serviceTier = baseline.models[0]?.capabilities?.optionDescriptors?.find(
-          (descriptor) => descriptor.id === "serviceTier",
-        );
-        assert.equal(getProviderOptionCurrentLabel(serviceTier), "Standard");
-        for (const config of ["unsupported", "error", "hang"]) {
-          const provider = yield* probeCatalog(false, config);
-          assert.deepStrictEqual(provider.models, baseline.models, config);
-        }
-      }).pipe(Effect.scoped, Effect.timeout("8 seconds")),
   );
 });

@@ -146,7 +146,7 @@ function fixture() {
         now,
         { trial },
       );
-      return { root, home, database, store, journal, snapshot, trial };
+      return { root, home, database, store, journal, snapshot, trial, now };
     });
   });
 }
@@ -262,7 +262,7 @@ describe("admitted plain JSON storage restoration", () => {
   storageTest(
     "runs the real packaged CLI child and waits for its durable completion before returning",
     async (f) => {
-      const status = await f.store.status(Date.now());
+      const status = await f.store.status(f.now);
       await runStorageWorker(
         {
           mode: "active",
@@ -315,7 +315,7 @@ describe("admitted plain JSON storage restoration", () => {
       } finally {
         db.close();
       }
-      expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+      expect((await f.store.status(f.now)).fence?.transactionId).toBe(f.journal.id);
       expect(await normalize(f)).toMatchObject({ storageNormalizationVersion: 1 });
     },
   );
@@ -344,7 +344,7 @@ describe("admitted plain JSON storage restoration", () => {
       } finally {
         db.close();
       }
-      expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+      expect((await f.store.status(f.now)).fence?.transactionId).toBe(f.journal.id);
     },
   );
 
@@ -366,7 +366,7 @@ describe("admitted plain JSON storage restoration", () => {
       } finally {
         retained.close();
       }
-      expect((await f.store.status(Date.now())).fence?.transactionId).toBe(f.journal.id);
+      expect((await f.store.status(f.now)).fence?.transactionId).toBe(f.journal.id);
     },
   );
 
@@ -407,7 +407,7 @@ describe("admitted plain JSON storage restoration", () => {
           homes: [f.home],
           updateTarget: false,
         },
-        Date.now(),
+        f.now,
         { trial },
       );
       await expect(normalize(f)).rejects.toThrow("still owns");

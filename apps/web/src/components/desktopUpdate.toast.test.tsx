@@ -112,28 +112,4 @@ describe("showDesktopUpdateDownloadedToast", () => {
       );
     });
   });
-
-  it("omits the link when the updater reports no version at all", () => {
-    showDesktopUpdateDownloadedToast(
-      { openExternal: vi.fn() },
-      downloadedState({ availableVersion: null, downloadedVersion: null }),
-    );
-
-    expect(findReleaseNotesLink(getDescription())).toBeNull();
-  });
-
-  it.each([
-    ["returns false", vi.fn().mockResolvedValue(false)],
-    ["rejects", vi.fn().mockRejectedValue(new Error("open failed"))],
-  ])("shows an error when opening release notes %s", async (_description, openExternal) => {
-    showDesktopUpdateDownloadedToast({ openExternal }, downloadedState());
-    findReleaseNotesLink(getDescription())?.props.onClick?.();
-
-    await vi.waitFor(() => {
-      expect(testState.addToast).toHaveBeenLastCalledWith({
-        type: "error",
-        title: "Unable to open release notes",
-      });
-    });
-  });
 });

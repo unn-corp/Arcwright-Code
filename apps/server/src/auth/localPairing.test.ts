@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import { createLivePairingLink, LocalPairingError } from "./localPairing.ts";
 import { issueOperatorToken, OPERATOR_TOKEN_HEADER } from "../maintenance/operatorAuth.ts";
 
+const fixtureNow = Date.parse("2026-01-01T00:00:00.000Z");
 const roots: string[] = [];
 const servers: NodeHttp.Server[] = [];
 afterEach(async () => {
@@ -33,7 +34,7 @@ async function fixture(status = 200) {
   const store = await CoordinatorStore.open(NodePath.join(root, "coordinator"));
   await store.register(
     { id: "live-server", label: "Live server", kind: "desktop", homes: [home], updateTarget: true },
-    Date.now(),
+    fixtureNow,
   );
   const token = await issueOperatorToken(home);
   const requests: unknown[] = [];

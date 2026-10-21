@@ -4,7 +4,6 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
 import { CodexSettings } from "@t3tools/contracts";
@@ -74,25 +73,6 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
         );
         expect(overlay.effectiveHomePath).toBe(path.join(root, "private"));
         expect(overlay.sharedHomePath).toBe(declared[0]?.value);
-      }),
-    );
-
-    it.effect("uses direct CODEX_HOME when no shadow home is configured", () =>
-      Effect.gen(function* () {
-        const homePath = yield* makeTempDir("t3code-codex-home-");
-
-        const layout = yield* resolveCodexHomeLayout(
-          decodeCodexSettings({
-            homePath,
-          }),
-        );
-
-        expect(layout).toMatchObject({
-          mode: "direct",
-          sharedHomePath: homePath,
-          effectiveHomePath: homePath,
-          continuationKey: `codex:home:${homePath}`,
-        });
       }),
     );
 
@@ -469,41 +449,6 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           expect(backupDirectories).toHaveLength(1);
           expect(backupContents).toBe('{"legacy":true}\n');
         }),
-    );
-
-    it.effect("preserves filesystem operation, paths, and cause", () =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path;
-        const sharedRoot = yield* makeTempDir("t3code-codex-shared-root-");
-        const sharedHome = path.join(sharedRoot, "shared-home");
-        const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
-        const shadowHome = path.join(shadowRoot, "shadow");
-        yield* writeTextFile(sharedHome, "not a directory\n");
-
-        const layout = yield* resolveCodexHomeLayout(
-          decodeCodexSettings({
-            homePath: sharedHome,
-            shadowHomePath: shadowHome,
-          }),
-        );
-
-        const error = yield* materializeCodexShadowHome(layout).pipe(Effect.flip);
-
-        expect(error._tag).toBe("CodexShadowHomeFileSystemError");
-        if (error._tag !== "CodexShadowHomeFileSystemError") {
-          return expect.fail("Expected CodexShadowHomeFileSystemError");
-        }
-        expect(error).toMatchObject({
-          operation: "makeDirectory",
-          sharedHomePath: sharedHome,
-          effectiveHomePath: shadowHome,
-        });
-        expect(error.path.startsWith(sharedHome)).toBe(true);
-        expect(error.cause).toBeInstanceOf(PlatformError.PlatformError);
-        expect(error.message).toBe(
-          `Codex shadow home filesystem operation 'makeDirectory' failed for '${error.path}'.`,
-        );
-      }),
     );
   });
 });

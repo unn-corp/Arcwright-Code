@@ -5,6 +5,7 @@ import {
   type ServerSelfUpdateInput,
   type ServerSelfUpdateResult,
   WS_METHODS,
+  supportsForkMaintenanceAdmission,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -48,6 +49,25 @@ export class OutdatedHostUpdateError extends Schema.TaggedError<OutdatedHostUpda
 
 export type OutdatedHostUpdateStage = "downloading" | "installing" | "resuming";
 
+const reachOutdatedHost = Effect.fn("clientRuntime.connection.reachOutdatedHost")(function* (
+  environmentId: EnvironmentId,
+) {
+  const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+  const resolver = yield* ConnectionResolver.ConnectionResolver;
+  const entry = (yield* SubscriptionRef.get(registry.entries)).get(environmentId);
+  if (entry === undefined) {
+    return yield* new EnvironmentRegistry.EnvironmentNotRegisteredError({ environmentId });
+  }
+  const { prepared, descriptor } = yield* Effect.firstSuccessOf(
+    usableRoutes(entry).map((route) => resolver.prepareForUpdate(routeEntry(entry, route))),
+  );
+  return { entry, prepared, descriptor };
+});
+
+// The normal session cannot read config from a host behind the protocol gate.
+export const describeOutdatedHost = (environmentId: EnvironmentId) =>
+  reachOutdatedHost(environmentId).pipe(Effect.map(({ descriptor }) => descriptor));
+
 /**
  * The normal session refuses to open against such a host, so this opens a bare
  * socket and calls only the self-update RPCs, whose wire shape has not changed
@@ -60,16 +80,9 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
     onStage: (stage: OutdatedHostUpdateStage) => Effect.Effect<void>,
   ) {
     const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-    const resolver = yield* ConnectionResolver.ConnectionResolver;
     const webSocketConstructor = yield* Socket.WebSocketConstructor;
     const httpClient = yield* HttpClient.HttpClient;
-    const entry = (yield* SubscriptionRef.get(registry.entries)).get(environmentId);
-    if (entry === undefined) {
-      return yield* new EnvironmentRegistry.EnvironmentNotRegisteredError({ environmentId });
-    }
-    const { prepared, descriptor } = yield* Effect.firstSuccessOf(
-      usableRoutes(entry).map((route) => resolver.prepareForUpdate(routeEntry(entry, route))),
-    );
+    const { entry, prepared, descriptor } = yield* reachOutdatedHost(environmentId);
     // Discovery still holds the old relay descriptor and would re-block the
     // environment from it, so replace that before clearing the block.
     const switchBackOn = Effect.gen(function* () {
@@ -90,13 +103,15 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
 
     const capabilities = descriptor.capabilities;
     if (
+      !supportsForkMaintenanceAdmission(capabilities.forkMaintenance) ||
+      capabilities.forkMaintenance?.recovery !== true ||
       capabilities.serverSelfUpdate === undefined ||
       (capabilities.serverSelfUpdate === "desktop-managed" &&
         capabilities.desktopAppUpdate !== true)
     ) {
       return yield* new OutdatedHostUpdateError({
         environmentId,
-        message: `Update T3 Code on ${descriptor.label} manually; it cannot update itself.`,
+        message: `Update Arcwright Code on ${descriptor.label} manually; this installation cannot update safely.`,
       });
     }
 

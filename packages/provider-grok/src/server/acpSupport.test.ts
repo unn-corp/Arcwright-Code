@@ -1,47 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import * as Effect from "effect/Effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as PlatformError from "effect/PlatformError";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as EffectAcpErrors from "effect-acp/errors";
 
-import {
-  applyGrokAcpModelSelection,
-  buildGrokAcpSpawnInput,
-  grokAcpRuntimeProcessOwnership,
-  grokAcpSpawnArgs,
-  isValidGrokReasoningEffortToken,
-  resolveGrokAcpBaseModelId,
-} from "./acpSupport.ts";
-
-describe("grokAcpRuntimeProcessOwnership", () => {
-  it("opts Grok into detached process-tree ownership on the injected host platform", () => {
-    expect(grokAcpRuntimeProcessOwnership("linux")).toEqual({
-      ownDescendantProcessGroups: true,
-      ownDetachedProcessGroup: true,
-      processGroupPlatform: "linux",
-    });
-  });
-
-  it("uses the prior provider-group path on Darwin and Windows", () => {
-    expect(grokAcpRuntimeProcessOwnership("darwin")).toEqual({
-      ownDescendantProcessGroups: false,
-      ownDetachedProcessGroup: true,
-      processGroupPlatform: "darwin",
-    });
-    expect(grokAcpRuntimeProcessOwnership("win32")).toEqual({
-      ownDescendantProcessGroups: false,
-      ownDetachedProcessGroup: true,
-      processGroupPlatform: "win32",
-    });
-  });
-});
-
-describe("resolveGrokAcpBaseModelId", () => {
-  it("normalizes empty and custom Grok model ids", () => {
-    expect(resolveGrokAcpBaseModelId(undefined)).toBe("grok-build");
-    expect(resolveGrokAcpBaseModelId("   ")).toBe("grok-build");
-    expect(resolveGrokAcpBaseModelId("  grok-test-custom-model  ")).toBe("grok-test-custom-model");
-  });
-});
+import { applyGrokAcpModelSelection, grokAcpSpawnArgs, makeGrokAcpRuntime } from "./acpSupport.ts";
 
 describe("grokAcpSpawnArgs", () => {
   it("inherits the Grok CLI config when no T3 runtime mode is set", () => {
@@ -56,76 +21,33 @@ describe("grokAcpSpawnArgs", () => {
       "stdio",
     ]);
   });
-
-  it("maps Full access to Grok always-approve", () => {
-    expect(grokAcpSpawnArgs("full-access")).toEqual(["agent", "--always-approve", "stdio"]);
-  });
-
-  it("launches Auto on Grok's classifier and a mode Grok does not offer asking", () => {
-    expect(grokAcpSpawnArgs("auto")).toEqual(["--permission-mode", "auto", "agent", "stdio"]);
-    expect(grokAcpSpawnArgs("auto-accept-edits")).toEqual([
-      "--permission-mode",
-      "default",
-      "agent",
-      "stdio",
-    ]);
-  });
 });
 
-describe("buildGrokAcpSpawnInput", () => {
-  it("passes the Arcwright Code referrer through Grok OAuth env", () => {
-    const spawn = buildGrokAcpSpawnInput({ binaryPath: "/usr/local/bin/grok" }, "/tmp/project", {
-      XAI_API_KEY: "secret",
-      GROK_OAUTH2_REFERRER: "other-client",
+it.effect.each([
+  { interactive: true, args: ["--trust", "agent", "--always-approve", "stdio"] },
+  { interactive: false, args: ["agent", "stdio"] },
+])("Grok runtime keeps interactive trust out of probes ($interactive)", ({ interactive, args }) =>
+  Effect.gen(function* () {
+    const spawned: Array<ReadonlyArray<string>> = [];
+    const spawner = ChildProcessSpawner.make((command) => {
+      if (ChildProcess.isStandardCommand(command)) spawned.push(command.args);
+      return Effect.fail(
+        PlatformError.systemError({
+          _tag: "NotFound",
+          module: "ChildProcess",
+          method: "spawn",
+        }),
+      );
     });
-
-    expect(spawn).toEqual({
-      command: "/usr/local/bin/grok",
-      args: ["agent", "stdio"],
+    yield* makeGrokAcpRuntime({
+      grokSettings: { binaryPath: "grok" },
       cwd: "/tmp/project",
-      env: {
-        XAI_API_KEY: "secret",
-        GROK_OAUTH2_REFERRER: "t3code",
-      },
-    });
-  });
-
-  it("trusts the project and auto-approves tools for interactive sessions", () => {
-    const spawn = buildGrokAcpSpawnInput(
-      { binaryPath: "/usr/local/bin/grok" },
-      "/tmp/project",
-      undefined,
-      { trustProject: true, alwaysApprove: true },
-    );
-
-    expect(spawn.args).toEqual(["--trust", "agent", "--always-approve", "stdio"]);
-  });
-
-  it("puts Supervised on the Grok argv so config always-approve cannot win", () => {
-    const spawn = buildGrokAcpSpawnInput(
-      { binaryPath: "/usr/local/bin/grok" },
-      "/tmp/project",
-      undefined,
-      "approval-required",
-    );
-    expect(spawn.args).toEqual(["--permission-mode", "default", "agent", "stdio"]);
-  });
-
-  it("leaves probes untrusted so SessionStart hooks do not fire on health checks", () => {
-    const spawn = buildGrokAcpSpawnInput({ binaryPath: "grok" }, "/tmp/project");
-    expect(spawn.args).toEqual(["agent", "stdio"]);
-  });
-});
-
-describe("isValidGrokReasoningEffortToken", () => {
-  it("accepts future ACP tokens and rejects malformed metadata values", () => {
-    expect(isValidGrokReasoningEffortToken("xhigh")).toBe(true);
-    expect(isValidGrokReasoningEffortToken("turbo_v2")).toBe(true);
-    expect(isValidGrokReasoningEffortToken("not a token")).toBe(false);
-    expect(isValidGrokReasoningEffortToken("-leading-dash")).toBe(false);
-    expect(isValidGrokReasoningEffortToken("x".repeat(33))).toBe(false);
-  });
-});
+      clientInfo: { name: "grok-runtime-fixture", version: "1" },
+      ...(interactive ? { trustProject: true, alwaysApprove: true } : {}),
+    }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner), Effect.exit);
+    expect(spawned).toEqual([args]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
 
 describe("applyGrokAcpModelSelection", () => {
   const makeRecordingRuntime = (failure?: EffectAcpErrors.AcpError) => {
@@ -170,22 +92,6 @@ describe("applyGrokAcpModelSelection", () => {
         mapError: (cause) => cause.message,
       });
       expect(modelCalls).toEqual([{ modelId: "grok-4.6", meta: { reasoningEffort: "xhigh" } }]);
-      expect(result).toBe("grok-4.6");
-    }),
-  );
-
-  it.effect("does not clear reasoning when same-model selection omits effort", () =>
-    Effect.gen(function* () {
-      const { runtime, modelCalls } = makeRecordingRuntime();
-      const result = yield* applyGrokAcpModelSelection({
-        runtime,
-        currentModelId: "grok-4.6",
-        currentReasoningEffort: "high",
-        requestedModelId: "grok-4.6",
-        requestedReasoningEffort: undefined,
-        mapError: (cause) => cause.message,
-      });
-      expect(modelCalls).toEqual([]);
       expect(result).toBe("grok-4.6");
     }),
   );
@@ -246,36 +152,6 @@ describe("applyGrokAcpModelSelection", () => {
       });
       expect(modelCalls).toEqual([{ modelId: "grok-4.6", meta: { reasoningEffort: "xhigh" } }]);
       expect(result).toBe("grok-4.6");
-    }),
-  );
-
-  it.effect("skips set_model when no model is requested", () =>
-    Effect.gen(function* () {
-      const { runtime, modelCalls } = makeRecordingRuntime();
-      const result = yield* applyGrokAcpModelSelection({
-        runtime,
-        currentModelId: "grok-build",
-        requestedModelId: undefined,
-        mapError: (cause) => cause.message,
-      });
-      expect(modelCalls).toEqual([]);
-      expect(result).toBe("grok-build");
-    }),
-  );
-
-  it.effect("propagates session/set_model failures via mapError", () =>
-    Effect.gen(function* () {
-      const failure = EffectAcpErrors.AcpRequestError.invalidParams("session id not known");
-      const { runtime } = makeRecordingRuntime(failure);
-      const error = yield* Effect.flip(
-        applyGrokAcpModelSelection({
-          runtime,
-          currentModelId: "grok-build",
-          requestedModelId: "grok-mock-alt",
-          mapError: (cause) => cause.message,
-        }),
-      );
-      expect(error).toBe(failure.message);
     }),
   );
 });

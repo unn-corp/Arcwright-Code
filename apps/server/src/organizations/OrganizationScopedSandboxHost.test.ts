@@ -13,6 +13,41 @@ import {
 const available = isOrganizationScopedSandboxAvailable();
 const execFileAsync = NodeUtil.promisify(NodeChildProcess.execFile);
 
+async function waitForCgroupFile(
+  path: string,
+  condition: (contents: string) => boolean,
+  timeoutMs: number,
+): Promise<void> {
+  const read = async () => {
+    try {
+      return await NodeFSP.readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  };
+  const initial = await read();
+  if (initial === null || condition(initial)) return;
+  const watcher = NodeFSP.watch(path, { signal: AbortSignal.timeout(timeoutMs) });
+  try {
+    const current = await read();
+    if (current === null || condition(current)) return;
+    try {
+      for await (const _ of watcher) {
+        const contents = await read();
+        if (contents === null || condition(contents)) return;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).name !== "AbortError") throw error;
+    }
+  } finally {
+    await watcher.return?.();
+  }
+  const final = await read();
+  if (final !== null && !condition(final))
+    throw new Error(`Timed out waiting for cgroup state in ${path}`);
+}
+
 it("rejects malformed reserved unit names before a host launch", async () => {
   await NodeAssert.strict.rejects(
     prepareOrganizationScopedSandbox({
@@ -101,10 +136,6 @@ it.skipIf(!available)("supervisor SIGKILL leaves no staged host input", async ()
   let workDirectory = "";
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`Crash probe did not start: ${text}`)),
-        3_000,
-      );
       supervisor.stdout.on("data", (chunk: Buffer) => {
         text += chunk.toString("utf8");
         const line = text.split("\n")[0];
@@ -123,17 +154,14 @@ it.skipIf(!available)("supervisor SIGKILL leaves no staged host input", async ()
           }
         }
         if (text.includes("STARTED\n")) {
-          clearTimeout(timer);
           resolve();
         }
       });
       supervisor.once("error", (error) => {
-        clearTimeout(timer);
         reject(error);
       });
       supervisor.once("close", (code) => {
         if (!text.includes("STARTED\n")) {
-          clearTimeout(timer);
           reject(new Error(`Crash probe exited ${code}: ${text}`));
         }
       });
@@ -144,18 +172,11 @@ it.skipIf(!available)("supervisor SIGKILL leaves no staged host input", async ()
     process.kill(supervisor.pid, "SIGKILL");
     await new Promise<void>((resolve) => supervisor.once("close", () => resolve()));
     await NodeAssert.strict.rejects(NodeFSP.stat(workDirectory), { code: "ENOENT" });
-    // The scope's hard deadline includes a three-second preparation allowance.
-    const deadline = Date.now() + 6_000;
-    for (;;) {
-      const { stdout } = await execFileAsync(
-        "/usr/bin/systemctl",
-        ["--user", "show", unitName, "--property=ActiveState"],
-        { timeout: 1_000 },
-      );
-      if (stdout.includes("ActiveState=inactive")) break;
-      if (Date.now() >= deadline) throw new Error("Supervisor crash left scope active");
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
-    }
+    await waitForCgroupFile(
+      `/sys/fs/cgroup${controlGroup}/cgroup.events`,
+      (events) => /^populated 0$/m.test(events),
+      6_000,
+    );
     try {
       const events = await NodeFSP.readFile(`/sys/fs/cgroup${controlGroup}/cgroup.events`, "utf8");
       NodeAssert.strict.match(events, /^populated 0$/m);
@@ -181,35 +202,40 @@ it.skipIf(!available)("supervisor SIGKILL leaves no staged host input", async ()
 });
 
 it.skipIf(!available)("stops a scoped sandbox with a detached child", async () => {
+  const childScript =
+    "require('node:fs').writeFileSync('/tmp/detached-child-ready','ready');process.stdout.write('DETACHED_CHILD_READY\\n');setInterval(()=>{},1000)";
+  const callerScript =
+    "const {spawn}=require('node:child_process');const c=spawn('/usr/bin/node',['-e'," +
+    JSON.stringify(childScript) +
+    "],{detached:true,stdio:['ignore','inherit','ignore'],env:{}});c.unref();process.stdout.write('CALLER_READY\\n');setInterval(()=>{},1000)";
   const handle = await prepareOrganizationScopedSandbox({
-    argv: [
-      "/usr/bin/node",
-      "-e",
-      "const {spawn}=require('node:child_process');const c=spawn('/usr/bin/node',['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore',env:{}});c.unref();process.stdout.write('READY\\n');setInterval(()=>{},1000)",
-    ],
+    argv: ["/usr/bin/node", "-e", callerScript],
     runtimeMs: 3_000,
   });
-  await handle.start();
-  await new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + 1_000;
-    const poll = async () => {
-      try {
-        const cgroup = `/sys/fs/cgroup${handle.controlGroup}/cgroup.procs`;
-        const pids = (await NodeFSP.readFile(cgroup, "utf8")).trim().split(/\s+/);
-        // bwrap, PID 1 gate, caller Node, and its detached child are distinct.
-        if (pids.length >= 4) return resolve();
-        if (Date.now() >= deadline) return reject(new Error("Detached child did not start"));
-        setTimeout(() => {
-          void poll();
-        }, 10);
-      } catch (error) {
-        reject(error);
+  const directory = `/proc/${handle.sandboxPid}/root/workspace/tmp`;
+  const watcher = NodeFSP.watch(directory, { signal: AbortSignal.timeout(2_000) });
+  try {
+    await handle.start();
+    const ready = () =>
+      NodeFSP.stat(`${directory}/detached-child-ready`).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        },
+      );
+    if (!(await ready())) {
+      for await (const _ of watcher) {
+        if (await ready()) break;
       }
-    };
-    void poll();
-  });
+    }
+    NodeAssert.strict.equal(await ready(), true);
+  } finally {
+    await watcher.return?.();
+  }
   const result = await handle.stop();
   NodeAssert.strict.equal(result.timedOut, false);
+  NodeAssert.strict.match(result.stdout, /DETACHED_CHILD_READY/);
   NodeAssert.strict.equal(await handle.stop(), result);
 });
 
@@ -297,5 +323,4 @@ it.skipIf(!available)(
     const result = await handle.wait();
     NodeAssert.strict.equal(result.timedOut, true);
   },
-  10_000,
 );

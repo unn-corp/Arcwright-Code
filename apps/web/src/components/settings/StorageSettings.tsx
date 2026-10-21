@@ -701,19 +701,14 @@ export function StorageSettingsPanel() {
         </SettingsSection>
       )}
       {!isProjectScope && <CleanupSection />}
-      {!isProjectScope &&
-        connectedEnvironments
-          .filter(
+      {!isProjectScope && (
+        <DatabaseStorageNotice
+          environments={connectedEnvironments.filter(
             (environment) =>
               environment.serverConfig?.environment.capabilities.databaseStorage === true,
-          )
-          .map((environment) => (
-            <DatabaseStorageNotice
-              key={environment.environmentId}
-              environmentId={environment.environmentId}
-              label={environment.label}
-            />
-          ))}
+          )}
+        />
+      )}
     </SettingsPageContainer>
   );
 }

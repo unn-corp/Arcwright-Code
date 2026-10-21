@@ -1,4 +1,6 @@
-import { act, render as renderUi, type Screen } from "../../../test/render";
+import { commitBrowserViewportChange } from "~/browser/browserViewportActions";
+import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
+import { act, fakeTimers, render as renderUi, type Screen } from "../../../test/render";
 import {
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
@@ -161,14 +163,13 @@ vi.mock(import("~/browser/previewRuntime"), async (original) => ({
 
 vi.mock(import("~/browser/browserViewportActions"), { spy: true });
 
-import { commitBrowserViewportChange } from "~/browser/browserViewportActions";
-import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useBrowserPointerStore } from "~/browser/browserPointerStore";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
 import { PreviewView } from "./PreviewView";
 import { PreviewAnnotationEditorHost } from "./PreviewAnnotationEditor";
+
 import {
   registerPreviewAnnotationSender,
   usePreviewAnnotationEditorStore,
@@ -363,7 +364,7 @@ describe("PreviewView", () => {
   it("does not rerender while loading time passes", async () => {
     await using _fixture = await setup();
     const { root, container } = _fixture;
-    vi.useFakeTimers();
+    using _timers = fakeTimers();
     mocks.loading = true;
     const onRender = vi.fn();
     await render(

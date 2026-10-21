@@ -11,7 +11,7 @@ import * as ServerConfig from "../config.ts";
 import { acquireMaintenanceHost } from "../maintenance/MaintenanceHost.ts";
 import { runStorageWorker } from "../maintenance/storageWorker.ts";
 
-export const WAL_SIZE_LIMIT_BYTES = 32 * 1024 * 1024;
+const WAL_SIZE_LIMIT_BYTES = 32 * 1024 * 1024;
 
 const setup = Layer.effectDiscard(
   Effect.gen(function* () {

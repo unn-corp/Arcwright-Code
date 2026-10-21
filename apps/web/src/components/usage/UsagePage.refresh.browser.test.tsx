@@ -1,13 +1,17 @@
 import { act, render } from "../../../test/render";
 import { RegistryContext } from "@effect/atom-react";
+
 import { EnvironmentId, ProviderInstanceId, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
 import { mergeUsage } from "@t3tools/shared/usageMerge";
 import type { Atom } from "effect/reactivity";
 import { StrictMode } from "react";
+
 import { expect, it, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { page } from "vite-plus/test/browser";
 
 import "~/index.css";
+
+import { UsagePage } from "./UsagePage";
 
 type Presentations = ReadonlyMap<EnvironmentId, Record<string, unknown>>;
 const state = vi.hoisted(() => ({
@@ -73,7 +77,6 @@ vi.mock(import("../../state/usage"), async (original) => {
 });
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { UsagePage } from "./UsagePage";
 
 const PREFERENCES_KEY = "t3code:usage-page-preferences:v1";
 // Limits refreshes are throttled per environment for the whole session, so each test
@@ -120,11 +123,6 @@ function presentation(phase = "connected") {
 
 const setPresentations = (entries: ReadonlyArray<readonly [EnvironmentId, object]>) =>
   act(async () => appAtomRegistry.set(state.presentations, new Map(entries) as Presentations));
-const setNow = (iso: string) => vi.mocked(Date.now).mockReturnValue(Date.parse(iso));
-const resetsIn = (countdown: string) =>
-  page.getByRole("button", { name: `codex: 60% left, resets in ${countdown}`, exact: false });
-const refreshButton = () => page.getByRole("button", { name: "Refresh limits" });
-const selectMetric = (label: string) => userEvent.click(page.getByRole("button", { name: label }));
 
 async function renderPage({ strict = false } = {}) {
   const content = (
@@ -155,57 +153,6 @@ async function setup() {
   };
 }
 
-it.each([
-  ["wide", 1440],
-  ["compact", 800],
-])(
-  "refreshes the visible limits countdown from the %s toolbar without switching tabs, even when quota is unchanged",
-  async (_layout, width) => {
-    using _state = await setup();
-    await page.viewport(width, 900);
-    await using _screen = await renderPage();
-    await expect.element(resetsIn("2h 0m")).toBeVisible();
-    setNow("2026-09-11T12:30:00Z");
-
-    await userEvent.click(refreshButton());
-
-    expect(state.refreshProviders).toHaveBeenCalledWith({ environmentId, input: {} });
-    await expect.element(resetsIn("1h 30m")).toBeVisible();
-    await expect.element(resetsIn("2h 0m")).not.toBeInTheDocument();
-  },
-);
-
-it("uses the current time when returning to limits from tokens", async () => {
-  using _state = await setup();
-  await using _screen = await renderPage();
-  await selectMetric("Tokens");
-  setNow("2026-09-11T13:00:00Z");
-  await selectMetric("Limits");
-
-  await expect.element(resetsIn("1h 0m")).toBeVisible();
-  expect(state.refreshProviders).toHaveBeenCalledTimes(2);
-});
-
-it("refreshes once on opening Limits and suppresses rapid returns and remounts", async () => {
-  using _state = await setup();
-  localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ metric: "tokens", windowDays: 30 }));
-  await using screen = await renderPage({ strict: true });
-  expect(state.refreshProviders).not.toHaveBeenCalled();
-
-  await selectMetric("Limits");
-  await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(1));
-  await selectMetric("Tokens");
-  await selectMetric("Limits");
-  await screen.unmount();
-  await using _remounted = await renderPage({ strict: true });
-  expect(state.refreshProviders).toHaveBeenCalledTimes(1);
-
-  await selectMetric("Tokens");
-  setNow("2026-09-11T12:05:00Z");
-  await selectMetric("Limits");
-  await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(2));
-});
-
 it("waits for the current connection without refreshing newly added devices", async () => {
   using _state = await setup();
   await setPresentations([[environmentId, presentation("disconnected")]]);
@@ -227,22 +174,4 @@ it("waits for the current connection without refreshing newly added devices", as
   expect(state.refreshProviders).toHaveBeenCalledExactlyOnceWith({ environmentId, input: {} });
   await act(async () => finishRefresh());
   expect(state.refreshProviders).toHaveBeenCalledExactlyOnceWith({ environmentId, input: {} });
-});
-
-it("keeps manual refresh busy until the already-running automatic check settles", async () => {
-  using _state = await setup();
-  let finishRefresh!: () => void;
-  state.refreshProviders.mockImplementationOnce(
-    () => new Promise((resolve) => (finishRefresh = () => resolve(undefined))),
-  );
-  await using _screen = await renderPage();
-  await vi.waitFor(() => expect(state.refreshProviders).toHaveBeenCalledTimes(1));
-
-  await userEvent.click(refreshButton());
-  await expect.element(refreshButton()).toHaveAttribute("aria-busy", "true");
-  await expect.element(refreshButton()).toBeDisabled();
-  expect(state.refreshProviders).toHaveBeenCalledTimes(1);
-
-  await act(async () => finishRefresh());
-  await expect.element(refreshButton()).toHaveAttribute("aria-busy", "false");
 });

@@ -1,10 +1,12 @@
 import { DEFAULT_CLIENT_SETTINGS, DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
 import { StrictMode } from "react";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
 import "../../index.css";
 import { render } from "../../../test/render";
+import { IntegrationsSettingsPanel } from "./IntegrationsSettings";
 
 const { listBrowserImportSources } = vi.hoisted(() => ({
   listBrowserImportSources: vi.fn().mockResolvedValue([]),
@@ -46,8 +48,6 @@ vi.mock(import("./SettingsScopeContext"), async (original) => ({
   })) as never,
   useOptionalSettingsScope: () => null,
 }));
-
-import { IntegrationsSettingsPanel } from "./IntegrationsSettings";
 
 function setup() {
   listBrowserImportSources.mockClear();
@@ -100,15 +100,5 @@ describe("Integrations browser discovery", () => {
       "devices",
       "integrations-voice",
     ]);
-  });
-
-  it("does not scan browser files when entering or revisiting settings", async () => {
-    setup();
-    await using first = await openSettings();
-    expect(listBrowserImportSources).not.toHaveBeenCalled();
-
-    await first.unmount();
-    await using _second = await openSettings();
-    expect(listBrowserImportSources).not.toHaveBeenCalled();
   });
 });

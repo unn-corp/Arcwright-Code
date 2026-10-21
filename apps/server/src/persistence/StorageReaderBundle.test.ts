@@ -35,4 +35,4 @@ it("preserves compressed storage functions in the bundled server reader worker",
   } finally {
     await NodeFSP.rm(outDir, { recursive: true, force: true });
   }
-}, 60000);
+});

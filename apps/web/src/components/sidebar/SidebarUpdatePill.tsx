@@ -51,21 +51,23 @@ type SidebarUpdatePopoverChangeDetails = Parameters<
 >[1];
 type SidebarUpdatePopoverHandle = ReturnType<typeof PopoverCreateHandle>;
 
-export function shouldUseSidebarUpdateReleaseNotesPopover(
+function shouldUseSidebarUpdateReleaseNotesPopover(
   showUpdateDetails: boolean,
   state: DesktopUpdateState | null,
 ): boolean {
   return showUpdateDetails && state?.channel === "nightly" && state.releaseNotes.length > 0;
 }
-export function handleSidebarUpdateReleaseNotesPopoverOpenChange(
+
+function handleSidebarUpdateReleaseNotesPopoverOpenChange(
   _open: boolean,
   details: { reason: string; cancel(): void },
 ): void {
   if (details.reason === "trigger-press") details.cancel();
 }
-export function openSidebarUpdateReleaseNotesPopoverOnForwardTab(
-  event: { key: string; shiftKey: boolean },
-  handle: { open(id: string): void },
+
+function openSidebarUpdateReleaseNotesPopoverOnForwardTab(
+  event: { readonly key: string; readonly shiftKey: boolean },
+  handle: Pick<SidebarUpdatePopoverHandle, "open">,
   triggerId: string,
 ): void {
   if (event.key === "Tab" && !event.shiftKey) flushSync(() => handle.open(triggerId));

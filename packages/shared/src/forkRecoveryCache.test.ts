@@ -495,6 +495,10 @@ describe("recovery helper cache", () => {
     const dir = await cacheDir();
     const node = await realNode();
     let downloads = 0;
+    const setInstallOrder = async (version: string, index: number) => {
+      const installedAt = new Date(Date.UTC(2026, 9, 21, 0, 0, index + 1));
+      await NodeFSP.utimes(NodePath.join(dir, version), installedAt, installedAt);
+    };
     const counting = (helper: Uint8Array) => async (name: string) => {
       downloads += 1;
       return name.endsWith(".mjs") ? helper : node;
@@ -506,6 +510,7 @@ describe("recovery helper cache", () => {
       platform: HOST_PLATFORM,
       fetchAsset: counting(a),
     });
+    await setInstallOrder("1.0.1", 0);
     const first = downloads;
     await installRecoveryHelper({
       cacheDir: dir,
@@ -514,7 +519,7 @@ describe("recovery helper cache", () => {
       fetchAsset: counting(a),
     });
     expect(downloads).toBe(first);
-    for (const version of ["1.0.2", "1.0.3"]) {
+    for (const [index, version] of ["1.0.2", "1.0.3"].entries()) {
       const helper = new TextEncoder().encode(
         `console.log("recovery-helper-protocol=1"); // ${version}\n`,
       );
@@ -524,7 +529,7 @@ describe("recovery helper cache", () => {
         platform: HOST_PLATFORM,
         fetchAsset: counting(helper),
       });
-      await new Promise((resolve) => setTimeout(resolve, 15));
+      await setInstallOrder(version, index + 1);
     }
     expect((await NodeFSP.readdir(dir)).filter((name) => !name.endsWith(".json")).sort()).toEqual([
       "1.0.2",

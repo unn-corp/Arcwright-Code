@@ -12,5 +12,6 @@ describe("updateChannels", () => {
   it("only matches the first prerelease identifier", () => {
     expect(isNightlyDesktopVersion("1.2.3-foo-preview.20260911.1")).toBe(false);
     expect(isNightlyDesktopVersion("1.2.3")).toBe(false);
+    expect(resolveDefaultDesktopUpdateChannel("1.2.3")).toBe("latest");
   });
 });

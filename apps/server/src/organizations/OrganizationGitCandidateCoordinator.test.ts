@@ -134,8 +134,16 @@ const stores = (authorized: boolean, sqlite = database) =>
 const revokerSource = `
 const { DatabaseSync } = require("node:sqlite");
 const db = new DatabaseSync(process.argv[1]);
+db.exec("PRAGMA busy_timeout = 0");
+try {
+  db.exec("UPDATE organization_project_bindings SET updated_at = 'version-2' WHERE binding_id = 'binding'");
+  process.stdout.write("unexpected-unblocked\\n");
+  process.exit(2);
+} catch (error) {
+  if (!String(error).includes("database is locked")) throw error;
+  process.stdout.write("blocked\\n");
+}
 db.exec("PRAGMA busy_timeout = 5000");
-process.stdout.write("attempting\\n");
 db.exec("UPDATE organization_project_bindings SET updated_at = 'version-2' WHERE binding_id = 'binding'");
 process.stdout.write("done\\n");
 db.close();
@@ -144,11 +152,11 @@ function spawnBindingRevoker(dbPath: string) {
   const child = NodeChildProcess.spawn(process.execPath, ["-e", revokerSource, dbPath], {
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let began!: () => void;
-  let failBegin!: (error: Error) => void;
-  const attempting = new Promise<void>((resolve, reject) => {
-    began = resolve;
-    failBegin = reject;
+  let markBlocked!: () => void;
+  let failBlocked!: (error: Error) => void;
+  const blocked = new Promise<void>((resolve, reject) => {
+    markBlocked = resolve;
+    failBlocked = reject;
   });
   let finish!: () => void;
   let failFinish!: (error: Error) => void;
@@ -159,23 +167,23 @@ function spawnBindingRevoker(dbPath: string) {
   let output = "";
   child.stdout.on("data", (chunk: Buffer) => {
     output += chunk.toString("utf8");
-    if (output.includes("attempting\n")) began();
+    if (output.includes("blocked\n")) markBlocked();
   });
   child.once("error", (error) => {
-    failBegin(error);
+    failBlocked(error);
     failFinish(error);
   });
   child.once("exit", (code) => {
     if (code === 0 && output.includes("done\n")) finish();
     else {
       const error = new Error(`Binding revoker exited ${code ?? "without status"}.`);
-      failBegin(error);
+      failBlocked(error);
       failFinish(error);
     }
   });
   const timeout = setTimeout(() => child.kill("SIGKILL"), 7_000);
   void completed.finally(() => clearTimeout(timeout)).catch(() => {});
-  return { child, attempting, completed };
+  return { child, blocked, completed };
 }
 const fixture = (git: GitFixture, bytes: Uint8Array) =>
   Effect.gen(function* () {
@@ -442,26 +450,13 @@ it.effect("holds the SQLite write fence across Git retention and acknowledgement
           await hold;
         }),
       ).pipe(Effect.forkChild);
-      yield* Effect.promise(
-        () =>
-          new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(
-              () => reject(new Error("Coordinator did not reach the fence hook.")),
-              5_000,
-            );
-            void insideFence.then(() => {
-              clearTimeout(timeout);
-              resolve();
-            });
-          }),
-      );
+      yield* Effect.promise(() => insideFence);
       revoker = spawnBindingRevoker(dbPath);
-      yield* Effect.promise(() => revoker!.attempting);
+      yield* Effect.promise(() => revoker!.blocked);
       let revoked = false;
       void revoker.completed.then(() => {
         revoked = true;
       });
-      yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 100)));
       assert.equal(revoked, false);
       release();
       const retained = yield* Fiber.join(coordinating);

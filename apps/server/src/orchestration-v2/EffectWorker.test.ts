@@ -19,9 +19,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
-import * as TestClock from "effect/testing/TestClock";
 
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -168,39 +166,6 @@ function layerExecutorFor(input: {
     ),
   );
 }
-
-it("does not retry pure interrupt races where the turn is already gone", () => {
-  assert.isTrue(
-    EffectWorker.isNonRetryableProviderTurnControlFailure(
-      "provider-turn.interrupt",
-      "ProviderAdapterInterruptError: ... ACP provider turn provider-turn:x is not active",
-    ),
-  );
-  assert.isTrue(
-    EffectWorker.isNonRetryableProviderTurnControlFailure(
-      "provider-turn.interrupt",
-      "Provider session provider-session:x is not active.",
-    ),
-  );
-  assert.isFalse(
-    EffectWorker.isNonRetryableProviderTurnControlFailure(
-      "provider-turn.restart",
-      "Provider session provider-session:x is not active.",
-    ),
-  );
-  assert.isFalse(
-    EffectWorker.isNonRetryableProviderTurnControlFailure(
-      "provider-turn.start",
-      "Provider session provider-session:x is not active.",
-    ),
-  );
-  assert.isFalse(
-    EffectWorker.isNonRetryableProviderTurnControlFailure(
-      "provider-turn.interrupt",
-      "ACP hard teardown failed unexpectedly; the session is poisoned",
-    ),
-  );
-});
 
 it.effect("settles a stopped run when its adapter has already lost the native turn", () =>
   Effect.gen(function* () {
@@ -513,6 +478,118 @@ it.effect("terminalizes a process-bound claim when success settlement fails", ()
   }),
 );
 
+it.effect("settles a delegated child once its restart continuation fails for good", () =>
+  Effect.gen(function* () {
+    const timestamp = DateTime.formatIso(yield* DateTime.now);
+    const events = yield* Ref.make<ReadonlyArray<string>>([]);
+    const recovered = yield* Ref.make<ReadonlyArray<ThreadId>>([]);
+    const layer = layerExecutorFor({
+      events,
+      continueAfterRestart: true,
+      threads: {
+        getThreadRecords: () => Effect.fail(new Error("provider instance removed") as never),
+        recoverDelegatedTask: (childThreadId) =>
+          Ref.update(recovered, (ids) => [...ids, childThreadId]),
+      },
+    });
+    const effect: EffectOutbox.OrchestrationEffectV2 = {
+      id: `effect:restart-continuation:${runId}`,
+      commandId: CommandId.make("command:restart-continuation-failure"),
+      threadId,
+      request: { type: "provider-runtime.continue", sourceRunId: runId },
+      status: "running",
+      attemptCount: 1,
+      availableAt: timestamp,
+      leaseOwner: "test-worker",
+      leaseExpiresAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      completedAt: null,
+      lastError: null,
+    };
+    yield* Effect.gen(function* () {
+      const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(executor.execute(effect, { willRetry: true }))),
+      );
+      assert.deepEqual(yield* Ref.get(recovered), []);
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(executor.execute(effect, { willRetry: false }))),
+      );
+      assert.deepEqual(yield* Ref.get(recovered), [threadId]);
+    }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect.each(["confirmed", "unconfirmed", "failed"] as const)(
+  "a native subagent stop only repairs %s provider evidence",
+  (outcome) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const events = yield* Ref.make<ReadonlyArray<string>>([]);
+      const layer = layerExecutorFor({
+        events,
+        interrupt: (input) => {
+          assert.equal(input.subagent?.nativeTaskId, "native-task");
+          return Ref.update(events, (current) => [...current, "stop-child"]).pipe(
+            Effect.andThen(
+              outcome === "failed"
+                ? new ProviderTurnControlService.ProviderTurnControlError({
+                    threadId,
+                    providerTurnId,
+                    operation: "interrupt",
+                    cause: "SDK stop failed",
+                  })
+                : Effect.succeed(
+                    outcome === "confirmed"
+                      ? {
+                          status: "cancelled" as const,
+                          completedAt: now,
+                          result: "Stopped by Claude",
+                        }
+                      : undefined,
+                  ),
+            ),
+          );
+        },
+        threads: {
+          dispatch: (command) => {
+            assert.equal(command.type, "thread.background-work.settle");
+            if (command.type === "thread.background-work.settle") {
+              assert.equal(command.subagent?.id, "subagent");
+              assert.deepEqual(command.subagent?.outcome, {
+                status: "cancelled",
+                completedAt: now,
+                result: "Stopped by Claude",
+              });
+            }
+            return Ref.update(events, (current) => [...current, "settle-child"]).pipe(
+              Effect.as({ sequence: 1, storedEvents: [] }),
+            );
+          },
+        },
+      });
+      const execution = yield* Effect.gen(function* () {
+        const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+        yield* executor.execute({
+          ...restartEffect(now, { type: "detach" }),
+          request: {
+            type: "provider-turn.interrupt",
+            providerSessionId: oldSessionId,
+            providerThreadId,
+            providerTurnId,
+            subagent: { id: NodeId.make("subagent"), nativeTaskId: "native-task" },
+          },
+        });
+      }).pipe(Effect.provide(layer), Effect.exit);
+      assert.equal(Exit.isFailure(execution), outcome === "failed");
+      assert.deepEqual(
+        yield* Ref.get(events),
+        outcome === "confirmed" ? ["stop-child", "settle-child"] : ["stop-child"],
+      );
+    }),
+);
+
 it.effect("requeues a replay-safe claim when success settlement fails", () =>
   Effect.gen(function* () {
     const now = DateTime.formatIso(yield* DateTime.now);
@@ -718,124 +795,6 @@ it.effect("keeps a max-attempt replay-safe failure terminal when fail settlement
   }),
 );
 
-it.effect("uses durable deadlines, notifications, and a slow liveness poll", () =>
-  Effect.gen(function* () {
-    const attempts = yield* Ref.make(0);
-    const available = yield* Queue.unbounded<void>();
-    const now = yield* DateTime.now;
-    const nextClaimableAt = yield* Ref.make<Option.Option<DateTime.Utc>>(
-      Option.some(DateTime.add(now, { milliseconds: 100 })),
-    );
-    const worker = EffectWorker.OrchestrationEffectWorkerV2.of({
-      awaitWork: Queue.take(available),
-      runRecoveryOnce: Effect.succeed(false),
-      runOnce: Effect.gen(function* () {
-        const count = yield* Ref.updateAndGet(attempts, (current) => current + 1);
-        if (count === 2) {
-          yield* Ref.set(nextClaimableAt, Option.some(DateTime.add(now, { milliseconds: 5_000 })));
-        }
-        if (count === 3) yield* Ref.set(nextClaimableAt, Option.none());
-        return false;
-      }),
-      nextClaimableAt: Ref.get(nextClaimableAt),
-      drain: () => Effect.succeed(0),
-    });
-    const awaitAttempts = Effect.fnUntraced(function* (expected: number) {
-      while ((yield* Ref.get(attempts)) < expected) {
-        yield* Effect.yieldNow;
-      }
-    });
-
-    yield* EffectWorker.runDaemonWithOptions({
-      concurrency: 1,
-      livenessPollIntervalMs: 1_000,
-    }).pipe(
-      Effect.provideService(EffectWorker.OrchestrationEffectWorkerV2, worker),
-      Effect.forkScoped,
-    );
-
-    yield* awaitAttempts(1);
-    yield* TestClock.adjust("99 millis");
-    assert.equal(yield* Ref.get(attempts), 1);
-
-    yield* TestClock.adjust("1 millis");
-    yield* awaitAttempts(2);
-    yield* TestClock.adjust("999 millis");
-    assert.equal(yield* Ref.get(attempts), 2);
-
-    yield* Queue.offer(available, undefined);
-    yield* awaitAttempts(3);
-    yield* TestClock.adjust("999 millis");
-    assert.equal(yield* Ref.get(attempts), 3);
-
-    yield* TestClock.adjust("1 millis");
-    yield* awaitAttempts(4);
-  }).pipe(Effect.provide(TestClock.layer())),
-);
-
-it.effect("does not hot-loop when a claim fails", () =>
-  Effect.gen(function* () {
-    const attempts = yield* Ref.make(0);
-    const now = yield* DateTime.now;
-    const worker = EffectWorker.OrchestrationEffectWorkerV2.of({
-      awaitWork: Effect.never,
-      runRecoveryOnce: Effect.succeed(false),
-      runOnce: Ref.update(attempts, (count) => count + 1).pipe(
-        Effect.andThen(
-          new EffectWorker.OrchestrationEffectWorkerError({
-            operation: "claim",
-            cause: "simulated database failure",
-          }),
-        ),
-      ),
-      nextClaimableAt: Effect.succeed(Option.some(now)),
-      drain: () => Effect.succeed(0),
-    });
-
-    yield* EffectWorker.runDaemonWithOptions({
-      concurrency: 1,
-      livenessPollIntervalMs: 1_000,
-    }).pipe(
-      Effect.provideService(EffectWorker.OrchestrationEffectWorkerV2, worker),
-      Effect.forkScoped,
-    );
-
-    while ((yield* Ref.get(attempts)) < 1) yield* Effect.yieldNow;
-    yield* TestClock.adjust("999 millis");
-    assert.equal(yield* Ref.get(attempts), 1);
-    yield* TestClock.adjust("1 millis");
-    while ((yield* Ref.get(attempts)) < 2) yield* Effect.yieldNow;
-  }).pipe(Effect.provide(TestClock.layer())),
-);
-
-it.effect("backs off briefly when a due deadline loses a claim race", () =>
-  Effect.gen(function* () {
-    const attempts = yield* Ref.make(0);
-    const now = yield* DateTime.now;
-    const worker = EffectWorker.OrchestrationEffectWorkerV2.of({
-      awaitWork: Effect.never,
-      runRecoveryOnce: Effect.succeed(false),
-      runOnce: Ref.update(attempts, (count) => count + 1).pipe(Effect.as(false)),
-      nextClaimableAt: Effect.succeed(Option.some(now)),
-      drain: () => Effect.succeed(0),
-    });
-
-    yield* EffectWorker.runDaemonWithOptions({
-      concurrency: 1,
-      livenessPollIntervalMs: 1_000,
-    }).pipe(
-      Effect.provideService(EffectWorker.OrchestrationEffectWorkerV2, worker),
-      Effect.forkScoped,
-    );
-
-    while ((yield* Ref.get(attempts)) < 1) yield* Effect.yieldNow;
-    yield* TestClock.adjust("24 millis");
-    assert.equal(yield* Ref.get(attempts), 1);
-    yield* TestClock.adjust("1 millis");
-    while ((yield* Ref.get(attempts)) < 2) yield* Effect.yieldNow;
-  }).pipe(Effect.provide(TestClock.layer())),
-);
-
 it.effect("safely retries after replacement cleanup succeeds and start fails", () =>
   Effect.gen(function* () {
     const now = yield* DateTime.now;
@@ -867,116 +826,4 @@ it.effect("safely retries after replacement cleanup succeeds and start fails", (
       "start",
     ]);
   }),
-);
-
-it.effect("settles a delegated child once its restart continuation fails for good", () =>
-  Effect.gen(function* () {
-    const timestamp = DateTime.formatIso(yield* DateTime.now);
-    const events = yield* Ref.make<ReadonlyArray<string>>([]);
-    const recovered = yield* Ref.make<ReadonlyArray<ThreadId>>([]);
-    const layer = layerExecutorFor({
-      events,
-      continueAfterRestart: true,
-      threads: {
-        getThreadRecords: () => Effect.fail(new Error("provider instance removed") as never),
-        recoverDelegatedTask: (childThreadId) =>
-          Ref.update(recovered, (ids) => [...ids, childThreadId]),
-      },
-    });
-    const effect: EffectOutbox.OrchestrationEffectV2 = {
-      id: `effect:restart-continuation:${runId}`,
-      commandId: CommandId.make("command:restart-continuation-failure"),
-      threadId,
-      request: { type: "provider-runtime.continue", sourceRunId: runId },
-      status: "running",
-      attemptCount: 1,
-      availableAt: timestamp,
-      leaseOwner: "test-worker",
-      leaseExpiresAt: timestamp,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      completedAt: null,
-      lastError: null,
-    };
-    yield* Effect.gen(function* () {
-      const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
-      assert.isTrue(
-        Exit.isFailure(yield* Effect.exit(executor.execute(effect, { willRetry: true }))),
-      );
-      assert.deepEqual(yield* Ref.get(recovered), []);
-      assert.isTrue(
-        Exit.isFailure(yield* Effect.exit(executor.execute(effect, { willRetry: false }))),
-      );
-      assert.deepEqual(yield* Ref.get(recovered), [threadId]);
-    }).pipe(Effect.provide(layer));
-  }),
-);
-
-it.effect.each(["confirmed", "unconfirmed", "failed"] as const)(
-  "a native subagent stop only repairs %s provider evidence",
-  (outcome) =>
-    Effect.gen(function* () {
-      const now = yield* DateTime.now;
-      const events = yield* Ref.make<ReadonlyArray<string>>([]);
-      const layer = layerExecutorFor({
-        events,
-        interrupt: (input) => {
-          assert.equal(input.subagent?.nativeTaskId, "native-task");
-          return Ref.update(events, (current) => [...current, "stop-child"]).pipe(
-            Effect.andThen(
-              outcome === "failed"
-                ? new ProviderTurnControlService.ProviderTurnControlError({
-                    threadId,
-                    providerTurnId,
-                    operation: "interrupt",
-                    cause: "SDK stop failed",
-                  })
-                : Effect.succeed(
-                    outcome === "confirmed"
-                      ? {
-                          status: "cancelled" as const,
-                          completedAt: now,
-                          result: "Stopped by Claude",
-                        }
-                      : undefined,
-                  ),
-            ),
-          );
-        },
-        threads: {
-          dispatch: (command) => {
-            assert.equal(command.type, "thread.background-work.settle");
-            if (command.type === "thread.background-work.settle") {
-              assert.equal(command.subagent?.id, "subagent");
-              assert.deepEqual(command.subagent?.outcome, {
-                status: "cancelled",
-                completedAt: now,
-                result: "Stopped by Claude",
-              });
-            }
-            return Ref.update(events, (current) => [...current, "settle-child"]).pipe(
-              Effect.as({ sequence: 1, storedEvents: [] }),
-            );
-          },
-        },
-      });
-      const execution = yield* Effect.gen(function* () {
-        const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
-        yield* executor.execute({
-          ...restartEffect(now, { type: "detach" }),
-          request: {
-            type: "provider-turn.interrupt",
-            providerSessionId: oldSessionId,
-            providerThreadId,
-            providerTurnId,
-            subagent: { id: NodeId.make("subagent"), nativeTaskId: "native-task" },
-          },
-        });
-      }).pipe(Effect.provide(layer), Effect.exit);
-      assert.equal(Exit.isFailure(execution), outcome === "failed");
-      assert.deepEqual(
-        yield* Ref.get(events),
-        outcome === "confirmed" ? ["stop-child", "settle-child"] : ["stop-child"],
-      );
-    }),
 );

@@ -7,6 +7,7 @@ import { afterEach, expect, vi } from "vite-plus/test";
 import { it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import { Command } from "effect/cli";
 import type { ForkUpdateStatus } from "@t3tools/contracts";
 import { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
@@ -33,7 +34,7 @@ afterEach(async () => {
     roots.splice(0).map((root) => NodeFSP.rm(root, { recursive: true, force: true })),
   );
 });
-async function fixture(nativeIdentity = false) {
+async function fixture(nativeIdentity = false, now = Date.parse("2026-01-01T00:00:00.000Z")) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-scope-bootstrap-"));
   roots.push(root);
   const home = NodePath.join(root, "home");
@@ -44,7 +45,6 @@ async function fixture(nativeIdentity = false) {
     : await CoordinatorStore.open(namespace, async (pid) =>
         pid === process.pid ? "fixture-owner" : null,
       );
-  const now = Date.now();
   await store.register(
     { id: "managed", label: "Cloud", kind: "service", homes: [home], updateTarget: true },
     now,
@@ -207,7 +207,7 @@ it("does not open a coordinator or start a broker on Windows", async () => {
   expect(f.ports.ensure).not.toHaveBeenCalled();
 });
 
-it.effect(
+it.live(
   "runs the public operator command against authenticated native status without an install request",
   () =>
     Effect.gen(function* () {
@@ -226,8 +226,9 @@ it.effect(
         expect(yield* Effect.promise(() => NodeFSP.readdir(home))).toEqual([]);
         return;
       }
+      const now = yield* Clock.currentTimeMillis;
       const resources = yield* Effect.promise(async () => {
-        const f = await fixture(true);
+        const f = await fixture(true, now);
         const token = await issueOperatorToken(f.home);
         const requests: string[] = [];
         const server = NodeHttp.createServer((request, response) => {

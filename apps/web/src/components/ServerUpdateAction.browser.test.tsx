@@ -21,7 +21,14 @@ import {
   respondToConfirmDialog,
 } from "~/confirmDialog";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
-import type { ServerUpdateTarget } from "./ServerUpdateAction";
+
+import {
+  ServerUpdateAction,
+  ServerUpdatesAction,
+  ServerUpdateProgress,
+  serverUpdateStageLabel,
+  type ServerUpdateTarget,
+} from "./ServerUpdateAction";
 
 type SessionValue = Atom.Type<
   ReturnType<(typeof import("~/state/session"))["environmentSession"]["sessionStateAtom"]>
@@ -60,12 +67,6 @@ const session = decodeSessionState({
     serverUpdateScope: "environment:maintain",
   },
 });
-import {
-  ServerUpdateAction,
-  ServerUpdatesAction,
-  serverUpdateStageLabel,
-  ServerUpdateProgress,
-} from "./ServerUpdateAction";
 const capability = {
   protocol: 1 as const,
   coordinatorId: "device",

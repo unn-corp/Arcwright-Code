@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import { OrganizationIntakeSourceId } from "../../../../packages/contracts/src/organizationIntake.ts";
@@ -53,7 +54,7 @@ const transition = (id: string, from: string, to: string) => ({
   maxTraversals: null,
 });
 
-it.effect(
+it.live(
   "consumes a bounded HTTP-source grant and removes activated work from the waiting list",
   () => {
     const gate = makeOrganizationLiveWorkReadinessGate();
@@ -102,7 +103,7 @@ it.effect(
         bindingId: fixture.bindingId,
         selection: selected(fixture.workflowId),
         maxActivations: 2,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        expiresAt: new Date((yield* Clock.currentTimeMillis) + 24 * 60 * 60 * 1000).toISOString(),
       };
       yield* sql`UPDATE organization_intake_sources SET kind = 'manual'
       WHERE source_id = ${fixture.sourceId}`;

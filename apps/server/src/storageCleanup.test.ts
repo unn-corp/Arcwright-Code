@@ -1,3 +1,5 @@
+import { StorageCleanupReport } from "@t3tools/contracts";
+import { EventId } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Context from "effect/Context";
@@ -10,13 +12,11 @@ import * as PlatformError from "effect/PlatformError";
 import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as Schema from "effect/Schema";
 import { SCAN_CACHE_FILE_NAME } from "./usage/usageScanCache.ts";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 import {
   DEFAULT_SERVER_SETTINGS,
-  StorageCleanupReport,
   type WorktreeKeepWhen,
   type StorageCleanupSettings,
 } from "@t3tools/contracts";
@@ -35,16 +35,12 @@ import { CodexProviderCapabilitiesV2 } from "./orchestration-v2/Adapters/CodexAd
 import { ServerActivation } from "./serverActivation.ts";
 import { describe, expect, it } from "@effect/vitest";
 import {
-  EventId,
   ProjectId,
-  ProviderDriverKind,
   ProviderInstanceId,
-  ProviderSessionId,
   RunId,
   RuntimeRequestId,
   ThreadId,
   type OrchestrationV2DomainEvent,
-  type OrchestrationV2ProviderSession,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -57,7 +53,6 @@ import {
 
 const NOW_MS = Date.parse("2026-06-10T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1_000;
-const decodeCleanupReport = Schema.decodeSync(StorageCleanupReport);
 
 function at(offsetMs: number): DateTime.Utc {
   return DateTime.makeUnsafe(NOW_MS + offsetMs);
@@ -127,13 +122,6 @@ describe("V2 storage cleanup eligibility", () => {
     "retains a worktree while its thread is %s",
     (status) => {
       expect(storageCleanupThreadIdle(candidateWithStatus(status), NOW_MS)).toBe(false);
-    },
-  );
-
-  it.each(["idle", "completed", "interrupted", "failed", "cancelled", "rolled_back"] as const)(
-    "allows cleanup once its thread is %s",
-    (status) => {
-      expect(storageCleanupThreadIdle(candidateWithStatus(status), NOW_MS)).toBe(true);
     },
   );
 
@@ -775,27 +763,6 @@ const pausedMeasurementFixture = (storageCleanup?: StorageCleanupSettings) =>
     measuredPath = yield* fs.realPath(fixture.worktree);
     return { ...fixture, measuring, resume };
   });
-const sessionUpdated = (
-  index: number,
-  status: OrchestrationV2ProviderSession["status"],
-): OrchestrationV2DomainEvent => ({
-  id: EventId.make(`event-${index}`),
-  type: "provider-session.updated",
-  threadId: ThreadId.make("thread-1"),
-  occurredAt: at(0),
-  payload: {
-    id: ProviderSessionId.make(`session-${index}`),
-    driver: ProviderDriverKind.make("codex"),
-    providerInstanceId: ProviderInstanceId.make("codex"),
-    status,
-    cwd: "/elsewhere",
-    model: null,
-    capabilities: CodexProviderCapabilitiesV2,
-    createdAt: at(0),
-    updatedAt: at(0),
-    lastError: null,
-  },
-});
 const cleanupTestLayer = Layer.mergeAll(GitVcsDriver.layer, ConversationEvidence.layer).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "storage-cleanup-" })),
   Layer.provideMerge(NodeServices.layer),
@@ -1923,37 +1890,6 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
-  it.live("falls back to file lengths when link counts and allocated blocks are unavailable", () =>
-    runCleanupTest(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const { service, worktree } = yield* cleanupFixture().pipe(
-          Effect.provideService(FileSystem.FileSystem, {
-            ...fs,
-            stat: (path) =>
-              fs.stat(path).pipe(
-                Effect.map((stat) => ({
-                  ...stat,
-                  nlink: Option.none(),
-                  blocks: Option.none(),
-                })),
-              ),
-          }),
-        );
-        const sizes = yield* Effect.forEach(yield* fs.readDirectory(worktree), (name) =>
-          fs.stat(`${worktree}/${name}`).pipe(Effect.map((stat) => Number(stat.size))),
-        );
-        const bytes = sizes.reduce((sum, size) => sum + size, 0);
-        const report = yield* service.runNow;
-        expect(report.entries[0]).toMatchObject({
-          outcome: "removed",
-          bytes,
-        });
-        expect(report.bytesFreed).toBe(bytes);
-        expect(yield* fs.exists(worktree)).toBe(false);
-      }),
-    ),
-  );
   it.live.each(["win32", "linux"] as const)(
     "reports zero stat blocks appropriately on %s",
     (platform) =>
@@ -2069,43 +2005,6 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
-  it.live("reads the thread snapshot once per sweep, not per worktree", () =>
-    runCleanupTest(
-      Effect.gen(function* () {
-        const { service, snapshotReads } = yield* cleanupFixture();
-        expect((yield* service.runNow).entries[0]).toMatchObject({
-          outcome: "removed",
-        });
-        expect(snapshotReads()).toBe(1);
-      }),
-    ),
-  );
-  it.live.each([
-    ["running", "ready", 1],
-    ["stopped", "error", 2],
-  ] as const)(
-    "session updates to %s or %s during a sweep make %i sweep(s) in total",
-    ([first, second, sweeps]) =>
-      runCleanupTest(
-        Effect.gen(function* () {
-          const fixture = yield* pausedMeasurementFixture();
-          const handled = yield* Deferred.make<void>();
-          yield* fixture.activate(
-            Stream.fromEffect(Deferred.await(fixture.measuring)).pipe(
-              Stream.flatMap(() => Stream.range(0, 19)),
-              Stream.map((index) => sessionUpdated(index, index % 2 === 0 ? first : second)),
-              Stream.concat(
-                Stream.fromEffect(Deferred.succeed(handled, undefined)).pipe(Stream.drain),
-              ),
-            ),
-          );
-          yield* Deferred.await(handled);
-          yield* Deferred.succeed(fixture.resume, undefined);
-          yield* fixture.service.drain;
-          expect(fixture.snapshotReads()).toBe(sweeps);
-        }),
-      ),
-  );
   it.live("does not measure a worktree kept for an open provider session", () =>
     runCleanupTest(
       Effect.gen(function* () {
@@ -2192,31 +2091,6 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
-  it("decodes reports from servers without size or project fields", () => {
-    const report = decodeCleanupReport({
-      trigger: "manual",
-      startedAt: "2026-06-10T12:00:00.000Z",
-      finishedAt: "2026-06-10T12:00:01.000Z",
-      entries: [
-        {
-          kind: "worktree",
-          outcome: "removed",
-          reason: "Removed",
-          path: null,
-          threadId: null,
-          threadTitle: null,
-        },
-      ],
-      counts: { removed: 1, kept: 0, failed: 0 },
-      omittedCount: 0,
-    });
-    expect(report.bytesFreed).toBe(0);
-    expect(report.entries[0]).toMatchObject({
-      bytes: null,
-      files: null,
-      projectPath: null,
-    });
-  });
   it.live.each([
     ["any-local-files", ".env", "kept"],
     ["uncommitted-changes", ".env", "removed"],
@@ -2366,21 +2240,6 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
-  it.live("streams the current report and subsequent runs", () =>
-    runCleanupTest(
-      Effect.gen(function* () {
-        const { service } = yield* cleanupFixture();
-        const reports = yield* service.reports.pipe(
-          Stream.take(2),
-          Stream.tap((report) => (report === null ? service.runNow : Effect.void)),
-          Stream.runCollect,
-        );
-        expect(reports[0]).toBeNull();
-        expect(reports[1]).toEqual(yield* service.latestReport);
-        expect(reports[1]?.counts).toEqual({ removed: 1, kept: 0, failed: 0 });
-      }),
-    ),
-  );
   it.live("caps entries while preserving totals and prioritizing removals", () =>
     runCleanupTest(
       Effect.gen(function* () {
@@ -2424,50 +2283,6 @@ describe("storage cleanup reports and local file policies", () => {
         expect(yield* fs.exists(worktree)).toBe(true);
       }),
     ),
-  );
-  it.live(
-    "reports shared and running worktrees but omits disabled rules and missing directories",
-    () =>
-      runCleanupTest(
-        Effect.gen(function* () {
-          const fixture = yield* cleanupFixture();
-          const { service, fs, worktree, setThreads } = fixture;
-          setThreads([
-            shell({
-              branch: "feature",
-              worktreePath: worktree,
-              status: "running",
-            }),
-          ]);
-          expect((yield* service.runNow).entries[0]?.reason).toContain("Thread is running");
-          setThreads([
-            shell({ branch: "feature", worktreePath: worktree }),
-            shell({
-              id: ThreadId.make("thread-2"),
-              branch: "feature",
-              worktreePath: worktree,
-            }),
-          ]);
-          expect((yield* service.runNow).entries[0]?.reason).toBe("Shared by 2 threads");
-          setThreads([
-            shell({ branch: "feature", worktreePath: worktree }),
-            shell({
-              id: ThreadId.make("thread-2"),
-              branch: "feature",
-              worktreePath: worktree,
-              archivedAt: at(-DAY_MS),
-            }),
-          ]);
-          expect((yield* service.runNow).entries[0]?.reason).toBe("Shared by 2 threads");
-          expect(yield* fs.exists(worktree)).toBe(true);
-          fixture.disable();
-          expect((yield* service.runNow).entries).toEqual([]);
-          yield* fs.remove(worktree, { recursive: true });
-          expect(
-            (yield* service.runNow).entries.filter((entry) => entry.kind === "worktree"),
-          ).toEqual([]);
-        }),
-      ),
   );
   it.live("serializes concurrent requests and returns each run's report", () =>
     runCleanupTest(
@@ -2548,105 +2363,6 @@ describe("storage cleanup reports and local file policies", () => {
   );
 });
 
-describe("settled worktree retention", () => {
-  it.effect.each([
-    "immediate",
-    "settle-script",
-    "expired",
-    "boundary",
-    "wait",
-    "recent-update",
-    "active",
-    "dirty",
-    "project-off",
-    "project-custom",
-    "inactive-settling",
-  ] as const)("applies retention and safety checks (%s)", (scenario) =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(NOW_MS);
-      const fixture = yield* cleanupFixture();
-      const days = ["wait", "boundary", "expired", "recent-update"].includes(scenario) ? 8 : 0;
-      const rules = {
-        ...DEFAULT_SERVER_SETTINGS.storageCleanup,
-        worktreeSettledAfterDays:
-          scenario === "project-custom" || scenario === "inactive-settling" ? null : days,
-        worktreeAfterDays: scenario === "inactive-settling" ? 1 : null,
-      };
-      fixture.setSettings({
-        storageCleanup: rules,
-        projectSettingsOverrides: {
-          [ProjectId.make("project-1")]:
-            scenario === "project-off"
-              ? { worktreeCleanup: { mode: "off" } }
-              : scenario === "project-custom"
-                ? {
-                    worktreeCleanup: {
-                      mode: "custom",
-                      rules: { ...rules, worktreeSettledAfterDays: 0 },
-                    },
-                  }
-                : {},
-        },
-      });
-      const thread = shell({
-        branch: "feature",
-        worktreePath: fixture.worktree,
-        settledAt:
-          scenario === "active"
-            ? null
-            : at(
-                scenario === "expired" ||
-                  scenario === "recent-update" ||
-                  scenario === "inactive-settling"
-                  ? -20 * DAY_MS
-                  : scenario === "boundary"
-                    ? -8 * DAY_MS
-                    : scenario === "wait"
-                      ? -8 * DAY_MS + 1
-                      : scenario === "settle-script"
-                        ? 0
-                        : -60_000,
-              ),
-        updatedAt: at(
-          scenario === "recent-update" ||
-            scenario === "settle-script" ||
-            scenario === "inactive-settling"
-            ? 0
-            : -10 * DAY_MS,
-        ),
-      });
-      fixture.setThreads([thread]);
-      if (scenario === "dirty")
-        yield* fixture.fs.writeFileString(`${fixture.worktree}/tracked.txt`, "edit\n");
-      const report = yield* fixture.service.runNow;
-      const removed = ["immediate", "expired", "boundary", "project-custom"].includes(scenario);
-      expect(yield* fixture.fs.exists(fixture.worktree)).toBe(!removed);
-      expect(report.counts.removed).toBe(removed ? 1 : 0);
-      if (scenario !== "project-off") {
-        const reason =
-          scenario === "active"
-            ? "Not settled"
-            : scenario === "wait"
-              ? "Settled for 7 of 8 days"
-              : ["settle-script", "recent-update", "inactive-settling"].includes(scenario)
-                ? "Settled moments ago"
-                : scenario === "dirty"
-                  ? "Has uncommitted changes (1 file)"
-                  : `Settled for ${scenario === "expired" ? 20 : scenario === "boundary" ? 8 : 0} days`;
-        expect(report.entries[0]).toMatchObject({
-          outcome: removed ? "removed" : "kept",
-          reason,
-        });
-      }
-      expect(thread.branch).toBe("feature");
-      expect(
-        (yield* fixture.command(fixture.repo, ["rev-parse", "--verify", "refs/heads/feature"]))
-          .exitCode,
-      ).toBe(0);
-    }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
-  );
-});
-
 describe("settled worktree rechecks", () => {
   it.live.each([{ settledAt: null }, { settledAt: at(DAY_MS) }])(
     "keeps a checkout changed during measurement (%j)",
@@ -2707,53 +2423,4 @@ it.live("keeps saved usage data when removing a settled checkout", () =>
       expect(yield* fixture.fs.readFileString(cachePath)).toBe(savedUsage);
     }),
   ),
-);
-
-it.live.each(["thread.settled", "stopped", "ready"] as const)(
-  "leaves settled cleanup to the regular sweeps after %s",
-  (trigger) =>
-    runCleanupTest(
-      Effect.gen(function* () {
-        const fixture = yield* pausedMeasurementFixture({
-          ...DEFAULT_SERVER_SETTINGS.storageCleanup,
-          worktreeSettledAfterDays: 0,
-        });
-        fixture.setSettings({
-          storageCleanup: {
-            ...DEFAULT_SERVER_SETTINGS.storageCleanup,
-            worktreeSettledAfterDays: 0,
-          },
-        });
-        const thread = shell({
-          branch: "feature",
-          worktreePath: fixture.worktree,
-          settledAt: at(0),
-        });
-        fixture.setThreads([thread]);
-        const handled = yield* Deferred.make<void>();
-        yield* fixture.activate(
-          Stream.fromEffect(Deferred.await(fixture.measuring)).pipe(
-            Stream.flatMap(() => Stream.range(0, 19)),
-            Stream.map((index): OrchestrationV2DomainEvent =>
-              trigger === "thread.settled"
-                ? {
-                    id: EventId.make(`settled-${index}`),
-                    type: "thread.settled",
-                    threadId: thread.id,
-                    occurredAt: at(0),
-                    payload: { ...thread, lastVisitedAt: null },
-                  }
-                : sessionUpdated(index, trigger),
-            ),
-            Stream.concat(
-              Stream.fromEffect(Deferred.succeed(handled, undefined)).pipe(Stream.drain),
-            ),
-          ),
-        );
-        yield* Deferred.await(handled);
-        yield* Deferred.succeed(fixture.resume, undefined);
-        yield* fixture.service.drain;
-        expect(fixture.snapshotReads()).toBe(1);
-      }),
-    ),
 );

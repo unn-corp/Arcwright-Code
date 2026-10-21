@@ -822,11 +822,10 @@ coordinator bootstrap, activity admission, or recovery requirements.
 and Android controllers, shared UI controls, native recovery, external recovery helpers, and fork
 release workflows are implemented with focused verification. The initial fenced journal is durably
 written under the coordinator lock before the registry publishes its fence; a journal left by an
-interrupted fence acquisition is inert, and an unexplained fence remains blocked. A complete signed manual baseline is
-available; automatic publishing and production rollout remain uncommissioned. The release rehearsal and hardware update/recovery checks must pass
-before enabling automatic publishing. Existing installations need the known-good updater baseline
-and explicit device bootstrap before participating. A successful source test is not a hardware
-installation receipt.
+interrupted fence acquisition is inert, and an unexplained fence remains blocked. Scheduled nightly
+and stable publication are enabled; each release still requires its exact-source build, install,
+update and recovery gates. Existing installations need the known-good updater baseline and explicit
+device bootstrap before participating. A successful source test is not a hardware installation receipt.
 
 Desktop startup recovery remains owned by
 [DesktopForkMaintenance.ts](../../apps/desktop/src/maintenance/DesktopForkMaintenance.ts)
@@ -836,6 +835,14 @@ data, and `resumeInBackground` completes trial health checks. The
 retain recovery, fencing, and activity checks. The retired desktop polling loop is removed;
 service scheduling remains in
 [MaintenanceService.ts](../../apps/server/src/maintenance/MaintenanceService.ts).
+
+Client update entry points, including the React Native client's protocol-outdated connection screen,
+require the current fork maintenance admission capability. The shared
+[compatibility updater](../../packages/client-runtime/src/connection/outdatedHostUpdate.ts) rechecks
+the freshly discovered capability before opening an update socket; missing or unsupported admission
+requires a manual stopped-work update. An already-compatible host can reconnect without installation.
+Keep the [public-path regression checks](../../packages/client-runtime/src/connection/outdatedHostUpdate.test.ts)
+when adapting compatibility RPCs or adding client update controls.
 
 `maintenanceCore` also records both committed updates and verified recoveries in the installed-build
 identity. Recovery must adopt the journal's predecessor digest and increment the installation sequence;

@@ -21,6 +21,7 @@ import {
   SERVICE_LAUNCHER_PROTOCOL,
 } from "../cloud/serviceProtocol.ts";
 
+const fixtureNow = Date.parse("2026-01-01T00:00:00.000Z");
 const roots: string[] = [];
 beforeEach(() => resetMaintenanceHostsForTests());
 afterEach(async () => {
@@ -147,7 +148,7 @@ describe("maintenance host and start gate", () => {
       successorOf: null,
     });
     const store = await CoordinatorStore.open(d.namespace);
-    const participant = (await store.status(Date.now())).participants[0];
+    const participant = (await store.status(fixtureNow)).participants[0];
     expect(participant?.homes).toEqual([d.canonical]);
     const capability = describeCapability(host, false);
     expect(supportsForkMaintenanceAdmission(capability)).toBe(true);

@@ -1,7 +1,3 @@
-import { useLayoutEffect } from "react";
-
-("use client");
-
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { isAndroidPwa } from "~/env";
@@ -27,7 +23,7 @@ import {
   previewPdfAssetUrl,
   resolveSearchUrlTemplate,
 } from "@t3tools/shared/preview";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 
 import {
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT,

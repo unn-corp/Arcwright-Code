@@ -35,16 +35,14 @@ export default DeadlineFixture.make(
   Effect.sync(() => {
     const completed: string[] = [];
     const finalized: string[] = [];
+    const phases = ["begin", "commit", "rollback", "scope-finalizer"] as const;
     return {
       fetch: Effect.gen(function* () {
         const request = yield* Request;
         const phase = new URL(request.url).pathname.slice(1);
         if (request.method === "GET" && phase === "status")
           return HttpServerResponse.jsonUnsafe({ completed, finalized });
-        if (
-          request.method !== "POST" ||
-          !["begin", "commit", "rollback", "scope-finalizer"].includes(phase)
-        )
+        if (request.method !== "POST" || !phases.some((knownPhase) => knownPhase === phase))
           return HttpServerResponse.empty({ status: 404 });
         const stall = Effect.sleep("17 seconds").pipe(
           Effect.andThen(
@@ -78,7 +76,15 @@ export default DeadlineFixture.make(
             yield* Effect.addFinalizer(() =>
               Effect.sync(() => {
                 finalized.push(phase);
-              }),
+              }).pipe(
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    finalized.length === phases.length
+                      ? Effect.logInfo("ARCWRIGHT_DEADLINE_FIXTURE_CLEANUP_DONE")
+                      : Effect.void,
+                  ),
+                ),
+              ),
             );
             return yield* probe;
           }),

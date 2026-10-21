@@ -87,7 +87,7 @@ export async function readNotificationClientVisibility(): Promise<boolean> {
   return document.visibilityState === "visible";
 }
 
-export function wasRecentlyInteracted(lastInteractionAtMs: number, observedAtMs: number): boolean {
+function wasRecentlyInteracted(lastInteractionAtMs: number, observedAtMs: number): boolean {
   return (
     lastInteractionAtMs <= observedAtMs &&
     observedAtMs - lastInteractionAtMs <= RECENT_INTERACTION_WINDOW_MS

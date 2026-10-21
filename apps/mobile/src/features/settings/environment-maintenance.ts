@@ -30,6 +30,7 @@ export function supportsEnvironmentUpdate(
 ) {
   return (
     supportsForkMaintenanceAdmission(capabilities.forkMaintenance) &&
+    capabilities.forkMaintenance?.recovery === true &&
     capabilities.serverSelfUpdate !== undefined &&
     (capabilities.serverSelfUpdate !== "desktop-managed" || capabilities.desktopAppUpdate === true)
   );

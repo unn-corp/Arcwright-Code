@@ -77,7 +77,7 @@ describe("home operations (the WSL control channel's verbs)", () => {
     const store = await CoordinatorStore.open(NodePath.join(directory, "c"));
     await store.register(
       { id: "runtime", label: "Runtime", kind: "service", homes: [root], updateTarget: true },
-      Date.now(),
+      1_000,
     );
     const canonical = await NodeFSP.realpath(root);
     const snapshot = await runHomeOperation(canonical, { op: "snapshot", transactionId: "tx1" });

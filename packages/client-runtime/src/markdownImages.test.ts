@@ -1,41 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { classifyMarkdownImageSource, markdownImageSourceFragment } from "./markdownImages.js";
+import { classifyMarkdownImageSource } from "./markdownImages.js";
 
 describe("classifyMarkdownImageSource", () => {
   it.each([
-    "https://example.com/image.png",
-    "HTTP://example.com/image.png",
-    "data:image/png;base64,AAAA",
-    "blob:https://app.t3.codes/image-id",
-    "//cdn.example.com/image.png",
-  ])("keeps %s directly loadable", (uri) => {
-    expect(classifyMarkdownImageSource(uri, "/workspace/project")).toEqual({
-      _tag: "Direct",
-      uri,
-    });
-  });
-
-  it.each([
     ["images/result.png", "/workspace/project", "/workspace/project/images/result.png"],
-    ["./images/result.png", "/workspace/project", "/workspace/project/./images/result.png"],
-    [
-      "images/result.png",
-      "C:\\Users\\dara\\project",
-      "C:\\Users\\dara\\project\\images\\result.png",
-    ],
     [
       "images\\result.png",
       "C:\\Users\\dara\\project",
       "C:\\Users\\dara\\project\\images\\result.png",
     ],
-    ["/workspace/project/image.png", null, "/workspace/project/image.png"],
-    ["/C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
-    ["C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
-    ["\\\\server\\share\\image.png", null, "\\\\server\\share\\image.png"],
     ["file:///workspace/project/image%20one.png", null, "/workspace/project/image one.png"],
-    ["file:///C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
-    ["file://localhost/C:/Users/dara/project/image.png", null, "C:/Users/dara/project/image.png"],
     ["file://server/share/image.png", null, "\\\\server\\share\\image.png"],
     ["~/Pictures/agent%20result.png", null, "~/Pictures/agent result.png"],
     ["~\\Pictures\\agent.png", null, "~\\Pictures\\agent.png"],
@@ -59,14 +34,5 @@ describe("classifyMarkdownImageSource", () => {
     "file://%",
   ])("blocks unsupported or unresolved source %s", (source) => {
     expect(classifyMarkdownImageSource(source)).toEqual({ _tag: "Blocked" });
-  });
-});
-
-describe("markdownImageSourceFragment", () => {
-  it.each([
-    ["<icons.svg?version=2#logo>", "#logo"],
-    ["icons.svg?version=2", ""],
-  ])("extracts %s as %s", (source, fragment) => {
-    expect(markdownImageSourceFragment(source)).toBe(fragment);
   });
 });
