@@ -36,6 +36,11 @@ Do not add sudo or make the root filesystem writable. The infrastructure-owned
 `t3-ci-start-runner` and `t3-ci-preflight` names remain toolchain entrypoints; they do
 not require dedicated T3 runner registrations or labels.
 
+Keep `reactivecircus/android-emulator-runner` at v2.37.0 in the fork release and
+package-diagnostic workflows. v2.38.0 changes the default Build Tools package to
+37.0.0, while the shared image and app build use 36.0.0; this pin preserves that
+toolchain alignment without changing API 36 or emulator validation.
+
 The fork supports Linux x64 and Windows x64. It has no macOS or hardware ARM64 capacity.
 Preserve guards on macOS native analysis, the macOS preview pipeline, iOS screenshots,
 and native ARM64 desktop/CLI jobs. Android target ABIs are independent of host CPU

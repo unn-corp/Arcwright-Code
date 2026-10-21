@@ -148,7 +148,8 @@ jobs:
 
       # Uses the exact APKs and interaction runner from the failed run. No eligibility receipts.
       - name: Diagnose Android install update and recovery
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        # v2.38.0 changes the SDK package this action installs; keep it aligned with the shared API 36 image.
+        uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2.37.0
         env:
           FORK_RELEASE_TARGET: android
           FORK_RELEASE_CANDIDATE_DIR: candidate
