@@ -71,7 +71,7 @@ it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
     try {
       expect(settingsTargetDestination(target)).toBe("/settings/general");
       await act(async () => root.render(<Fixture />));
-      expect(document.activeElement?.id).toBe(target);
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe(target));
       expect(scroll).toHaveBeenCalled();
       expect(state.navigate).toHaveBeenCalledWith(
         expect.objectContaining({ hash: "", replace: true }),
@@ -84,7 +84,7 @@ it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
       await act(async () => done.click());
       state.hash = target;
       await act(async () => root.render(<Fixture />));
-      expect(document.activeElement?.id).toBe(target);
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe(target));
     } finally {
       await act(async () => root.unmount());
       container.remove();
