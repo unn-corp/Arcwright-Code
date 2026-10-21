@@ -421,9 +421,10 @@ export function createDesktopInstaller(input: DesktopInstallerInput) {
       )
         throw new Error("The new version did not start.");
       return awaitReceipt(() => input.readReceipt(transactionId, home, "trial"), {
+        // Cold database migrations can take several minutes before the backend serves health.
         timeoutMs:
           input.trialTimeoutMs ??
-          (journal.storageNormalization === true ? 2 * 60 * 60_000 : 5 * 60_000),
+          (journal.storageNormalization === true ? 2 * 60 * 60_000 : 30 * 60_000),
         pollMs: 1000,
         sleep: input.sleep,
         now: input.now,

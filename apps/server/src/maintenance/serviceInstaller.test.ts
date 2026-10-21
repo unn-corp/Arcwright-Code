@@ -1,6 +1,6 @@
 /* oxlint-disable t3code/no-global-process-runtime -- node-only filesystem coordinator: the host platform is the point */
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off
-import { afterEach, describe, expect, it } from "@effect/vitest";
+import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -127,7 +127,7 @@ async function releaseWithRecovery(version: string): Promise<ForkReleaseRecord> 
   };
 }
 
-async function device() {
+async function device(options: { useDefaultTrialTimeout?: boolean } = {}) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-service-installer-"));
   roots.push(root);
   const home = NodePath.join(root, "home");
@@ -177,13 +177,41 @@ async function device() {
       name.endsWith(".mjs") ? helperBytes : await realNode(),
     now: () => clock.value,
     sleep: async (ms) => void (clock.value += ms),
-    trialTimeoutMs: 5,
+    ...(options.useDefaultTrialTimeout ? {} : { trialTimeoutMs: 5 }),
     restoredTimeoutMs: 5,
   };
   return { root, canonical, store, clock, events, runtimes, input };
 }
 
 describe("launcher-managed service installer", () => {
+  it("waits for a cold database to finish before accepting its health receipt", async () => {
+    const d = await device({ useDefaultTrialTimeout: true });
+    const startedAt = d.clock.value;
+    using _receipt = vi
+      .spyOn(d.store, "readReceipt")
+      .mockImplementation(async () =>
+        d.clock.value - startedAt >= 10 * 60_000 ? "cold-database-health" : null,
+      );
+    const installer = createServiceInstaller({
+      ...d.input,
+      sleep: async (ms) => void (d.clock.value += Math.max(ms, 60_000)),
+    });
+    await expect(installer.verifyTrial(d.canonical, "tx-1")).resolves.toBe("cold-database-health");
+  });
+
+  it("bounds a missing trial health receipt even with the cold database budget", async () => {
+    const d = await device({ useDefaultTrialTimeout: true });
+    const startedAt = d.clock.value;
+    const installer = createServiceInstaller({
+      ...d.input,
+      sleep: async (ms) => void (d.clock.value += Math.max(ms, 60_000)),
+    });
+    await expect(installer.verifyTrial(d.canonical, "tx-1")).rejects.toThrow(
+      "No health receipt for the trial runtime",
+    );
+    expect(d.clock.value - startedAt).toBe(30 * 60_000);
+  });
+
   it.each([1, 2])(
     "keeps storage migration %i queued until extended trials are supported",
     async (version) => {

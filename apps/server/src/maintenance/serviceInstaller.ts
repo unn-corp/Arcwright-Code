@@ -163,11 +163,12 @@ export function createServiceInstaller(input: ServiceInstallerInput): ForkInstal
     // This process is stopped by the launcher moments after it accepts; the successor verifies.
     verifyTrial: async (target, transactionId) =>
       awaitReceipt(() => store.readReceipt(transactionId, target, "trial"), {
+        // Match the launcher's prepared deadline, which includes cold database migrations.
         timeoutMs:
           input.trialTimeoutMs ??
           ((await store.readJournal(transactionId))?.storageNormalization === true
             ? 2 * 60 * 60_000
-            : 5 * 60_000),
+            : 30 * 60_000),
         pollMs: 1000,
         sleep: input.sleep,
         now: input.now,

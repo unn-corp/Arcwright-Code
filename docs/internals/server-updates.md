@@ -117,7 +117,9 @@ background service, development servers). Constraints that are easy to get wrong
   refuse a held fence; manual settlement and provider work retain active leases. Each storage-cleanup sweep takes an active lease at execution time, so
   evidence and worktree removal cannot overlap snapshots or restoration. Maintenance methods are exempt so a fenced device can be observed and recovered.
 
-The prepared deadline is long because migrations can scale with the database
+Normal server and legacy desktop trial receipt waits allow 30 minutes, matching the
+service launcher's prepared deadline. Explicit plain JSON normalization retains its
+two-hour budget. The deadline is long because migrations can scale with the database
 and block the trial's main thread, so it cannot report progress. A missed
 deadline restores the snapshot, and the retry pays the same cost again. A
 crashed trial is caught when it exits; the deadline bounds only a stuck one.

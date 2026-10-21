@@ -17,6 +17,9 @@ it does not wait for idle chats. Save terminal work before confirming. There is
 no automatic installation on quit. Compatible remote desktops use upstream's
 prepare/confirm/install handshake.
 
+A large history can make the first launch after an update take several minutes
+while the database upgrades. Keep the app open until it finishes.
+
 Arcwright discovers eligible numbered releases from our fork and binds each
 check to that release's immutable download directory. Installers retain their
 allocated `<version>-nightly.<YYYYMMDD>.<N>` identity and the display name

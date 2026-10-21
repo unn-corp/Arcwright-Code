@@ -289,6 +289,7 @@ async function makeDevice() {
     pid: number;
     version: string;
     commit: string;
+    useDefaultTrialTimeout?: boolean;
     overrides?: Partial<DesktopMaintenanceInput>;
   }) => {
     startProcess(options.pid);
@@ -320,7 +321,7 @@ async function makeDevice() {
       spawn: async (command, args) => {
         handoffs.push({ command, args });
       },
-      trialTimeoutMs: 3000,
+      ...(options.useDefaultTrialTimeout ? {} : { trialTimeoutMs: 3000 }),
       restoredTimeoutMs: 3000,
       freeBytes: async () => 1e12,
       userHasExistingData: async () => false,
@@ -723,11 +724,26 @@ describe("DesktopForkMaintenance", () => {
     device.killProcess(9001);
     expect((await store.status(device.clock.value)).fence?.holderAlive).toBe(false);
 
-    // The new build starts as the trial runtime.
+    // A cold database migration can outlast the old five-minute receipt budget.
+    const trialStartedAt = device.clock.value;
+    let writeHealthReceipt: (() => Promise<void>) | undefined;
     const next = device.makeCore({
       pid: 101,
       version: "1.1.0",
       commit: NEW.record.manifest!.commit,
+      useDefaultTrialTimeout: true,
+      overrides: {
+        sleep: async (ms) => {
+          device.clock.value += Math.max(ms, MINUTE);
+          await device.observeAll();
+          if (writeHealthReceipt && device.clock.value - trialStartedAt >= 10 * MINUTE) {
+            expect((await store.status(device.clock.value)).fence).not.toBeNull();
+            const write = writeHealthReceipt;
+            writeHealthReceipt = undefined;
+            await write();
+          }
+        },
+      },
     });
     expect(await next.start()).toEqual({ kind: "trial", transactionId: journal!.id });
     const capability = JSON.parse(
@@ -740,12 +756,10 @@ describe("DesktopForkMaintenance", () => {
     );
     migrated.exec("INSERT INTO notes VALUES ('written by the trial')");
     migrated.close();
-    await trial.store.writeReceipt(
-      capability.transactionId,
-      "desktop-server-new",
-      device.home,
-      "healthy:1.1.0",
-    );
+    writeHealthReceipt = () =>
+      trial.store
+        .writeReceipt(capability.transactionId, "desktop-server-new", device.home, "healthy:1.1.0")
+        .then(() => undefined);
 
     const status = await next.resumeInterrupted();
     expect(status.phase).toBe("completed");

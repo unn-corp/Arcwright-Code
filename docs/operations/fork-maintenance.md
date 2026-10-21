@@ -865,6 +865,11 @@ sessions after backup recovery. `InstallerSessions` and `InstallerSessionsTest` 
 ownership, inactivity, and stale-dialog checks; `UpdateEngine` revalidates before cancellation.
 This repair leaves the safety hold and update policy paused until the normal reboot/settings review.
 
+Normal database trials allow 30 minutes for health receipts, matching the service
+launcher's cold-start budget. Legacy desktop transaction recovery uses the same
+bound; explicit plain JSON normalization keeps its two-hour allowance. Every
+affected home remains fenced until its receipt is verified.
+
 **Verification.** [forkMaintenanceAdmission.test.ts](../../packages/shared/src/forkMaintenanceAdmission.test.ts),
 [forkMaintenanceStore.test.ts](../../packages/shared/src/forkMaintenanceStore.test.ts), and
 [forkMaintenanceTransaction.test.ts](../../packages/shared/src/forkMaintenanceTransaction.test.ts) cover stale/unknown
