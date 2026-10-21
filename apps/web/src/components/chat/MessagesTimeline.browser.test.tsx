@@ -1542,13 +1542,22 @@ describe("MessagesTimeline scroll position", () => {
     });
 
     const timeline = (routeThreadKey: string) => (
-      <MessagesTimeline {...props} routeThreadKey={routeThreadKey} timelineEntries={tallEntries} />
+      <MessagesTimeline
+        {...props}
+        routeThreadKey={routeThreadKey}
+        timelineEntries={tallEntries}
+        // ChatView restores the remembered follow state when selecting a thread.
+        liveFollowEnabled={readTimelinePosition(routeThreadKey)?.atEnd !== false}
+      />
     );
     await using screen = await renderElement(timeline(props.routeThreadKey));
     const reopenedViewport = await waitForList(props);
     await vi.waitFor(() =>
       expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
     );
+
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(readTimelinePosition(props.routeThreadKey)?.atEnd).toBe(false);
 
     await screen.rerender(timeline(`${props.routeThreadKey}-other`));
     await vi.waitFor(() =>
@@ -1560,6 +1569,8 @@ describe("MessagesTimeline scroll position", () => {
     await vi.waitFor(() =>
       expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
     );
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(readTimelinePosition(props.routeThreadKey)?.atEnd).toBe(false);
   });
 
   it("restores the composer after closing tool output only at the end", async () => {

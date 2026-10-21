@@ -203,7 +203,7 @@ export function ArchivedThreadsPanel() {
     if (purgeRunning.current) return;
     purgeRunning.current = true;
     setPurgeBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const result = await purgeArchivedThreads({
         confirmed: true,
         targets: confirmedTargets,
@@ -238,9 +238,18 @@ export function ArchivedThreadsPanel() {
       });
       setPurgeOpen(false);
       refreshArchivedThreads();
-    } finally {
-      purgeRunning.current = false;
-      setPurgeBusy(false);
+    });
+    purgeRunning.current = false;
+    setPurgeBusy(false);
+    if (outcome._tag === "Failure") {
+      const error = squashAtomCommandFailure(outcome);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not purge archived threads",
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
   };
 

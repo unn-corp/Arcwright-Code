@@ -42,6 +42,7 @@ import {
 } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
+  settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
@@ -816,7 +817,7 @@ function ScheduledTaskRow({
     if (onOperationStart && !onOperationStart()) return;
     operationPending.current = true;
     setBusy(true);
-    try {
+    const outcome = await settlePromise(async () => {
       const result =
         action === "toggle"
           ? await toggle({ environmentId, input: { id: task.id, enabled: !task.enabled } }).then(
@@ -841,10 +842,19 @@ function ScheduledTaskRow({
           }),
         );
       }
-    } finally {
-      operationPending.current = false;
-      setBusy(false);
-      onOperationEnd?.();
+    });
+    operationPending.current = false;
+    setBusy(false);
+    onOperationEnd?.();
+    if (outcome._tag === "Failure") {
+      const error = squashAtomCommandFailure(outcome);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not update scheduled task",
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
   };
   return (

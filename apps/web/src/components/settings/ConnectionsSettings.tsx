@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { LocalConnectCleanup } from "./LocalConnectCleanup";
 import { supportsForkMaintenanceAdmission } from "@t3tools/contracts";
 import { HostUpdateSettings } from "./HostUpdateSettings";
+import { HostMaintenanceStatus } from "./HostMaintenanceStatus";
 import { RenameEnvironmentDialog } from "./RenameEnvironmentDialog";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
 import { SessionPermissions } from "./SessionPermissions";
@@ -1657,6 +1658,15 @@ function SavedBackendListRow({
         }
         below={
           <>
+            {!detail ? (
+              <HostMaintenanceStatus
+                environmentId={environmentId}
+                label={environment.label}
+                supported={supportsForkMaintenanceAdmission(
+                  environment.serverConfig?.environment.capabilities.forkMaintenance,
+                )}
+              />
+            ) : null}
             {diagnosis ? (
               <ConnectionDiagnosisSummary
                 diagnosis={diagnosis}

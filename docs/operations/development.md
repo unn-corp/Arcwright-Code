@@ -154,9 +154,14 @@ vp lint <files>
 vp run --filter <package> typecheck
 ```
 
-In `apps/web`, a test that renders React or touches the DOM is named `*.browser.test.{ts,tsx}`
-and runs in headless Chromium with the React Compiler on, like the app. There is no jsdom; other
-`*.test.ts` files run in Node.
+In `apps/web`, `*.browser.test.{ts,tsx}` tests run in headless Chromium with the React
+Compiler on, like the app. They use `test/render.tsx`, enforced by
+`t3code/require-disposable-render`; that helper imports browser-runner commands and
+cannot run in Node. Retained fork unit fixtures and jsdom regressions keep their
+existing lifecycle and cleanup. The explicit jsdom fixture list in
+[`fork-dom-test-projects.ts`](../../scripts/lib/fork-dom-test-projects.ts) selects the
+same DOM project from the repository root and package directory. Other `*.test.ts`
+files run in Node. Do not select environments with per-file pragmas or emulator imports.
 
 TypeScript workspaces typecheck with tsc-rs, which has Effect diagnostics built in.
 Keep `typescript`, `@effect/tsgo`, and the `effect-tsgo patch` prepare step: editors

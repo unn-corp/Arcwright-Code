@@ -891,6 +891,7 @@ cover aliases, separate homes, independent devices, offline results, and retry. 
 update controls live in Settings → General → App updates; background checks and saved policies
 operate independently of the sidebar. Named-host maintenance status is presented in Connections
 by [HostMaintenanceStatus.tsx](../../apps/web/src/components/settings/HostMaintenanceStatus.tsx).
+Its details link opens About & updates for the selected computer.
 Both sidebar layouts omit the fork's local update indicators and host-maintenance notice panels.
 The shared footer retains upstream desktop/provider update controls, and the application menu
 opens the canonical settings surface. Connections retains independent machine update targets.

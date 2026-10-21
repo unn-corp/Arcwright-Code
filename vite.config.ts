@@ -198,7 +198,9 @@ export default defineConfig({
         rules: { "t3code/prefer-effect-fn": "off" },
       },
       {
-        files: ["apps/web/**/*.test.{ts,tsx}"],
+        // The disposable helper imports browser-runner commands. Retained fork
+        // unit/jsdom fixtures use their own React lifecycle and cleanup.
+        files: ["apps/web/**/*.browser.test.{ts,tsx}"],
         rules: { "t3code/require-disposable-render": "error" },
       },
       {

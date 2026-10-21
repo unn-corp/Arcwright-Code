@@ -83,7 +83,8 @@ vi.mock("../ui/toast", () => ({
   toastManager: { add: commands.toast },
   stackedThreadToast: (value: unknown) => value,
 }));
-vi.mock("@t3tools/client-runtime/state/runtime", () => ({
+vi.mock("@t3tools/client-runtime/state/runtime", async (original) => ({
+  ...(await original<typeof import("@t3tools/client-runtime/state/runtime")>()),
   isAtomCommandInterrupted: () => false,
   squashAtomCommandFailure: () => "Command failed",
 }));

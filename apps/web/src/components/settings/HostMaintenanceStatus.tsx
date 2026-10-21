@@ -27,7 +27,9 @@ export function HostMaintenanceStatus({
         <TooltipTrigger
           render={
             <Link
-              to="/settings/connections"
+              to="/settings/about"
+              search={{ machine: environmentId }}
+              hash={`host-updates-${environmentId}`}
               className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset"
             />
           }
