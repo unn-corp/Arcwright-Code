@@ -35,6 +35,7 @@ vi.mock("./components/QuitHoldOverlay", () => ({
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import type { AppRouter } from "./router";
 import { AppRoot } from "./AppRoot";
+import { DESKTOP_PASTE_AS_TEXT_EVENT } from "./lib/desktopPasteAsText";
 
 const sharedValue = Atom.make("default registry");
 function RegistryProbe({ name }: { name: string }) {
@@ -56,8 +57,52 @@ afterEach(async () => {
 });
 
 describe("AppRoot", () => {
+  it("arms paste-as-text before native paste and removes the menu listener on unmount", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const menuActionListeners = new Set<(action: string) => void>();
+    const unsubscribe = vi.fn();
+    const observed: string[] = [];
+    const pasteAsText = vi.fn(() => observed.push("native-paste"));
+    const appWindow = Object.assign(new EventTarget(), {
+      desktopBridge: {
+        onMenuAction: (listener: (action: string) => void) => {
+          menuActionListeners.add(listener);
+          return () => {
+            menuActionListeners.delete(listener);
+            unsubscribe();
+          };
+        },
+        pasteAsText,
+      },
+    });
+    appWindow.addEventListener(DESKTOP_PASTE_AS_TEXT_EVENT, () => observed.push("armed"));
+    vi.stubGlobal("window", appWindow);
+
+    await act(async () => {
+      root = create(<AppRoot router={{} as AppRouter} />);
+    });
+
+    const sendMenuAction = (action: string) => {
+      for (const listener of menuActionListeners) listener(action);
+    };
+    await act(async () => sendMenuAction("open-settings"));
+    expect(observed).toEqual([]);
+    expect(pasteAsText).not.toHaveBeenCalled();
+
+    await act(async () => sendMenuAction("paste-as-text"));
+    expect(observed).toEqual(["armed", "native-paste"]);
+    expect(pasteAsText).toHaveBeenCalledOnce();
+
+    await act(async () => root!.unmount());
+    root = undefined;
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    await act(async () => sendMenuAction("paste-as-text"));
+    expect(observed).toEqual(["armed", "native-paste"]);
+  });
+
   it("shares the application atom registry with routed UI and renderer-wide desktop hosts", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("window", new EventTarget());
     appAtomRegistry.set(sharedValue, "application state");
     const unsubscribe = vi.fn();
     state.reconcile.mockReturnValueOnce(unsubscribe);

@@ -372,7 +372,7 @@ const setAnnotationTheme = DesktopIpc.makeIpcMethod({
   }),
 });
 
-export const captureAnnotationSnapshot = DesktopIpc.makeIpcMethod({
+const captureAnnotationSnapshot = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CAPTURE_ANNOTATION_SNAPSHOT_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: DesktopPreviewAnnotationSnapshotSchema,

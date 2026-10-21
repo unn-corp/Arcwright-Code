@@ -1,7 +1,3 @@
-export {
-  SourceControlWorktreeSettings,
-  SourceControlDiffSettings,
-} from "./RelocatedGeneralSettings";
 import { GeneralThreadDefaultsSettings } from "./GeneralThreadDefaultsSettings";
 import { ParticipantProfileSettings } from "./ParticipantProfileSettings";
 import { ClientBuildIdentity } from "./ClientBuildIdentity";

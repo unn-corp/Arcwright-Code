@@ -149,7 +149,7 @@ export function canCheckForUpdate(state: DesktopUpdateState | null): boolean {
   );
 }
 
-export function getDesktopUpdateDisabledReason(
+function getDesktopUpdateDisabledReason(
   state: Pick<DesktopUpdateState, "enabled" | "status" | "message"> | null,
 ): string | null {
   if (!state || (state.enabled && state.status !== "disabled")) return null;

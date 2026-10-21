@@ -10,6 +10,7 @@ import { AndroidBrowserHosts } from "./android/AndroidBrowserHosts";
 import { BrowserProfileReporter } from "./browser/BrowserProfileReporter";
 import { ElectronBrowserHost } from "./browser/ElectronBrowserHost";
 import { QuitHoldOverlay } from "./components/QuitHoldOverlay";
+import { installDesktopPasteAsText } from "./lib/desktopPasteAsText";
 import { appAtomRegistry, AppAtomRegistryProvider } from "./rpc/atomRegistry";
 import type { AppRouter } from "./router";
 
@@ -19,6 +20,7 @@ import type { AppRouter } from "./router";
  * share the same atom registry as routed UI and draft model reconciliation.
  */
 export function AppRoot({ router }: { readonly router: AppRouter }) {
+  useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
   useEffect(
     () =>
       subscribeComposerDraftModelReconciliation({
