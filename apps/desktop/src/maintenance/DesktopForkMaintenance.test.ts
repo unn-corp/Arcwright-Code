@@ -734,7 +734,8 @@ describe("DesktopForkMaintenance", () => {
       useDefaultTrialTimeout: true,
       overrides: {
         sleep: async (ms) => {
-          device.clock.value += Math.max(ms, MINUTE);
+          // Cross the old five-minute deadline in one step, then leave enough time for a cold migration receipt.
+          device.clock.value += Math.max(ms, 6 * MINUTE);
           await device.observeAll();
           if (writeHealthReceipt && device.clock.value - trialStartedAt >= 10 * MINUTE) {
             expect((await store.status(device.clock.value)).fence).not.toBeNull();
