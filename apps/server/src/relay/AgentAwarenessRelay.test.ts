@@ -454,13 +454,6 @@ describe("AgentAwarenessRelay", () => {
         });
         yield* relay.start();
         yield* Queue.take(pulls);
-        const finished = shell({
-          status,
-          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
-            seconds: 1,
-          }),
-        });
-        yield* Ref.set(currentShell, finished);
         yield* relay.publishThread(THREAD_ID);
         const terminal = shell({ status });
         yield* Ref.set(currentShell, terminal);
@@ -487,6 +480,41 @@ describe("AgentAwarenessRelay", () => {
         assert.equal(publications.length, 2);
         yield* TestClock.adjust("5 seconds");
         yield* relay.drain;
+        assert.equal(publications.length, 3);
+        assert.deepEqual(
+          publications.map(({ state }) => state?.phase ?? null),
+          ["running", status, null],
+        );
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(["completed", "failed"] as const)(
+    "settling a %s thread publishes a tombstone without re-alerting on unsettle",
+    (status) =>
+      Effect.gen(function* () {
+        const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
+        const pulls = yield* Queue.unbounded<void>();
+        const { relay, currentShell, publications } = yield* makeTestRelay({
+          domainEvents: Stream.fromEffectRepeat(
+            Queue.offer(pulls, undefined).pipe(Effect.andThen(Queue.take(events))),
+          ),
+        });
+        yield* relay.start();
+        yield* Queue.take(pulls);
+        const finished = shell({
+          status,
+          latestRunCompletedAt: DateTime.add(yield* DateTime.now, {
+            seconds: 1,
+          }),
+        });
+        yield* Ref.set(currentShell, finished);
+        yield* relay.publishThread(THREAD_ID);
+        assert.deepEqual(
+          publications.map(({ state }) => state?.phase),
+          status === "completed" ? [] : ["failed"],
+        );
+        yield* TestClock.adjust("5 seconds");
+        yield* relay.drain;
         assert.deepEqual(
           publications.map(({ state }) => state?.phase),
           [status],
@@ -511,6 +539,11 @@ describe("AgentAwarenessRelay", () => {
           });
           yield* Queue.take(pulls);
           yield* relay.drain;
+          const expectedBeforeConfirmation = type === "thread.settled" ? [status] : [status, null];
+          assert.deepEqual(
+            publications.map(({ state }) => state?.phase ?? null),
+            expectedBeforeConfirmation,
+          );
           yield* TestClock.adjust("5 seconds");
           yield* relay.drain;
           assert.deepEqual(

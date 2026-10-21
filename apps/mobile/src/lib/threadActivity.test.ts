@@ -918,11 +918,6 @@ describe("buildThreadFeed", () => {
       ),
     ).toEqual([]);
   });
-
-  describe("a lone call", () => {
-    const running = { status: "running", completedAt: null, output: null } as const;
-    const startedAt = "2026-06-20T00:00:01.000Z";
-  });
 });
 
 describe("retained v2 feed presentation", () => {

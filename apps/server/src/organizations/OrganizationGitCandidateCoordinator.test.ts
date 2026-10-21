@@ -164,26 +164,39 @@ function spawnBindingRevoker(dbPath: string) {
     finish = resolve;
     failFinish = reject;
   });
+  let markClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    markClosed = resolve;
+  });
   let output = "";
+  let errorOutput = "";
   child.stdout.on("data", (chunk: Buffer) => {
     output += chunk.toString("utf8");
     if (output.includes("blocked\n")) markBlocked();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    errorOutput += chunk.toString("utf8");
   });
   child.once("error", (error) => {
     failBlocked(error);
     failFinish(error);
   });
-  child.once("exit", (code) => {
+  child.once("close", (code, signal) => {
+    markClosed();
     if (code === 0 && output.includes("done\n")) finish();
     else {
-      const error = new Error(`Binding revoker exited ${code ?? "without status"}.`);
+      const error = new Error(
+        [`Binding revoker exited ${code ?? `after ${signal ?? "no signal"}`}.`, errorOutput.trim()]
+          .filter(Boolean)
+          .join("\n"),
+      );
       failBlocked(error);
       failFinish(error);
     }
   });
   const timeout = setTimeout(() => child.kill("SIGKILL"), 7_000);
   void completed.finally(() => clearTimeout(timeout)).catch(() => {});
-  return { child, blocked, completed };
+  return { child, blocked, completed, closed };
 }
 const fixture = (git: GitFixture, bytes: Uint8Array) =>
   Effect.gen(function* () {
@@ -454,9 +467,12 @@ it.effect("holds the SQLite write fence across Git retention and acknowledgement
       revoker = spawnBindingRevoker(dbPath);
       yield* Effect.promise(() => revoker!.blocked);
       let revoked = false;
-      void revoker.completed.then(() => {
-        revoked = true;
-      });
+      void revoker.completed.then(
+        () => {
+          revoked = true;
+        },
+        () => {},
+      );
       assert.equal(revoked, false);
       release();
       const retained = yield* Fiber.join(coordinating);
@@ -472,7 +488,11 @@ it.effect("holds the SQLite write fence across Git retention and acknowledgement
       );
     } finally {
       release();
-      revoker?.child.kill("SIGKILL");
+      if (revoker) {
+        if (revoker.child.exitCode === null && revoker.child.signalCode === null)
+          revoker.child.kill("SIGKILL");
+        yield* Effect.promise(() => revoker!.closed);
+      }
       yield* Effect.promise(() => NodeFSP.rm(git.root, { recursive: true, force: true }));
     }
   }).pipe(
