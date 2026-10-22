@@ -9,7 +9,6 @@
     "dev:built": "vp build --watch",
     "build": "vp build",
     "preview": "vp preview",
-    "typecheck": "tsc --noEmit",
     "test": "vp test run --passWithNoTests --project unit --project dom --project browser"
   },
   "dependencies": {
