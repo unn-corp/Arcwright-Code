@@ -102,8 +102,6 @@ function AutomationModelControl({
         provider={provider}
         models={instanceEntry?.models ?? []}
         model={selection.model}
-        prompt=""
-        onPromptChange={() => {}}
         modelOptions={selection.options}
         allowPromptInjectedEffort={false}
         planModeEnabled={settings.planModeEnabled}

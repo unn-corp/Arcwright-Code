@@ -11,7 +11,11 @@ describe("classifyMarkdownImageSource", () => {
       "C:\\Users\\dara\\project\\images\\result.png",
     ],
     ["file:///workspace/project/image%20one.png", null, "/workspace/project/image one.png"],
-    ["file://server/share/image.png", null, "\\\\server\\share\\image.png"],
+    [
+      "file://server/share/project/image.png",
+      "\\\\server\\share\\project",
+      "\\\\server\\share\\project\\image.png",
+    ],
     ["~/Pictures/agent%20result.png", null, "~/Pictures/agent result.png"],
     ["~\\Pictures\\agent.png", null, "~\\Pictures\\agent.png"],
   ])("maps %s to a workspace file", (source, workspaceRoot, path) => {
@@ -34,5 +38,18 @@ describe("classifyMarkdownImageSource", () => {
     "file://%",
   ])("blocks unsupported or unresolved source %s", (source) => {
     expect(classifyMarkdownImageSource(source)).toEqual({ _tag: "Blocked" });
+  });
+
+  // Loading these makes Windows send the user's NTLM credentials to the named host.
+  it.each([
+    "file://attacker.test/share/cat.jpg",
+    "\\\\attacker.test\\share\\cat.jpg",
+    "/\\attacker.test\\share\\cat.jpg",
+    "file:/%5Cattacker.test%5Cshare%5Ccat.jpg",
+    "\\\\server\\other\\cat.jpg",
+  ])("blocks network path %s outside the project", (source) => {
+    expect(classifyMarkdownImageSource(source, "\\\\server\\share\\project")).toEqual({
+      _tag: "Blocked",
+    });
   });
 });

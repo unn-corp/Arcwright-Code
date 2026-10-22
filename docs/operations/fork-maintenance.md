@@ -323,9 +323,16 @@ library failures preserve ordinary transcription. Full dictionary echoes retry o
 **Ownership and entry.** The conversation composer is
 [ChatComposer.tsx](../../apps/web/src/components/chat/ChatComposer.tsx) with
 [ComposerPrimaryActions.tsx](../../apps/web/src/components/chat/ComposerPrimaryActions.tsx).
+The extracted [send owner](../../apps/web/src/components/chat/useComposerSend.ts) snapshots
+author and reply context before asynchronous work. [Timeline rows](../../apps/web/src/components/chat/useTimelineRows.ts)
+and their participant/reply renderers preserve the saved feed choice and per-author grouping.
 Sidebar behavior is shared by [Sidebar.tsx](../../apps/web/src/components/Sidebar.tsx),
 [LegacySidebar.tsx](../../apps/web/src/components/LegacySidebar.tsx), their pointer/drag helpers,
 and [GlanceRail.tsx](../../apps/web/src/components/GlanceRail.tsx).
+The active sidebar retains grouped collapse and navigation state; extracted
+[thread rows](../../apps/web/src/components/sidebar/SidebarThreadRow.tsx) retain change-request
+snapshots and drag handles, while [shelf markers](../../apps/web/src/components/sidebar/SidebarListMarkers.tsx)
+show status for hidden conversations.
 Grouped repository grips use
 [Sidebar.repositoryDrag.ts](../../apps/web/src/components/Sidebar.repositoryDrag.ts) and the
 shared pointer lifecycle. Drop destinations include each group's heading, active conversation
@@ -524,6 +531,12 @@ The [automation settings panel](../../apps/web/src/components/settings/Automatio
 owns these controls; [background activity settings](../../apps/web/src/components/settings/BackgroundActivitySettings.tsx)
 is shared with General settings. Keep their existing primary/scoped settings destinations when
 moving UI code so a layout refactor cannot write preferences to another environment.
+Appearance and typography now live in their extracted
+[appearance](../../apps/web/src/components/settings/AppearanceSettingsPanel.tsx) and
+[typography](../../apps/web/src/components/settings/TypographySettings.tsx) owners. Connections
+uses [saved environment rows](../../apps/web/src/components/settings/SavedEnvironmentRows.tsx)
+and the [add-environment dialog](../../apps/web/src/components/settings/AddEnvironmentDialog.tsx);
+keep host maintenance, identity details and native Android QR pairing reachable there.
 
 **Verification and coupling.** Domain tests cover durable authorization, budgets, stopped work,
 reconciliation, review/implementation scheduling, and credential redaction. Test new schedulers
@@ -871,6 +884,12 @@ The native recovery page can also discard explicitly confirmed orphaned Android 
 sessions after backup recovery. `InstallerSessions` and `InstallerSessionsTest` own identity,
 ownership, inactivity, and stale-dialog checks; `UpdateEngine` revalidates before cancellation.
 This repair leaves the safety hold and update policy paused until the normal reboot/settings review.
+
+Server startup runtime cleanup retains every previous and target version named by the device
+maintenance journals, including completed transactions whose database restore points remain
+available. [Runtime pruning](../../apps/server/src/cloud/selfUpdate.ts) reads those records through
+the existing host coordinator before removing unused binaries. If recovery retention cannot be
+read, cleanup keeps the runtimes; a successful update alone does not retire a restore point.
 
 Normal database trials allow 30 minutes for health receipts, matching the service
 launcher's cold-start budget. Legacy desktop transaction recovery uses the same

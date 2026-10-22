@@ -725,8 +725,6 @@ export function AgentProjectPullRequests({
                         ),
                       )
                     }
-                    onPromptChange={() => undefined}
-                    prompt=""
                     provider={selectedProviderEntry.driverKind}
                     triggerClassName="w-full justify-between"
                   />

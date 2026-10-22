@@ -1276,8 +1276,6 @@ function ProjectDetail({
                     provider={activeEntry.driverKind as ProviderDriverKind}
                     models={activeEntry.models}
                     model={resolvedSelection.model}
-                    prompt=""
-                    onPromptChange={() => {}}
                     modelOptions={resolvedSelection.options ?? []}
                     allowPromptInjectedEffort={false}
                     planModeEnabled={projectSettings.planModeEnabled}
