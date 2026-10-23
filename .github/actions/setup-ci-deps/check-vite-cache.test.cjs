@@ -77,13 +77,27 @@ function fixture(t) {
       },
       ...options.state,
     };
+    const stateFile = join(root, "state.json");
+    if (options.lazyPnpm) {
+      state.package_manager.installed = false;
+      rmSync(join(root, "bin/pnpm"));
+    }
+    writeFileSync(stateFile, JSON.stringify(state));
     executable(
       "vp",
       `
 const args = process.argv.slice(2).join(' ');
 if (args === '--version') console.log(${JSON.stringify(options.vp || "vp v1.3.0")});
-else if (args === 'env current --json') console.log(${JSON.stringify(JSON.stringify(state))});
+else if (args === 'env current --json') console.log(require('node:fs').readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
 else if (args === 'env use 26.12.1') process.exit(${options.activationExit || 0});
+else if (args === 'env use pnpm@12.15.0') {
+  if (${options.pmInstallExit || 0}) process.exit(${options.pmInstallExit || 0});
+  const fs = require('node:fs');
+  const state = JSON.parse(fs.readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
+  state.package_manager.installed = true;
+  fs.writeFileSync(${JSON.stringify(stateFile)}, JSON.stringify(state));
+  fs.writeFileSync(${JSON.stringify(join(root, "bin/pnpm"))}, ${JSON.stringify(`#!${process.execPath}\nconsole.log('12.15.0');\n`)}, { mode: 0o755 });
+}
 else process.exit(91);
 `,
     );
@@ -124,6 +138,11 @@ else process.exit(91);
     if (enabled(step("Setup Vite+").condition)) {
       setups++;
       if (fallback() === false) return { setups, status: 77 };
+    }
+    if (enabled(step("Install pinned pnpm").condition)) {
+      const installed = run("Install pinned pnpm");
+      if (installed.status !== 0)
+        return { setups, status: installed.status, stderr: installed.stderr };
     }
     const verified = run("Verify Vite+ installation");
     return { setups, status: verified.status, stderr: verified.stderr };
@@ -194,11 +213,26 @@ test("a failed fallback stops the job", (t) => {
   assert.equal(existsSync(f.pathFile), false);
 });
 
-test("a fallback reporting success with incomplete tools still fails verification", (t) => {
+test("materializes project-selected pnpm after setup-vp activates only Node", (t) => {
+  const f = fixture(t);
+  const result = f.pipeline(false, () => f.install({ lazyPnpm: true }));
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.setups, 1);
+  assert.ok(readFileSync(f.pathFile, "utf8").includes(`${f.root}/bin\n`));
+});
+
+test("a failed pnpm materialization stops the job", (t) => {
+  const f = fixture(t);
+  const result = f.pipeline(false, () => f.install({ lazyPnpm: true, pmInstallExit: 42 }));
+  assert.equal(result.status, 42);
+  assert.equal(existsSync(f.pathFile), false);
+});
+
+test("a fallback reporting success with incomplete tools still stops the job", (t) => {
   const f = fixture(t);
   const result = f.pipeline(true, () => {});
   assert.equal(result.setups, 1);
-  assert.equal(result.status, 1);
+  assert.equal(result.status, 127);
   assert.equal(existsSync(f.pathFile), false);
 });
 

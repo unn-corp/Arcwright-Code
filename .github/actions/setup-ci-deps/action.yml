@@ -46,6 +46,14 @@ runs:
         cache: false
         run-install: false
 
+    # setup-vp activates Node, but --version only reports the project-selected
+    # pnpm version. Materialize its payload before checking installation state.
+    - name: Install pinned pnpm
+      if: steps.vp_ready.outputs.usable != 'true'
+      shell: bash
+      run: |
+        "${{ steps.vp.outputs.home }}/bin/vp" env use "${{ steps.vp.outputs.pnpm }}"
+
     - name: Verify Vite+ installation
       shell: bash
       run: |
