@@ -215,7 +215,7 @@ jobs:
         run: python3 -B .github/scripts/stage-preview-bundle.test.py
 
       - name: Test release checks
-        run: node --test .github/scripts/check-nightly-release.test.cjs .github/scripts/vercel-deployment-output.test.cjs
+        run: node --test .github/scripts/check-nightly-release.test.cjs .github/scripts/vercel-deployment-output.test.cjs .github/actions/setup-ci-deps/check-vite-cache.test.cjs
 
       # `changes` lists the affected packages, or nothing when all of them are.
       - name: Setup relay PostgreSQL fixture tools

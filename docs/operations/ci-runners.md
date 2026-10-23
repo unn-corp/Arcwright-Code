@@ -52,6 +52,10 @@ its retired supervisor or reset the organization Windows VM from that template.
 Use a current GitHub Actions runner compatible with the workflows' Node-based action versions.
 Tool-cache and package-cache directories must be writable. Vite+, Java, Rust, and Gradle setup
 remain in the workflows; these do not supply native OS compilers or emulator hardware.
+`setup-ci-deps` caches the resolved Vite+ directory because the Linux worker's
+`~/.vite-plus` is a symlink. The v3 cache key replaces the older link-only archives.
+Reuse requires working Vite+, Node.js, and pnpm executables at the pinned versions;
+missing or incomplete restores run `setup-vp`, and a failed setup stops the job.
 Native package dependencies must be present in the shared isolated image. CI and release jobs verify the C/C++ toolchain and libsecret headers with
 `verify-native-build-deps`; they do not install packages or wait for background APT work. The APT mirror
 helper skips hardened workers; on writable Ubuntu workers it uses architecture-specific HTTPS

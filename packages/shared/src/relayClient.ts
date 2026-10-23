@@ -27,7 +27,7 @@ import * as HostProcess from "./HostProcess.ts";
 export const CLOUDFLARED_VERSION = "2026.10.3";
 // Require Go's compromised-CA mitigation on every supported platform (CVE-2026-111943).
 // Apply the floor to overrides, PATH entries, and managed fallbacks alike.
-export const CLOUDFLARED_MIN_VERSION = "2026.10.3";
+const CLOUDFLARED_MIN_VERSION = "2026.10.3";
 const CLOUDFLARED_PATH_ENV_NAME = "T3CODE_CLOUDFLARED_PATH";
 
 const CLOUDFLARED_DOWNLOAD_TIMEOUT = "10 minutes";
