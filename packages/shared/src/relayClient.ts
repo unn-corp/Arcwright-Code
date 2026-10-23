@@ -24,11 +24,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { isWindowsRenameLock } from "./atomicWrite.ts";
 import * as HostProcess from "./HostProcess.ts";
 
-export const CLOUDFLARED_VERSION = "2026.10.0";
-// The oldest release that accepts every flag the connector is started with
-// (`--output` arrived in 2025.6.1). Override, PATH, and older managed binaries
-// below it are skipped, since they exit immediately on the unknown flag.
-export const CLOUDFLARED_MIN_VERSION = "2025.6.1";
+export const CLOUDFLARED_VERSION = "2026.10.3";
+// Require Go's compromised-CA mitigation on every supported platform (CVE-2026-111943).
+// Apply the floor to overrides, PATH entries, and managed fallbacks alike.
+export const CLOUDFLARED_MIN_VERSION = "2026.10.3";
 const CLOUDFLARED_PATH_ENV_NAME = "T3CODE_CLOUDFLARED_PATH";
 
 const CLOUDFLARED_DOWNLOAD_TIMEOUT = "10 minutes";
@@ -83,34 +82,34 @@ const CLOUDFLARED_RELEASE_ASSETS: Readonly<
   Partial<Record<`${NodeJS.Platform}-${string}`, CloudflaredReleaseAsset>>
 > = {
   "darwin-arm64": {
-    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-darwin-arm64.tgz",
-    sha256: "a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70",
+    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-darwin-arm64.tgz",
+    sha256: "1165d14b6f6360a3b8c283d7d1100024d6ec7cd9bc9e32519e96150645f3ec55",
     archive: "tgz",
   },
   "darwin-x64": {
-    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-darwin-amd64.tgz",
-    sha256: "903845b81828c8cb3c5d13d816a2de71c06a3da5785469df8eb0e1b736d92f9f",
+    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-darwin-amd64.tgz",
+    sha256: "81b7b85f2376815c4f59b1aa323887b62e16ce8b67555c2e1577dc23f2a82000",
     archive: "tgz",
   },
   "linux-arm64": {
-    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-arm64",
-    sha256: "e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08",
+    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-linux-arm64",
+    sha256: "89297ebfb9e8c99c0dc013a1140601453cf3798d8306c5591651f4a3f5210be8",
     archive: "binary",
   },
   "linux-x64": {
-    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-amd64",
-    sha256: "d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db",
+    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-linux-amd64",
+    sha256: "053b80b0a23031a038fdbf3c073f59f82b8f1f152aa67971d7383ffafc0dbab0",
     archive: "binary",
   },
   "win32-x64": {
-    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe",
-    sha256: "86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c",
+    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-windows-amd64.exe",
+    sha256: "76b2805253d0d6ffacb092a7acfbee99e7af6917835c0c5410e23f3ef5052da2",
     archive: "binary",
   },
   // Cloudflare publishes no Windows ARM64 build; Windows 11 on ARM runs x64 under emulation.
   "win32-arm64": {
-    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe",
-    sha256: "86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c",
+    url: "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-windows-amd64.exe",
+    sha256: "76b2805253d0d6ffacb092a7acfbee99e7af6917835c0c5410e23f3ef5052da2",
     archive: "binary",
   },
 };

@@ -49,7 +49,7 @@ try {
     Download-Verified 'https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/Git-2.56.0.2-64-bit.exe' C:\ci-bootstrap\git.exe '52188f917b378f00c70ec136bcf090005f30d44fbc4eba0bce759cc6592d60f6'
     $git = Start-Process C:\ci-bootstrap\git.exe -ArgumentList '/VERYSILENT /NORESTART /SP- /SUPPRESSMSGBOXES' -PassThru -Wait
     if ($git.ExitCode -ne 0) { throw 'Git installation failed' }
-    $nodeVersion = '24.20.0'
+    $nodeVersion = '24.22.1'
     $nodeChecksums = (Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/v$nodeVersion/SHASUMS256.txt").Content
     $nodeHash = (($nodeChecksums -split "`n" | Where-Object { $_ -match "node-v$nodeVersion-x64.msi$" }) -split '\s+')[0]
     if ($nodeHash -notmatch '^[a-f0-9]{64}$') { throw 'Node checksum is missing' }
