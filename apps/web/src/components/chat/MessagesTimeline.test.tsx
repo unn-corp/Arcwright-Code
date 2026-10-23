@@ -953,7 +953,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('<code data-inline-code="">&lt;tag attr=&quot;x&quot;&gt;</code>');
+    vi.unstubAllGlobals();
+    const rendered = document.createElement("div");
+    rendered.innerHTML = markup;
+    expect(rendered.querySelector("code[data-inline-code]")?.textContent).toBe('<tag attr="x">');
     expect(markup).toContain("&lt;root&gt;&lt;child enabled=&quot;true&quot; /&gt;&lt;/root&gt;");
   });
 
@@ -1562,7 +1565,13 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    vi.unstubAllGlobals();
+    const rendered = document.createElement("div");
+    rendered.innerHTML = markup;
+    const bubble = rendered.querySelector("[data-user-message-body]")?.closest(".bg-message");
+    expect(Array.from(bubble?.classList ?? [])).toEqual(
+      expect.arrayContaining(["rounded-2xl", "bg-message", "p-3"]),
+    );
   });
 
   it("identifies user-role messages sent by another agent", async () => {
@@ -1584,8 +1593,16 @@ describe("MessagesTimeline", () => {
     );
 
     expect(agentMarkup).toContain('data-user-message-attribution="agent"');
-    expect(agentMarkup).toContain("Sent by another agent");
-    expect(userMarkup).not.toContain("Sent by another agent");
+    expect(agentMarkup).toContain('data-participant-kind="Agent"');
+    vi.unstubAllGlobals();
+    const rendered = document.createElement("div");
+    rendered.innerHTML = agentMarkup;
+    expect(
+      rendered.querySelector(
+        '[data-user-message-attribution="agent"] button[aria-expanded="false"]',
+      )?.textContent,
+    ).toContain("Review this area");
+    expect(userMarkup).not.toContain('data-user-message-attribution="agent"');
   });
 
   it("keeps a subagent parent-thread link at the top of an empty timeline", async () => {

@@ -30,7 +30,6 @@ import { ownedConnectProfileProofPlugin } from "./vite/ownedConnectProfileProof.
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
 
 const isOwnedHostedBuild = process.env.T3CODE_OWNED_CONNECT_WEB === "1";
-// This opt-in path has no dotenv/Vite ambient inputs. Other surfaces keep their selection.
 if (isOwnedHostedBuild) {
   const controlled = ownedHostedBuildEnv(process.env);
   for (const name of Object.keys(process.env)) {
@@ -80,6 +79,10 @@ const configuredDesktopUpdateRepository =
   "";
 const sourcemapEnv = process.env.T3CODE_WEB_SOURCEMAP?.trim().toLowerCase();
 
+// `vp run dev --share --built` rebuilds on every change. The license manifest
+// is about 2 s of each build, and nothing in that mode reads it.
+const builtDev = process.env.T3CODE_BUILT_DEV === "1";
+
 const bundledDevEnv = process.env.T3CODE_BUNDLED_DEV?.trim().toLowerCase();
 const bundledDev = bundledDevEnv === "1" || bundledDevEnv === "true";
 
@@ -90,18 +93,6 @@ const buildSourcemap: boolean | "hidden" =
       ? "hidden"
       : true;
 
-const unitTestProject = {
-  extends: true,
-  test: {
-    name: "unit",
-    include: ["src/**/*.test.{ts,tsx}"],
-    exclude: ["src/**/*.browser.test.{ts,tsx}", ...WEB_DOM_TEST_FILES],
-    hookTimeout: 15_000,
-    testTimeout: 15_000,
-    setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
-  },
-} satisfies TestProjectInlineConfiguration;
-
 const domTestProject = {
   extends: true,
   test: {
@@ -110,11 +101,30 @@ const domTestProject = {
     include: WEB_DOM_TEST_FILES,
     hookTimeout: 15_000,
     testTimeout: 15_000,
-    setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+    setupFiles: [
+      "../../packages/shared/src/testing/longTempDir.ts",
+      "../../packages/shared/src/testing/providerEnv.ts",
+    ],
   },
 } satisfies TestProjectInlineConfiguration;
 
-// Browser regressions run in headless Chromium through the same plugins as the app.
+const unitTestProject = {
+  extends: true,
+  test: {
+    name: "unit",
+    include: ["src/**/*.test.{ts,tsx}"],
+    exclude: ["src/**/*.browser.test.{ts,tsx}", ...WEB_DOM_TEST_FILES],
+    hookTimeout: 15_000,
+    testTimeout: 15_000,
+    setupFiles: [
+      "../../packages/shared/src/testing/longTempDir.ts",
+      "../../packages/shared/src/testing/providerEnv.ts",
+    ],
+  },
+} satisfies TestProjectInlineConfiguration;
+
+// Anything that renders React or touches the DOM is named *.browser.test.{ts,tsx} and runs
+// in headless Chromium through the same plugins as the app, so it exercises compiled code.
 // Vitest's fixed browser API port (63315) collides when two checkouts run
 // browser tests at once, and `server.strictPort` above is inherited, so the
 // second run fails instead of moving on. Hash the checkout path like
@@ -210,20 +220,31 @@ const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
 export default defineConfig(() => {
   return {
+    run: {
+      tasks: {
+        // tsc (tsc-rs) rewrites the tsbuildinfo it reads, which keeps a task out of the cache.
+        typecheck: {
+          command: "tsc --noEmit",
+          cache: { input: [{ auto: true }, "!*.tsbuildinfo"] },
+        },
+      },
+    },
     ...(isOwnedHostedBuild ? { envDir: false, envPrefix: [] } : {}),
     assetsInclude: ["**/*.wasm", "**/*.wasm?inline"],
     plugins: [
       ...(isOwnedHostedBuild ? [ownedConnectProfileProofPlugin()] : []),
       devCompressionPlugin(),
-      thirdPartyLicensesPlugin({
-        bundleName: "web",
-        configFile: new URL("../../third-party-licenses.config.json", import.meta.url),
-        packageManifests: [
-          { bundle: "web", path: new URL("./package.json", import.meta.url) },
-          { bundle: "server", path: new URL("../server/package.json", import.meta.url) },
-          { bundle: "desktop", path: new URL("../desktop/package.json", import.meta.url) },
-        ],
-      }),
+      builtDev
+        ? undefined
+        : thirdPartyLicensesPlugin({
+            bundleName: "web",
+            configFile: new URL("../../third-party-licenses.config.json", import.meta.url),
+            packageManifests: [
+              { bundle: "web", path: new URL("./package.json", import.meta.url) },
+              { bundle: "server", path: new URL("../server/package.json", import.meta.url) },
+              { bundle: "desktop", path: new URL("../desktop/package.json", import.meta.url) },
+            ],
+          }),
       tanstackRouter({ autoCodeSplitting: true }),
       react({ compiler: true }),
       tailwindPlugins(bundledDev),
@@ -243,6 +264,11 @@ export default defineConfig(() => {
       ],
     },
     define: {
+      "import.meta.env.VITE_WS_URL": JSON.stringify(configuredWsUrl ?? ""),
+      // Pinned explicitly rather than left to Vite's automatic VITE_ exposure:
+      // under single-origin dev this must stay empty even when a `.env`
+      // supplies it, so the client falls back to window.location.origin.
+      "import.meta.env.VITE_HTTP_URL": JSON.stringify(configuredHttpUrl ?? ""),
       "import.meta.env.VITE_CONNECT_MODE": JSON.stringify(repoEnv.T3CODE_CONNECT_MODE ?? "legacy"),
       "import.meta.env.VITE_CONNECT_HOSTED_APP_URL": JSON.stringify(
         repoEnv.VITE_CONNECT_HOSTED_APP_URL ?? "",
@@ -251,12 +277,6 @@ export default defineConfig(() => {
         connectProfileDigest(connectProfileReceipt(repoEnv)),
       ),
       "import.meta.env.VITE_ANDROID_PWA": JSON.stringify(isAndroidPwa ? "1" : ""),
-      // In dev mode, tell the web app where the WebSocket server lives
-      "import.meta.env.VITE_WS_URL": JSON.stringify(configuredWsUrl ?? ""),
-      // Pinned explicitly rather than left to Vite's automatic VITE_ exposure:
-      // under single-origin dev this must stay empty even when a `.env`
-      // supplies it, so the client falls back to window.location.origin.
-      "import.meta.env.VITE_HTTP_URL": JSON.stringify(configuredHttpUrl ?? ""),
       "import.meta.env.VITE_T3CODE_RELAY_URL": JSON.stringify(configuredRelayUrl),
       "import.meta.env.VITE_CLERK_PUBLISHABLE_KEY": JSON.stringify(configuredClerkPublishableKey),
       "import.meta.env.VITE_CLERK_JWT_TEMPLATE": JSON.stringify(configuredClerkJwtTemplate),

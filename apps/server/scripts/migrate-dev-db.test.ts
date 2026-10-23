@@ -44,6 +44,13 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ["running-thread", "project-kept", "running", "{}", "2026-08-05"],
         ["settled-thread", "project-kept", "completed", '{"settledAt":"2026-08-01"}', "2026-08-05"],
         [
+          "archived-thread",
+          "project-kept",
+          "completed",
+          '{"archivedAt":"2026-08-01"}',
+          "2026-08-05",
+        ],
+        [
           "limit-thread",
           "project-kept",
           "completed",
@@ -74,6 +81,9 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
       yield* sql`INSERT INTO orchestration_v2_projection_context_transfers
         (context_transfer_id, source_thread_id, target_thread_id, type, status, updated_at, payload_json)
         VALUES ('transfer-1', 'settled-thread', 'stopped-thread', 'provider_handoff', 'completed', '2026-08-01', '{}')`;
+      yield* sql`INSERT INTO orchestration_v2_projection_context_transfers
+        (context_transfer_id, source_thread_id, target_thread_id, type, status, updated_at, payload_json)
+        VALUES ('transfer-archived', 'archived-thread', 'stopped-thread', 'provider_handoff', 'completed', '2026-08-01', '{}')`;
       yield* sql`INSERT INTO orchestration_v2_projection_messages
         (rowid, message_id, thread_id, role, streaming, created_at, updated_at, payload_json)
         VALUES
@@ -94,7 +104,7 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
 });
 
 it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
-  it.effect("keeps stopped thread families from live projects and clears pending work", () =>
+  it.effect("keeps stopped and settled thread families and clears pending work", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -103,7 +113,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const source = yield* createFixtureSource(sourceDir);
 
       const result = yield* runMigrateDevDb(
-        { baseDir: destDir, source, projects: 5, threadsPerProject: 1 },
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 2 },
         { sharedHome: sourceDir },
       );
 
@@ -128,21 +138,21 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       );
       assert.deepStrictEqual(
         kept.threads.map((row) => row.thread_id),
-        ["fork-thread", "stopped-thread"],
+        ["fork-thread", "settled-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(
         kept.events.map((row) => row.stream_id),
-        ["fork-thread", "stopped-thread"],
+        ["fork-thread", "settled-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(
         kept.sessions.map((row) => row.provider_session_id),
         ["session-shared"],
       );
-      assert.deepStrictEqual(kept.leftovers, { auth: 0, tasks: 0, transfers: 0 });
+      assert.deepStrictEqual(kept.leftovers, { auth: 0, tasks: 0, transfers: 1 });
     }),
   );
 
-  it.effect("never copies a settled thread's rows, and new events append after the source's", () =>
+  it.effect("never copies an archived thread, and new events append after the source's", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slice-" });
@@ -166,10 +176,10 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         result.databasePath,
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
-          const [settledRows] = yield* sql<{ count: number }>`
+          const [archivedRows] = yield* sql<{ count: number }>`
             SELECT
-              (SELECT COUNT(*) FROM orchestration_v2_projection_runs WHERE thread_id = 'settled-thread')
-              + (SELECT COUNT(*) FROM orchestration_events WHERE stream_id = 'settled-thread')
+              (SELECT COUNT(*) FROM orchestration_v2_projection_runs WHERE thread_id = 'archived-thread')
+              + (SELECT COUNT(*) FROM orchestration_events WHERE stream_id = 'archived-thread')
               AS count`;
           const [sequence] = yield* sql<{ seq: number }>`
             SELECT seq FROM sqlite_sequence WHERE name = 'orchestration_events'`;
@@ -179,13 +189,43 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
             SELECT message.message_id FROM orchestration_v2_projection_messages message
             JOIN orchestration_v2_message_search search ON search.rowid = message.rowid
             WHERE orchestration_v2_message_search MATCH '"kept"'`;
-          return { settledRows: settledRows?.count, sequence: sequence?.seq, search, found };
+          return { archivedRows: archivedRows?.count, sequence: sequence?.seq, search, found };
         }),
       );
-      assert.equal(copied.settledRows, 0);
+      assert.equal(copied.archivedRows, 0);
       assert.equal(copied.sequence, sourceSequence?.seq);
-      assert.deepStrictEqual(copied.search, [{ text: "searchable kept history" }]);
+      assert.deepStrictEqual(copied.search, [
+        { text: "private settled history" },
+        { text: "searchable kept history" },
+      ]);
       assert.deepStrictEqual(copied.found, [{ message_id: "kept-message" }]);
+    }),
+  );
+
+  it.effect("skips a thread family larger than the per-project limit", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-family-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-family-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+
+      // stopped-thread and its fork are 2 threads; settled-thread is 1.
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 1 },
+        { sharedHome: sourceDir },
+      );
+      const threads = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ thread_id: string }>`
+            SELECT thread_id FROM orchestration_v2_projection_threads`;
+        }),
+      );
+      assert.deepStrictEqual(
+        threads.map((row) => row.thread_id),
+        ["settled-thread"],
+      );
     }),
   );
 

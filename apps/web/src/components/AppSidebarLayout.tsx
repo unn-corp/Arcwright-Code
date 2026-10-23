@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -9,7 +10,14 @@ import {
 } from "react";
 import { useBlocker, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
+import { shouldOpenThreadListOnBack } from "../threadRoutes";
+import {
+  releaseThreadUndoShortcut,
+  threadUndoClaimsShortcut,
+  undoLatestThreadAction,
+} from "../hooks/showThreadUndoNotice";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
@@ -23,7 +31,6 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { cn, isMacPlatform } from "../lib/utils";
-import { shouldOpenThreadListOnBack } from "../threadRoutes";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import {
@@ -172,15 +179,10 @@ function SidebarControl() {
     };
   }, [keybindings, toggleSidebar, usagePageOpen]);
 
-  // The mobile sheet header owns the toggle while open. Keeping the floating
-  // control above the sheet paints a second icon over it and bypasses the modal.
+  // The sheet header owns the toggle while open and throughout its closing transition.
   if (isMobile && isSidebarVisible) return null;
 
   return (
-    // The right-side layout controls carry mr-px (border compensation inside
-    // the panel), so the trigger mirrors it: both clusters sit one extra pixel
-    // off their edge and the titlebar reads symmetric.
-    // The sheet owns its trigger until its closing transition completes.
     <div
       className={cn(
         "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
@@ -209,11 +211,20 @@ function SidebarControl() {
   );
 }
 
-/**
- * Turns the mobile back gesture into "up to the thread list" while a
- * conversation is open. Lives inside `SidebarProvider` because the list it
- * reveals is the sidebar sheet.
- */
+function routePanelsOpen(routeThreadRef: ReturnType<typeof useThreadRouteRef>) {
+  if (!routeThreadRef) return { terminalOpen: false, previewOpen: false };
+  return {
+    terminalOpen: selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      routeThreadRef,
+    ).terminalOpen,
+    previewOpen:
+      selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, routeThreadRef) ===
+      "preview",
+  };
+}
+
+/** Turns the mobile back gesture into "up to the thread list" while a conversation is open. */
 function MobileBackOpensThreadList() {
   const { isMobile, openMobile, setOpenMobile } = useSidebar();
 
@@ -228,9 +239,7 @@ function MobileBackOpensThreadList() {
         routeId: current.routeId,
         action,
       });
-      if (shouldOpen) {
-        setOpenMobile(true);
-      }
+      if (shouldOpen) setOpenMobile(true);
       return shouldOpen;
     },
   });
@@ -238,8 +247,8 @@ function MobileBackOpensThreadList() {
   return null;
 }
 
-// Moves through the app's route history like a browser's back/forward buttons.
-function NavigationHistoryShortcuts() {
+export function NavigationHistoryShortcuts() {
+  const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const routeThreadRef = useThreadRouteRef();
 
@@ -255,19 +264,11 @@ function NavigationHistoryShortcuts() {
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: isTerminalFocused(),
-          terminalOpen: routeThreadRef
-            ? selectThreadTerminalUiState(
-                useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
-                routeThreadRef,
-              ).terminalOpen
-            : false,
           previewFocus: isPreviewFocused(),
-          previewOpen: routeThreadRef
-            ? selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, routeThreadRef) ===
-              "preview"
-            : false,
+          ...routePanelsOpen(routeThreadRef),
           editableFocus: isEditableFocused(event.target),
           modelPickerOpen: isModelPickerOpen(),
+          usagePageOpen,
         },
       });
       if (command !== "navigation.back" && command !== "navigation.forward") return;
@@ -280,7 +281,68 @@ function NavigationHistoryShortcuts() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, routeThreadRef]);
+  }, [keybindings, routeThreadRef, usagePageOpen]);
+
+  return null;
+}
+
+const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
+
+// Undoes the thread actions in the sidebar's notice. Mounted wherever the
+// thread sidebar can show; Settings replaces it. Listens in the capture phase
+// so mod+z reaches it before the composer's own undo handler consumes the key.
+function ThreadUndoShortcut() {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const routeThreadRef = useThreadRouteRef();
+  // A collapsed sidebar hides the notice, so text fields keep their own undo.
+  const noticeVisible = useSidebarVisibility();
+  // Outlives the effect: undoing an archive navigates, which re-runs it mid-hold.
+  const heldUndoKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // A held key undoes once. Cancel its repeats so they cannot fall through
+      // to the editor's own undo, even after the last notice is gone.
+      if (event.repeat) {
+        if (event.code === heldUndoKey.current) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+      // A modifier tapped mid-hold leaves the held key repeating.
+      if (!MODIFIER_KEYS.has(event.key)) heldUndoKey.current = null;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          previewFocus: isPreviewFocused(),
+          ...routePanelsOpen(routeThreadRef),
+          editableFocus:
+            isEditableFocused(event.target) && !(noticeVisible && threadUndoClaimsShortcut()),
+          modelPickerOpen: isModelPickerOpen(),
+        },
+      });
+      if (command !== "thread.undo") {
+        if (!MODIFIER_KEYS.has(event.key)) releaseThreadUndoShortcut();
+        return;
+      }
+      if (isCommandPaletteOpen() || isModelPickerOpen()) return;
+      if (undoLatestThreadAction()) {
+        heldUndoKey.current = event.code;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    // Pastes from a menu, dictation and drops edit text without a keypress.
+    const onInput = () => releaseThreadUndoShortcut();
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("input", onInput, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("input", onInput, true);
+    };
+  }, [keybindings, noticeVisible, routeThreadRef]);
 
   return null;
 }
@@ -400,6 +462,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <SidebarControl />
         <MobileBackOpensThreadList />
         <NavigationHistoryShortcuts />
+        {isOnSettings ? null : <ThreadUndoShortcut />}
         <MainAppLocationTracker />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

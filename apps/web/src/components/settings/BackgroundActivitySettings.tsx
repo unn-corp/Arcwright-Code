@@ -1,10 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { SettingsIcon } from "lucide-react";
+import * as Equal from "effect/Equal";
+import { useSettingsScope } from "./SettingsScopeContext";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { type BackgroundActivityProfile } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
 import {
   useScopedSettings,
+  useScopedSettingsMixed,
   useScopedSettingsWriteAllowed,
   useUpdateScopedSettings,
 } from "./useScopedSettings";
@@ -33,9 +38,16 @@ import {
   durationToSeconds,
   normalizeIntervalSeconds,
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
+  resolveBackgroundActivityProfileOption,
 } from "./SettingsPanels.logic";
 import { searchableSetting } from "./settingsSearch";
-import { SettingsSearchTarget, useSettingsSearchTargetId } from "./settingsLayout";
+import {
+  SettingsSearchTarget,
+  useSettingsSearchTargetId,
+  PolicyTooltip,
+  SettingResetButton,
+  SettingsRow,
+} from "./settingsLayout";
 
 export const BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS: ReadonlySet<string> = new Set([
   "background-shared-policy",
@@ -438,5 +450,125 @@ export function BackgroundActivityAdvancedDialog({
         </DialogFooter>
       </DialogPopup>
     </Dialog>
+  );
+}
+
+export function BackgroundActivitySettingsRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const { scope, environment } = useSettingsScope();
+  const environmentId = environment?.environmentId ?? null;
+  const isEnvironmentScope = scope.environmentIds.length === 1 && environmentId !== null;
+  const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
+  const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
+  const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
+  const activeBackgroundActivityProfile = resolvedBackgroundActivity.profile;
+  const backgroundActivityProfileOption = resolveBackgroundActivityProfileOption(settings);
+  const backgroundActivityDescription =
+    backgroundActivityProfileOption === "advanced"
+      ? `${ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION} Shared policy: ${
+          BACKGROUND_ACTIVITY_PROFILE_LABELS[activeBackgroundActivityProfile]
+        }.`
+      : BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS[resolvedBackgroundActivity.profile];
+  const canResetBackgroundActivity = !Equal.equals(
+    settings.backgroundActivity,
+    DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
+  );
+
+  return (
+    <>
+      <BackgroundActivitySearchOpener
+        enabled={isEnvironmentScope}
+        onOpen={setBackgroundActivityDialogOpen}
+      />
+      <SettingsRow
+        serverScoped
+        settingKeys={["backgroundActivity"]}
+        id={searchableSetting("background-activity").id}
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            {searchableSetting("background-activity").title}
+            <PolicyTooltip>
+              This shared policy gates background work such as Git refreshes and provider health
+              probes after their individual intervals elapse.
+            </PolicyTooltip>
+          </span>
+        }
+        description={backgroundActivityDescription}
+        resetAction={
+          canResetBackgroundActivity ? (
+            <SettingResetButton
+              label="background activity"
+              onClick={() => updateSettings(resetBackgroundActivitySettings())}
+            />
+          ) : null
+        }
+        control={
+          <>
+            <Select
+              value={mixedBackgroundActivity ? null : backgroundActivityProfileOption}
+              onValueChange={(value) => {
+                if (value === "advanced") {
+                  if (isEnvironmentScope) setBackgroundActivityDialogOpen(true);
+                  return;
+                }
+                if (value === "balanced" || value === "performance" || value === "battery-saver") {
+                  updateSettings(backgroundActivityProfileSettings(value));
+                }
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-full sm:w-40"
+                aria-label="Background activity profile"
+              >
+                <SelectValue>
+                  {(value: BackgroundActivityProfileOption | null) =>
+                    value === null ? "Mixed" : BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS[value]
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="balanced">
+                  {BACKGROUND_ACTIVITY_PROFILE_LABELS.balanced}
+                </SelectItem>
+                <SelectItem hideIndicator value="performance">
+                  {BACKGROUND_ACTIVITY_PROFILE_LABELS.performance}
+                </SelectItem>
+                <SelectItem hideIndicator value="battery-saver">
+                  {BACKGROUND_ACTIVITY_PROFILE_LABELS["battery-saver"]}
+                </SelectItem>
+                <SelectItem hideIndicator value="advanced" disabled={!isEnvironmentScope}>
+                  {isEnvironmentScope
+                    ? BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS.advanced
+                    : `${BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS.advanced} (one environment)`}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+            {backgroundActivityProfileOption === "advanced" && isEnvironmentScope ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label="Configure advanced background activity"
+                      onClick={() => setBackgroundActivityDialogOpen(true)}
+                    >
+                      <SettingsIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="top">Configure background activity</TooltipPopup>
+              </Tooltip>
+            ) : null}
+            <BackgroundActivityAdvancedDialog
+              open={backgroundActivityDialogOpen && isEnvironmentScope}
+              onOpenChange={setBackgroundActivityDialogOpen}
+            />
+          </>
+        }
+      />
+    </>
   );
 }

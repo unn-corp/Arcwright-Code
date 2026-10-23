@@ -8,6 +8,7 @@ import { DraftId, useComposerDraftStore, type ComposerThreadTarget } from "./com
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { environmentThreadShells } from "./state/threads";
 import type { Thread } from "./types";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
 /** Stable across streaming/status updates, but changes when a client selects or starts a turn. */
 export function composerModelSelectionBase(
@@ -31,7 +32,11 @@ export function installComposerSelectionIntentSync(): () => void {
   let reconciling = false;
   let reconcileAgain = false;
 
-  const inspect = (draftKey: string, target: ComposerThreadTarget, thread: Thread | null) => {
+  const inspect = (
+    draftKey: string,
+    target: ComposerThreadTarget,
+    thread: Thread | EnvironmentThreadShell | null,
+  ) => {
     // Missing/loading shells cannot establish that a saved choice is stale.
     if (!thread) return;
     const state = useComposerDraftStore.getState();

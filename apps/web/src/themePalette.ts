@@ -310,12 +310,7 @@ function legacyThemeMode(theme: ThemePreference): ThemeAppearance | null {
   return theme === LEGACY_T3_CHAT_DARK_THEME_ID ? "dark" : null;
 }
 
-/**
- * The standard Arcwright Code look as a theme palette, for seeding a new theme when
- * no theme is installed. Distinct from {@link getDefaultThemeColors}, which
- * carries the flagship T3 Chat palette used to fill roles omitted by theme
- * files.
- */
+/** Seeds a new theme from Arcwright Code's standard palette when no theme is installed. */
 export function getStandardThemeColors(appearance: ThemeAppearance): ThemeColors {
   if (appearance === "dark") {
     return (standardDarkThemeColors ??= decodeThemeColors(T3_CODE_DARK_THEME_COLORS));
@@ -565,11 +560,25 @@ function solveOklchLightness(
 }
 
 /**
- * The status colors Arcwright Code shows without a theme, read from the app's own
- * tokens (red-500 / amber-500 families). Generated palettes fall back to
- * these instead of the flagship theme's, so an imported or created theme
- * never inherits a brand tint on destructive buttons and warnings.
+ * Moves only the lightness, so a color that is too dim on `surface` keeps its
+ * hue instead of collapsing to black or white.
  */
+export function readableThemeColorOn(color: string, surface: string, minContrast: number): string {
+  const parsedColor = parseThemeColor(color);
+  const parsedSurface = parseThemeColor(surface);
+  if (!parsedColor || !parsedSurface) return color;
+  const surfaceRgb = themeOklchToRgb(parsedSurface.color);
+  if (themeContrastRatio(themeOklchToRgb(parsedColor.color), surfaceRgb) >= minContrast) {
+    return color;
+  }
+  const direction = themeRelativeLuminance(surfaceRgb) < 0.179 ? "lighter" : "darker";
+  const solved = solveOklchLightness(parsedColor.color, surfaceRgb, minContrast, direction);
+  // Return the 8-bit color the solver measured: the unrounded OKLCH can round
+  // to a neighbor just under the target once it is stored and read back.
+  return themeRgbToHexColor(themeOklchToRgb(solved));
+}
+
+// Generated palettes keep the app's status colors rather than inheriting a theme's brand tint.
 const STANDARD_STATUS_COLORS = {
   light: {
     error: "#fb2c36",

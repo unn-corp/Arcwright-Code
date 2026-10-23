@@ -263,8 +263,6 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
                               ),
                             )
                           }
-                          onPromptChange={setQuestion}
-                          prompt={question}
                           provider={selectedProviderEntry.driverKind}
                         />
                       ) : null}

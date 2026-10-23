@@ -8,62 +8,44 @@ import {
   AgentNotificationSoundRow,
   AGENT_NOTIFICATION_SOUND_ROWS,
 } from "./AgentNotificationSettings";
-import { CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import { SettingsGroup } from "./SettingsGroup";
 import { resolvePrivacyPolicy } from "../../legalLinks";
-import { Link, useLocation } from "@tanstack/react-router";
-import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  IDLE_COMPACTION_MODES,
+  globalIdleCompaction,
   type AgentNotificationEvent,
   type AgentNotificationKind,
   type AgentNotificationSoundId,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
 import {
-  DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
-  type ChatWidth,
-  type EnvironmentIdentificationMode,
-  MAX_APPEARANCE_CONTRAST,
-  MAX_CODE_FONT_SIZE,
-  MAX_GLASS_OPACITY,
-  MAX_INTERFACE_FONT_SIZE,
-  MAX_PROMPT_FONT_SIZE,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
-  MAX_TERMINAL_FONT_SIZE,
-  MIN_CODE_FONT_SIZE,
-  MIN_APPEARANCE_CONTRAST,
-  MIN_GLASS_OPACITY,
-  MIN_INTERFACE_FONT_SIZE,
-  MIN_PROMPT_FONT_SIZE,
-  MAX_PANEL_ANIMATION_DURATION_MS,
-  MIN_PANEL_ANIMATION_DURATION_MS,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
-  MIN_TERMINAL_FONT_SIZE,
   type ResponseStreamingMode,
   type QuitConfirmationMode,
   SidebarProjectSortOrder,
 } from "@t3tools/contracts/settings";
-import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { CliCommandSettingsRow } from "./CliCommandSettingsRow";
 import { MobileAppSettingsRow } from "./MobileAppSettingsRow";
-import {
-  resolveEnvironmentIdentificationPillLabel,
-  useEnvironmentStageLabel,
-} from "../SidebarStageBackdrop";
+
 import { isAndroidPwa, isElectron } from "../../env";
 import { AndroidNotificationSettings } from "./AndroidNotificationSettings";
-import { useCustomThemes } from "../../hooks/useCustomThemes";
+
 import {
   readAppearanceModePreference,
   readThemeHalves,
   readThemePreference,
   useTheme,
 } from "../../hooks/useTheme";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
+
 import { useClientSettings, updateClientSettings } from "../../hooks/useSettings";
 import {
   useScopedSettings,
@@ -77,24 +59,12 @@ import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
-import {
-  DEFAULT_CODE_FONT_STACK,
-  DEFAULT_SANS_FONT_STACK,
-  isFontFamilyAvailable,
-  isMonospaceFamily,
-  resolveDefaultFamilyLabel,
-  resolveTerminalFontPreference,
-  resolveTerminalFontSizePreference,
-  TYPOGRAPHY_ADVANCED_STORAGE_KEY,
-} from "../../appearanceFonts";
-import { CodeFontPreview, PromptFontPreview, TerminalFontPreview } from "./SettingsFontPreviews";
-import { discoverInstalledFonts, FontFamilyPicker, useFontEnumeration } from "./FontFamilyPicker";
+
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ThemeLibrary } from "./ThemeSettings";
+
 import {
   getChangedBrowserSettingLabels,
   getChangedTypographySettingLabels,
@@ -103,10 +73,8 @@ import {
   projectGroupingModeFromToggle,
   readLastEnabledProjectGroupingMode,
   rememberEnabledProjectGroupingMode,
-  resolveBackgroundActivityProfileOption,
 } from "./SettingsPanels.logic";
 import {
-  PolicyTooltip,
   SettingResetButton,
   SettingsPageContainer,
   SettingsRow,
@@ -114,31 +82,16 @@ import {
   useSettingsSearchTarget,
   useSettingsSearchTargetId,
 } from "./settingsLayout";
-import { searchableSetting, SETTINGS_SEARCH_ITEMS } from "./settingsSearch";
-import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { searchableSetting } from "./settingsSearch";
+
 import {
   playAgentNotificationSound,
   playAgentNotificationSoundId,
 } from "../../agentNotifications/sound";
 
 import { AboutVersionSection, AboutVersionTitle } from "./AboutVersionSettings";
-import {
-  BackgroundActivitySearchOpener,
-  BACKGROUND_ACTIVITY_PROFILE_LABELS,
-  BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS,
-  BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS,
-  ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION,
-  resetBackgroundActivitySettings,
-  backgroundActivityProfileSettings,
-  BackgroundActivityAdvancedDialog,
-  type BackgroundActivityProfileOption,
-} from "./BackgroundActivitySettings";
-
-const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
-  artwork: "Artwork",
-  pill: "Version pill",
-  none: "None",
-};
+import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
+import { scopedIdleCompaction } from "./scopedSettings";
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: "Wait for the full response",
@@ -162,12 +115,6 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
-
-const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
-  comfortable: "Comfortable",
-  wide: "Wide",
-  full: "Full",
-};
 
 const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
   direct: "Direct",
@@ -481,947 +428,6 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-const APPEARANCE_OVERVIEW_TARGET_IDS = new Set<string>([
-  "appearance-interface",
-  "motion",
-  "typography",
-  ...SETTINGS_SEARCH_ITEMS.filter(
-    (item) =>
-      item.to === "/settings/appearance" && item.id !== "theme" && item.id !== "color-scheme",
-  ).map((item) => item.id),
-]);
-
-export function AppearanceSettingsPanel() {
-  const {
-    appearanceMode,
-    refreshTheme,
-    resolvedTheme,
-    setAppearanceMode,
-    setTheme,
-    setThemeHalf,
-    theme,
-    themeHalves,
-  } = useTheme();
-  const customThemes = useCustomThemes();
-  const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
-  const [themeLibraryOpen, setThemeLibraryOpen] = useState(false);
-  const searchTargetId = useLocation({ select: (location) => location.hash.replace(/^#/, "") });
-  const [previousSearchTargetId, setPreviousSearchTargetId] = useState(searchTargetId);
-  if (previousSearchTargetId !== searchTargetId) {
-    setPreviousSearchTargetId(searchTargetId);
-    if (themeLibraryOpen && APPEARANCE_OVERVIEW_TARGET_IDS.has(searchTargetId)) {
-      setThemeLibraryOpen(false);
-    }
-  }
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  const environmentStageLabel = useEnvironmentStageLabel();
-  const showEnvironmentIdentification =
-    resolveEnvironmentIdentificationPillLabel(environmentStageLabel) !== null;
-  const glassOpacityRatio =
-    (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
-  const glassOpacitySliderStyle = {
-    "--settings-slider-progress": `${glassOpacityRatio * 100}%`,
-    "--settings-slider-fill-offset": `${0.5 - glassOpacityRatio}rem`,
-  } as CSSProperties;
-  const appearanceContrastRatio =
-    (settings.appearanceContrast - MIN_APPEARANCE_CONTRAST) /
-    (MAX_APPEARANCE_CONTRAST - MIN_APPEARANCE_CONTRAST);
-  const appearanceContrastSliderStyle = {
-    "--settings-slider-progress": `${appearanceContrastRatio * 100}%`,
-    "--settings-slider-fill-offset": `${0.5 - appearanceContrastRatio}rem`,
-  } as CSSProperties;
-  const panelAnimationDurationRatio =
-    (settings.panelAnimationDurationMs - MIN_PANEL_ANIMATION_DURATION_MS) /
-    (MAX_PANEL_ANIMATION_DURATION_MS - MIN_PANEL_ANIMATION_DURATION_MS);
-  const panelAnimationDurationSliderStyle = {
-    "--settings-slider-progress": `${panelAnimationDurationRatio * 100}%`,
-    "--settings-slider-fill-offset": `${0.5 - panelAnimationDurationRatio}rem`,
-  } as CSSProperties;
-
-  return (
-    <SettingsPageContainer>
-      {themeLibraryOpen ? (
-        <Button variant="outline" size="sm" onClick={() => setThemeLibraryOpen(false)}>
-          Back to Appearance
-        </Button>
-      ) : null}
-      <SettingsSection id="appearance" title={themeLibraryOpen ? "Theme library" : "Themes"}>
-        <div id={searchableSetting("theme").id}>
-          <ThemeLibrary
-            compact={!themeLibraryOpen}
-            onManage={() => setThemeLibraryOpen(true)}
-            appearanceMode={appearanceMode}
-            customThemes={customThemes}
-            initialAppearance={resolvedTheme}
-            refreshTheme={refreshTheme}
-            isImportOpen={isImportThemeOpen}
-            setAppearanceMode={setAppearanceMode}
-            setTheme={setTheme}
-            setThemeHalf={setThemeHalf}
-            theme={theme}
-            themeHalves={themeHalves}
-            onImportOpenChange={setIsImportThemeOpen}
-          />
-        </div>
-      </SettingsSection>
-
-      {!themeLibraryOpen ? (
-        <>
-          <SettingsSection id="appearance-interface" title="Interface">
-            <SettingsRow
-              {...searchableSetting("standard-thread-feed")}
-              description="Use the original T3 chat feed for standard threads. Organization conversations keep their current layout. Saved on this device."
-              resetAction={
-                settings.standardThreadFeed !== DEFAULT_UNIFIED_SETTINGS.standardThreadFeed ? (
-                  <SettingResetButton
-                    label="Upstream chat feed"
-                    onClick={() =>
-                      updateSettings({
-                        standardThreadFeed: DEFAULT_UNIFIED_SETTINGS.standardThreadFeed,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  aria-label="Upstream chat feed"
-                  checked={settings.standardThreadFeed === "upstream"}
-                  onCheckedChange={(enabled) =>
-                    updateSettings({ standardThreadFeed: enabled ? "upstream" : "arcwright" })
-                  }
-                />
-              }
-            />
-
-            <SettingsRow
-              {...searchableSetting("assistant-message-bubbles")}
-              description="Display AI replies in rounded chat bubbles when using the Arcwright feed."
-              resetAction={
-                settings.assistantMessageBubbles !==
-                DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles ? (
-                  <SettingResetButton
-                    label="AI message bubbles"
-                    onClick={() =>
-                      updateSettings({
-                        assistantMessageBubbles: DEFAULT_UNIFIED_SETTINGS.assistantMessageBubbles,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  aria-label="AI message bubbles"
-                  disabled={settings.standardThreadFeed === "upstream"}
-                  checked={settings.assistantMessageBubbles}
-                  onCheckedChange={(assistantMessageBubbles) =>
-                    updateSettings({ assistantMessageBubbles })
-                  }
-                />
-              }
-            />
-
-            <SettingsRow
-              {...searchableSetting("setting-appearance-contrast")}
-              description="Adjust the contrast of colors and borders across the interface."
-              resetAction={
-                settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast ? (
-                  <SettingResetButton
-                    label="contrast"
-                    onClick={() =>
-                      updateSettings({
-                        appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <div className="flex w-full items-center gap-3 sm:w-52">
-                  <output
-                    className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                    htmlFor="appearance-contrast"
-                  >
-                    {settings.appearanceContrast}%
-                  </output>
-                  <input
-                    aria-label="Contrast"
-                    className="settings-slider min-w-0 flex-1"
-                    id="appearance-contrast"
-                    max={MAX_APPEARANCE_CONTRAST}
-                    min={MIN_APPEARANCE_CONTRAST}
-                    onChange={(event) => {
-                      const appearanceContrast = Number(event.currentTarget.value);
-                      if (
-                        Number.isInteger(appearanceContrast) &&
-                        appearanceContrast >= MIN_APPEARANCE_CONTRAST &&
-                        appearanceContrast <= MAX_APPEARANCE_CONTRAST
-                      ) {
-                        updateSettings({ appearanceContrast });
-                      }
-                    }}
-                    step={5}
-                    style={appearanceContrastSliderStyle}
-                    type="range"
-                    value={settings.appearanceContrast}
-                  />
-                </div>
-              }
-            />
-
-            <SettingsRow
-              {...searchableSetting("setting-glass-opacity")}
-              description="Higher values make menus, dialogs, and the composer more solid."
-              resetAction={
-                settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
-                  <SettingResetButton
-                    label="glass opacity"
-                    onClick={() =>
-                      updateSettings({ glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <div className="flex w-full items-center gap-3 sm:w-52">
-                  <output
-                    className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                    htmlFor="glass-opacity"
-                  >
-                    {settings.glassOpacity}%
-                  </output>
-                  <input
-                    aria-label="Glass opacity"
-                    className="settings-slider min-w-0 flex-1"
-                    id="glass-opacity"
-                    max={MAX_GLASS_OPACITY}
-                    min={MIN_GLASS_OPACITY}
-                    onChange={(event) => {
-                      const glassOpacity = Number(event.currentTarget.value);
-                      if (
-                        Number.isInteger(glassOpacity) &&
-                        glassOpacity >= MIN_GLASS_OPACITY &&
-                        glassOpacity <= MAX_GLASS_OPACITY
-                      ) {
-                        updateSettings({ glassOpacity });
-                      }
-                    }}
-                    step={5}
-                    style={glassOpacitySliderStyle}
-                    type="range"
-                    value={settings.glassOpacity}
-                  />
-                </div>
-              }
-            />
-
-            {showEnvironmentIdentification ? (
-              <SettingsRow
-                {...searchableSetting("environment-identification")}
-                description="Choose how Dev and Nightly environments are identified."
-                resetAction={
-                  settings.environmentIdentificationMode !==
-                  DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE ? (
-                    <SettingResetButton
-                      label="environment identification"
-                      onClick={() =>
-                        updateSettings({
-                          environmentIdentificationMode: DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
-                        })
-                      }
-                    />
-                  ) : null
-                }
-                control={
-                  <Select
-                    value={settings.environmentIdentificationMode}
-                    onValueChange={(value) => {
-                      if (value === "artwork" || value === "pill" || value === "none") {
-                        updateSettings({ environmentIdentificationMode: value });
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      size="sm"
-                      className="w-full sm:w-40"
-                      aria-label="Environment identification"
-                    >
-                      <SelectValue>
-                        {ENVIRONMENT_IDENTIFICATION_LABELS[settings.environmentIdentificationMode]}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup align="end" alignItemWithTrigger={false}>
-                      {Object.entries(ENVIRONMENT_IDENTIFICATION_LABELS).map(([value, label]) => (
-                        <SelectItem hideIndicator key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                }
-              />
-            ) : null}
-
-            <SettingsRow
-              {...searchableSetting("diff-color-scheme")}
-              description="Choose colors for additions and deletions, including change counts."
-              resetAction={
-                settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme ? (
-                  <SettingResetButton
-                    label="diff colors"
-                    onClick={() =>
-                      updateSettings({ diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <div className="w-full sm:w-40">
-                  <Select
-                    value={settings.diffColorScheme}
-                    onValueChange={(value) => {
-                      if (value === "red-green" || value === "blue-orange")
-                        updateSettings({ diffColorScheme: value });
-                    }}
-                  >
-                    <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Diff colors">
-                      <span
-                        aria-hidden="true"
-                        className={
-                          settings.diffColorScheme === "blue-orange"
-                            ? "flex shrink-0 flex-row-reverse gap-1"
-                            : "flex shrink-0 gap-1"
-                        }
-                      >
-                        <span className="size-2 rounded-full bg-diff-deletion" />
-                        <span className="size-2 rounded-full bg-diff-addition" />
-                      </span>
-                      <SelectValue>
-                        {settings.diffColorScheme === "blue-orange"
-                          ? "Blue & orange"
-                          : "Red & green"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup align="end" alignItemWithTrigger={false}>
-                      <SelectItem value="red-green">Red & green (default)</SelectItem>
-                      <SelectItem value="blue-orange">Blue & orange</SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </div>
-              }
-            />
-
-            <SettingsRow
-              {...searchableSetting("chat-width")}
-              description="Set how wide messages and the composer can grow on large screens."
-              resetAction={
-                settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? (
-                  <SettingResetButton
-                    label="chat width"
-                    onClick={() =>
-                      updateSettings({ chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <div className="w-full sm:w-40">
-                  <Select
-                    value={settings.chatWidth}
-                    onValueChange={(value) => {
-                      if (value === "comfortable" || value === "wide" || value === "full")
-                        updateSettings({ chatWidth: value });
-                    }}
-                  >
-                    <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Chat width">
-                      <SelectValue>{CHAT_WIDTH_LABELS[settings.chatWidth]}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup align="end" alignItemWithTrigger={false}>
-                      <SelectItem value="comfortable">Comfortable (default)</SelectItem>
-                      <SelectItem value="wide">Wide</SelectItem>
-                      <SelectItem value="full">Full</SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </div>
-              }
-            />
-            <SettingsRow
-              {...searchableSetting("math-rendering")}
-              description="Typeset LaTeX math, such as $x^2$ or \[x^2\], in messages and Markdown previews. The composer keeps TeX source editable."
-              resetAction={
-                settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled ? (
-                  <SettingResetButton
-                    label="math rendering"
-                    onClick={() =>
-                      updateSettings({
-                        mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.mathRenderingEnabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ mathRenderingEnabled: Boolean(checked) })
-                  }
-                  aria-label="Render math"
-                />
-              }
-            />
-          </SettingsSection>
-
-          <SettingsSection id="motion" title="Motion">
-            <SettingsRow
-              {...searchableSetting("panel-animations")}
-              description="Set how fast panels open and close."
-              control={
-                <div className="grid w-full grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 sm:w-auto sm:grid-cols-[7rem_13rem] sm:gap-4">
-                  <PanelAnimationsPreview durationMs={settings.panelAnimationDurationMs} />
-                  <div className="flex w-full items-center gap-3">
-                    <output
-                      className="min-w-16 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                      htmlFor="panel-animation-duration"
-                    >
-                      {settings.panelAnimationDurationMs} ms
-                    </output>
-                    <input
-                      aria-label="Panel animation duration"
-                      className="settings-slider min-w-0 flex-1"
-                      id="panel-animation-duration"
-                      max={MAX_PANEL_ANIMATION_DURATION_MS}
-                      min={MIN_PANEL_ANIMATION_DURATION_MS}
-                      onChange={(event) => {
-                        const panelAnimationDurationMs = Number(event.currentTarget.value);
-                        if (
-                          Number.isInteger(panelAnimationDurationMs) &&
-                          panelAnimationDurationMs >= MIN_PANEL_ANIMATION_DURATION_MS &&
-                          panelAnimationDurationMs <= MAX_PANEL_ANIMATION_DURATION_MS
-                        ) {
-                          updateSettings({ panelAnimationDurationMs });
-                        }
-                      }}
-                      step={25}
-                      style={panelAnimationDurationSliderStyle}
-                      type="range"
-                      value={settings.panelAnimationDurationMs}
-                    />
-                  </div>
-                </div>
-              }
-              resetAction={
-                settings.panelAnimationDurationMs !==
-                DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs ? (
-                  <SettingResetButton
-                    label="panel animations"
-                    onClick={() =>
-                      updateSettings({
-                        panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
-                      })
-                    }
-                  />
-                ) : null
-              }
-            />
-          </SettingsSection>
-
-          <TypographySection />
-        </>
-      ) : null}
-    </SettingsPageContainer>
-  );
-}
-
-function useFontDefaultFamilies() {
-  const settings = useScopedSettings();
-  const [defaults] = useState(() => ({
-    sans: resolveDefaultFamilyLabel(DEFAULT_SANS_FONT_STACK) ?? "System default",
-    code: resolveDefaultFamilyLabel(DEFAULT_CODE_FONT_STACK) ?? "System monospace",
-  }));
-  return {
-    sans: defaults.sans,
-    code: defaults.code,
-    interfaceFamily: settings.fontFamilySans.trim() || defaults.sans,
-  };
-}
-
-function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  const defaults = useFontDefaultFamilies();
-  return (
-    <FontFamilySettingsRow
-      {...searchableSetting("interface-font")}
-      description="Everything outside code blocks and the terminal."
-      defaultFamily={defaults.sans}
-      defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilySans}
-      value={settings.fontFamilySans}
-      onValueChange={(fontFamilySans) => updateSettings({ fontFamilySans })}
-      onReset={() =>
-        updateSettings({
-          fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
-          fontSizeInterface: DEFAULT_UNIFIED_SETTINGS.fontSizeInterface,
-        })
-      }
-      size={{
-        label: "Interface font size",
-        min: MIN_INTERFACE_FONT_SIZE,
-        max: MAX_INTERFACE_FONT_SIZE,
-        value: settings.fontSizeInterface,
-        defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizeInterface,
-        onChange: (fontSizeInterface) => updateSettings({ fontSizeInterface }),
-      }}
-      {...(preview !== undefined ? { preview } : {})}
-    />
-  );
-}
-
-function PromptFontRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  const defaults = useFontDefaultFamilies();
-  return (
-    <FontFamilySettingsRow
-      {...searchableSetting("prompt-font")}
-      description="Only the box you write prompts in. Mono works well here."
-      defaultFamily={defaults.interfaceFamily}
-      defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer}
-      value={settings.fontFamilyComposer}
-      onValueChange={(fontFamilyComposer) => updateSettings({ fontFamilyComposer })}
-      onReset={() =>
-        updateSettings({
-          fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
-          fontSizePrompt: DEFAULT_UNIFIED_SETTINGS.fontSizePrompt,
-        })
-      }
-      size={{
-        label: "Prompt font size",
-        min: MIN_PROMPT_FONT_SIZE,
-        max: MAX_PROMPT_FONT_SIZE,
-        value: settings.fontSizePrompt,
-        defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizePrompt,
-        onChange: (fontSizePrompt) => updateSettings({ fontSizePrompt }),
-      }}
-      preview={<PromptFontPreview />}
-    />
-  );
-}
-
-function CodeFontRow({
-  title,
-  description = "Code blocks, diffs, and file previews.",
-  preview,
-}: {
-  title?: string;
-  description?: string;
-  preview?: ReactNode;
-}) {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  const defaults = useFontDefaultFamilies();
-  return (
-    <FontFamilySettingsRow
-      {...searchableSetting("code-font")}
-      {...(title !== undefined ? { title } : {})}
-      description={description}
-      defaultFamily={defaults.code}
-      defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilyCode}
-      value={settings.fontFamilyCode}
-      onValueChange={(fontFamilyCode) => updateSettings({ fontFamilyCode })}
-      onReset={() =>
-        updateSettings({
-          fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
-          fontSizeCode: DEFAULT_UNIFIED_SETTINGS.fontSizeCode,
-        })
-      }
-      requireMonospace
-      size={{
-        label: "Code font size",
-        min: MIN_CODE_FONT_SIZE,
-        max: MAX_CODE_FONT_SIZE,
-        value: settings.fontSizeCode,
-        defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizeCode,
-        onChange: (fontSizeCode) => updateSettings({ fontSizeCode }),
-      }}
-      preview={preview ?? <CodeFontPreview />}
-    />
-  );
-}
-
-function TerminalFontRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  const defaults = useFontDefaultFamilies();
-  return (
-    <FontFamilySettingsRow
-      {...searchableSetting("terminal-font")}
-      description="Terminal output, independent from code blocks and diffs."
-      defaultFamily={defaults.code}
-      defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal}
-      value={settings.fontFamilyTerminal}
-      onValueChange={(fontFamilyTerminal) => updateSettings({ fontFamilyTerminal })}
-      onReset={() =>
-        updateSettings({
-          fontFamilyTerminal: DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal,
-          fontSizeTerminal: DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal,
-        })
-      }
-      requireMonospace
-      size={{
-        label: "Terminal font size",
-        min: MIN_TERMINAL_FONT_SIZE,
-        max: MAX_TERMINAL_FONT_SIZE,
-        value: settings.fontSizeTerminal,
-        defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal,
-        onChange: (fontSizeTerminal) => updateSettings({ fontSizeTerminal }),
-      }}
-      preview={
-        <TerminalFontPreview
-          family={resolveTerminalFontPreference({
-            advanced: true,
-            code: settings.fontFamilyCode,
-            terminal: settings.fontFamilyTerminal,
-          })}
-          size={settings.fontSizeTerminal}
-        />
-      }
-    />
-  );
-}
-
-function FontSmoothingRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  if (!isMacPlatform(navigator.platform)) return null;
-  return (
-    <SettingsRow
-      {...searchableSetting("font-smoothing")}
-      description="Use thinner grayscale text smoothing instead of the macOS default."
-      resetAction={
-        settings.fontSmoothing !== DEFAULT_UNIFIED_SETTINGS.fontSmoothing ? (
-          <SettingResetButton
-            label="font smoothing"
-            onClick={() =>
-              updateSettings({ fontSmoothing: DEFAULT_UNIFIED_SETTINGS.fontSmoothing })
-            }
-          />
-        ) : null
-      }
-      control={
-        <Switch
-          checked={settings.fontSmoothing}
-          onCheckedChange={(checked) => updateSettings({ fontSmoothing: Boolean(checked) })}
-          aria-label="Font smoothing"
-        />
-      }
-    />
-  );
-}
-
-function WordWrapRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  return (
-    <SettingsRow
-      {...searchableSetting("word-wrap")}
-      description="Wrap long lines in code blocks, tables, diffs, and file previews by default."
-      resetAction={
-        settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? (
-          <SettingResetButton
-            label="word wrapping"
-            onClick={() => updateSettings({ wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap })}
-          />
-        ) : null
-      }
-      control={
-        <Switch
-          checked={settings.wordWrap}
-          onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
-          aria-label="Wrap code, tables, diffs, and file previews by default"
-        />
-      }
-    />
-  );
-}
-
-function FontSettingsGroup() {
-  return (
-    <>
-      <InterfaceFontRow />
-      <PromptFontRow />
-      <CodeFontRow />
-      <TerminalFontRow />
-      <FontSmoothingRow />
-    </>
-  );
-}
-
-function SimpleFontRows() {
-  const settings = useScopedSettings();
-  return (
-    <>
-      <InterfaceFontRow preview={<PromptFontPreview />} />
-      <CodeFontRow
-        title="Monospace font"
-        description="Code blocks, diffs, file previews, and the terminal."
-        preview={
-          <>
-            <CodeFontPreview />
-            <TerminalFontPreview
-              family={resolveTerminalFontPreference({
-                advanced: false,
-                code: settings.fontFamilyCode,
-                terminal: settings.fontFamilyTerminal,
-              })}
-              size={resolveTerminalFontSizePreference({
-                advanced: false,
-                code: settings.fontSizeCode,
-                terminal: settings.fontSizeTerminal,
-              })}
-            />
-          </>
-        }
-      />
-    </>
-  );
-}
-
-// Font smoothing only renders on macOS, so a search jump to it elsewhere
-// must not flip the section - the target would never mount to be scrolled to.
-const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
-  "prompt-font",
-  "terminal-font",
-  ...(typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
-    ? ["font-smoothing"]
-    : []),
-]);
-
-function TypographySection() {
-  const [advanced, setAdvanced] = useLocalStorage(
-    TYPOGRAPHY_ADVANCED_STORAGE_KEY,
-    false,
-    Schema.Boolean,
-  );
-  const searchTargetId = useSettingsSearchTargetId();
-  const lastExpandedTargetRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (searchTargetId === null) {
-      lastExpandedTargetRef.current = null;
-      return;
-    }
-    if (!ADVANCED_TYPOGRAPHY_TARGET_IDS.has(searchTargetId)) return;
-    if (lastExpandedTargetRef.current === searchTargetId) return;
-    lastExpandedTargetRef.current = searchTargetId;
-    setAdvanced(true);
-  }, [searchTargetId, setAdvanced]);
-  return (
-    <SettingsSection
-      id="typography"
-      title="Typography"
-      headerAction={
-        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground">
-          Advanced
-          <Switch
-            checked={advanced}
-            onCheckedChange={(checked) => setAdvanced(Boolean(checked))}
-            aria-label="Show advanced typography settings"
-          />
-        </label>
-      }
-    >
-      {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
-      <WordWrapRow />
-    </SettingsSection>
-  );
-}
-
-function FontFamilySettingsRow({
-  id,
-  title,
-  description,
-  defaultFamily,
-  defaultValue,
-  preview,
-  value,
-  onValueChange,
-  onReset,
-  requireMonospace = false,
-  size,
-}: {
-  id?: string;
-  title: string;
-  description: string;
-  defaultFamily: string;
-  defaultValue: string;
-  preview?: ReactNode;
-  value: string;
-  onValueChange: (value: string) => void;
-  onReset: () => void;
-  requireMonospace?: boolean;
-  size: {
-    label: string;
-    min: number;
-    max: number;
-    value: number;
-    defaultValue: number;
-    onChange: (v: number) => void;
-  };
-}) {
-  const trimmed = value.trim();
-  const [draft, setDraft] = useState(value);
-  const [draftSettled, setDraftSettled] = useState(true);
-  // Each pending commit remembers the value it was typed against, so one that outlives
-  // an external change (hydration, reset, picker selection) drops its stale draft.
-  const commitTimerRef = useRef<{ readonly id: number; readonly value: string } | null>(null);
-  const cancelPendingCommit = () => {
-    if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current.id);
-    commitTimerRef.current = null;
-  };
-  // Bumped on every external value change, so a pending commit typed before one never lands,
-  // even if the value has since changed back to what it was typed against.
-  const [adopted, setAdopted] = useState({ value, generation: 0 });
-  if (adopted.value !== value) {
-    setAdopted({ value, generation: adopted.generation + 1 });
-    setDraft(value);
-    setDraftSettled(true);
-  }
-  const readAdoptedGeneration = useEffectEvent(() => adopted.generation);
-  useEffect(
-    () => () => {
-      if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current.id);
-    },
-    [],
-  );
-  const acceptsFamily = (candidate: string) =>
-    isFontFamilyAvailable(candidate) && (!requireMonospace || isMonospaceFamily(candidate));
-  const commitDraft = (next: string) => {
-    setDraftSettled(true);
-    if (next.trim().length === 0 || acceptsFamily(next)) {
-      onValueChange(next);
-    }
-  };
-  const flushDraft = () => {
-    const pending = commitTimerRef.current;
-    cancelPendingCommit();
-    if (pending !== null && pending.value === value) commitDraft(draft);
-  };
-  const draftTrimmed = draft.trim();
-  const draftPending = draftSettled && draftTrimmed.length > 0 && draftTrimmed !== trimmed;
-  const resetToDefault = () => {
-    cancelPendingCommit();
-    setDraft(defaultValue);
-    setDraftSettled(true);
-    onReset();
-  };
-  const resetAction =
-    value !== defaultValue || size.value !== size.defaultValue ? (
-      <SettingResetButton label={title.toLowerCase()} onClick={resetToDefault} />
-    ) : null;
-  const fontEnumeration = useFontEnumeration();
-  const [inputFocused, setInputFocused] = useState(false);
-  const familyControl =
-    fontEnumeration.status === "granted" ? (
-      <FontFamilyPicker
-        ariaLabel={`${title} family`}
-        defaultFamily={defaultFamily}
-        selectedFamily={trimmed}
-        requireMonospace={requireMonospace}
-        initialOpen={inputFocused}
-        onSelect={onValueChange}
-      />
-    ) : (
-      <Input
-        size="sm"
-        aria-label={`${title} family`}
-        aria-invalid={draftPending || undefined}
-        autoCapitalize="off"
-        autoComplete="off"
-        className="min-w-0 flex-1"
-        maxLength={200}
-        onFocus={() => {
-          setInputFocused(true);
-          discoverInstalledFonts();
-        }}
-        onBlur={() => {
-          setInputFocused(false);
-          flushDraft();
-        }}
-        onChange={(event) => {
-          const next = event.currentTarget.value;
-          setDraft(next);
-          setDraftSettled(false);
-          cancelPendingCommit();
-          const typedAgainst = value;
-          const typedInGeneration = adopted.generation;
-          commitTimerRef.current = {
-            id: window.setTimeout(() => {
-              commitTimerRef.current = null;
-              if (readAdoptedGeneration() === typedInGeneration) commitDraft(next);
-            }, 400),
-            value: typedAgainst,
-          };
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") flushDraft();
-          if (event.key === "Escape") {
-            // Discard uncommitted typing without closing the settings page,
-            // which is what an unhandled Escape does.
-            event.preventDefault();
-            event.stopPropagation();
-            cancelPendingCommit();
-            setDraft(value);
-            setDraftSettled(true);
-          }
-        }}
-        placeholder={defaultFamily}
-        spellCheck={false}
-        value={draft}
-      />
-    );
-  const control = (
-    <div className="flex w-full items-center gap-2 sm:w-auto">
-      <div className="min-w-0 flex-1 sm:w-44 sm:flex-none">{familyControl}</div>
-      <Select
-        value={String(size.value)}
-        onValueChange={(next) => {
-          if (typeof next !== "string") return;
-          const parsed = Number(next);
-          if (Number.isInteger(parsed) && parsed >= size.min && parsed <= size.max) {
-            size.onChange(parsed);
-          }
-        }}
-      >
-        <SelectTrigger size="sm" className="w-22 shrink-0" aria-label={size.label}>
-          <SelectValue>{size.value} px</SelectValue>
-        </SelectTrigger>
-        <SelectPopup align="end" alignItemWithTrigger={false}>
-          {Array.from({ length: size.max - size.min + 1 }, (_, index) => size.min + index).map(
-            (px) => (
-              <SelectItem hideIndicator key={px} value={String(px)}>
-                {px} px
-              </SelectItem>
-            ),
-          )}
-        </SelectPopup>
-      </Select>
-    </div>
-  );
-  return (
-    <SettingsRow
-      {...(id !== undefined ? { id } : {})}
-      title={title}
-      description={description}
-      resetAction={resetAction}
-      control={control}
-    >
-      {preview}
-    </SettingsRow>
-  );
-}
-
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 3;
 
 function AutoSettleDaysInput({
@@ -1589,14 +595,8 @@ export function GeneralSettingsPanel() {
   ] as const;
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-  const { scope, environment, connectedEnvironments } = useSettingsScope();
-  // The representative environment supplies the provider list for pickers;
-  // a fanned-out model choice is validated against every target before it
-  // is written. Per-machine tuning (background activity overrides) still
-  // needs exactly one environment.
-  const environmentId = environment?.environmentId ?? null;
-  const isEnvironmentScope = scope.environmentIds.length === 1 && environmentId !== null;
-  const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
+  const { connectedEnvironments, targets } = useSettingsScope();
+  const idleCompaction = scopedIdleCompaction(targets.length > 0 ? targets : [{ settings }]);
   const notificationPreferences = useClientSettings((value) => value.agentNotifications);
   const sendNotificationTest = () => {
     const bridge = window.desktopBridge;
@@ -1665,28 +665,10 @@ export function GeneralSettingsPanel() {
       (target) => target.serverConfig?.environment.capabilities.threadRestartContinuation === true,
     );
 
-  const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
-  const activeBackgroundActivityProfile = resolvedBackgroundActivity.profile;
-  const backgroundActivityProfileOption = resolveBackgroundActivityProfileOption(settings);
-  const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
-  const backgroundActivityDescription =
-    backgroundActivityProfileOption === "advanced"
-      ? `${ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION} Shared policy: ${
-          BACKGROUND_ACTIVITY_PROFILE_LABELS[activeBackgroundActivityProfile]
-        }.`
-      : BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS[resolvedBackgroundActivity.profile];
-  const canResetBackgroundActivity = !Equal.equals(
-    settings.backgroundActivity,
-    DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
-  );
 
   return (
     <SettingsPageContainer>
-      <BackgroundActivitySearchOpener
-        enabled={isEnvironmentScope}
-        onOpen={setBackgroundActivityDialogOpen}
-      />
       <ParticipantProfileSettings />
       <SettingsSection id="interface-sidebar" title="Interface & sidebar">
         <SettingsRow
@@ -2300,30 +1282,51 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           serverScoped
-          settingKeys={["compactIdleThreads"]}
+          settingKeys={["idleCompaction", "compactIdleThreads"]}
+          mixed={idleCompaction.mixed}
           {...searchableSetting("compact-idle-threads")}
-          description="Compact long idle Claude threads just before their prompt cache expires, so coming back costs less."
+          description="When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this."
           resetAction={
-            settings.compactIdleThreads !== DEFAULT_UNIFIED_SETTINGS.compactIdleThreads ? (
+            globalIdleCompaction(settings) !== globalIdleCompaction(DEFAULT_UNIFIED_SETTINGS) ? (
               <SettingResetButton
-                label="compact idle Claude threads"
+                label="compact idle threads"
                 onClick={() =>
-                  updateSettings({
-                    compactIdleThreads: DEFAULT_UNIFIED_SETTINGS.compactIdleThreads,
-                  })
+                  updateSettings({ idleCompaction: globalIdleCompaction(DEFAULT_UNIFIED_SETTINGS) })
                 }
               />
             ) : null
           }
           control={
-            <ScopedSwitch
-              settingKeys={["compactIdleThreads"]}
-              checked={settings.compactIdleThreads}
-              onCheckedChange={(checked) =>
-                updateSettings({ compactIdleThreads: Boolean(checked) })
-              }
-              aria-label="Compact idle Claude threads (beta)"
-            />
+            <Select
+              value={idleCompaction.mixed ? null : globalIdleCompaction(settings)}
+              onValueChange={(value) => {
+                const mode = IDLE_COMPACTION_MODES.find((candidate) => candidate.value === value);
+                if (mode) updateSettings({ idleCompaction: mode.value });
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Compact idle threads">
+                <SelectValue>
+                  {(value: string | null) =>
+                    value === null
+                      ? "Mixed"
+                      : IDLE_COMPACTION_MODES.find((mode) => mode.value === value)?.label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {IDLE_COMPACTION_MODES.map((mode) => (
+                  <SelectItem
+                    hideIndicator
+                    key={mode.value}
+                    value={mode.value}
+                    // A server from before modes has only the on/off switch, so it cannot store "Never".
+                    disabled={mode.value === "off" && !idleCompaction.neverAvailable}
+                  >
+                    {mode.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 
@@ -2613,98 +1616,7 @@ export function GeneralSettingsPanel() {
       )}
 
       <SettingsSection id="performance" title="Performance">
-        <SettingsRow
-          serverScoped
-          settingKeys={["backgroundActivity"]}
-          id={searchableSetting("background-activity").id}
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              {searchableSetting("background-activity").title}
-              <PolicyTooltip>
-                This shared policy gates background work such as Git refreshes and provider health
-                probes after their individual intervals elapse.
-              </PolicyTooltip>
-            </span>
-          }
-          description={backgroundActivityDescription}
-          resetAction={
-            canResetBackgroundActivity ? (
-              <SettingResetButton
-                label="background activity"
-                onClick={() => updateSettings(resetBackgroundActivitySettings())}
-              />
-            ) : null
-          }
-          control={
-            <>
-              <Select
-                value={mixedBackgroundActivity ? null : backgroundActivityProfileOption}
-                onValueChange={(value) => {
-                  if (value === "advanced") {
-                    if (isEnvironmentScope) setBackgroundActivityDialogOpen(true);
-                    return;
-                  }
-                  if (
-                    value === "balanced" ||
-                    value === "performance" ||
-                    value === "battery-saver"
-                  ) {
-                    updateSettings(backgroundActivityProfileSettings(value));
-                  }
-                }}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className="w-full sm:w-40"
-                  aria-label="Background activity profile"
-                >
-                  <SelectValue>
-                    {(value: BackgroundActivityProfileOption | null) =>
-                      value === null ? "Mixed" : BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS[value]
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="balanced">
-                    {BACKGROUND_ACTIVITY_PROFILE_LABELS.balanced}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="performance">
-                    {BACKGROUND_ACTIVITY_PROFILE_LABELS.performance}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="battery-saver">
-                    {BACKGROUND_ACTIVITY_PROFILE_LABELS["battery-saver"]}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="advanced" disabled={!isEnvironmentScope}>
-                    {isEnvironmentScope
-                      ? BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS.advanced
-                      : `${BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS.advanced} (one environment)`}
-                  </SelectItem>
-                </SelectPopup>
-              </Select>
-              {backgroundActivityProfileOption === "advanced" && isEnvironmentScope ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        size="icon-sm"
-                        variant="outline"
-                        aria-label="Configure advanced background activity"
-                        onClick={() => setBackgroundActivityDialogOpen(true)}
-                      >
-                        <SettingsIcon className="size-4" />
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="top">Configure background activity</TooltipPopup>
-                </Tooltip>
-              ) : null}
-              <BackgroundActivityAdvancedDialog
-                open={backgroundActivityDialogOpen && isEnvironmentScope}
-                onOpenChange={setBackgroundActivityDialogOpen}
-              />
-            </>
-          }
-        />
+        <BackgroundActivitySettingsRow />
       </SettingsSection>
     </SettingsPageContainer>
   );
@@ -2768,3 +1680,5 @@ export function AboutUpdatesSettingsPanel({ children }: { children?: ReactNode }
 }
 
 export { ArchivedThreadsPanel } from "./ArchivedThreadsPanel";
+
+export { AppearanceSettingsPanel } from "./AppearanceSettingsPanel";

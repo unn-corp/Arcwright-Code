@@ -557,19 +557,13 @@ jobs:
 
           vp run dist:desktop:artifact "${args[@]}"
 
-      # The single-executable is built with a Node that supports --build-sea
-      # (25.7+); the repo itself stays on the engines.node version. It always
-      # injects into the runner's own Node: tsdown's cross-target download path
-      # runs `tar` on a drive-letter path on Windows, which GNU tar reads as a
-      # remote host, and a cross-built macOS binary cannot be smoke-tested.
+      # Setup Vite+ selects the exact engines.node version from package.json.
+      # Fork builds embed that executable on the target architecture; the
+      # standalone binary is smoke-tested by the same native runner.
       - name: Build CLI single-executable
         if: inputs.cli_archive
         shell: bash
         env:
-          # The exact version, not a major: vp downloads it from nodejs.org/dist on
-          # the runner, and only exact versions have a dist directory. Keep in
-          # step with SEA_NODE_VERSION in apps/server/vite.config.ts.
-          VP_NODE_VERSION: "26.12.1"
           # The executable bundles the server again, so it needs the same stamp
           # as release.yml's JS bundle.
           T3CODE_TELEMETRY_CHANNEL: ${{ github.repository == 'pingdotgg/t3code' && inputs.release_channel || 'dev' }}

@@ -17,24 +17,31 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/http";
 
 import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import type { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 
 import * as ServerConfig from "../config.ts";
+import { acquireMaintenanceHost } from "../maintenance/MaintenanceHost.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   ensurePinnedRuntimeInstalled,
   pinnedRuntimeCommand,
   PinnedRuntimeInstallError,
+  pinnedRuntimePaths,
+  prunePinnedRuntimes,
   PinnedRuntimePreflightBlockedError,
   type PinnedRuntimePaths,
 } from "./pinnedRuntime.ts";
 import { decodeServicePreflightResult } from "./servicePreflight.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
+
+import packageJson from "../../package.json" with { type: "json" };
 
 const PREFLIGHT_TIMEOUT = Duration.seconds(30);
 
@@ -78,6 +85,51 @@ export class ServerSelfUpdate extends Context.Service<
 const RETIRED_REASON =
   "In-product updates run through device maintenance, which checks that no agent is active and keeps a restore point. Use App updates in settings.";
 
+/**
+ * A server starting from the runtime its launcher settled on means runtimes left by earlier
+ * updates can go. The boot service says so through its IPC context. The SSH launcher and the
+ * install script's `t3` start this home's pinned runtime directly, without one.
+ */
+export const pruneRuntimesOnStart = Effect.fn("cloud.server_self_update.prune_on_start")(
+  function* (input: {
+    readonly baseDir: string;
+    readonly managed: boolean;
+    readonly journals?: Pick<CoordinatorStore, "listJournals">;
+  }) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const platform = yield* HostProcess.Platform;
+    const executablePath = yield* HostProcess.ExecutablePath;
+    const { entryPath } = pinnedRuntimePaths(path, input.baseDir, packageJson.version, platform);
+    // The executable path is resolved, so it names the real path of a symlinked T3 home.
+    const realEntryPath = yield* fs.realPath(entryPath).pipe(Effect.orElseSucceed(() => entryPath));
+    if (!input.managed && executablePath !== entryPath && executablePath !== realEntryPath) {
+      return [];
+    }
+    // Committed service state no longer names the previous runtime, but a
+    // retained database restore point can still require that exact binary.
+    const journalStore = input.journals;
+    const journals = journalStore
+      ? yield* Effect.tryPromise(() => journalStore.listJournals())
+      : [];
+    const removed = yield* prunePinnedRuntimes({
+      baseDir: input.baseDir,
+      keep: [
+        packageJson.version,
+        ...journals.flatMap((journal) =>
+          journal.target === null
+            ? [journal.previous.version]
+            : [journal.previous.version, journal.target.version],
+        ),
+      ],
+    });
+    if (removed.length > 0) {
+      yield* Effect.logInfo("Removed unused t3 runtimes.", { versions: removed });
+    }
+    return removed;
+  },
+);
+
 export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
@@ -91,6 +143,22 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
+  );
+  const inFlight = yield* Ref.make(false);
+
+  yield* Effect.gen(function* () {
+    const host = yield* acquireMaintenanceHost(serverConfig);
+    if (host.mode === "unavailable") return;
+    yield* pruneRuntimesOnStart({
+      baseDir: serverConfig.baseDir,
+      managed: launcher.managed,
+      ...(host.mode === "active" ? { journals: host.store } : {}),
+    });
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Kept runtimes because recovery retention could not be verified.", cause),
+    ),
+    Effect.forkScoped,
   );
   const capability: ServerSelfUpdateCapability | null =
     serverConfig.mode === "desktop" ? "desktop-managed" : launcher.managed ? "boot-service" : null;
