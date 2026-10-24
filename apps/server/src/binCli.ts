@@ -1,3 +1,4 @@
+import { hairlineCommand } from "./cli/hairline.ts";
 import { backupCommand } from "./cli/backup.ts";
 import { doctorCommand } from "./cli/doctor.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -67,6 +68,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
     Command.withDescription("Run the Arcwright Code server."),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([
+      hairlineCommand,
       backupCommand,
       Command.make("help").pipe(
         Command.withDescription("Show command help."),
