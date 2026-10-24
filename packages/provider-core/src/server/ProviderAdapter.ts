@@ -437,6 +437,12 @@ export interface ProviderAdapterV2TurnInput {
   readonly message: ProviderAdapterV2TurnMessage;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
+  /** Server-resolved, project-scoped application guidance. Never sourced from MCP. */
+  readonly projectPolicy?: {
+    readonly projectId: string;
+    readonly text: string;
+    readonly active?: boolean;
+  };
   readonly appContext?: ReadonlyArray<{ readonly key: string; readonly text: string }>;
 }
 

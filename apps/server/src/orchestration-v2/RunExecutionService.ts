@@ -1,3 +1,5 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { buildProjectUxPolicy, readUxOrigin } from "../project/ProjectUxPolicy.ts";
 import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -902,14 +904,12 @@ export const layer: Layer.Layer<
           failure,
           threadDisposition: "reusable",
         });
-        const responseStreamingMode = yield* Effect.gen(function* () {
-          const responseStreamingMode = yield* serverSettings.getSettings.pipe(
-            Effect.map(
-              (settings) =>
-                resolveProjectSettings(settings, input.appThread.projectId).settings
-                  .responseStreamingMode,
-            ),
-          );
+        const preparedSettings = yield* Effect.gen(function* () {
+          const settings = yield* serverSettings.getSettings;
+          const responseStreamingMode = resolveProjectSettings(settings, input.appThread.projectId)
+            .settings.responseStreamingMode;
+          const uxGuidance =
+            settings.projectSettingsOverrides[input.appThread.projectId]?.uxGuidance;
           yield* checkpointService
             .captureBaseline({
               scope: input.checkpointScope,
@@ -931,7 +931,7 @@ export const layer: Layer.Layer<
           ) {
             return null;
           }
-          return responseStreamingMode;
+          return { responseStreamingMode, uxGuidance };
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.gen(function* () {
@@ -975,7 +975,7 @@ export const layer: Layer.Layer<
               }),
           ),
         );
-        if (responseStreamingMode === null) {
+        if (preparedSettings === null) {
           return;
         }
         const terminalEvent = yield* Ref.make<ProviderTerminalEvent | null>(null);
@@ -1255,7 +1255,9 @@ export const layer: Layer.Layer<
           }
           return true;
         });
-        const filterAssistantEvent = makeAssistantStreamingFilter(responseStreamingMode);
+        const filterAssistantEvent = makeAssistantStreamingFilter(
+          preparedSettings.responseStreamingMode,
+        );
         // Held text writes nothing, so its item would take a position only
         // when finally written, behind every item that began after it.
         const reservedHeldTurnItemIds = new Set<TurnItemId>();
@@ -1573,7 +1575,24 @@ export const layer: Layer.Layer<
           key: `mcp_app_${entry.itemId.replace(/[^\w.-]/g, "_")}`,
           text: entry.text,
         }));
+        const hostEnvironment = yield* HostProcess.Environment;
+        const supportsProjectPolicy =
+          input.providerThread.driver === "codex" || input.providerThread.driver === "claudeAgent";
+        const projectPolicy = supportsProjectPolicy
+          ? buildProjectUxPolicy({
+              projectId: input.appThread.projectId,
+              mode: preparedSettings.uxGuidance,
+              origin: yield* Effect.promise(() =>
+                input.runtimePolicy.cwd === null ||
+                preparedSettings.uxGuidance === "on" ||
+                preparedSettings.uxGuidance === "off"
+                  ? Promise.resolve(null)
+                  : readUxOrigin(input.runtimePolicy.cwd, hostEnvironment),
+              ),
+            })
+          : undefined;
         const turnInput = {
+          ...(projectPolicy === undefined ? {} : { projectPolicy }),
           appThread: input.appThread,
           threadId: input.run.threadId,
           runId: input.run.id,

@@ -1301,6 +1301,7 @@ export function makeClaudeQueryOptions(input: {
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   readonly allowDangerouslySkipPermissions?: boolean;
+  readonly projectPolicy?: ProviderAdapter.ProviderAdapterV2TurnInput["projectPolicy"];
   readonly appendSystemPromptFileText?: string;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection);
@@ -1396,6 +1397,9 @@ export function makeClaudeQueryOptions(input: {
       append: [
         buildRuntimeInstructions({ harness: "Claude Code" }) +
           (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+        ...(input.projectPolicy && (input.projectPolicy.active !== false || input.resume)
+          ? [input.projectPolicy.text]
+          : []),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -9179,7 +9183,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? {}
               : { allowedTools: queryPolicy.allowedTools }),
           });
-          const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
+          const queryPolicyKey = encodeClaudeHistoryOptions([
+            claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides),
+            turnInput.appThread.projectId,
+            turnInput.projectPolicy ?? null,
+          ]);
           const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
@@ -9281,6 +9289,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
           const queryOptions = makeClaudeQueryOptions({
             modelSelection: turnInput.modelSelection,
+            ...(turnInput.projectPolicy === undefined
+              ? {}
+              : { projectPolicy: turnInput.projectPolicy }),
             nativeThreadId,
             resume: shouldResume,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),

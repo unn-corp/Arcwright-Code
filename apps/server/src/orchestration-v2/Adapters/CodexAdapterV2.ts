@@ -1,3 +1,4 @@
+import { projectUxContext } from "../../project/ProjectUxPolicy.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
@@ -738,6 +739,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     /** ChatGPT token sharing does not accept service tiers. */
     readonly omitServiceTier?: boolean;
     readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
+    readonly projectPolicy?: ProviderAdapter.ProviderAdapterV2TurnInput["projectPolicy"];
   }) {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
     const approvalPolicy =
@@ -784,9 +786,9 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
           )
         : undefined;
     const additionalContext =
-      t3Context === undefined && Object.keys(appContext).length === 0
+      t3Context === undefined && Object.keys(appContext).length === 0 && !input.projectPolicy
         ? undefined
-        : { ...t3Context, ...appContext };
+        : { ...appContext, ...t3Context, ...projectUxContext(input.projectPolicy) };
     const collaborationMode: CodexSchema.ClientRequest__CollaborationMode | undefined =
       input.runtimePolicy.interactionMode !== "plan" && developerInstructions === undefined
         ? undefined
@@ -6474,6 +6476,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           ) {
             const threadId = yield* getNativeThreadId(turnInput.providerThread);
             const mcpSession = yield* mcpSessions.read(turnInput.threadId);
+            const priorContext = (yield* Ref.get(additionalContextByThread)).get(threadId);
+            const projectPolicy =
+              turnInput.projectPolicy?.active === false &&
+              !(turnInput.nativeThreadHasTurns ?? turnInput.providerTurnOrdinal > 1) &&
+              priorContext?.t3_project_ux_01 === undefined
+                ? undefined
+                : turnInput.projectPolicy;
             const turnStartParams = yield* buildCodexTurnStartParams({
               nativeThreadId: threadId,
               codexInput,
@@ -6484,6 +6493,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
+              ...(projectPolicy === undefined ? {} : { projectPolicy }),
             });
             yield* Ref.update(pendingRootTurns, (current) => {
               const updated = new Map(current);
