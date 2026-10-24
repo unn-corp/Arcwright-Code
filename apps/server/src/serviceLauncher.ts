@@ -877,10 +877,19 @@ export class Launcher {
     this.#state = next;
     this.#trialCapability =
       message.trial === undefined ? null : { updateId: pending.id, trial: message.trial };
-    await sendMessage(child.process, {
-      type: "update-accepted",
-      updateId: pending.id,
-    });
+    try {
+      await sendMessage(child.process, {
+        type: "update-accepted",
+        updateId: pending.id,
+      });
+    } catch (cause) {
+      if (child.process.connected) throw cause;
+      // Pending is already durable. Finish the exit transition instead of letting
+      // a lost IPC reply abort it with the update still pending.
+      await terminateChild(child.process);
+      await this.#handleExit(child, child.process.exitCode, child.process.signalCode);
+      return;
+    }
     this.#timer = setTimeout(() => this.#enqueue(() => this.#beginTrial(child)), HANDOFF_DELAY_MS);
   }
 
