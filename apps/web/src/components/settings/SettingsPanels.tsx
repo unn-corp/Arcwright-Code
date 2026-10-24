@@ -1679,6 +1679,4 @@ export function AboutUpdatesSettingsPanel({ children }: { children?: ReactNode }
   );
 }
 
-export { ArchivedThreadsPanel } from "./ArchivedThreadsPanel";
-
 export { AppearanceSettingsPanel } from "./AppearanceSettingsPanel";

@@ -3,6 +3,21 @@ import { describe, expect, it } from "vite-plus/test";
 import { deriveAuthClientMetadata, resolveSessionCookieName } from "./utils.ts";
 
 describe("deriveAuthClientMetadata", () => {
+  it("uses the transport address even when forwarded headers claim a trusted client", () => {
+    const metadata = deriveAuthClientMetadata({
+      request: {
+        headers: {
+          "x-forwarded-for": "127.0.0.1",
+          "x-real-ip": "127.0.0.1",
+          forwarded: "for=127.0.0.1",
+        },
+        source: { socket: { remoteAddress: "::ffff:203.0.113.9" } },
+      } as never,
+    });
+
+    expect(metadata.ipAddress).toBe("203.0.113.9");
+  });
+
   it("labels Electron user agents as Electron instead of Chrome", () => {
     const metadata = deriveAuthClientMetadata({
       request: {

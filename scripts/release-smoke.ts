@@ -233,8 +233,7 @@ try {
     },
   );
 
-  NodeFS.rmSync(NodePath.resolve(tempRoot, "pnpm-lock.yaml"), { force: true });
-
+  // Release workflows update the copied lock in place so patched resolutions stay pinned.
   NodeChildProcess.execFileSync("vp", ["install", "--lockfile-only", "--ignore-scripts"], {
     cwd: tempRoot,
     stdio: "inherit",

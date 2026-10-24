@@ -33,6 +33,12 @@ Fix:
 3. If the host was offline for a long time, Arcwright Connect removes its tunnel. Start
    Arcwright Code on the host and update it to the latest version. It gets a new tunnel.
 
+If the host reports an outdated tunnel client, update cloudflared to 2026.10.3
+or newer, or let Arcwright Code download its managed client. Older clients are
+refused to enforce the compromised-CA mitigation across supported platforms. If you set
+`T3CODE_CLOUDFLARED_PATH`, update that executable or remove the override to use
+the managed client.
+
 ## Port 7844 is blocked on the host
 
 The tunnel on the host connects out to Cloudflare on port 7844, with TCP and
