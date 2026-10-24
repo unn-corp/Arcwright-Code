@@ -31,6 +31,7 @@
         "build-owned-connect-web.ts",
         "fork-release-package-diagnostic.ts",
         "generate-notification-sounds.ts",
+        "generate-hairline-bundle.mjs",
         "check-upstream-database.ts",
         "create-upstream-storage-copy.ts",
       ],
@@ -39,6 +40,7 @@
       "ignore": ["npm-launcher/**"],
     },
     "apps/server": {
+      "ignore": ["src/skills/hairline/bundle/**"],
       // Vite+ pack entries and the launcher used by installed background services.
       "entry": [
         "src/bin.ts!",

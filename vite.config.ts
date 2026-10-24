@@ -142,6 +142,8 @@ export default defineConfig({
   },
   fmt: {
     ignorePatterns: [
+      "apps/server/src/skills/hairline/bundle/**",
+      "apps/server/src/skills/hairline/payload.json",
       ".repos/**",
       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
       // it rewrites `*` as `_` and joins lines.
@@ -173,6 +175,7 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: [
+      "apps/server/src/skills/hairline/bundle/**",
       ".repos",
       ".repos/**",
       "dist",
