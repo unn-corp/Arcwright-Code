@@ -9,8 +9,7 @@ import type { ProviderAdapterV2TurnInput } from "@t3tools/provider-core/server/P
 import { unnUxCore } from "./policies/unnUxCore.ts";
 
 const runFile = NodeUtil.promisify(NodeChildProcess.execFile);
-export const UNN_UX_CORE_SHA256 =
-  "ff19ffa117f1c78d1e9fd4b28ca1d7b6bdcc497ab961c6be30ee21bdf1c7571f";
+const UNN_UX_CORE_SHA256 = "ff19ffa117f1c78d1e9fd4b28ca1d7b6bdcc497ab961c6be30ee21bdf1c7571f";
 const MAX_POLICY_BYTES = 24_000;
 const ENTRY_BYTES = 6_000;
 
