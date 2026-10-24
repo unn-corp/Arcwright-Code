@@ -1562,6 +1562,7 @@ export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOver
  * settings.json shape but overrides field by field, per `ProviderInstanceId`.
  */
 export const ProjectSettingsOverrides = Schema.Struct({
+  uxGuidance: Schema.optionalKey(Schema.Literals(["auto", "on", "off"])),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
@@ -1593,7 +1594,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   providerInstances: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, ProjectProviderInstanceOverride),
   ),
-} satisfies Record<ProjectScopedServerSettingKey | "providerInstances", unknown>);
+} satisfies Record<ProjectScopedServerSettingKey | "providerInstances" | "uxGuidance", unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
 /**

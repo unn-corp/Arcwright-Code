@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useComposerMenuState } from "../chat/useComposerMenuState";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
-import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { AuthSettingsWriteScope, AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
 import {
   isAtomCommandInterrupted,
@@ -397,6 +397,49 @@ function ProjectDetail({
   };
   const setBrowserAccess = (enabled: boolean | undefined) =>
     setBooleanOverride("projectAgentBrowserAccessOverrides", enabled);
+  const uxWritableIds = useEnvironmentsWithScope(group.memberProjects, AuthSettingsWriteScope);
+  const canEditUx = group.memberProjects.every((member) => uxWritableIds.has(member.environmentId));
+  const uxModes = group.memberProjects.map(
+    (member) =>
+      environmentById.get(member.environmentId)?.serverConfig?.settings.projectSettingsOverrides[
+        member.id
+      ]?.uxGuidance ?? "auto",
+  );
+  const uxMode = uxModes.every((mode) => mode === uxModes[0]) ? uxModes[0] : "mixed";
+  const setUxGuidance = async (mode: "auto" | "on" | "off") => {
+    if (savingBrowserAccessRef.current || !canEditUx) return;
+    savingBrowserAccessRef.current = true;
+    setSavingBrowserAccess(true);
+    try {
+      for (const environmentId of new Set(
+        group.memberProjects.map((member) => member.environmentId),
+      )) {
+        const result = await updateServerSettings({
+          environmentId,
+          input: {
+            patch: {
+              projectSettingsOverrides: Object.fromEntries(
+                group.memberProjects
+                  .filter((member) => member.environmentId === environmentId)
+                  .map((member) => [
+                    member.id,
+                    {
+                      ...environmentById.get(environmentId)?.serverConfig?.settings
+                        .projectSettingsOverrides[member.id],
+                      uxGuidance: mode,
+                    },
+                  ]),
+              ),
+            },
+          },
+        });
+        if (result._tag === "Failure") return;
+      }
+    } finally {
+      savingBrowserAccessRef.current = false;
+      setSavingBrowserAccess(false);
+    }
+  };
   const deleteProject = useOrchestrationCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
@@ -1464,6 +1507,32 @@ function ProjectDetail({
                   <SelectItem value="inherit">Inherit defaults</SelectItem>
                   <SelectItem value="enabled">On</SelectItem>
                   <SelectItem value="disabled">Off</SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        </SettingsSection>
+        <SettingsSection title="UX guidance">
+          <SettingsRow
+            title="Project UX guidance"
+            description="Proposed UNN UI guidance for UX design, implementation and review with Codex and Claude. Automatic enables it only for an exact unn-corp origin on GitHub. On includes client and non-Git projects; Off opts this project out. Applies on the next turn."
+            control={
+              <Select
+                value={uxMode}
+                disabled={savingBrowserAccess || !canEditUx}
+                onValueChange={(value) => {
+                  if (value === "auto" || value === "on" || value === "off")
+                    void setUxGuidance(value);
+                }}
+              >
+                <SelectTrigger aria-label="Project UX guidance">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {uxMode === "mixed" ? <SelectItem value="mixed">Mixed</SelectItem> : null}
+                  <SelectItem value="auto">Automatic</SelectItem>
+                  <SelectItem value="on">On</SelectItem>
+                  <SelectItem value="off">Off</SelectItem>
                 </SelectPopup>
               </Select>
             }

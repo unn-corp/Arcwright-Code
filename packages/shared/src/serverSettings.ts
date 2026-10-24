@@ -278,8 +278,12 @@ function mergeProjectSettingsOverridesPatch(
       continue;
     }
     const storedProviderInstances = current[projectId]?.providerInstances;
+    const storedUxGuidance = current[projectId]?.uxGuidance;
     next.set(projectId, {
       ...entry,
+      ...(Object.hasOwn(entry, "uxGuidance") || storedUxGuidance === undefined
+        ? {}
+        : { uxGuidance: storedUxGuidance }),
       ...(Object.hasOwn(entry, "providerInstances") || storedProviderInstances === undefined
         ? {}
         : { providerInstances: storedProviderInstances }),

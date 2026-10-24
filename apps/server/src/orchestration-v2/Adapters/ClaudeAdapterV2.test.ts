@@ -249,6 +249,35 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.isUndefined(options.extraArgs?.["dangerously-skip-permissions"]);
   });
 
+  it("preserves Claude's preset and user launch precedence for project guidance on resume", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-ux",
+      resume: true,
+      cwd: "/workspace",
+      projectPolicy: { projectId: "a", text: "Project UX guidance" },
+      settings: {
+        ...AUTO_COMPACT_CLAUDE_SETTINGS,
+        launchArgs: '--append-system-prompt "User launch guidance"',
+      },
+    });
+    const prompt = options.systemPrompt;
+    assert.isObject(prompt);
+    if (
+      typeof prompt !== "object" ||
+      prompt === null ||
+      !("type" in prompt) ||
+      prompt.type !== "preset"
+    )
+      throw new Error("Missing preset");
+    assert.equal(prompt.preset, "claude_code");
+    assert.include(prompt.append ?? "", "Project UX guidance");
+    assert.isAbove(
+      (prompt.append ?? "").indexOf("User launch guidance"),
+      (prompt.append ?? "").indexOf("Project UX guidance"),
+    );
+  });
+
   it("gives delegated children Claude's subagent prompt cache TTL", () => {
     const lineage = (relationshipToParent: "fork" | "subagent" | null) => ({
       lineage: {
@@ -2379,6 +2408,81 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+
+  it.effect("reopens a live Claude query with deactivated policy after switching projects", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarnessWithOptions({
+        freshQueueOnReopen: true,
+        close: (queue) => Queue.shutdown(queue),
+      });
+      const first = makeClaudeTestTurnInput({
+        threadId: harness.threadId,
+        providerThread: harness.providerThread,
+        now: yield* DateTime.now,
+        attemptId: RunAttemptId.make("ux-active"),
+        text: "Design the form",
+        attachments: [],
+      });
+      yield* harness.runtime.startTurn({
+        ...first,
+        projectPolicy: { projectId: "project-a", text: "Project A UX guidance" },
+      });
+      const activePrompt = harness.getOpenedOptions()?.systemPrompt;
+      if (
+        typeof activePrompt !== "object" ||
+        activePrompt === null ||
+        !("type" in activePrompt) ||
+        activePrompt.type !== "preset"
+      )
+        throw new Error("Missing preset");
+      assert.include(activePrompt.append ?? "", "Project A UX guidance");
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({
+          uuid: "00000000-0000-4000-8000-000000000701",
+          result: "Done",
+        }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+      yield* harness.runtime.startTurn({
+        ...first,
+        appThread: { ...first.appThread, projectId: ProjectId.make("project-b") },
+        attemptId: RunAttemptId.make("ux-inactive"),
+        providerTurnOrdinal: 2,
+        projectPolicy: {
+          projectId: "project-b",
+          active: false,
+          text: "Earlier project UX guidance is inactive.",
+        },
+      });
+      assert.lengthOf(harness.processQueues, 2);
+      const resumedPrompt = harness.getOpenedOptions()?.systemPrompt;
+      if (
+        typeof resumedPrompt !== "object" ||
+        resumedPrompt === null ||
+        !("type" in resumedPrompt) ||
+        resumedPrompt.type !== "preset"
+      )
+        throw new Error("Missing preset");
+      assert.include(resumedPrompt.append ?? "", "inactive");
+      assert.notInclude(resumedPrompt.append ?? "", "Project A UX guidance");
+      assert.isTrue(Boolean(harness.getOpenedOptions()?.resume));
+      const queue = harness.processQueues[1];
+      if (!queue) throw new Error("Missing resumed query");
+      yield* Queue.offer(
+        queue,
+        makeResultFrame({
+          uuid: "00000000-0000-4000-8000-000000000702",
+          result: "Done",
+        }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
 
   describe("Claude settings restrictions", () => {
     it.effect("resolves cached managed policy from the configured home through the real SDK", () =>

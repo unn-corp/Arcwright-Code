@@ -1,9 +1,11 @@
+import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
+import { serverEnvironment } from "../../state/server";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import * as Dialog from "../../components/ui/Dialog";
-import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { AuthSettingsWriteScope, AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
 import {
   isAtomCommandInterrupted,
@@ -139,6 +141,48 @@ function ProjectOverviewContent(props: {
     label: "project name update",
     reportFailure: true,
   });
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "project UX guidance",
+    reportFailure: true,
+  });
+  const uxWritable = useEnvironmentsWithScope(props.members, AuthSettingsWriteScope);
+  const canEditUx = props.members.every((member) => uxWritable.has(member.environmentId));
+  const uxModes = props.members.map(
+    (member) =>
+      props.environments.find((environment) => environment.environmentId === member.environmentId)
+        ?.serverConfig.settings.projectSettingsOverrides[member.id]?.uxGuidance ?? "auto",
+  );
+  const setUxGuidance = async (mode: "auto" | "on" | "off") => {
+    if (isSaving || !canEditUx) return;
+    setIsSaving(true);
+    try {
+      for (const environment of props.environments) {
+        const members = props.members.filter(
+          (member) => member.environmentId === environment.environmentId,
+        );
+        if (members.length === 0) continue;
+        const result = await updateSettings({
+          environmentId: environment.environmentId,
+          input: {
+            patch: {
+              projectSettingsOverrides: Object.fromEntries(
+                members.map((member) => [
+                  member.id,
+                  {
+                    ...environment.serverConfig.settings.projectSettingsOverrides[member.id],
+                    uxGuidance: mode,
+                  },
+                ]),
+              ),
+            },
+          },
+        });
+        if (result._tag === "Failure") return;
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
   const nextName = (draftName ?? displayName).trim();
   const canSave = !isSaving && nextName.length > 0 && nextName !== displayName;
 
@@ -259,6 +303,22 @@ function ProjectOverviewContent(props: {
         </View>
       </View>
 
+      <SettingsSection title="Project UX guidance">
+        <Text className="px-4 py-3 text-sm text-foreground-muted">
+          Proposed UNN guidance for UX work with Codex and Claude. Automatic enables it for exact
+          unn-corp GitHub origins. On includes client and non-Git projects. Off opts out. Applies on
+          the next turn.
+        </Text>
+        {(["auto", "on", "off"] as const).map((mode) => (
+          <SettingsChoiceRow
+            key={mode}
+            label={mode === "auto" ? "Automatic" : mode === "on" ? "On" : "Off"}
+            selected={uxModes.every((value) => value === mode)}
+            disabled={!canEditUx || isSaving}
+            onPress={() => void setUxGuidance(mode)}
+          />
+        ))}
+      </SettingsSection>
       <SettingsSection title="Project">
         <View className="gap-3 p-4">
           <Text className="text-sm font-t3-medium text-foreground-muted">Name</Text>

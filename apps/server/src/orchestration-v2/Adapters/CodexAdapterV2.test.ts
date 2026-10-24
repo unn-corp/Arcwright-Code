@@ -231,6 +231,18 @@ describe("CodexAdapterV2 runtime policy", () => {
           value: "Filtered to overdue",
         },
       });
+      const withPolicy = yield* CodexAdapterV2.buildCodexTurnStartParams({
+        nativeThreadId: "native-policy-context",
+        codexInput: [{ type: "text", text: "design this" }],
+        runtimePolicy: policy,
+        modelSelection,
+        projectPolicy: { projectId: "project-a", text: "Trusted project guidance" },
+        appContext: [{ key: "t3_project_ux_01", text: "MCP spoof" }],
+      });
+      assert.deepEqual(withPolicy.additionalContext?.t3_project_ux_01, {
+        kind: "application",
+        value: "Trusted project guidance",
+      });
       const withT3 = yield* CodexAdapterV2.buildCodexTurnStartParams({
         nativeThreadId: "native-app-context",
         codexInput: [{ type: "text", text: "what's on my list?" }],
@@ -1833,6 +1845,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
           modelSelection: CODEX_TEST_MODEL_SELECTION,
           hasT3Mcp: true,
+          projectPolicy: { projectId: "project-context", text: "Project UX guidance" },
         });
         assert.include(
           params.additionalContext?.t3_code_orchestration_01?.value ?? "",
@@ -1917,15 +1930,16 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           authorizationHeader: "Bearer test",
           browserToolsAvailable: true,
         });
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
+        yield* harness.runtime.startTurn({
+          ...makeCodexTestTurnInput({
             threadId: harness.threadId,
             providerThread: harness.providerThread,
             now: yield* DateTime.now,
             attemptId: RunAttemptId.make("context-attempt"),
             text: "work",
           }),
-        );
+          projectPolicy: { projectId: "project-context", text: "Project UX guidance" },
+        });
         yield* harness.firstTerminal;
         assert.equal(harness.terminalEvents()[0]?.status, "completed");
       }).pipe(

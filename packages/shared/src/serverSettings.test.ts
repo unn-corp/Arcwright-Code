@@ -562,6 +562,23 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("preserves project UX opt-out across older clients and allows explicit reset", () => {
+    const projectId = ProjectId.make("ux-project");
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: { [projectId]: { uxGuidance: "off" as const } },
+    };
+    const patched = applyServerSettingsPatch(current, {
+      projectSettingsOverrides: { [projectId]: { automaticGitStatus: false } },
+    });
+    expect(patched.projectSettingsOverrides[projectId]?.uxGuidance).toBe("off");
+    const reset = applyServerSettingsPatch(patched, {
+      projectSettingsOverrides: { [projectId]: { uxGuidance: "auto" } },
+    });
+    expect(reset.projectSettingsOverrides[projectId]?.uxGuidance).toBe("auto");
+    expect(reset.projectSettingsOverrides[ProjectId.make("unrelated")]).toBeUndefined();
+  });
+
   it("keeps a project's providerInstances override when a patch entry omits the key", () => {
     const instanceId = ProviderInstanceId.make("codex_work");
     const projectId = ProjectId.make("project-a");
