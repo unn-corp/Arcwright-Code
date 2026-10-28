@@ -143,14 +143,41 @@ describe("resolveMarkdownMediaPreview", () => {
     });
   });
 
-  it.each([
-    "javascript:report.csv",
-    "data:text/csv,a,b",
-    "ftp://server/report.csv",
-    "~/report.csv",
-  ])("rejects blocked document links and embeds: %s", (href) => {
-    expect(resolveMarkdownMediaPreview(href, input)).toBeNull();
-    expect(resolveMarkdownMediaPreview(href, { ...input, imageEmbed: true })).toBeNull();
+  it.each(["javascript:report.csv", "data:text/csv,a,b", "ftp://server/report.csv"])(
+    "rejects blocked document links and embeds: %s",
+    (href) => {
+      expect(resolveMarkdownMediaPreview(href, input)).toBeNull();
+      expect(resolveMarkdownMediaPreview(href, { ...input, imageEmbed: true })).toBeNull();
+    },
+  );
+
+  it("routes a host-home CSV link and embed to the file screen", () => {
+    for (const imageEmbed of [false, true]) {
+      expect(resolveMarkdownMediaPreview("~/report.csv", { ...input, imageEmbed })).toEqual({
+        kind: "file",
+        source: {
+          kind: "document",
+          name: "report.csv",
+          mimeType: "text/plain",
+          environmentId: "environment-1",
+          resource: { _tag: "media-file", threadId: "thread-1", path: "~/report.csv" },
+          srcFragment: "",
+          actionsSource: {
+            reference: { kind: "file", path: "~/report.csv" },
+            environmentId: "environment-1",
+            threadId: "thread-1",
+            resource: { _tag: "media-file", threadId: "thread-1", path: "~/report.csv" },
+            name: "report.csv",
+            mimeType: "text/plain",
+          },
+        },
+      });
+    }
+    expect(resolveMarkdownLinkPresentation("~/report.csv")).toMatchObject({
+      kind: "file",
+      path: "~/report.csv",
+      label: "report.csv",
+    });
   });
 
   it.each([

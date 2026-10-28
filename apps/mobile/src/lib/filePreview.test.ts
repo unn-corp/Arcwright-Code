@@ -99,6 +99,17 @@ vi.mock("react-native", () => ({
       props.children,
     ),
 }));
+vi.mock("react-native-svg", () => {
+  const Children = ({ children }: { children?: ReactNode }) =>
+    createElement(Fragment, null, children);
+  return {
+    Svg: Children,
+    Defs: Children,
+    LinearGradient: Children,
+    Path: () => null,
+    Stop: () => null,
+  };
+});
 vi.mock("../components/PierreEntryIcon", () => ({ PierreEntryIcon: () => null }));
 vi.mock("../components/ui/AppText", () => ({
   AppText: ({ children }: { children?: ReactNode }) => createElement("span", null, children),

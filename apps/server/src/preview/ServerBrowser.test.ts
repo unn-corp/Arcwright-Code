@@ -218,31 +218,74 @@ function makeContext(onClose?: (context: BrowserContext) => void) {
 
 // Runs the real encoder script against fake canvas and MediaRecorder globals.
 function makeEncoderPage() {
+  let frameCallback: (() => void) | null = null;
+  const deliverFrame = () => {
+    const callback = frameCallback;
+    frameCallback = null;
+    if (callback) queueMicrotask(callback);
+  };
+  const track = { requestFrame: deliverFrame, stop() {} };
+  const video = {
+    requestVideoFrameCallback(callback: () => void) {
+      frameCallback = callback;
+    },
+    async play() {
+      deliverFrame();
+    },
+    pause() {},
+  };
   const canvas = {
     width: 0,
     height: 0,
     getContext: () => ({ drawImage() {}, fillRect() {} }),
-    captureStream: (frameRate?: number) => ({ frameRate, getTracks: () => [] }),
+    captureStream: (frameRate?: number) => ({
+      frameRate,
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+    }),
   };
   class FakeMediaRecorder {
     static isTypeSupported = (type: string) => type === "video/webm";
+    readonly mimeType: string;
+    readonly stream: ReturnType<typeof canvas.captureStream>;
+    state = "inactive";
     onstart: (() => void) | null = null;
-    constructor(stream: { frameRate?: number }, options: { videoBitsPerSecond: number }) {
+    ondataavailable: ((event: { data: Blob }) => void) | null = null;
+    onstop: (() => void) | null = null;
+    constructor(
+      stream: ReturnType<typeof canvas.captureStream>,
+      options: { mimeType: string; videoBitsPerSecond: number },
+    ) {
+      this.mimeType = options.mimeType;
+      this.stream = stream;
       encoderStreams.push({
         frameRate: stream.frameRate,
         bitsPerSecond: options.videoBitsPerSecond,
       });
     }
     start() {
+      this.state = "recording";
       this.onstart?.();
+    }
+    stop() {
+      this.state = "inactive";
+      this.ondataavailable?.({ data: new Blob(["foo"], { type: this.mimeType }) });
+      this.onstop?.();
     }
   }
   const sandbox: Record<string, unknown> = {
-    document: { createElement: () => canvas },
+    document: {
+      createElement(tagName: string) {
+        if (tagName === "canvas") return canvas;
+        if (tagName === "video") return video;
+        throw new Error(`Unexpected encoder element: ${tagName}`);
+      },
+    },
     Path2D: function Path2D() {},
     MediaRecorder: FakeMediaRecorder,
     createImageBitmap: async () => ({ width: 1280, height: 800, close() {} }),
     atob,
+    btoa,
     Blob,
     performance,
   };
