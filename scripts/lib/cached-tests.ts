@@ -12,6 +12,7 @@ interface CachedTestTask {
     | {
         input: Array<string | { auto: true }>;
         output: Array<string>;
+        untrackedEnv: Array<string>;
       };
 }
 
@@ -107,6 +108,7 @@ export function cachedTestTasks(
                 "!**/node_modules/.vitest-cache/**",
               ],
               output: [],
+              untrackedEnv: ["TMPDIR"],
             },
       };
     }

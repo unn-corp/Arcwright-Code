@@ -62,6 +62,7 @@ describe("cachedTestTasks", () => {
   it("reuses individual results, invalidates filesystem inputs, and never caches failures", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cached-tests-"));
     const root = NodePath.resolve(import.meta.dirname, "../..");
+    const fixtureTemp = NodePath.join(directory, "fixture-temp");
     const run = (files = ["a.test.ts", "b.test.ts"], uncached: Array<string> = []) =>
       new Promise<number | null>((resolve, reject) => {
         const child = NodeChildProcess.spawn(
@@ -72,6 +73,7 @@ describe("cachedTestTasks", () => {
             env: {
               ...process.env,
               NODE_OPTIONS: "",
+              TMPDIR: fixtureTemp,
               VP_REMOTE_CACHE: "off",
               T3_CACHED_TESTS: JSON.stringify({ files, groupSize: 1, uncached }),
               VITE_CACHE_PATH: NodePath.join(directory, "cache"),
@@ -90,6 +92,7 @@ describe("cachedTestTasks", () => {
       return value.tasks.filter((task) => "CacheHit" in task.result).length;
     };
     try {
+      await NodeFSP.mkdir(fixtureTemp);
       await NodeFSP.mkdir(NodePath.join(directory, "node_modules"));
       await NodeFSP.symlink(
         NodePath.join(root, "node_modules/vite-plus"),
@@ -107,7 +110,7 @@ describe("cachedTestTasks", () => {
       );
       await NodeFSP.writeFile(
         NodePath.join(directory, "b.test.ts"),
-        'import {test,expect} from "vite-plus/test"; test("independent",()=>expect(1).toBe(1));',
+        `import {test,expect} from "vite-plus/test"; test("receives the fixture temp directory",()=>expect(process.env.TMPDIR).toBe(${JSON.stringify(fixtureTemp)}));`,
       );
       await NodeFSP.writeFile(NodePath.join(directory, "fixture.txt"), "hello");
       expect(await run()).toBe(0);

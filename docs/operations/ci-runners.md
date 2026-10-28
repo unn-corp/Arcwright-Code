@@ -75,6 +75,8 @@ pool's `/tmp` is mounted with `noexec`; compiler fixtures and native helper test
 executable per-job temporary directory instead. CI tests and fork release build/validation jobs
 export TMPDIR from RUNNER_TEMP for subsequent steps, so shared pool defaults cannot send
 executable fixtures to /tmp. Keep its lifecycle tied to the job and disposable worker.
+Cached per-file tests also pass TMPDIR through Vite+'s environment filter without fingerprinting
+this job-specific scratch location.
 The dependency action caches the resolved Linux Vite+ home because the pool links its home
 directory into the disposable workspace; a symlink-only cache is not an installed toolchain.
 A cache without an executable vp uses the same pinned setup action as an ordinary cache miss.

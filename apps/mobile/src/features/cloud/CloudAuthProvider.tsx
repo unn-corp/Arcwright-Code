@@ -10,12 +10,9 @@ const cloudConfig = resolveCloudPublicConfig();
 const publishableKey = cloudConfig.relay.url ? cloudConfig.clerk.publishableKey : null;
 
 if (publishableKey) {
-  // Every sign-in or account switch that completes during this session (a
-  // cold start observes undefined → account and must not re-prompt) requests
-  // the Arcwright Connect onboarding sheet — account transitions clear the
-  // connected environments, so each new session starts with no devices to
-  // reach. The same native singleton ClerkProvider renders with, so the service
-  // observes it for the app's lifetime without a React subscription.
+  // Observe ClerkProvider's native singleton for the app lifetime without a React subscription.
+  // Completed sign-ins/account switches clear connections and reopen Connect onboarding.
+  // Cold start (undefined → account) must not prompt.
   cloudAccountService.attach(getClerkInstance({ publishableKey }));
 } else {
   // Without cloud config no account can ever activate, so drop anything a
