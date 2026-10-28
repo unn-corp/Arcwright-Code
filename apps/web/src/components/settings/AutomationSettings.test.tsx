@@ -29,8 +29,8 @@ it("links background services to their sole editing locations", async () => {
   try {
     await act(async () => root.render(<AutomationSettingsPanel />));
     expect([...container.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual([
-      "/settings/providers#provider-update-checks",
-      "/settings/general#background-activity",
+      "/settings/maintenance#provider-update-checks",
+      "/settings/maintenance#background-activity",
     ]);
     expect(container.querySelector('input, button, [role="switch"], select')).toBeNull();
   } finally {

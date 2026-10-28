@@ -1609,7 +1609,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       }
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
-      {row.kind === "message" ? (
+      {row.kind === "message" && (replyContext.enhancedFeed || row.message.role === "assistant") ? (
         <MessageAuthorHeading
           message={row.message}
           showChip={replyContext.participantGroupStarts.has(row.id)}

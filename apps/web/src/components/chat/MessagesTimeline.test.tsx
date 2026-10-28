@@ -105,9 +105,11 @@ beforeEach(() => {
   activityTestState.subagentTooltips = false;
   activityTestState.expanded = false;
   activityTestState.expandedRuns = false;
+  legendListTestState.list = null;
 });
 
 const legendListTestState = vi.hoisted(() => ({
+  list: null as LegendListRef | null,
   data: undefined as unknown,
   onScroll: undefined as (() => void) | undefined,
 }));
@@ -161,6 +163,10 @@ vi.mock("@legendapp/list/react", async () => {
     }
     return (
       <div
+        ref={() => {
+          const list = legendListTestState.list;
+          if (list !== null && typeof props.ref === "function") return props.ref(list);
+        }}
         data-testid={legendListTestId}
         data-class-name={props.className}
         data-anchor-index={props.anchoredEndSpace?.anchorIndex}
@@ -765,6 +771,7 @@ describe("MessagesTimeline", () => {
   );
 
   function stubFollowTimeline(routeThreadKey: string) {
+    vi.unstubAllGlobals();
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrame = 0;
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -784,12 +791,18 @@ describe("MessagesTimeline", () => {
           callbacks.forEach((callback) => callback(0));
         }),
     };
-    const viewport = {
-      get scrollTop() {
-        return timeline.scrollTop;
+    const viewport = document.createElement("div");
+    Object.defineProperties(viewport, {
+      scrollTop: {
+        get: () => timeline.scrollTop,
+        set: (value: number) => {
+          timeline.scrollTop = value;
+        },
       },
-      getBoundingClientRect: () => ({ top: 0 }),
-    };
+      scrollHeight: { value: 2000 },
+      clientHeight: { value: 600 },
+    });
+    viewport.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600);
     props.listRef.current = {
       getScrollableNode: () => viewport,
       getState: () => ({
@@ -801,8 +814,16 @@ describe("MessagesTimeline", () => {
         positionAtIndex: () => 0,
         sizeAtIndex: () => 2000,
         elementAtIndex: () => ({ getBoundingClientRect: () => ({ top: -timeline.scrollTop }) }),
+        listen: () => () => {},
       }),
+      scrollToOffset: async ({ offset }: { offset: number }) => {
+        timeline.scrollTop = offset;
+      },
+      scrollToEnd: async () => {
+        timeline.scrollTop = 1400;
+      },
     } as unknown as LegendListRef;
+    legendListTestState.list = props.listRef.current;
     return timeline;
   }
 
@@ -814,9 +835,6 @@ describe("MessagesTimeline", () => {
     function ChatProbe() {
       const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
       const onManualNavigation = () => setLiveFollowEnabled(false);
-      useLayoutEffect(() => {
-        navigateManually = onManualNavigation;
-      }, [onManualNavigation]);
       return (
         <MessagesTimeline
           {...props}
@@ -841,8 +859,8 @@ describe("MessagesTimeline", () => {
       expect(readTimelinePosition(props.routeThreadKey)?.atEnd).toBe(true);
 
       timeline.scrollTop = 1300;
+      await act(() => navigateManually());
       await act(() => {
-        navigateManually();
         legendListTestState.onScroll?.();
       });
       await act(() => renderer?.unmount());
@@ -2047,8 +2065,8 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Context handoff");
-    expect(markup).toContain("GPT 5.6 Sol");
-    expect(markup).toContain("Claude Fable 5");
+    expect(markup).toContain("5.6 Sol");
+    expect(markup).toContain("Fable 5");
     expect(markup).not.toContain("Full conversation context");
     expect(markup).not.toContain("·");
 
@@ -2080,8 +2098,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(legacyMarkup).toContain("GPT 5.6 Sol");
-    expect(legacyMarkup).toContain("Claude Fable 5");
+    expect(legacyMarkup).toContain("5.6 Sol");
+    expect(legacyMarkup).toContain("Fable 5");
     expect(legacyMarkup).not.toContain("Full conversation context");
 
     const bareMarkup = renderHandoff(
@@ -3121,6 +3139,7 @@ describe("timeline sender groups", () => {
   it("shows one chip outside the bubbles for consecutive messages and puts agent replies to the side", async () => {
     vi.unstubAllGlobals();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const initialRootFontSize = document.documentElement.style.fontSize;
     const { DEFAULT_CLIENT_SETTINGS } = await import("@t3tools/contracts/settings");
     const { __setClientSettingsForTests } = await import("~/hooks/useSettings");
     __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, assistantMessageBubbles: true });
@@ -3155,6 +3174,7 @@ describe("timeline sender groups", () => {
       },
     }));
     try {
+      document.documentElement.style.fontSize = "16px";
       await act(async () =>
         root.render(
           <MessagesTimeline
@@ -3197,9 +3217,11 @@ describe("timeline sender groups", () => {
         if (entries[index]?.message.role === "user") {
           expect(bubble.parentElement?.classList.contains("items-end")).toBe(fromUser);
         }
-        expect(style.getPropertyValue(fromUser ? "inset-inline-end" : "inset-inline-start")).toBe(
-          "calc(100% + 4px)",
-        );
+        const inset = style
+          .getPropertyValue(fromUser ? "inset-inline-end" : "inset-inline-start")
+          .match(/^calc\(100% \+ (\d+(?:\.\d+)?)(px|rem)\)$/);
+        expect(inset).not.toBeNull();
+        expect(Number(inset![1]) * (inset![2] === "rem" ? 16 : 1)).toBe(4);
         await act(async () => reply.click());
       }
       expect(onReply).toHaveBeenCalledTimes(6);
@@ -3209,6 +3231,7 @@ describe("timeline sender groups", () => {
       await act(async () => root.unmount());
       container.remove();
       __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+      document.documentElement.style.fontSize = initialRootFontSize;
     }
   });
 });

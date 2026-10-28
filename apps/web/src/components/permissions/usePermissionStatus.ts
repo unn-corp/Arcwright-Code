@@ -90,13 +90,13 @@ export function createPermissionPoller<Id extends string>(
       };
       invalidate();
       void refresh();
-      const stopReturn = subscribeDocumentReturn(refreshImmediately);
       const stopActivity = subscribeDocumentActivity(() => {
         if (!getDocumentActivity().visible) {
           cancelTimer();
           invalidate();
         }
       });
+      const stopReturn = subscribeDocumentReturn(refreshImmediately);
       return () => {
         disposed = true;
         controller.abort();

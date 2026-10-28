@@ -1,8 +1,9 @@
 import { act, render as renderUi, type Screen } from "../../../test/render";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
-import { type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+const SearchTargetContext = createContext<string | null>(null);
 const state = vi.hoisted(() => ({ hash: "" }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -24,15 +25,33 @@ vi.mock("./useScopedSettings", async (importOriginal) => ({
   useUpdateScopedSettings: () => vi.fn(),
 }));
 vi.mock("./ThemeSettings", () => ({
-  ThemeLibrary: ({ compact, onManage }: { compact: boolean; onManage: () => void }) =>
-    compact ? <button onClick={onManage}>Manage themes</button> : <div>Library controls</div>,
+  ThemeLibrary: ({
+    isImportOpen,
+    onImportOpenChange,
+  }: {
+    isImportOpen: boolean;
+    onImportOpenChange: (open: boolean) => void;
+  }) => (
+    <div data-testid="theme-library">
+      Library controls
+      <button onClick={() => onImportOpenChange(!isImportOpen)}>
+        {isImportOpen ? "Back to themes" : "Import theme"}
+      </button>
+    </div>
+  ),
 }));
 vi.mock("./settingsLayout", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./settingsLayout")>()),
   SettingsPageContainer: ({ children }: { children: ReactNode }) => children,
+  useSettingsSearchTargetId: () => useContext(SearchTargetContext),
+  SettingsSearchTarget: ({ id, children }: { id: string; children: ReactNode }) => (
+    <div id={id}>{children}</div>
+  ),
   SettingsSection: ({ id, children }: { id: string; children: ReactNode }) =>
     id === "typography" ? <section id={id} /> : <section id={id}>{children}</section>,
-  SettingsRow: ({ id }: { id?: string }) => <div id={id} />,
+  SettingsRow: ({ id, control }: { id?: string; control?: ReactNode }) => (
+    <div id={id}>{id === "panel-animations" ? control : null}</div>
+  ),
 }));
 import { AppearanceSettingsPanel } from "./SettingsPanels";
 async function setup() {
@@ -51,13 +70,21 @@ async function setup() {
 
 const hasTarget = (root: Screen, id: string) =>
   root.container.querySelector(`[id="${id}"]`) !== null;
+const panel = () => (
+  <SearchTargetContext value={state.hash || null}>
+    <AppearanceSettingsPanel />
+  </SearchTargetContext>
+);
 async function openLibrary(root: Screen) {
   const container = root.container;
-  await root.rerender(<AppearanceSettingsPanel />);
-  await act(() => container.querySelector<HTMLButtonElement>("button")!.click());
-  expect(hasTarget(root, "chat-width")).toBe(false);
+  await root.rerender(panel());
+  await act(() =>
+    container.querySelector<HTMLButtonElement>('[data-testid="theme-library"] button')!.click(),
+  );
+  expect(hasTarget(root, "chat-width")).toBe(true);
+  expect(container.textContent).toContain("Library controls");
 }
-describe("Appearance library search navigation", () => {
+describe("Appearance inline library search navigation", () => {
   it.each([
     "chat-width",
     "standard-thread-feed",
@@ -67,29 +94,39 @@ describe("Appearance library search navigation", () => {
     "panel-animations",
     "motion",
     "typography",
-  ])("returns from Manage themes for %s and allows returning to the library", async (target) => {
+  ])("keeps %s reachable while opening and closing theme import", async (target) => {
     await using _fixture = await setup();
     const { root, container } = _fixture;
     await openLibrary(root);
     state.hash = target;
-    await act(() => root.rerender(<AppearanceSettingsPanel />));
+    await act(() => root.rerender(panel()));
     expect(hasTarget(root, target)).toBe(true);
-    await act(() => container.querySelector<HTMLButtonElement>("button")!.click());
-    expect(hasTarget(root, "chat-width")).toBe(false);
+    if (target === "motion") {
+      expect(hasTarget(root, "panel-animations")).toBe(true);
+      const duration = root.getByRole("slider", { name: "Panel animation duration" });
+      await expect.element(duration).toBeVisible();
+      await expect.element(duration).toHaveValue("0");
+    }
+    await act(() =>
+      container.querySelector<HTMLButtonElement>('[data-testid="theme-library"] button')!.click(),
+    );
+    expect(hasTarget(root, "chat-width")).toBe(true);
     state.hash = "";
-    await act(() => root.rerender(<AppearanceSettingsPanel />));
+    await act(() => root.rerender(panel()));
     state.hash = target;
-    await act(() => root.rerender(<AppearanceSettingsPanel />));
+    await act(() => root.rerender(panel()));
     expect(hasTarget(root, target)).toBe(true);
   });
-  it("preserves library controls for theme targets and the Back button", async () => {
+  it("preserves inline library controls for theme targets and Back to themes", async () => {
     await using _fixture = await setup();
     const { root, container } = _fixture;
     await openLibrary(root);
     state.hash = "appearance";
-    await act(() => root.rerender(<AppearanceSettingsPanel />));
-    expect(hasTarget(root, "chat-width")).toBe(false);
-    await act(() => container.querySelector<HTMLButtonElement>("button")!.click());
+    await act(() => root.rerender(panel()));
+    expect(hasTarget(root, "chat-width")).toBe(true);
+    await act(() =>
+      container.querySelector<HTMLButtonElement>('[data-testid="theme-library"] button')!.click(),
+    );
     expect(hasTarget(root, "chat-width")).toBe(true);
   });
 });

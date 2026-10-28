@@ -183,7 +183,9 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
         )}
       >
         <MessageBubbleReply message={row.message} />
-        <MessageAuthorHeading message={row.message}>Automation</MessageAuthorHeading>
+        {!ctx.enhancedFeed ? (
+          <MessageAuthorHeading message={row.message}>Automation</MessageAuthorHeading>
+        ) : null}
         <FoldedMessageHeader
           icon={CalendarClockIcon}
           label="Automation"
@@ -503,13 +505,15 @@ export function UserTimelineRow({
       >
         {showReplyButton ? <MessageBubbleReply message={row.message} /> : null}
         {/* Outside the fold so a collapsed message still has a heading to navigate to. */}
-        <MessageAuthorHeading message={row.message}>
-          {folded
-            ? senderLabel
-            : userMessage.guestName === undefined
-              ? "You"
-              : `${userMessage.guestName} (guest)`}
-        </MessageAuthorHeading>
+        {!ctx.enhancedFeed ? (
+          <MessageAuthorHeading message={row.message}>
+            {folded
+              ? senderLabel
+              : userMessage.guestName === undefined
+                ? "You"
+                : `${userMessage.guestName} (guest)`}
+          </MessageAuthorHeading>
+        ) : null}
         {folded ? (
           <FoldedMessageHeader
             icon={MessagesSquareIcon}

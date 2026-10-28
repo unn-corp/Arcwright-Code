@@ -15,8 +15,6 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("../../state/environments", () => ({
   usePrimaryEnvironmentId: () => state.primaryEnvironmentId,
-}));
-vi.mock("../../state/entities", () => ({
   useActiveEnvironmentId: () => state.activeEnvironmentId,
 }));
 vi.mock("@effect/atom-react", () => ({
@@ -107,6 +105,11 @@ vi.mock("../WorkspaceBreadcrumb", () => ({
 }));
 vi.mock("../WorkspacePageContainer", () => ({ WorkspacePageContainer: "main" }));
 vi.mock("../WorkspacePageHeader", () => ({ WorkspacePageHeader: "header" }));
+// The unit renderer has no DOM portal for the route modal.
+vi.mock("../AppRouteModal", () => ({
+  AppRouteModal: ({ children }: { children: ReactNode }) => <main>{children}</main>,
+  AppRouteModalClose: () => null,
+}));
 vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
 vi.mock("./UsagePriceOverrides", () => ({ UsagePriceOverrides: () => null }));
 vi.mock("../chat/ProviderInstanceIcon", () => ({ ProviderInstanceIcon: () => null }));

@@ -31,6 +31,7 @@ vi.mock("../../onboarding/firstRun", () => ({ completeOnboarding: mocks.complete
 vi.mock("../../state/entities", () => ({
   useProjects: () => mocks.projects,
   readProjects: () => mocks.projects,
+  waitForProject: vi.fn(async () => true),
 }));
 vi.mock("../../state/environments", () => {
   const environment = {

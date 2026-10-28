@@ -148,7 +148,7 @@ async function render(root: Screen) {
     ),
   );
   return Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Run cleanup",
+    (button) => button.textContent === "Delete now",
   )!;
 }
 
@@ -192,11 +192,11 @@ it.each(["machine-wide immediate", "project custom"])(
     await act(async () => button.click());
     expect(state.run).toHaveBeenCalledExactlyOnceWith({ environmentId: "env", input: {} });
     expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe("Running cleanup…");
+    expect(button.textContent).toBe("Deleting…");
 
     await act(async () => complete({ _tag: "Success", value: report }));
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toBe("Run cleanup");
+    expect(button.textContent).toBe("Delete now");
   },
 );
 

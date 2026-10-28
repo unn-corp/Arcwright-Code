@@ -40,7 +40,7 @@ import {
   type ComposerThreadTarget,
 } from "../composerDraftStore";
 import { deriveProviderInstanceEntries } from "../providerInstances";
-import { makeThreadFixture, makeThreadProjectionFixture } from "../test-fixtures";
+import { makeThreadFixture } from "../test-fixtures";
 import type { Thread } from "../types";
 import {
   composerModelSelectionBase,
@@ -219,15 +219,13 @@ function dispatch(
   selection: Selection,
   preparation = Effect.void,
   target = threadRef,
-  legacyPreparation?: Effect.Effect<void>,
+  automaticPreparation?: Effect.Effect<void>,
 ) {
   return Effect.gen(function* () {
     if (!selection.selectedProviderEntry) return [];
     const commands: OrchestrationV2Command[] = [];
     // In-memory transport, with production command construction and RPC routing.
     const client = {
-      [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: () =>
-        (legacyPreparation ?? Effect.void).pipe(Effect.as(makeThreadProjectionFixture())),
       [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
         Effect.sync(() => {
           commands.push(command);
@@ -236,13 +234,7 @@ function dispatch(
     } as unknown as WsRpcProtocolClient;
     const session: RpcSession = {
       client,
-      // This test transport exposes only the capability read by auto mode.
-      initialConfig:
-        legacyPreparation === undefined
-          ? Effect.die("Unexpected server config request")
-          : Effect.succeed({
-              environment: { capabilities: { serverResolvedCommandContext: false } },
-            } as never),
+      initialConfig: Effect.die("Unexpected server config request"),
       subscribeServerConfig: () => {
         throw new Error("Unexpected subscription");
       },
@@ -288,10 +280,11 @@ function dispatch(
       retryNow: Effect.void,
     });
     yield* preparation;
+    yield* automaticPreparation ?? Effect.void;
     yield* startThreadTurn({
       commandId: CommandId.make("selection-regression"),
       threadId: target.threadId,
-      dispatchMode: legacyPreparation === undefined ? "start" : "auto",
+      dispatchMode: automaticPreparation === undefined ? "start" : "auto",
       message: {
         messageId: MessageId.make("selection-message"),
         role: "user",
@@ -765,7 +758,7 @@ describe("pending selection during asynchronous send preparation", () => {
   );
 
   it.effect.each([false, true])(
-    "revalidates after a deferred legacy projection (remote changed: %s)",
+    "revalidates automatic delivery after deferred preparation (remote changed: %s)",
     (remoteChanged) =>
       Effect.gen(function* () {
         const desktop = new Client();

@@ -109,7 +109,7 @@ describe("ScheduledTasksSettings", () => {
     state.connected = true;
     state.tasksLoaded = true;
     await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    const name = page.getByRole("dialog").getByRole("textbox", { name: "Name" });
+    const name = page.getByRole("textbox", { name: "Name", exact: true });
     await expect.element(name).toHaveValue("Review issues");
     await userEvent.fill(name, "Review stale issues");
 
@@ -128,14 +128,13 @@ describe("ScheduledTasksSettings", () => {
     state.tasksLoaded = false;
     await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
     await userEvent.click(page.getByRole("button", { name: "New task" }));
-    const dialog = page.getByRole("dialog");
-    const name = dialog.getByRole("textbox", { name: "Name" });
+    const name = page.getByRole("textbox", { name: "Name", exact: true });
     await userEvent.fill(name, "My draft");
 
     state.tasksLoaded = true;
     await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
 
-    await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
+    await expect.element(page.getByRole("heading", { name: "New task" })).toBeInTheDocument();
     await expect.element(name).toHaveValue("My draft");
   });
 });

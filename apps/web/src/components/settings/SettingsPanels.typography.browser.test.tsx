@@ -58,9 +58,11 @@ vi.mock("./settingsLayout", async (importOriginal) => ({
     ) : (
       <section id={id} />
     ),
-  SettingsRow: ({ id }: { id?: string }) => <div id={id} />,
+  SettingsRow: ({ id, control }: { id?: string; control?: ReactNode }) => (
+    <div id={id}>{id === "separate-fonts" ? control : null}</div>
+  ),
 }));
-import { AppearanceSettingsPanel } from "./SettingsPanels";
+import { TypographySection } from "./TypographySettings";
 async function setup() {
   state.hash = "";
 
@@ -80,14 +82,14 @@ async function setup() {
 
 const panel = () => (
   <SearchTargetContext value={state.hash || null}>
-    <AppearanceSettingsPanel />
+    <TypographySection />
   </SearchTargetContext>
 );
 const hasTarget = (root: Screen, id: string) =>
   root.container.querySelector(`[id="${id}"]`) !== null;
 describe("Typography search navigation", () => {
   it.each(["prompt-font", "terminal-font"])(
-    "reopens Advanced for repeated %s after clearing the search target",
+    "re-enables separate fonts for repeated %s after clearing the search target",
     async (target) => {
       await using _fixture = await setup();
       const { root, container } = _fixture;
@@ -96,9 +98,16 @@ describe("Typography search navigation", () => {
       state.hash = target;
       await act(() => root.rerender(panel()));
       expect(hasTarget(root, target)).toBe(true);
+      state.hash = "";
+      await root.rerender(panel());
       await act(() =>
         container
-          .querySelector<HTMLButtonElement>('[aria-label="Show advanced typography settings"]')!
+          .querySelector<HTMLButtonElement>("button[data-slot='collapsible-trigger']")!
+          .click(),
+      );
+      await act(() =>
+        container
+          .querySelector<HTMLButtonElement>('[role="switch"][aria-label="Separate fonts"]')!
           .click(),
       );
       expect(hasTarget(root, target)).toBe(false);

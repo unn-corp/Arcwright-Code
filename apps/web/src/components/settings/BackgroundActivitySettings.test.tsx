@@ -1,13 +1,26 @@
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
-import { act, useState } from "react";
+import { act, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
-const state = vi.hoisted(() => ({ hash: "", canWrite: true, navigate: vi.fn() }));
+const state = vi.hoisted(() => ({
+  hash: "",
+  locationListeners: new Set<() => void>(),
+  canWrite: true,
+  navigate: vi.fn(),
+}));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
-  useLocation: <T,>({ select }: { select: (location: { hash: string; state: object }) => T }) =>
-    select({ hash: state.hash, state: {} }),
+  useLocation: <T,>({ select }: { select: (location: { hash: string; state: object }) => T }) => {
+    const hash = useSyncExternalStore(
+      (listener) => {
+        state.locationListeners.add(listener);
+        return () => state.locationListeners.delete(listener);
+      },
+      () => state.hash,
+    );
+    return select({ hash, state: {} });
+  },
   useNavigate: () => state.navigate,
 }));
 vi.mock("./useScopedSettings", () => ({
@@ -24,6 +37,11 @@ import {
   BackgroundActivitySearchOpener,
 } from "./BackgroundActivitySettings";
 import { settingsTargetDestination } from "./settingsSearch";
+
+function setHash(hash: string) {
+  state.hash = hash;
+  for (const listener of state.locationListeners) listener();
+}
 
 function Fixture({ enabled = true }: { enabled?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -64,8 +82,7 @@ it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
     document.body.append(container);
     const root = createRoot(container);
     state.navigate.mockImplementation(() => {
-      state.hash = "";
-      root.render(<Fixture />);
+      setHash("");
       return Promise.resolve();
     });
     try {
@@ -76,15 +93,18 @@ it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
       expect(state.navigate).toHaveBeenCalledWith(
         expect.objectContaining({ hash: "", replace: true }),
       );
-      state.hash = "";
-      await act(async () => root.render(<Fixture />));
+      await act(async () => setHash(""));
       const done = [...document.querySelectorAll("button")].find(
         (button) => button.textContent === "Done",
       )!;
       await act(async () => done.click());
-      state.hash = target;
-      await act(async () => root.render(<Fixture />));
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+      scroll.mockClear();
+      await act(async () => setHash(target));
       await vi.waitFor(() => expect(document.activeElement?.id).toBe(target));
+      expect(scroll).toHaveBeenCalled();
+      expect(state.hash).toBe("");
+      expect(state.navigate).toHaveBeenCalledTimes(2);
     } finally {
       await act(async () => root.unmount());
       container.remove();
