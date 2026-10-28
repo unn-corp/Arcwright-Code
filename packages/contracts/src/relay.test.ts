@@ -64,17 +64,37 @@ describe("mobile device platforms", () => {
   });
 });
 
-it("declares additive public boundary errors on every public endpoint and leaves hook contracts unchanged", () => {
+it("declares public boundary errors while preserving raw hook and telemetry contracts", () => {
   const document = OpenApi.fromApi(RelayApi);
   for (const [path, methods] of Object.entries(document.paths))
-    for (const operation of Object.values(methods)) {
+    for (const [method, operation] of Object.entries(methods)) {
       if (!operation || typeof operation !== "object" || !("responses" in operation)) continue;
       const statuses = Object.keys(operation.responses as object);
       if (path.startsWith("/v1/hooks/")) expect(statuses).not.toContain("429");
-      else
-        for (const status of ["400", "413", "429", "431", "503"])
-          expect(statuses).toContain(status);
+      else {
+        const required =
+          method === "post" && path === "/v1/mobile/observe/{projectId}/v1/{signal}"
+            ? ["413", "431"]
+            : ["400", "413", "429", "431", "503"];
+        for (const status of required) expect(statuses, `${method} ${path}`).toContain(status);
+      }
     }
+});
+it("declares both shared-ingress and raw telemetry body-limit 413 replies", () => {
+  const response =
+    OpenApi.fromApi(RelayApi).paths["/v1/mobile/observe/{projectId}/v1/{signal}"]?.post?.responses[
+      "413"
+    ];
+  expect(response?.content?.["application/json"]?.schema).toMatchObject({
+    anyOf: expect.arrayContaining([
+      expect.objectContaining({ $ref: "#/components/schemas/RelayRequestTooLargeErrorEncoded" }),
+      expect.objectContaining({
+        type: "object",
+        required: ["error"],
+        properties: { error: { type: "string", enum: ["body_too_large"] } },
+      }),
+    ]),
+  });
 });
 it("bounds input identifiers/tokens without narrowing platform registration or the frozen/outbound device lists", () => {
   expect(

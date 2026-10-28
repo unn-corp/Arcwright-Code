@@ -1633,6 +1633,12 @@ const RelayMobileTelemetryGroup = HttpApiGroup.make("mobileTelemetry")
   .add(
     HttpApiEndpoint.post("ingest", "/v1/mobile/observe/:projectId/v1/:signal", {
       params: RelayMobileTelemetryParams,
+      // The body cap and shared URL bound both return 413 with different wire bodies.
+      error: [
+        RelayRequestTooLargeError,
+        Schema.Struct({ error: Schema.Literal("body_too_large") }).annotate({ httpApiStatus: 413 }),
+        RelayRequestHeadersTooLargeError,
+      ],
     }),
   )
   .annotate(OpenApi.Description, "Receive mobile app telemetry from expo-observe.");
