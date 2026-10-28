@@ -816,9 +816,9 @@ describe("artifact and CLI agreement", () => {
         ]) {
           assert.include(step.env?.PNPM_STORE_DIR ?? "", context);
         }
-        assert.include(step.run!, '--store-dir "$PNPM_STORE_DIR"');
-        assert.include(step.run!, "--strict-store-pkg-content-check");
-        assert.notMatch(step.run!, /strict-store-pkg-content-check(?:=|\s+)false/);
+        assert.include(step.run!, ' -- --store-dir "$PNPM_STORE_DIR"');
+        assert.equal(step.env?.PNPM_CONFIG_STRICT_STORE_PKG_CONTENT_CHECK, "true");
+        assert.notInclude(step.run!, "--strict-store-pkg-content-check");
       }
     }
   });

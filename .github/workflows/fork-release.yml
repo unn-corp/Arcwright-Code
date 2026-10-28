@@ -821,7 +821,8 @@ jobs:
         shell: bash
         env:
           PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
-        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+          PNPM_CONFIG_STRICT_STORE_PKG_CONTENT_CHECK: "true"
+        run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts... -- --store-dir "$PNPM_STORE_DIR"
 
       - name: Checkout pinned source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -848,7 +849,8 @@ jobs:
         shell: bash
         env:
           PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
-        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/monorepo --filter=@t3tools/shared...
+          PNPM_CONFIG_STRICT_STORE_PKG_CONTENT_CHECK: "true"
+        run: vp install --filter=@t3tools/monorepo --filter=@t3tools/shared... -- --store-dir "$PNPM_STORE_DIR"
 
       - name: Build recovery helper
         working-directory: tooling
@@ -1044,7 +1046,8 @@ jobs:
         shell: bash
         env:
           PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
-        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+          PNPM_CONFIG_STRICT_STORE_PKG_CONTENT_CHECK: "true"
+        run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts... -- --store-dir "$PNPM_STORE_DIR"
 
       - name: Download candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -1181,7 +1184,8 @@ jobs:
         shell: bash
         env:
           PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
-        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+          PNPM_CONFIG_STRICT_STORE_PKG_CONTENT_CHECK: "true"
+        run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts... -- --store-dir "$PNPM_STORE_DIR"
 
       - name: Checkout pinned source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1208,7 +1212,8 @@ jobs:
         shell: bash
         env:
           PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
-        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/monorepo --filter=t3... --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=@t3tools/scripts...
+          PNPM_CONFIG_STRICT_STORE_PKG_CONTENT_CHECK: "true"
+        run: vp install --filter=@t3tools/monorepo --filter=t3... --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=@t3tools/scripts... -- --store-dir "$PNPM_STORE_DIR"
 
       - name: Setup JDK 17
         if: matrix.suite == 'native-android'
