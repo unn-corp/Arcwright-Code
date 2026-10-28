@@ -10,6 +10,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as NodeURL from "node:url";
 import type { SqlError } from "effect/sql/SqlError";
 
 import * as RelayDb from "../db.ts";
@@ -22,7 +23,9 @@ import {
 // variable is consulted, and the schema below belongs exclusively to this suite.
 const nativeFixtureFile = process.env.RELAY_MANAGED_ENDPOINT_TEST_FIXTURE_FILE;
 export const fixtureFile = nativeFixtureFile || process.env.RELAY_PWA_TEST_FIXTURE_FILE;
-export const migrationDirectory = "infra/relay/migrations/postgres";
+export const migrationDirectory = NodeURL.fileURLToPath(
+  new URL("../../migrations/postgres", import.meta.url),
+);
 export const lifecycleMigration = "20261013154149_managed_endpoint_lifecycle";
 const containerId = "dbc30b134c2b29164e8b69094e4038f3541b24158ac5a60cccbba50f1ef35390";
 const networkId = "873a155e6310965ce514f0ff2cf5b47c4caf384e497b65a9d0eb8424c38dbdd7";
