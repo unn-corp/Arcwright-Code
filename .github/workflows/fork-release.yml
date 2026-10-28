@@ -818,7 +818,10 @@ jobs:
 
       - name: Install release tooling dependencies
         working-directory: tooling
-        run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+        shell: bash
+        env:
+          PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
+        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/scripts... --filter=@t3tools/contracts...
 
       - name: Checkout pinned source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -842,7 +845,10 @@ jobs:
 
       - name: Install source dependencies
         working-directory: source
-        run: vp install --filter=@t3tools/monorepo --filter=@t3tools/shared...
+        shell: bash
+        env:
+          PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
+        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/monorepo --filter=@t3tools/shared...
 
       - name: Build recovery helper
         working-directory: tooling
@@ -1031,11 +1037,14 @@ jobs:
         uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
         with:
           node-version-file: package.json
-          cache: true
+          cache: false
           run-install: false
 
       - name: Install release tooling dependencies
-        run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+        shell: bash
+        env:
+          PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
+        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/scripts... --filter=@t3tools/contracts...
 
       - name: Download candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -1169,7 +1178,10 @@ jobs:
 
       - name: Install release tooling dependencies
         working-directory: tooling
-        run: vp install --filter=@t3tools/scripts... --filter=@t3tools/contracts...
+        shell: bash
+        env:
+          PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
+        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/scripts... --filter=@t3tools/contracts...
 
       - name: Checkout pinned source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1193,7 +1205,10 @@ jobs:
 
       - name: Install source dependencies
         working-directory: source
-        run: vp install --filter=@t3tools/monorepo --filter=t3... --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=@t3tools/scripts...
+        shell: bash
+        env:
+          PNPM_STORE_DIR: ${{ runner.temp }}/fork-release-pnpm-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ strategy.job-index }}
+        run: vp install --store-dir "$PNPM_STORE_DIR" --strict-store-pkg-content-check --filter=@t3tools/monorepo --filter=t3... --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=@t3tools/scripts...
 
       - name: Setup JDK 17
         if: matrix.suite == 'native-android'

@@ -69,6 +69,13 @@ Android PWA tests. The Expo app's native dependencies add substantial install ti
 supporting these release commands. The release suites and their required test files remain
 unchanged.
 
+The fork recovery-helper, payload-validation, and safety-suite jobs give both tooling and
+source installs a private pnpm store under `RUNNER_TEMP`, separated by run, attempt, job,
+and matrix index. This avoids reusing the persistent Windows service account's shared
+store. pnpm's strict package-content check stays enabled. The runner removes the
+temporary stores with the job's other scratch files; do not clear shared stores or
+disable integrity checks to recover a failed release install.
+
 Linux workers must set `TMPDIR` to an executable directory under their disposable workspace,
 such as `/_work/_temp`, and create it for the runner user before accepting work. The hardened
 pool's `/tmp` is mounted with `noexec`; compiler fixtures and native helper tests must use the

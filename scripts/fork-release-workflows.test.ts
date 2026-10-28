@@ -22,6 +22,7 @@ const YAML = NodeModule.createRequire(NodePath.join(REPO, "packages/shared/packa
 
 interface Step {
   readonly name?: string;
+  readonly shell?: string;
   readonly id?: string;
   readonly if?: string;
   readonly uses?: string;
@@ -794,6 +795,32 @@ describe("artifact and CLI agreement", () => {
       stepNamed(release.jobs.manifest!, "Download receipts").with!.pattern,
       "*receipts-*",
     );
+  });
+
+  it("isolates native release verification installs from the persistent runner's package store", () => {
+    for (const jobName of ["recovery_helper", "validate", "suites"]) {
+      const installs = release.jobs[jobName]!.steps!.filter(
+        (step) => step.name?.startsWith("Install ") && step.run?.startsWith("vp install "),
+      );
+      assert.lengthOf(installs, jobName === "validate" ? 1 : 2);
+      const stores = installs.map((step) => step.env?.PNPM_STORE_DIR);
+      assert.equal(new Set(stores).size, 1);
+      for (const step of installs) {
+        assert.equal(step.shell, "bash");
+        assert.match(step.env?.PNPM_STORE_DIR ?? "", /^\$\{\{ runner\.temp \}\}\//);
+        for (const context of [
+          "github.run_id",
+          "github.run_attempt",
+          "github.job",
+          "strategy.job-index",
+        ]) {
+          assert.include(step.env?.PNPM_STORE_DIR ?? "", context);
+        }
+        assert.include(step.run!, '--store-dir "$PNPM_STORE_DIR"');
+        assert.include(step.run!, "--strict-store-pkg-content-check");
+        assert.notMatch(step.run!, /strict-store-pkg-content-check(?:=|\s+)false/);
+      }
+    }
   });
 
   const optionsOf = (file: string): Set<string> =>
