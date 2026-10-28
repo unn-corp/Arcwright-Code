@@ -91,6 +91,10 @@ enter the cache. The relay suite runs files serially because these tests reset s
 test schemas. Fixture admission verifies directory/socket ownership and the connected
 database's data directory before allowing their separately bounded schema resets; ambient database URLs
 are never accepted. The existing separately authorized Docker fixture remains supported.
+The cluster and workerd fixture roots use the job's `TMPDIR`. The cluster requires an
+absolute existing parent, canonicalized independently by creation and admission, and uses
+`/tmp` only when `TMPDIR` is unset. Linux fixtures reject full Unix socket paths over
+107 filesystem bytes before starting database or worker processes.
 
 Android workers must provide SDK command-line tools, `ANDROID_HOME`, and a writable SDK directory.
 The workflows use that existing `sdkmanager` to install SDK packages; they do not bootstrap it.

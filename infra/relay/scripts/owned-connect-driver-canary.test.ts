@@ -338,7 +338,6 @@ it.effect(
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fs.makeTempDirectoryScoped({
-        directory: "/tmp",
         prefix: "arcwright-config-",
       });
       const state = path.join(root, "driver-canary/alchemy");
@@ -395,7 +394,6 @@ it.effect(
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fs.makeTempDirectoryScoped({
-        directory: "/tmp",
         prefix: "arcwright-graph-",
       });
       let authIo = 0;

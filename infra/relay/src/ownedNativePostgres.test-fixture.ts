@@ -1,8 +1,11 @@
+import * as NodeBuffer from "node:buffer";
 import * as PgClient from "@effect/sql-pg/PgClient";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 class FixtureConfigurationRejected extends Data.TaggedError("FixtureConfigurationRejected") {}
@@ -25,11 +28,24 @@ const decodeNativeConnection = Schema.decodeEffect(Schema.fromJsonString(NativeC
 export const verifiedNativeConnection = Effect.fn("ownedNativePostgres.verifiedNativeConnection")(
   function* (nativeFixtureFile: string | undefined) {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     if (!nativeFixtureFile) return yield* new FixtureConfigurationRejected();
+    const temporaryDirectory = process.env.TMPDIR ?? "/tmp";
+    if (!path.isAbsolute(temporaryDirectory)) return yield* new FixtureConfigurationRejected();
+    const temporaryParent = yield* fs.realPath(temporaryDirectory);
+    if ((yield* fs.stat(temporaryParent)).type !== "Directory")
+      return yield* new FixtureConfigurationRejected();
     const connection = yield* decodeNativeConnection(yield* fs.readFileString(nativeFixtureFile));
     const root = connection.rootDirectory;
+    const rootName = path.basename(root);
     if (
-      !/^\/tmp\/arcwright-relay-pg-[A-Za-z0-9_-]+$/.test(root) ||
+      (yield* HostProcess.Platform) === "linux" &&
+      NodeBuffer.Buffer.byteLength(`${connection.host}/.s.PGSQL.5432`) > 107
+    )
+      return yield* new FixtureConfigurationRejected();
+    if (
+      path.dirname(root) !== temporaryParent ||
+      rootName.match(/^arcwright-relay-pg-[A-Za-z0-9_-]+/)?.[0] !== rootName ||
       nativeFixtureFile !== `${root}/connection.json` ||
       connection.dataDirectory !== `${root}/data` ||
       connection.host !== `${root}/socket` ||
@@ -72,6 +88,7 @@ export const verifiedNativeConnection = Effect.fn("ownedNativePostgres.verifiedN
       return yield* new FixtureConfigurationRejected();
     return connection;
   },
+  Effect.provide(Path.layer),
 );
 export const verifiedNativeClient = Effect.fn("ownedNativePostgres.verifiedNativeClient")(
   function* (connection: Pick<typeof NativeConnection.Type, "database" | "dataDirectory">) {

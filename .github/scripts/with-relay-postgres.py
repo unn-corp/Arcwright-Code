@@ -20,8 +20,17 @@ def main():
     if not command or os.getuid() == 0:
         raise SystemExit("A test command and an unprivileged user are required.")
     binary = Path(os.environ["RELAY_POSTGRES_BIN"]).resolve(strict=True)
-    root = Path(tempfile.mkdtemp(prefix="arcwright-relay-pg-", dir="/tmp")).resolve()
+    temporary_directory = Path(os.environ.get("TMPDIR", "/tmp"))
+    if not temporary_directory.is_absolute():
+        raise SystemExit("TMPDIR must be an absolute existing directory.")
+    temporary_parent = temporary_directory.resolve(strict=True)
+    if not temporary_parent.is_dir():
+        raise SystemExit("TMPDIR must be an absolute existing directory.")
+    root = Path(tempfile.mkdtemp(prefix="arcwright-relay-pg-", dir=temporary_parent)).resolve()
     data, socket = root / "data", root / "socket"
+    if sys.platform == "linux" and len(os.fsencode(socket / ".s.PGSQL.5432")) > 107:
+        root.rmdir()
+        raise SystemExit("Owned PostgreSQL fixture socket path exceeds Linux's 107-byte limit.")
     socket.mkdir(mode=0o700)
     identity = "arcwright_test_" + secrets.token_hex(12)
     password = secrets.token_hex(32)

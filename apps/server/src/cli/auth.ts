@@ -39,11 +39,9 @@ const runWithEnvironmentAuth = Effect.fn("auth.runWithEnvironmentAuth")(function
     return yield* run(environmentAuth);
   }).pipe(
     Effect.provide(
-      Layer.mergeAll(EnvironmentAuth.layerRuntime).pipe(
-        Layer.provide(ServerConfig.layer(config)),
-        Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
-      ),
+      Layer.mergeAll(EnvironmentAuth.layerRuntime).pipe(Layer.provide(ServerConfig.layer(config))),
     ),
+    Effect.provideService(References.MinimumLogLevel, minimumLogLevel),
   );
 });
 

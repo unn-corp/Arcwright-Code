@@ -1,4 +1,6 @@
+import * as NodeBuffer from "node:buffer";
 import * as NodeModule from "node:module";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -79,11 +81,13 @@ it.live(
       const path = yield* Path.Path;
       const spawner = yield* ChildProcessSpawner;
       const root = yield* fs.makeTempDirectory({
-        directory: "/tmp",
         prefix: "arcwright-deadline-",
       });
       yield* fs.chmod(root, 0o700);
       yield* Effect.gen(function* () {
+        const socket = path.join(root, "http.sock");
+        if ((yield* HostProcess.Platform) === "linux" && NodeBuffer.Buffer.byteLength(socket) > 107)
+          return yield* new WorkerdFixtureFailed();
         const built = yield* Effect.gen(function* () {
           const source = yield* resolveSource(deadlineFixtureProps);
           return yield* source.build(
@@ -147,7 +151,6 @@ const config :Workerd.Config = (services = [
 sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
           { mode: 0o600 },
         );
-        const socket = path.join(root, "http.sock");
         const binary = workerd.default;
         yield* Effect.scoped(
           Effect.gen(function* () {
@@ -284,9 +287,15 @@ it.live(
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const spawner = yield* ChildProcessSpawner;
-      const root = yield* fs.makeTempDirectory({ directory: "/tmp", prefix: "arcwright-driver-" });
+      const root = yield* fs.makeTempDirectory({ prefix: "arcwright-driver-" });
       yield* fs.chmod(root, 0o700);
       yield* Effect.gen(function* () {
+        const socketPath = path.join(root, "http.sock");
+        if (
+          (yield* HostProcess.Platform) === "linux" &&
+          NodeBuffer.Buffer.byteLength(socketPath) > 107
+        )
+          return yield* new WorkerdFixtureFailed();
         const built = yield* buildDriverCanaryOffline(root);
         for (const file of built.bundle.files) {
           const content =
@@ -333,7 +342,6 @@ it.live(
             (file) => file.path.startsWith("PgClient-") && file.path.endsWith(".js"),
           ),
         ).toBe(true);
-        const socketPath = path.join(root, "http.sock");
         const binary = workerd.default;
         expect(
           (yield* spawner.string(

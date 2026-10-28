@@ -15,13 +15,16 @@ import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as References from "effect/References";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command, CliError } from "effect/cli";
+import { vi } from "vite-plus/test";
 
+import * as SqliteDiagnostics from "../../../../packages/shared/src/nodeSqliteDiagnostics.ts";
 import { cli } from "../binCli.ts";
 import {
   SERVICE_LAUNCHER_CONTEXT_ENV,
@@ -95,6 +98,14 @@ const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
           (line): line is string => typeof line === "string",
         ) ?? ""
       );
+    }),
+  );
+
+const captureAllStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  provideCliTestLayers(
+    Effect.gen(function* () {
+      yield* effect;
+      return yield* TestConsole.logLines;
     }),
   );
 
@@ -596,6 +607,68 @@ describe("auth scope options", () => {
         assert.lengthOf(listed, 1);
         assert.deepEqual(listed[0]?.scopes, issued.scopes);
       }),
+  );
+
+  it.effect.each([
+    { mode: "JSON", command: ["pairing", "create", "--json"] },
+    { mode: "token-only", command: ["session", "issue", "--token-only"] },
+    { mode: "normal", command: ["pairing", "create"] },
+  ] as const)(
+    "honors the slow-SQLite diagnostic policy for auth $mode output",
+    ({ mode, command }) =>
+      Effect.gen(function* () {
+        const baseDir = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-cli-auth-output-test-")),
+          ),
+          (directory) =>
+            Effect.sync(() => NodeFS.rmSync(directory, { recursive: true, force: true })),
+        );
+        const makeDiagnostics = SqliteDiagnostics.make;
+        yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            vi.spyOn(SqliteDiagnostics, "make").mockImplementation(() => {
+              let time = 0;
+              // Each operation passes the warning budget without advancing real time.
+              return makeDiagnostics(() => (time += 60_001));
+            }),
+          ),
+          (spy) => Effect.sync(() => spy.mockRestore()),
+        );
+        const stdout = yield* captureAllStdout(
+          runCli(["auth", ...command, "--base-dir", baseDir, "--scope", "orchestration:read"]),
+        );
+
+        if (mode === "normal") {
+          assert.include(stdout, "SQLite operation blocked the server");
+          assert.isTrue(
+            stdout.some(
+              (value) =>
+                typeof value === "object" &&
+                value !== null &&
+                "operation" in value &&
+                value.operation === "close",
+            ),
+          );
+          assert.isTrue(
+            stdout.some(
+              (value) =>
+                typeof value === "string" && value.startsWith("Issued client pairing token "),
+            ),
+          );
+          return;
+        }
+
+        assert.lengthOf(stdout, 1);
+        assert.isString(stdout[0]);
+        const output = String(stdout[0]);
+        if (mode === "JSON") {
+          const issued = JSON.parse(output) as { readonly scopes: ReadonlyArray<string> };
+          assert.deepEqual(issued.scopes, ["orchestration:read"]);
+        } else {
+          assert.match(output, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\n$/);
+        }
+      }).pipe(Effect.scoped, Effect.provideService(References.MinimumLogLevel, "Info")),
   );
 
   it.effect.each(
