@@ -22,12 +22,9 @@ export type AcquireDeviceGuard = () => Promise<DeviceGuard>;
 const ACK_ATTEMPTS = 40;
 
 /**
- * Quiesces the whole device for an operator-driven stop of a background service (`t3 service restart`,
- * `t3 service install` repair, `t3 service uninstall`). It is the same admission an update takes: every
- * registered participant must have been idle for five minutes, nothing may be orphaned, the fence is taken,
- * and every participant must acknowledge it before anything is stopped. Unknown activity, an empty
- * registry or an unreadable coordinator blocks. Work cannot start between the check and the stop because
- * the fence rejects it atomically.
+ * Before stopping a managed service, require every registered participant idle for five minutes, no
+ * orphans, and acknowledged fencing. Unknown activity, an empty registry or unreadable coordinator
+ * blocks; the fence atomically prevents new work.
  */
 export const quiesceDeviceForRestart = async (
   options: {

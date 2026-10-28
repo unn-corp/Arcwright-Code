@@ -160,6 +160,7 @@ export function OrganizationMemoryAndDecisions({
 
   const listRefresh = list.refresh;
   const historyRefresh = history.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates organization memory and decision history when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) {
       listRefresh();

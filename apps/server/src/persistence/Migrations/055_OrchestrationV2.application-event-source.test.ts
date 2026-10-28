@@ -7,6 +7,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
+const decodeStringUnknownRecordJson = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
+
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("055_OrchestrationV2 application event source", (it) => {
@@ -53,9 +57,7 @@ layer("055_OrchestrationV2 application event source", (it) => {
       const payloads = yield* sql<{
         readonly payload_json: string;
       }>`SELECT payload_json FROM orchestration_events WHERE stream_id = 'project:existing' AND application_event_version = 2`;
-      const payload = yield* Schema.decodeEffect(
-        Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
-      )(payloads[0]!.payload_json);
+      const payload = yield* decodeStringUnknownRecordJson(payloads[0]!.payload_json);
       assert.deepEqual(payload.projectIcon, {
         kind: "photo",
         dataUrl: "data:image/webp;base64,UklGRg==",

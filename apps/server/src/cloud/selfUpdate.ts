@@ -7,7 +7,6 @@ import {
   type ServerSelfUpdateResult,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -17,7 +16,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
-import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/http";
 
@@ -144,7 +142,6 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const releaseBaseUrl = Option.getOrUndefined(
     yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
   );
-  const inFlight = yield* Ref.make(false);
 
   yield* Effect.gen(function* () {
     const host = yield* acquireMaintenanceHost(serverConfig);
@@ -268,14 +265,21 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   return ServerSelfUpdate.of({
     capability,
     stage,
-    update: (_input, reportProgress = () => Effect.void) =>
-      capability === "desktop-managed" && desktopAppUpdate.available
+    update: Effect.fn("ServerSelfUpdate.update")(function (
+      _input,
+      reportProgress = () => Effect.void,
+    ) {
+      return capability === "desktop-managed" && desktopAppUpdate.available
         ? desktopAppUpdate.run(reportProgress)
-        : Effect.fail(failWith(RETIRED_REASON)),
-    commitDesktopUpdate: (requestId, onHandoffAccepted) =>
-      capability === "desktop-managed" && desktopAppUpdate.available
-        ? desktopAppUpdate.commit(requestId, onHandoffAccepted)
-        : Effect.fail(failWith(RETIRED_REASON)),
+        : Effect.fail(failWith(RETIRED_REASON));
+    }),
+    commitDesktopUpdate: Effect.fn("ServerSelfUpdate.commitDesktopUpdate")(
+      function (requestId, onHandoffAccepted) {
+        return capability === "desktop-managed" && desktopAppUpdate.available
+          ? desktopAppUpdate.commit(requestId, onHandoffAccepted)
+          : Effect.fail(failWith(RETIRED_REASON));
+      },
+    ),
   });
 });
 
@@ -283,9 +287,7 @@ export const layer = Layer.effect(ServerSelfUpdate, make()).pipe(
   Layer.provide(ProcessRunner.layer),
 );
 
-// The RPC stream used to own this fiber, so a dropped client socket interrupted
-// the download. Offers after the queue shuts down are ignored; the update
-// still finishes, and the in-flight guard stays as it was.
+// The update outlives client sockets; progress offers to a closed queue are ignored.
 export const updateProgressStream = (
   selfUpdate: ServerSelfUpdate["Service"],
   input: ServerSelfUpdateInput,

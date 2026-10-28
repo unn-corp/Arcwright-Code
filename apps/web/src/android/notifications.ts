@@ -48,7 +48,6 @@ export function androidNotificationRequest(
   if (attached !== bridge) {
     attached = bridge;
     // AndroidX's injected object exposes onmessage, not addEventListener.
-    // oxlint-disable-next-line unicorn/prefer-add-event-listener
     bridge.onmessage = ({ data }) => {
       try {
         const response: { id: string; result?: AndroidNotificationStatus; error?: string } =

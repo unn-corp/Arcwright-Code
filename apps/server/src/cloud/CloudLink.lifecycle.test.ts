@@ -177,7 +177,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
           ConnectReachability.ConnectReachability,
           ConnectReachability.ConnectReachability.of({
             check: Effect.die("unused"),
-            latest: Effect.succeed(Option.none()),
+            latest: Effect.succeedNone,
           }),
         ),
         Effect.provideService(HttpServer.HttpServer, {
@@ -937,8 +937,6 @@ describe("releaseManagedTunnelOnShutdown", () => {
     );
   });
 
-  // A proof signed with a skewed boot clock is rejected as expired. The next
-  // attempt mints a new proof, so startup reconcile must keep retrying it.
   it.effect("retries a relay link proof rejected as expired", () => {
     const { store } = makeMemorySecretStore([
       [CLOUD_ENDPOINT_RUNTIME_CONFIG, "old-config"],
@@ -1614,9 +1612,8 @@ describe("releaseManagedTunnelOnShutdown", () => {
       ),
     );
   });
-  // The relay commits the link before the server stores it (#11898). A write
-  // that fails part-way must not leave the stale tunnel config that reports
-  // the link as managed, or Settings never relinks.
+  // The relay commits before local storage. A partial write must not leave stale managed-tunnel state
+  // that prevents Settings from relinking.
   it.effect("does not report a managed tunnel after a relay config write fails part-way", () => {
     const { store, values } = makeMemorySecretStore([
       [CLOUD_ENDPOINT_RUNTIME_CONFIG, "managed-config"],

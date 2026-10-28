@@ -1,4 +1,4 @@
-// oxlint-disable unicorn/prefer-add-event-listener, unicorn/require-post-message-target-origin -- Android WebMessage listener exposes onmessage/postMessage without DOM event or targetOrigin APIs.
+// oxlint-disable unicorn/require-post-message-target-origin -- Android WebMessage listener exposes onmessage/postMessage without DOM event or targetOrigin APIs.
 import * as Schema from "effect/Schema";
 import { isProfileThumbnail, serializeProfilePhoto } from "../auth/profilePhoto";
 

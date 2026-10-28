@@ -60,40 +60,37 @@ function harness(
         }),
       ),
     rest: (request) =>
-      Effect.context<never>()
-        .pipe(
-          Effect.map((context) => {
-            seen.mergeRequests.push(request);
-            const pin = Context.getOrElse(context, GitHubApi.PinnedGitHubCredential, () => null);
-            seen.pins.push(
-              pin === null
-                ? null
-                : {
-                    host: pin.host,
-                    token: Redacted.value(pin.token),
-                    fingerprint: pin.credentialFingerprint,
-                  },
-            );
-          }),
-        )
-        .pipe(
-          Effect.flatMap(() =>
-            input.failMerge
-              ? Effect.fail(
-                  new GitHubApi.GitHubApiAuthenticationError({
-                    host: request.host,
-                    operation: request.operation,
-                  }),
-                )
-              : Effect.succeed({
-                  status: 200,
-                  headers: {},
-                  body: "{}",
-                  truncated: false,
-                  invalidUtf8: false,
+      Effect.context<never>().pipe(
+        Effect.map((context) => {
+          seen.mergeRequests.push(request);
+          const pin = Context.getOrElse(context, GitHubApi.PinnedGitHubCredential, () => null);
+          seen.pins.push(
+            pin === null
+              ? null
+              : {
+                  host: pin.host,
+                  token: Redacted.value(pin.token),
+                  fingerprint: pin.credentialFingerprint,
+                },
+          );
+        }),
+        Effect.flatMap(() =>
+          input.failMerge
+            ? Effect.fail(
+                new GitHubApi.GitHubApiAuthenticationError({
+                  host: request.host,
+                  operation: request.operation,
                 }),
-          ),
+              )
+            : Effect.succeed({
+                status: 200,
+                headers: {},
+                body: "{}",
+                truncated: false,
+                invalidUtf8: false,
+              }),
         ),
+      ),
   });
   const git = GitVcsDriver.GitVcsDriver.of({
     execute: ({ args }: Parameters<GitVcsDriver.GitVcsDriver["Service"]["execute"]>[0]) =>

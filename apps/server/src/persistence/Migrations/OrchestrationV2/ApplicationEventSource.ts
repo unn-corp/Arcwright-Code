@@ -127,8 +127,7 @@ export default Effect.gen(function* () {
     { concurrency: 1, discard: true },
   );
 
-  // Re-baseline every current row into the shared log so projection rebuilds
-  // preserve the exact pre-migration project state.
+  // Re-baseline current rows so shared-log rebuilds preserve pre-migration project state.
   const projectColumns = yield* sql<{ name: string }>`PRAGMA table_info(projection_projects)`;
   const githubAccount = projectColumns.some((column) => column.name === "github_account_id")
     ? sql`github_account_id`

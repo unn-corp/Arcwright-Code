@@ -6,7 +6,7 @@ import { View } from "react-native";
 import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { SettingsActionRow } from "./components/SettingsActionRow";
+import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSection } from "./components/SettingsSection";
 
 function parseRunLimit(value: string, max: number) {

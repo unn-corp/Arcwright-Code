@@ -6,6 +6,8 @@ import {
   type ProviderSkillSourceKind,
 } from "@t3tools/client-runtime/providerSkills";
 import {
+  type EnvironmentId,
+  type EnvironmentMachineKind,
   type ProjectEntry,
   type ProviderDriverKind,
   type PullRequestContextMetadata,
@@ -36,6 +38,7 @@ import {
   CommandSeparator,
 } from "../ui/command";
 import { Badge } from "../ui/badge";
+import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ComposerBanner } from "./ComposerBanner";
 
@@ -91,6 +94,14 @@ export type ComposerCommandItem =
       id: string;
       type: "thread";
       thread: ScopedThreadRef;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "environment";
+      environmentId: EnvironmentId;
+      machine: EnvironmentMachineKind;
       label: string;
       description: string;
     };
@@ -161,6 +172,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
     return onlyGroup === undefined ? grouped : [{ ...onlyGroup, label: null }];
   })();
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the highlighted menu item's DOM node into view
   useLayoutEffect(() => {
     if (!props.activeItemId || !listRef.current) return;
     const el = listRef.current.querySelector<HTMLElement>(
@@ -286,6 +298,13 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       {props.item.type === "thread" ? (
         <MessagesSquareIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
       ) : null}
+      {props.item.type === "environment" ? (
+        <EnvironmentMachineIcon
+          kind={props.item.machine}
+          aria-hidden="true"
+          className="size-4 shrink-0 text-secondary-label"
+        />
+      ) : null}
       {pullRequestPresentation ? (
         <pullRequestPresentation.Icon
           role="img"
@@ -293,13 +312,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           className={cn("size-4 shrink-0", pullRequestPresentation.toneClassName)}
         />
       ) : null}
-      {/*
-        Every other item type has a short, fixed label (`/model`, a basename) and a
-        long description, so the label is pinned and the description truncates. A
-        session row inverts that: the label is the conversation preview and the
-        description is short metadata, so pinning the label overflowed the row and
-        pushed the metadata out of view entirely.
-      */}
+      {/* Session labels contain long conversation previews, so truncate the label while keeping their short metadata visible. Other item kinds keep their short labels pinned. */}
       {props.item.type === "codex-session" ? (
         <span className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate">{props.item.label}</span>

@@ -1,6 +1,14 @@
-import { Link } from "@tanstack/react-router";
+import { PrimarySettingsBoundary } from "./SettingsScopeContext";
+import { AuthSettingsWriteScope } from "@t3tools/contracts";
+import { useEnvironmentScope } from "../../state/session";
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimaryEnvironmentId, usePrimaryEnvironment } from "../../state/environments";
+import type { GitHubAccount, GitHubAccountPatch, GitHubAccountId } from "@t3tools/contracts";
+import { Input } from "../ui/input";
+import { Trash2Icon } from "lucide-react";
+import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { ChevronDownIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import * as Option from "effect/Option";
 import { useState, type ReactNode } from "react";
 import type {
@@ -9,26 +17,13 @@ import type {
   SourceControlProviderDiscoveryItem,
   VcsDriverKind,
   VcsDiscoveryItem,
-  GitHubAccount,
-  GitHubAccountPatch,
-  GitHubAccountId,
 } from "@t3tools/contracts";
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
-import { WorktreeStorageSettings } from "./WorktreeStorageSettings";
-import { BranchNamingSettings } from "./BranchNamingSettings";
-import {
-  SourceControlWorktreeSettings,
-  SourceControlDiffSettings,
-} from "./RelocatedGeneralSettings";
-import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
-import { usePrimaryEnvironmentId } from "../../state/environments";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import {
   Empty,
@@ -39,14 +34,13 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import { Skeleton } from "../ui/skeleton";
-
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
-import { GitHubAccountSettings } from "./GitHubAccountSettings";
-import { GitHubTokenSettings } from "./GitHubTokenSettings";
+import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
+import { SourceControlTokenSettings } from "./SourceControlTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
@@ -70,6 +64,7 @@ const VCS_ICONS: Partial<Record<VcsDriverKind, Icon>> = {
   jj: JujutsuIcon,
 };
 
+const SOURCE_CONTROL_SKELETON_ROWS = ["primary", "secondary"] as const;
 function optionLabel(value: Option.Option<string>): string | null {
   return Option.getOrNull(value);
 }
@@ -230,7 +225,6 @@ function DiscoveryItemRow({
   const [isExpanded, setIsExpanded] = useState(false);
   const hasDetails = children !== undefined;
   const searchTargetId = useSettingsSearchTargetId();
-  // A search jump to a setting inside this row opens it when the target arrives.
   const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
   const targetsThisRow =
     searchTargetId === sourceControlHostSettingsSearchId(item.kind) ||
@@ -279,10 +273,7 @@ function DiscoveryItemRow({
                 aria-label={`Toggle ${item.label} details`}
               >
                 <ChevronDownIcon
-                  className={cn(
-                    "size-3.5 motion-safe:transition-transform",
-                    isExpanded && "rotate-180",
-                  )}
+                  className={cn("size-3.5 transition-transform", isExpanded && "rotate-180")}
                 />
               </Button>
             ) : null}
@@ -295,12 +286,52 @@ function DiscoveryItemRow({
 
       {hasDetails ? (
         <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-          <CollapsibleContent>
-            <div className="px-3 pb-4 pt-1 sm:px-4">{children}</div>
+          <CollapsibleContent keepMounted>
+            <div className="px-3 pb-4 pt-1 sm:px-4" hidden={!isExpanded} inert={!isExpanded}>
+              {children}
+            </div>
           </CollapsibleContent>
         </Collapsible>
       ) : null}
     </div>
+  );
+}
+
+function SourceControlSectionSkeleton({
+  title,
+  headerAction,
+}: {
+  readonly title: string;
+  readonly headerAction?: ReactNode;
+}) {
+  return (
+    <SettingsSection title={title} headerAction={headerAction}>
+      {SOURCE_CONTROL_SKELETON_ROWS.map((row) => (
+        <div key={row} className="first:rounded-t-xl last:rounded-b-xl px-3 py-3 sm:px-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="relative inline-flex size-5 shrink-0 items-center justify-center">
+                  <Skeleton className="size-4.5" />
+                  <Skeleton
+                    shape="pill"
+                    className="pointer-events-none absolute -left-0.5 -top-0.5 size-2"
+                    aria-hidden
+                  />
+                </span>
+                <Skeleton shape="pill" className="h-4 w-28" />
+                <Skeleton shape="pill" className="h-5 w-14" />
+              </div>
+              <Skeleton shape="pill" className="h-3 w-full max-w-xs" />
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Skeleton className="size-7" />
+              <Skeleton shape="pill" className="h-5 w-9" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </SettingsSection>
   );
 }
 
@@ -316,31 +347,191 @@ function EmptySourceControlDiscovery({
   const hasError = error !== null;
 
   return (
-    <Empty>
-      <EmptyMedia variant="icon">
-        <PullRequestGlyph.pullRequest />
-      </EmptyMedia>
-      <EmptyHeader>
-        <EmptyTitle>
-          {hasError ? "Could not scan the server environment" : "Nothing detected yet"}
-        </EmptyTitle>
-        <EmptyDescription>
-          {hasError
-            ? error
-            : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        <Button size="sm" variant="outline" onClick={onScan} disabled={isPending}>
-          <RefreshIcon size="sm" refreshing={isPending} />
-          Scan
-        </Button>
-      </EmptyContent>
-    </Empty>
+    <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
+      <Empty>
+        <EmptyMedia variant="icon">
+          <PullRequestGlyph.pullRequest />
+        </EmptyMedia>
+        <EmptyHeader>
+          <EmptyTitle>
+            {hasError ? "Could not scan the server environment" : "Nothing detected yet"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {hasError
+              ? error
+              : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button size="sm" variant="outline" onClick={onScan} disabled={isPending}>
+            <RefreshIcon size="sm" refreshing={isPending} />
+            Scan
+          </Button>
+        </EmptyContent>
+      </Empty>
+    </SettingsSection>
+  );
+}
+
+export function SourceControlSettingsPanel() {
+  const primaryEnvironment = usePrimaryEnvironment();
+  const { scope, environment, connectedEnvironments } = useSettingsScope();
+
+  const environmentId =
+    environment?.connection.phase === "connected" ? environment.environmentId : null;
+  const aggregate = scope.environmentIds.length !== 1 && connectedEnvironments.length > 1;
+  const environmentSuffix = aggregate && environment ? ` · ${environment.label}` : "";
+  const discovery = useEnvironmentQuery(
+    environmentId === null
+      ? null
+      : sourceControlEnvironment.discovery({
+          environmentId,
+          input: {},
+        }),
+  );
+  const result = discovery.data ?? EMPTY_DISCOVERY_RESULT;
+  const hasVersionControlSystems = result.versionControlSystems.length > 0;
+  const hasDiscoveryItems = hasVersionControlSystems || result.sourceControlProviders.length > 0;
+  const isInitialScanPending = discovery.isPending && discovery.data === null;
+  const handleScan = () => {
+    discovery.refresh();
+  };
+  const hostSettingsPanel = (item: SourceControlProviderDiscoveryItem) => {
+    const definition = sourceControlClients.find(item.kind);
+    if (!definition?.settings || environmentId === null) return undefined;
+    const { credentials } = definition;
+    if (credentials) {
+      return (
+        <SettingsSearchTarget id={sourceControlHostSettingsSearchId(item.kind)}>
+          <div className="grid gap-6">
+            <SourceControlTokenSettings
+              key={`token-${environmentId}`}
+              environmentId={environmentId}
+              definition={definition}
+              credentials={credentials}
+              onSaved={handleScan}
+            />
+            {item.status === "available" ? (
+              <SourceControlAccountSettings
+                key={environmentId}
+                environmentId={environmentId}
+                definition={definition}
+                credentials={credentials}
+                auth={item.auth}
+                onSaved={handleScan}
+              />
+            ) : null}
+          </div>
+        </SettingsSearchTarget>
+      );
+    }
+    return (
+      <SettingsSearchTarget id={sourceControlHostSettingsSearchId(item.kind)}>
+        <SourceControlHostSettings
+          key={environmentId}
+          environmentId={environmentId}
+          definition={{ ...definition, settings: definition.settings }}
+          onSaved={handleScan}
+        />
+      </SettingsSearchTarget>
+    );
+  };
+  const scanButton = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-xs"
+            variant="ghost-muted"
+            onClick={handleScan}
+            disabled={discovery.isPending}
+            aria-label="Rescan server environment"
+          >
+            <RefreshIcon refreshing={discovery.isPending} />
+          </Button>
+        }
+      />
+      <TooltipPopup side="top">Rescan Git and hosting integrations</TooltipPopup>
+    </Tooltip>
+  );
+
+  return (
+    <SettingsPageContainer>
+      <ProjectDefaultsSettings category="source-control" />
+      <PrimarySettingsBoundary>
+        <SettingsSection
+          id="github-accounts"
+          title={
+            primaryEnvironment
+              ? `Project GitHub accounts on ${primaryEnvironment.label}`
+              : "Project GitHub accounts"
+          }
+        >
+          <PrimaryGitHubAccountSettings />
+        </SettingsSection>
+      </PrimarySettingsBoundary>
+      {environmentId === null ? (
+        <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
+          <p className="px-4 py-3 text-sm text-muted-foreground">
+            Connect an environment to inspect its version control tools and hosting integrations.
+          </p>
+        </SettingsSection>
+      ) : isInitialScanPending ? (
+        <>
+          <SourceControlSectionSkeleton
+            title={`Version Control${environmentSuffix}`}
+            headerAction={scanButton}
+          />
+          <SourceControlSectionSkeleton title="Source control providers" />
+        </>
+      ) : hasDiscoveryItems ? (
+        <>
+          {hasVersionControlSystems ? (
+            <SettingsSection
+              id={searchableSetting("source-control").id}
+              title={`Version Control${environmentSuffix}`}
+              headerAction={scanButton}
+            >
+              {result.versionControlSystems.map((item) => (
+                <DiscoveryItemRow key={`vcs:${item.kind}`} item={item} />
+              ))}
+            </SettingsSection>
+          ) : null}
+
+          {result.sourceControlProviders.length > 0 ? (
+            <SettingsSection
+              id={hasVersionControlSystems ? undefined : searchableSetting("source-control").id}
+              title={
+                hasVersionControlSystems
+                  ? "Source control providers"
+                  : `Source control providers${environmentSuffix}`
+              }
+              headerAction={hasVersionControlSystems ? null : scanButton}
+            >
+              {result.sourceControlProviders.map((item) => (
+                <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
+                  {hostSettingsPanel(item)}
+                </DiscoveryItemRow>
+              ))}
+            </SettingsSection>
+          ) : null}
+        </>
+      ) : (
+        <EmptySourceControlDiscovery
+          error={discovery.error}
+          isPending={discovery.isPending}
+          onScan={handleScan}
+        />
+      )}
+
+      <SourceControlWritingSettingsSection />
+    </SettingsPageContainer>
   );
 }
 
 function PrimaryGitHubAccountSettings() {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const canWrite = useEnvironmentScope(primaryEnvironmentId, AuthSettingsWriteScope);
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const accounts = Object.entries(settings.githubAccounts);
@@ -355,7 +546,7 @@ function PrimaryGitHubAccountSettings() {
   });
 
   return (
-    <div className="space-y-3">
+    <fieldset disabled={!canWrite} className="space-y-3 disabled:opacity-60">
       <div className="space-y-3 px-3 py-1 sm:px-4">
         <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
           Add identities here, then choose one in a project’s settings. A configured PAT is kept in
@@ -409,7 +600,7 @@ function PrimaryGitHubAccountSettings() {
           Add GitHub account
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
@@ -491,176 +682,5 @@ function GitHubAccountRow(props: {
         </div>
       </div>
     </details>
-  );
-}
-
-function AdvancedHostConfiguration({ kind, children }: { kind: string; children: ReactNode }) {
-  const searchTargetId = useSettingsSearchTargetId();
-  const [open, setOpen] = useState(false);
-  const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
-  if (seenSearchTargetId !== searchTargetId) {
-    setSeenSearchTargetId(searchTargetId);
-    if (searchTargetId === sourceControlHostSettingsSearchId(kind)) setOpen(true);
-  }
-
-  return (
-    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="cursor-pointer text-sm">Advanced host configuration</summary>
-      {children}
-    </details>
-  );
-}
-
-export function SourceControlSettingsPanel() {
-  const { scope, environment, connectedEnvironments } = useSettingsScope();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  // Discovery scans one machine's tools, so it shows the representative
-  // environment (named in the section title when several are selected);
-  // the settings rows above it fan out like everywhere else.
-  const environmentId =
-    environment?.connection.phase === "connected" ? environment.environmentId : null;
-  const isPrimaryEnvironment = environmentId === primaryEnvironmentId;
-  const aggregate = scope.environmentIds.length !== 1 && connectedEnvironments.length > 1;
-  const environmentSuffix = aggregate && environment ? ` · ${environment.label}` : "";
-  const discovery = useEnvironmentQuery(
-    environmentId === null
-      ? null
-      : sourceControlEnvironment.discovery({
-          environmentId,
-          input: {},
-        }),
-  );
-  const result = discovery.data ?? EMPTY_DISCOVERY_RESULT;
-  const hasVersionControlSystems = result.versionControlSystems.length > 0;
-  const hasDiscoveryItems = hasVersionControlSystems || result.sourceControlProviders.length > 0;
-  const isInitialScanPending = discovery.isPending && discovery.data === null;
-  const handleScan = () => {
-    discovery.refresh();
-  };
-  const hostSettingsPanel = (kind: string) => {
-    const definition = sourceControlClients.find(kind);
-    if (!definition?.settings || environmentId === null) return undefined;
-    return (
-      <SettingsSearchTarget id={sourceControlHostSettingsSearchId(kind)}>
-        <SourceControlHostSettings
-          // Drafts belong to one environment; switching must not carry them over.
-          key={environmentId}
-          environmentId={environmentId}
-          definition={{ ...definition, settings: definition.settings }}
-          onSaved={handleScan}
-        />
-      </SettingsSearchTarget>
-    );
-  };
-  const scanButton = (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            size="icon-xs"
-            variant="ghost-muted"
-            onClick={handleScan}
-            disabled={discovery.isPending || environmentId === null}
-            aria-label="Rescan server environment"
-          >
-            <RefreshIcon refreshing={discovery.isPending} />
-          </Button>
-        }
-      />
-      <TooltipPopup side="top">Rescan Git and hosting integrations</TooltipPopup>
-    </Tooltip>
-  );
-
-  return (
-    <SettingsPageContainer>
-      <SettingsSection
-        id={searchableSetting("source-control").id}
-        title={`Tools & connection status${environmentSuffix}`}
-        headerAction={scanButton}
-      >
-        {environmentId === null ? (
-          <p className="px-4 py-3 text-sm text-muted-foreground">
-            Connect a computer to inspect its Git and hosting tools.
-          </p>
-        ) : isInitialScanPending ? (
-          <div className="px-4 py-3">
-            <Skeleton className="h-12 w-full" />
-          </div>
-        ) : hasDiscoveryItems ? (
-          [...result.versionControlSystems, ...result.sourceControlProviders].map((item) => (
-            <DiscoveryItemRow key={`${"auth" in item ? "host" : "vcs"}:${item.kind}`} item={item} />
-          ))
-        ) : (
-          <EmptySourceControlDiscovery
-            error={discovery.error}
-            isPending={discovery.isPending}
-            onScan={handleScan}
-          />
-        )}
-        <p className="px-4 py-3 text-sm text-muted-foreground">
-          Automatic Git fetch is configured in{" "}
-          <Link to="/settings/general" hash="git-fetch-interval">
-            General, Performance, Advanced
-          </Link>
-          .
-        </p>
-        <ProjectDefaultsSettings category="source-control" rowsOnly />
-      </SettingsSection>
-      <SettingsSection id="source-control-accounts" title="Accounts & authentication">
-        <p className="px-4 py-3 text-sm text-muted-foreground">
-          Saved accounts are available for project selection. Choose a project's account in its
-          project settings.{" "}
-          <Link to="/settings/connections">Shared GitHub access between computers</Link> is managed
-          in Connections.
-        </p>
-        {isPrimaryEnvironment ? <PrimaryGitHubAccountSettings /> : null}
-        {environmentId !== null ? (
-          result.sourceControlProviders.map((item) => (
-            <DiscoveryItemRow key={`provider:${item.kind}`} item={item}>
-              {item.kind === "github" ? (
-                <SettingsSearchTarget id={searchableSetting("github-accounts").id}>
-                  <div className="grid gap-6">
-                    <GitHubTokenSettings
-                      key={`token-${environmentId}`}
-                      environmentId={environmentId}
-                      onSaved={handleScan}
-                    />
-                    {item.status === "available" ? (
-                      <GitHubAccountSettings
-                        key={environmentId}
-                        environmentId={environmentId}
-                        auth={item.auth}
-                        onSaved={handleScan}
-                      />
-                    ) : null}
-                  </div>
-                </SettingsSearchTarget>
-              ) : (
-                <AdvancedHostConfiguration kind={item.kind}>
-                  {hostSettingsPanel(item.kind)}
-                </AdvancedHostConfiguration>
-              )}
-            </DiscoveryItemRow>
-          ))
-        ) : (
-          <p className="px-4 py-3 text-sm text-muted-foreground">
-            Connect a computer to manage authentication.
-          </p>
-        )}
-      </SettingsSection>
-      <SettingsSection id="source-control-worktrees" title="Worktrees">
-        <WorktreeStorageSettings />
-        <SourceControlWorktreeSettings />
-        <BranchNamingSettings />
-        <p className="px-4 py-3 text-sm text-muted-foreground">
-          Configure the folder for new worktrees and retention in{" "}
-          <Link to="/settings/storage">Storage</Link>.
-        </p>
-      </SettingsSection>
-      <SettingsSection id="source-control-diff-viewer" title="Diff viewer">
-        <SourceControlDiffSettings />
-      </SettingsSection>
-      <SourceControlWritingSettingsSection />
-    </SettingsPageContainer>
   );
 }

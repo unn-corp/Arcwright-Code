@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
@@ -12,7 +13,7 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
+import { type ReactNode, createContext, useContext, useRef, useState } from "react";
 import type {
   EnvironmentId,
   ModelSelection,
@@ -306,11 +307,7 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
   return `${days} at ${schedule.timeOfDay}`;
 }
 
-/**
- * `formatRelativeTime` only handles the past, and `nextRunAt` is a future
- * instant — render "in 5m" style labels for upcoming runs instead of a
- * misleading "just now".
- */
+/** formatRelativeTime handles only the past; upcoming runs need future labels. */
 function relativeLabel(value: string | null, nowMs: number): string {
   if (!value) return "Not scheduled";
   const diffMs = new Date(value).getTime() - nowMs;
@@ -327,8 +324,7 @@ function relativeLabel(value: string | null, nowMs: number): string {
   return `in ${Math.round(hours / 24)}d`;
 }
 
-// The clock is the label's own minute tick: the React Compiler caches a
-// `Date.now()` read in render on the timestamp alone.
+// Use the label's minute tick because the compiler caches render-time Date.now() on the timestamp.
 export function ScheduledRelativeLabel(props: { value: string | null }) {
   const nowMinute = useNowMinute();
   return relativeLabel(props.value, Date.parse(`${nowMinute}:00.000Z`));
@@ -479,7 +475,6 @@ export function ScheduledTasksSettings(target: {
                 <ScheduledTaskEnvironmentSection
                   key={`${entry.environmentId}:${target.taskId ?? ""}`}
                   environment={entry}
-                  showEnvironmentHeading={environments.length > 1}
                   taskId={
                     (target.environmentId ?? defaultEnvironment?.environmentId) ===
                     entry.environmentId
@@ -543,6 +538,7 @@ function ScheduledTaskEnvironmentList({
   const linkedState = states.find((state) => state.environment.environmentId === environmentId);
   const linkedTask = linkedState?.tasks?.find((task) => task.id === taskId);
   const openedLink = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the linked task editor after its external task lookup resolves
   useEffect(() => {
     if (!openedLink.current && environmentId && linkedTask) {
       openedLink.current = true;
@@ -666,14 +662,12 @@ function ScheduledTaskEnvironmentSection({
   search,
   filter,
   environment,
-  showEnvironmentHeading,
   taskId,
   onEdit,
 }: {
   readonly search: string;
   readonly filter: ScheduledTaskFilter;
   readonly environment: EnvironmentPresentation;
-  readonly showEnvironmentHeading: boolean;
   readonly taskId?: ScheduledTaskId | undefined;
   readonly onEdit: (environmentId: EnvironmentId, task: ScheduledTask) => void;
   readonly onOpenLinkedTask: (environmentId: EnvironmentId, task: ScheduledTask) => void;
@@ -704,6 +698,7 @@ function ScheduledTaskEnvironmentSection({
     ]),
   );
   const openedLink = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the linked task editor after its external task lookup resolves
   useEffect(() => {
     if (!openedLink.current && linkedTask) {
       openedLink.current = true;
@@ -714,7 +709,7 @@ function ScheduledTaskEnvironmentSection({
     <SettingsSection
       id={`scheduled-tasks-computer-${environment.environmentId}`}
       title={environment.label}
-      hideTitle={!showEnvironmentHeading}
+      hideTitle
       icon={
         <EnvironmentMachineIcon
           kind={resolveEnvironmentMachineKind(environment.serverConfig)}
@@ -1239,8 +1234,8 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
       {cloudLink.data.holdWebhooksWhileOffline
         ? "Held for up to 24 hours while this environment is offline. "
         : "Forwarded live. Requests fail while this environment is offline. "}
-      <Link to="/settings/connections" className="underline underline-offset-2">
-        Change in Connections
+      <Link to="/settings/access" className="underline underline-offset-2">
+        Change in Sharing & access
       </Link>
     </p>
   );

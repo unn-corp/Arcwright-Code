@@ -17,6 +17,11 @@ import {
 } from "./OrganizationCorrelationRecovery.ts";
 import { normalizeOrganizationRelayEvent } from "./OrganizationIntakeAdapters.ts";
 
+const decodeOrganizationIntakeEventInputJson = Schema.decodeEffect(
+  Schema.fromJsonString(OrganizationIntakeEventInput),
+);
+const decodeUnknownJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+
 const MAX_HTTP_EVENT_BYTES = 40 * 1024;
 
 /** A narrow ingestion route: its bearer secret cannot authenticate to any other T3 API. */
@@ -59,8 +64,10 @@ const makeRoutes = Effect.gen(function* () {
 
     const outcome = yield* store
       .ingestWithCredential(event.success, credential, requireProjectBoundSource)
-      .pipe(Effect.flatMap((result) => correlateRecordedIntake(correlation, result, recovery)))
-      .pipe(Effect.result);
+      .pipe(
+        Effect.flatMap((result) => correlateRecordedIntake(correlation, result, recovery)),
+        Effect.result,
+      );
     if (Result.isFailure(outcome)) {
       const status =
         outcome.failure.code === "invalid"
@@ -89,18 +96,13 @@ const makeRoutes = Effect.gen(function* () {
     HttpRouter.add(
       "POST",
       "/api/organizations/intake/events",
-      receive((raw) =>
-        Schema.decodeUnknownEffect(Schema.fromJsonString(OrganizationIntakeEventInput))(raw),
-      ),
+      receive((raw) => decodeOrganizationIntakeEventInputJson(raw)),
     ),
     HttpRouter.add(
       "POST",
       "/api/organizations/intake/relay",
       receive(
-        (raw) =>
-          Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(raw).pipe(
-            Effect.flatMap(normalizeOrganizationRelayEvent),
-          ),
+        (raw) => decodeUnknownJson(raw).pipe(Effect.flatMap(normalizeOrganizationRelayEvent)),
         true,
       ),
     ),

@@ -13,49 +13,28 @@ import {
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
 import { AsyncResult } from "effect/reactivity";
-import {
-  deriveProjectGroupingOverrideKey,
-  selectProjectGroupingSettings,
-} from "../../logicalProject";
+
 import {
   DEFAULT_RUNTIME_MODE,
   type AgentDashboardAutomationKind,
-  type ContextMenuItem,
   type GitHubAccountId,
   type ModelSelection,
   type ProjectIconOverride,
   type ProviderDriverKind,
   type EnvironmentId,
-  type ProjectId,
-  type ProjectScript,
-  type ResolvedKeybindingsConfig,
-  type ServerSettings,
   type PullRequestMergeMethod,
-  type SidebarProjectGroupingMode,
-  type T3ProjectFileScript,
   type ThreadEnvMode,
 } from "@t3tools/contracts";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import { createModelSelection } from "@t3tools/shared/model";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+
+import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
-import {
-  ChevronDownIcon,
-  CopyIcon,
-  MessageCircleQuestionIcon,
-  PlusIcon,
-  SettingsIcon,
-  InfoIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { MessageCircleQuestionIcon, InfoIcon, Trash2Icon } from "lucide-react";
 import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
-import {
-  projectScriptsInheritDefaults,
-  resolveProjectScripts,
-} from "@t3tools/shared/projectScripts";
+
 import * as Equal from "effect/Equal";
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
@@ -64,22 +43,11 @@ import {
   updateClientSettings,
   usePrimarySettings,
 } from "../../hooks/useSettings";
-import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
-import { shortcutLabelForCommand } from "../../keybindings";
+
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { newMessageId, newThreadId } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
-import { ProjectActionsList } from "./ProjectActionsList";
-import { isElectron } from "../../env";
-import {
-  decodeProjectScriptKeybindingRule,
-  keybindingValueForCommand,
-} from "../../lib/projectScriptKeybindings";
-import {
-  buildProjectScript,
-  commandForProjectScript,
-  nextProjectScriptId,
-} from "../../projectScripts";
+
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -96,16 +64,12 @@ import {
   useEnvironmentProviders,
   usePrimaryEnvironmentId,
 } from "../../state/environments";
-import { useProjects, useThreadShells, waitForProjectRemoval } from "../../state/entities";
+import { useThreadShells, waitForProjectRemoval } from "../../state/entities";
 import { agentDashboardEnvironment } from "../../state/agentDashboard";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
 import { threadEnvironment } from "../../state/threads";
-import {
-  EMPTY_SERVER_PROVIDERS,
-  primaryServerProvidersAtom,
-  serverEnvironment,
-} from "../../state/server";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
@@ -179,6 +143,7 @@ const PROJECT_AUTOMATION_SETTINGS = [
 }>;
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 
 const ProjectIconPickerDialog = lazy(() =>
@@ -188,6 +153,24 @@ const ProjectIconPickerDialog = lazy(() =>
 );
 
 export type ProjectSettingsCategory = "general" | "source-control" | "project";
+
+interface ProjectSelection {
+  readonly key: string;
+  readonly environmentId: EnvironmentId | null;
+  readonly checkoutKey: string | null;
+  readonly memberKeys: ReadonlyArray<string>;
+}
+
+function sameProjectSelection(a: ProjectSelection | null, b: ProjectSelection): boolean {
+  return (
+    a !== null &&
+    a.key === b.key &&
+    a.environmentId === b.environmentId &&
+    a.checkoutKey === b.checkoutKey &&
+    a.memberKeys.length === b.memberKeys.length &&
+    a.memberKeys.every((key, index) => key === b.memberKeys[index])
+  );
+}
 
 export function ProjectSettingsPanel({
   projectKey,
@@ -201,7 +184,6 @@ export function ProjectSettingsPanel({
   unavailable?: ReactNode;
 }) {
   const groups = useSettingsProjectGroups();
-  const navigate = useNavigate({ from: "/settings" });
   const pathname = useLocation({ select: (location) => location.pathname });
 
   const selected = groups.find((group) => group.projectKey === projectKey) ?? null;
@@ -212,49 +194,43 @@ export function ProjectSettingsPanel({
         (checkoutKey === null || member.physicalProjectKey === checkoutKey),
     ) ?? [];
 
-  // Remember the members of the last rendered group so a grouping-rule change
-  // (which changes the group key) can follow the project to its new group.
-  const lastSelectionRef = useRef<{
-    key: string;
-    environmentId: EnvironmentId | null;
-    checkoutKey: string | null;
-    memberKeys: string[];
-  } | null>(null);
-  useEffect(() => {
-    if (!selected || members.length === 0) return;
-    lastSelectionRef.current = {
+  // Retain group members so grouping-rule changes can follow the project to its new group.
+  const [lastSelection, setLastSelection] = useState<ProjectSelection | null>(null);
+  if (selected && members.length > 0) {
+    const current: ProjectSelection = {
       key: selected.projectKey,
       environmentId,
       checkoutKey,
       memberKeys: members.map((member) => member.physicalProjectKey),
     };
-  }, [selected, members, environmentId, checkoutKey]);
+    if (!sameProjectSelection(lastSelection, current)) setLastSelection(current);
+  }
 
-  useEffect(() => {
-    if (members.length > 0) return;
-    const last = lastSelectionRef.current;
-    if (
-      last?.key !== projectKey ||
-      last.environmentId !== environmentId ||
-      last.checkoutKey !== checkoutKey
-    )
-      return;
-    const successor = groups.find((group) =>
-      group.memberProjects.some((member) => last.memberKeys.includes(member.physicalProjectKey)),
-    );
-    if (successor) {
-      void navigate({
-        to: pathname,
-        search: () => ({
+  const successor =
+    members.length === 0 &&
+    lastSelection?.key === projectKey &&
+    lastSelection.environmentId === environmentId &&
+    lastSelection.checkoutKey === checkoutKey
+      ? groups.find((group) =>
+          group.memberProjects.some((member) =>
+            lastSelection.memberKeys.includes(member.physicalProjectKey),
+          ),
+        )
+      : undefined;
+  if (successor) {
+    return (
+      <Navigate
+        to={pathname}
+        search={{
           project: successor.projectKey,
           machine: environmentId ?? undefined,
           checkout: checkoutKey ?? undefined,
-        }),
-        replace: true,
-        hashScrollIntoView: false,
-      });
-    }
-  }, [groups, navigate, pathname, projectKey, members.length, environmentId, checkoutKey]);
+        }}
+        replace
+        hashScrollIntoView={false}
+      />
+    );
+  }
 
   if ((!selected || members.length === 0) && unavailable != null) return unavailable;
 
@@ -318,7 +294,6 @@ function ProjectDetail({
   const serverProviders =
     useAtomValue(serverEnvironment.providersValueAtom(representative.environmentId)) ??
     EMPTY_SERVER_PROVIDERS;
-  const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const threads = useThreadShells();
   const updateProject = useOrchestrationCommand(projectEnvironment.update, {
     reportFailure: false,
@@ -436,14 +411,6 @@ function ProjectDetail({
       ? window.desktopBridge?.pickProjectFavicon
       : undefined;
 
-  const threadCountByMember = (() => {
-    const counts = new Map<string, number>();
-    for (const thread of threads) {
-      const key = `${thread.environmentId}:${thread.projectId}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return counts;
-  })();
   const reportFailure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
@@ -852,6 +819,7 @@ function ProjectDetail({
       hasOtherMembers,
       displayName: group.displayName,
       threads,
+      unloadedThreadCount: readUnloadedThreadCount(members, threads),
     });
     const confirmed = await settlePromise(() =>
       api.dialogs.confirm(confirmationMessage, { variant: "destructive" }),

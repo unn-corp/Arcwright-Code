@@ -86,11 +86,12 @@ export const organizationSingleFileAttemptBrokerHost = (
   return Layer.succeed(OrganizationSingleFileAttemptHost, {
     reserve: (attemptId, unitName) => gate.reserve(attemptId, unitName),
     prepare: ({ attemptId, ...input }) => gate.prepare(attemptId, input),
-    verifyStopped: (identity) =>
+    verifyStopped: Effect.fn("OrganizationSingleFileAttemptHost.verifyStopped")((identity) =>
       Effect.tryPromise({
         try: () => stopAndVerifyOrganizationScopedSandbox(identity),
         catch: () => unavailable("Exact scoped worker stop could not be verified."),
       }),
+    ),
   });
 };
 

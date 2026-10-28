@@ -1,11 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - runs before `vp i`, so only Node built-ins exist.
-/**
- * Worktree setup, run by the t3.json "Setup Worktree" action as
- * `node scripts/setup-worktree.ts`. Plain Node keeps one command working in
- * every shell Arcwright Code spawns (zsh, bash, fish, PowerShell): it installs
- * dependencies, links the main checkout's gitignored env files into this
- * worktree, then warms the web dependency cache.
- */
+/** The t3.json setup installs dependencies, links main-checkout env files, and warms the web cache using plain Node across supported shells. */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -53,12 +47,9 @@ if (!projectRoot) {
   throw new Error("T3CODE_PROJECT_ROOT is not set. Run this through the t3.json setup action.");
 }
 
-// `shell` resolves `vp` through PATH, including Windows command shims.
-// Setup has no one answering install prompts. Pass pnpm's confirmation flag
-// through vp and leave stdin closed so other prompts fail instead of hanging.
-// Install exactly the locked dependencies so setup never rewrites the lockfile.
-// A stale lockfile must fail setup rather than silently resolving a new one.
-// Output is piped, not inherited, so a failure can keep its tail in the marker.
+// Use the shell for Windows vp shims. Unattended installs need pnpm's confirmation
+// flag and closed stdin so other prompts fail. A stale lockfile must fail, not be rewritten.
+// Pipe output so the failure marker can keep its tail.
 const install = NodeChildProcess.spawn("vp i --frozen-lockfile -- --yes", {
   cwd: worktree,
   shell: true,
@@ -109,9 +100,7 @@ if (
   );
 }
 
-// Env files live as real files in the main checkout; worktrees only get
-// symlinks to them. Only a symlink is ever replaced, so a real env file is
-// never deleted, including when this runs in the main checkout itself.
+// Worktrees link main-checkout env files; replace only symlinks so real files always survive.
 for (const file of ENV_FILES) {
   const source = NodePath.join(projectRoot, file);
   const sourceStat = NodeFS.lstatSync(source, { throwIfNoEntry: false });

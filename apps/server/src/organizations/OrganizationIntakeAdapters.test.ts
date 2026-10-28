@@ -8,6 +8,10 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { normalizeOrganizationRelayEvent } from "./OrganizationIntakeAdapters.ts";
 
+const encodeOrganizationIntakeEventInputJson = Schema.encodeEffect(
+  Schema.fromJsonString(OrganizationIntakeEventInput),
+);
+
 const scope = {
   organizationId: OrganizationId.make("relay-org"),
   sourceId: OrganizationIntakeSourceId.make("relay-source"),
@@ -64,9 +68,7 @@ it.effect("hashes email message identity and keeps only selected plain-text fiel
     assert.equal(replay.dedupKey, first.dedupKey);
     assert.equal(first.attributes.correlationKey, "incident-42");
     assert.equal(first.attributes.selectionReason, "bug-report");
-    const serialized = yield* Schema.encodeEffect(
-      Schema.fromJsonString(OrganizationIntakeEventInput),
-    )(first);
+    const serialized = yield* encodeOrganizationIntakeEventInputJson(first);
     assert.equal(serialized.includes("message-1@example.test"), false);
     assert.equal(serialized.includes("delivery-1"), false);
     const uncorrelated = yield* normalizeOrganizationRelayEvent({

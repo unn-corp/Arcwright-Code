@@ -162,9 +162,7 @@ describe("IndexedDB connection recovery", () => {
       // Environment names initialize from the catalog, so acquisition now opens
       // IndexedDB eagerly. Its failure must remain visible to the caller.
       const error = yield* Effect.flip(
-        Effect.gen(function* () {
-          return yield* Persistence.EnvironmentCacheStore;
-        }).pipe(Effect.provide(ConnectionStorage.layer)),
+        Persistence.EnvironmentCacheStore.pipe(Effect.provide(ConnectionStorage.layer)),
       );
       expect(error.message).toContain("Storage is unavailable");
 
@@ -294,8 +292,8 @@ describe("browser GitHub routing permissions", () => {
       };
       const firstBrowser = Object.assign(new EventTarget(), { localStorage });
       const secondBrowser = Object.assign(new EventTarget(), { localStorage });
-      const first = ConnectionStorage.makeBrowserGitHubRoutingPermissions(firstBrowser);
-      const second = ConnectionStorage.makeBrowserGitHubRoutingPermissions(secondBrowser);
+      const first = ConnectionStorage.makeBrowserPullRequestRoutingPermissions(firstBrowser);
+      const second = ConnectionStorage.makeBrowserPullRequestRoutingPermissions(secondBrowser);
       const entry = {
         target: new PrimaryConnectionTarget({
           environmentId: EnvironmentId.make("first"),
@@ -343,7 +341,7 @@ describe("browser GitHub routing permissions", () => {
       expect(yield* second.get(entry)).toBe("off");
       expect(yield* first.get(other)).toBe("read");
       expect(
-        yield* ConnectionStorage.makeBrowserGitHubRoutingPermissions(firstBrowser).get(entry),
+        yield* ConnectionStorage.makeBrowserPullRequestRoutingPermissions(firstBrowser).get(entry),
       ).toBe("off");
 
       yield* first.set(entry, "read-write");

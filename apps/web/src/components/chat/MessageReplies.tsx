@@ -205,6 +205,7 @@ export function ReplyThreadContents({
   const [error, setError] = useState<string | null>(null);
   const [request, setRequest] = useState({ messageId: selectedId, attempt: 0 });
   const mounted = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the reply-chain request for the mounted dialog and ignores completions after its owner closes
   useEffect(() => {
     mounted.current = true;
     let cancelled = false;

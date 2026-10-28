@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Bootstrap validates operator configuration before any cloud resource can be constructed.
 // @effect-diagnostics anyUnknownInErrorContext:off - Alchemy provider collections expose framework-owned requirements.
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as NodePath from "node:path";
 import { readOwnedWebDeployConfig } from "./scripts/owned-connect-web-config.ts";

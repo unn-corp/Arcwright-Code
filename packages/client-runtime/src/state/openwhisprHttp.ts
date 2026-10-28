@@ -71,14 +71,17 @@ export const layer = Layer.effect(
       RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
     );
     return OpenWhisprLoader.of({
-      status: (prepared) =>
+      status: Effect.fn("OpenWhisprLoader.status")((prepared: PreparedConnection) =>
         fetchEnvironmentDictationStatus({ prepared, signer, remoteAuthorization }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
         ),
-      transcribe: (prepared, audio) =>
-        fetchEnvironmentTranscription({ prepared, audio, signer, remoteAuthorization }).pipe(
-          Effect.provideService(HttpClient.HttpClient, httpClient),
-        ),
+      ),
+      transcribe: Effect.fn("OpenWhisprLoader.transcribe")(
+        (prepared: PreparedConnection, audio: Uint8Array) =>
+          fetchEnvironmentTranscription({ prepared, audio, signer, remoteAuthorization }).pipe(
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+          ),
+      ),
     });
   }),
 );

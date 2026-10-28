@@ -47,6 +47,7 @@ export function ForkUpdateControls({
     phase: ForkUpdateStatus["phase"];
     message: string;
   } | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the one-second timer for the mounted native-update countdown
   useEffect(() => {
     if (!status?.countdown) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);

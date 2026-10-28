@@ -249,7 +249,9 @@ function matchMedia() {
   };
 }
 
-const ElementStub = class ElementStub {};
+const ElementStub = class ElementStub {
+  readonly nodeType = 1;
+};
 function stubDomGlobals() {
   const classList = {
     add: () => {},
@@ -289,7 +291,7 @@ function stubDomGlobals() {
 
 beforeEach(stubDomGlobals);
 Object.defineProperty(window, "matchMedia", { value: matchMedia, configurable: true });
-const { MessagesTimeline, resolvePreviewAnnotationImage } = await import("./MessagesTimeline");
+const { MessagesTimeline } = await import("./MessagesTimeline");
 
 const ACTIVE_THREAD_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
@@ -417,7 +419,6 @@ function buildProps() {
     emptyPlaceholderInset: 0,
     feedStyle: "arcwright" as const,
     isWorking: false,
-    activeTurnInProgress: false,
     listRef: createRef<LegendListRef | null>(),
     latestRun: null,
     turnDiffSummaries: [],
@@ -821,7 +822,13 @@ describe("MessagesTimeline", () => {
           {...props}
           timelineEntries={[buildUserTimelineEntry("First prompt")]}
           liveFollowEnabled={liveFollowEnabled}
-          onManualNavigation={onManualNavigation}
+          onViewportAttach={(viewport) => {
+            navigateManually = () => {
+              onManualNavigation();
+              viewport.followReleased();
+            };
+            return () => {};
+          }}
         />
       );
     }
@@ -860,7 +867,8 @@ describe("MessagesTimeline", () => {
         {...props}
         timelineEntries={[buildUserTimelineEntry("First prompt")]}
         liveFollowEnabled={!held}
-        paintOnly={held}
+        displayThreadKey={props.routeThreadKey}
+        routeThreadKey={held ? "environment-local:next-thread" : props.routeThreadKey}
       />
     );
     let renderer: ReactTestRenderer | undefined;
@@ -1458,7 +1466,6 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         isWorking
-        activeTurnInProgress
         latestRun={{
           runId,
           status: "running",
@@ -1612,7 +1619,7 @@ describe("MessagesTimeline", () => {
         {...buildProps()}
         timelineEntries={[]}
         parentThreadLink={{
-          threadId: ThreadId.make("thread-parent"),
+          open: () => {},
           title: "Architecture audit",
         }}
       />,
@@ -2411,7 +2418,6 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         isWorking
-        activeTurnInProgress
         latestRun={{
           runId: RunId.make("run-1"),
           status: "running",

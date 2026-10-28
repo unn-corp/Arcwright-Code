@@ -2,11 +2,8 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 /**
- * Startup reconciliation reads activities by kind (`listActivitiesByKind`).
- * Every existing activity index leads with thread_id, so that query walked
- * every activity of every live thread. SQLite runs on the server's main
- * thread, so on a large history the scan froze the server for over a minute
- * and every provider status probe timed out behind it.
+ * Startup reconciliation needs a kind-leading activity index. Thread-leading indexes scan all live
+ * history and block SQLite/provider status work.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

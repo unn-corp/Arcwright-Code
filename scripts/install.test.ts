@@ -9,20 +9,29 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer terminal", () => {
-  it.each([false, true])(
-    "preserves download and install behavior (HTTP failure: %s)",
-    async (fail) => {
+  it.each([
+    ["explicit", false],
+    ["explicit", true],
+    ["stable", false],
+    ["nightly", false],
+  ] as const)(
+    "preserves %s selection and install behavior (HTTP failure: %s)",
+    async (channel, fail) => {
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-progress-"));
-      const version = "1.2.3";
+      const version = channel === "nightly" ? "1.2.4-nightly.20261028.7" : "1.2.3";
       const stem = `t3-${version}-linux-${HostProcess.Architecture.defaultValue()}`;
       const archiveName = `${stem}.tar.gz`;
       let resumeDownload: (() => void) | undefined;
       let sawPartialProgress = false;
       let output = "";
       await NodeFSP.mkdir(NodePath.join(root, stem));
-      await NodeFSP.writeFile(NodePath.join(root, stem, "t3"), "#!/bin/sh\necho 't3 v1.2.3'\n", {
-        mode: 0o755,
-      });
+      await NodeFSP.writeFile(
+        NodePath.join(root, stem, "t3"),
+        `#!/bin/sh\necho 't3 v${version}'\n`,
+        {
+          mode: 0o755,
+        },
+      );
       await NodeFSP.writeFile(
         NodePath.join(root, stem, "payload"),
         NodeCrypto.randomBytes(64 * 1024),
@@ -54,7 +63,23 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer term
         ],
       };
       const server = NodeHttp.createServer((request, response) => {
-        if (request.url === "/release.json") {
+        const url = new URL(request.url ?? "/", "http://fixture");
+        if (url.pathname === "/index") {
+          response.end(
+            JSON.stringify(
+              url.searchParams.get("page") === "1"
+                ? Array.from({ length: 100 }, () => ({ ...release, tag_name: "fork-v1.2.3" }))
+                : [
+                    {
+                      ...release,
+                      tag_name: "fork-v1.2.4-nightly.20261028.8",
+                      body: "<!-- t3-fork-release:withdrawn -->",
+                    },
+                    release,
+                  ],
+            ),
+          );
+        } else if (request.url === "/release.json") {
           response.end(JSON.stringify(release));
         } else if (request.url?.endsWith("/fork-release.json")) {
           response.end(manifest);
@@ -90,6 +115,10 @@ const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2).map((arg) => {
   if (arg === ${JSON.stringify(`https://api.github.com/repos/unn-corp/Arcwright-Code/releases/tags/fork-v${version}`)})
     return ${JSON.stringify(`${baseUrl}/release.json`)};
+  if (arg === "https://api.github.com/repos/unn-corp/Arcwright-Code/releases/latest")
+    return ${JSON.stringify(`${baseUrl}/release.json`)};
+  if (arg.startsWith("https://api.github.com/repos/unn-corp/Arcwright-Code/releases?"))
+    return ${JSON.stringify(`${baseUrl}/index`)} + new URL(arg).search;
   if (/^https?:/.test(arg) && !arg.startsWith(${JSON.stringify(`${baseUrl}/`)})) process.exit(2);
   return arg;
 });
@@ -108,7 +137,8 @@ process.exit(result.status ?? 1);
           PATH: `${fixtureBin}${NodePath.delimiter}${process.env.PATH}`,
           TERM: "xterm",
           NO_COLOR: "1",
-          T3CODE_VERSION: version,
+          T3CODE_VERSION: channel === "explicit" ? version : "",
+          T3CODE_CHANNEL: channel === "explicit" ? "stable" : channel,
           T3CODE_HOME: NodePath.join(root, "home"),
           T3CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
           T3CODE_RELEASE_BASE_URL: baseUrl,
@@ -141,15 +171,15 @@ process.exit(result.status ?? 1);
           expect(sawPartialProgress).toBe(true);
           expect(output).toContain("100%");
           expect(output).toContain("0.1 / 0.1 MB");
-          expect(output).toContain("Installed Arcwright Code 1.2.3");
+          expect(output).toContain(`Installed Arcwright Code ${version}`);
           expect(
             await NodeFSP.readFile(NodePath.join(versions, version, ".install-complete"), "utf8"),
-          ).toBe("1.2.3\n");
+          ).toBe(`${version}\n`);
           expect(
             NodeChildProcess.execFileSync(NodePath.join(root, "bin/t3"), ["--version"], {
               encoding: "utf8",
             }).trim(),
-          ).toBe("t3 v1.2.3");
+          ).toBe(`t3 v${version}`);
           expect(await NodeFSP.readdir(versions)).toEqual([version]);
           expect(
             await NodeFSP.readFile(NodePath.join(root, "home/runtime/launchers"), "utf8"),

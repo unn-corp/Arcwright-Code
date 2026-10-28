@@ -641,6 +641,7 @@ describe("reusable desktop workflow contract", () => {
     // The Windows job waits for the Linux job by name to embed its archive as the WSL runtime.
     assert.isTrue(release.jobs.desktop_linux_x64!.name!.endsWith("Linux x64"));
     assert.equal(linux.label, "Linux x64");
+    assert.isTrue(linux.launch_check);
   });
 });
 

@@ -4,17 +4,7 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 
-/**
- * Which provider's conversations `/resume` lists and resumes.
- *
- * Deliberately derived from the composer's selection alone. The thread-oriented
- * `activeProviderDriver` resolves through the thread's *bound* session, so once a
- * resume bound one, the next `/resume` listed that driver instead of the selected
- * one: a thread would offer 16 Claude conversations and then 4 Codex ones moments
- * later. Sessions are stored per driver and per account, so listing and resuming
- * must agree with what the user has selected, or the picker offers sessions that
- * cannot be resumed.
- */
+/* Resolve /resume from the composer selection, not the thread’s bound provider. Listing and resuming must use the same driver and account even after an earlier resume bound another session. */
 export function resolveResumeSessionSource(input: {
   readonly selectedProvider: ProviderDriverKind;
   /** Instance backing the selection, when one resolved from provider statuses. */

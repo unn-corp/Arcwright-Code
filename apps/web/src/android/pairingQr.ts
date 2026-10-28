@@ -1,5 +1,5 @@
 import { readHostedPairingRequest } from "@t3tools/shared/remote";
-import { getPairingTokenFromUrl } from "../pairingUrl";
+import { getPairingTokenFromUrl } from "@t3tools/shared/remote";
 
 /** Accept pairing links only; arbitrary QR content must never become a connection host. */
 export function readPairingQr(payload: string): string {

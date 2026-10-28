@@ -292,7 +292,7 @@ Tailscale Serve must be available on the host. Do not remove unrelated Serve con
 
 **Behavior and reason.** Touch layouts keep composer actions singular when collapsed, preserve
 drafts, reserve sidebar drag-grip space while visible, and resize across the phone's two screens.
-Appearance offers an always-compact composer preference for new and existing chats; multiline
+Chat settings offer an always-compact composer preference for new and existing chats; multiline
 drafts and actionable drawers or errors still expand. The default retains automatic sizing. Composer attachments share one non-wrapping, horizontally
 scrolling strip, including images, videos, files, and attachments of queued messages being edited.
 The glance rail adds project scope, usage, and quick access without replacing thread controls.
@@ -326,6 +326,10 @@ library failures preserve ordinary transcription. Full dictionary echoes retry o
 The extracted [send owner](../../apps/web/src/components/chat/useComposerSend.ts) snapshots
 author and reply context before asynchronous work. [Timeline rows](../../apps/web/src/components/chat/useTimelineRows.ts)
 and their participant/reply renderers preserve the saved feed choice and per-author grouping.
+The [context encoder](../../apps/web/src/lib/composerMessageContext.ts) selects structured
+context using the destination host's `inlineMessageContext` capability. Hosts on the supported
+protocol can still omit that capability; normal sends, fanout and plan follow-ups retain the
+text fallback so terminal, element, review and preview context reaches the provider.
 Sidebar behavior is shared by [Sidebar.tsx](../../apps/web/src/components/Sidebar.tsx),
 [LegacySidebar.tsx](../../apps/web/src/components/LegacySidebar.tsx), their pointer/drag helpers,
 and [GlanceRail.tsx](../../apps/web/src/components/GlanceRail.tsx).
@@ -342,6 +346,9 @@ The legacy sidebar retains its dnd-kit project sorting. Keep repository destinat
 from thread state drops, and cancel a pending gesture when search replaces the list or a window
 resizes. [Repository gesture tests](../../apps/web/src/components/Sidebar.repositoryDrag.test.ts)
 cover physical members moving together, release positions, clicks, and interrupted gestures.
+Automatic status revalidation in
+[client-runtime](../../packages/client-runtime/src/state/vcsStatusRevalidation.ts) marks requests
+as automatic so a saved `automaticGitStatus: false` still applies. Manual refresh remains available.
 The empty-draft headline in [ChatView.tsx](../../apps/web/src/components/ChatView.tsx) participates
 in layout with the composer: the whole stack centers when it fits and scrolls below the header
 when the keyboard reduces available height. Fixed header controls share the safe-area top inset
@@ -529,14 +536,30 @@ pull request rollups, and inactive worktree cleanup. Preserve explicitly saved o
 decoding settings; manual dashboard actions remain available while scheduled automation is off.
 The [automation settings panel](../../apps/web/src/components/settings/AutomationSettings.tsx)
 owns these controls; [background activity settings](../../apps/web/src/components/settings/BackgroundActivitySettings.tsx)
-is shared with General settings. Keep their existing primary/scoped settings destinations when
+live in Maintenance. Keep their existing primary/scoped settings destinations when
 moving UI code so a layout refactor cannot write preferences to another environment.
+The retained [Automation route](../../apps/web/src/routes/_chat.settings.automation.tsx) and
+[About route](../../apps/web/src/routes/_chat.settings.about.tsx) live in the upstream `_chat.settings.*`
+route tree. Keep both reachable through navigation and Settings search.
 Appearance and typography now live in their extracted
 [appearance](../../apps/web/src/components/settings/AppearanceSettingsPanel.tsx) and
 [typography](../../apps/web/src/components/settings/TypographySettings.tsx) owners. Connections
 uses [saved environment rows](../../apps/web/src/components/settings/SavedEnvironmentRows.tsx)
 and the [add-environment dialog](../../apps/web/src/components/settings/AddEnvironmentDialog.tsx);
 keep host maintenance, identity details and native Android QR pairing reachable there.
+Grouped project settings use the shared
+[automatic-pull resolver](../../packages/shared/src/serverSettings.ts) to read legacy choices
+before settings are folded. After folding, a reset follows the current default; retained legacy
+project fields must not undo it on the next render or restart.
+
+Source control uses the generalized host registry and
+[account settings](../../apps/web/src/components/settings/SourceControlAccountSettings.tsx).
+[SourceControlSettings](../../apps/web/src/components/settings/SourceControlSettings.tsx) also
+retains the primary environment's project GitHub accounts and token editing; projects keep their
+saved `githubAccountId`. Collapsing host settings hides and disables their controls without losing
+entered host or token values. Account-aware desktop browser launches retain isolated cookie sessions.
+The server [driver factory](../../packages/source-control-github/src/server/driver.ts) creates the
+upstream GitHub driver and retained fork API together so every reader shares one quota reserve.
 
 **Verification and coupling.** Domain tests cover durable authorization, budgets, stopped work,
 reconciliation, review/implementation scheduling, and credential redaction. Test new schedulers

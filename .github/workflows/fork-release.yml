@@ -366,6 +366,7 @@ jobs:
       rust_target: x86_64-unknown-linux-gnu
       resource_key: linux-x64
       cli_archive: true
+      launch_check: true
 
   desktop_win_x64:
     name: Desktop Windows x64

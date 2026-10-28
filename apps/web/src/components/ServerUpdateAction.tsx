@@ -26,6 +26,7 @@ import { CircleArrowUpIcon } from "lucide-react";
 import { type ComponentProps, type ReactNode, useRef, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
+
 import { updateOutdatedServer } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "./ui/button";
@@ -57,7 +58,6 @@ export interface ServerUpdateTarget {
   readonly forkMaintenance?: ExecutionEnvironmentCapabilities["forkMaintenance"] | undefined;
   readonly threadContinuation?: boolean;
   readonly targetVersion: string;
-  readonly continueThreadsAfterServerUpdate?: boolean;
 }
 
 export type PendingServerUpdate = Omit<ServerUpdateTarget, "continueThreadsAfterServerUpdate"> & {
@@ -233,7 +233,7 @@ export function ServerUpdateAction({
   className,
   appearance = "button",
   render,
-}: Omit<ServerUpdateTarget, "continueThreadsAfterServerUpdate"> &
+}: ServerUpdateTarget &
   UpdateButtonProps & {
     readonly render?: (control: ServerUpdateControl) => ReactNode;
   }) {
@@ -330,6 +330,7 @@ export function ServerUpdateAction({
   );
 }
 
+/** Read the host descriptor's version because the host never delivers server config. */
 export function OutdatedServerUpdateAction({
   environmentId,
   serverLabel,

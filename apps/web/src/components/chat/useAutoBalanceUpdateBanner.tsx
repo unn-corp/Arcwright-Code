@@ -15,7 +15,6 @@ import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
-  supportsServerUpdateThreadContinuation,
 } from "~/versionSkew";
 import {
   ServerUpdateAction,
@@ -65,7 +64,8 @@ export function useAutoBalanceUpdateBanner(
         installation: environment.serverConfig?.environment.capabilities.serverInstallation,
         desktopAppUpdate,
         forkMaintenance: environment.serverConfig?.environment.capabilities.forkMaintenance,
-        threadContinuation: supportsServerUpdateThreadContinuation(environment.serverConfig),
+        threadContinuation:
+          environment.serverConfig?.environment.capabilities.threadRestartContinuation === true,
         continueThreadsAfterServerUpdate:
           environment.serverConfig?.settings.continueThreadsAfterServerUpdate ?? false,
         targetVersion: state.status === "idle" ? mismatch!.clientVersion : state.targetVersion,
@@ -96,7 +96,7 @@ export function useAutoBalanceUpdateBanner(
   return {
     id: `auto-balance-server-updates-${dismissedNotices.size}`,
     variant: failed ? "error" : "default",
-    priority: running ? "urgent" : "notice",
+    group: "environment",
     icon: <ComposerServerUpdateIcon status={status} />,
     title: (
       <Popover>

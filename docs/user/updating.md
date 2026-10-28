@@ -38,7 +38,7 @@ of these screens. The sidebar keeps upstream desktop and provider update control
 
 ## Continue threads after restarts
 
-**Settings → General → Continue threads after restarts** is on by default for new
+**Settings → Maintenance → Continue threads after restarts** is on by default for new
 or unset preferences. Existing saved choices are kept, including an explicit off choice.
 It resumes supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
@@ -47,9 +47,10 @@ different value, use **Apply to all** in Settings after it connects.
 Arcwright Code must start again on that machine;
 the setting does not enable automatic startup. Terminal commands may still be
 interrupted, and threads without saved provider resume state need a new message.
-A thread that finished its turn to wait on a monitor, subagent, or background task
-is woken and told that this work stopped. A background shell, such as a dev server,
-does not wake it; the thread learns about it with your next message.
+A thread that finished its turn to wait on a subagent, a background task, or a
+command or monitor the agent said it was waiting on is woken and told that this work
+stopped. Other background shells and monitors, such as a dev server and its
+watchdog, do not wake it; the thread learns about them with your next message.
 A thread is not resumed while it waits for your approval, answer, or secret, or
 while it is archived, snoozed, or settled. After three automatic resumes in a row,
 the thread waits for your next message.
@@ -142,6 +143,14 @@ the T3 client is closed. Installation waits for all registered work to finish,
 five idle minutes, and a 15-second countdown. A new turn, tool, background task,
 approval wait, open terminal, or unknown activity blocks installation and resets
 the countdown. Pins and unresolved installation/recovery blockers still apply.
+
+## If the desktop app does not start
+
+If the desktop app's server keeps failing at startup, T3 Code shows a "T3 Code
+could not start" window instead of the app. If a newer version is available,
+choose **Update** to install it. If not, the window links to the last version
+that started on your computer. Download and install it to go back. Use **Copy
+details** to include the error in a bug report.
 
 The update command does not reinstall files or force a restart. It follows the
 saved policy and reports waiting reasons. Provider logins outside the T3 home

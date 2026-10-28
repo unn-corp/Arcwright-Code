@@ -101,6 +101,7 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
     onVoiceActivityChange(findingId, phase === "recording" || phase === "transcribing");
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- releases the finding voice-activity registration when its composer unmounts
   useEffect(
     () => () => {
       onVoiceActivityChange(findingId, false);
@@ -323,7 +324,6 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
                               ? "Conversation unavailable"
                               : null
                         }
-                        isConnecting={false}
                         isEnvironmentUnavailable={false}
                         isPreparingWorktree={false}
                         hasSendableContent={question.trim().length > 0}

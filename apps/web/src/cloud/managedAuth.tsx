@@ -1,17 +1,19 @@
-import { useManagedAuth } from "../auth/managedAuthContext";
-import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
+import {
+  createCloudAccountService,
+  ManagedRelay,
+  setManagedRelaySession,
+} from "@t3tools/client-runtime/relay";
 import {
   reportAtomCommandResult,
+  runAtomCommand,
   settleAsyncResult,
-  settlePromise,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Effect from "effect/Effect";
-import { useEffect, useRef, type ReactNode } from "react";
-
+import { useEffect, useState, type ReactNode } from "react";
+import { useManagedAuth, type ManagedAuth } from "../auth/managedAuthContext";
 import { environmentCatalog } from "../connection/catalog";
 import { runtime } from "../lib/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { useAtomCommand } from "../state/use-atom-command";
 
 export function deactivateManagedRelayAuthentication(): void {
   setManagedRelaySession(appAtomRegistry, null);
@@ -21,87 +23,82 @@ export function activateManagedRelayAuthentication(
   accountId: string,
   readClerkToken: () => Promise<string | null>,
 ): void {
-  setManagedRelaySession(appAtomRegistry, {
-    accountId,
-    readClerkToken,
-  });
+  setManagedRelaySession(appAtomRegistry, { accountId, readClerkToken });
 }
 
-export function ManagedRelayAuthProvider({ children }: { readonly children: ReactNode }) {
-  const { getRelayToken, isLoaded, isSignedIn, userId } = useManagedAuth();
-  const removeRelayEnvironments = useAtomCommand(environmentCatalog.removeRelayEnvironments, {
-    reportFailure: false,
-    reportDefect: false,
+type AccountResources = { readonly user: { readonly id: string } | null | undefined };
+
+// Web, Electron and native Android publish the same public account state. Provider credentials
+// never enter this source, and token reads stay fenced to the account session that requested them.
+function managedAccountSource(initial: ManagedAuth) {
+  let current = initial;
+  const listeners = new Set<(resources: AccountResources) => void>();
+  const snapshot = (): AccountResources => ({
+    user: !current.isLoaded
+      ? undefined
+      : current.isSignedIn && current.userId
+        ? { id: current.userId }
+        : null,
   });
-  const observedAccountRef = useRef<string | null | undefined>(undefined);
-  const accountTransitionRef = useRef<Promise<void> | null>(null);
-
-  useEffect(() => {
-    if (!isLoaded) {
-      return;
-    }
-
-    let cancelled = false;
-    const previousAccount = observedAccountRef.current;
-    const nextAccount = isSignedIn && userId ? userId : null;
-    observedAccountRef.current = nextAccount;
-
-    const queueAccountCleanup = () => {
-      // PWA Web Push is installation-scoped. Cloud account cleanup must never
-      // unsubscribe it or erase its local installation credential.
-      const previousTransition = accountTransitionRef.current ?? Promise.resolve();
-      accountTransitionRef.current = previousTransition.then(async () => {
-        const [environmentResult, tokenResult] = await Promise.all([
-          removeRelayEnvironments(),
-          settleAsyncResult(() =>
-            runtime.runPromiseExit(
-              ManagedRelay.ManagedRelayClient.pipe(
-                Effect.flatMap((client) => client.resetTokenCache),
-              ),
-            ),
-          ),
-        ]);
-        for (const result of [environmentResult, tokenResult]) {
-          reportAtomCommandResult(result, { label: "cloud account cleanup" });
-        }
-      });
-      return accountTransitionRef.current;
-    };
-
-    if (!isSignedIn || !userId) {
-      deactivateManagedRelayAuthentication();
-      if (previousAccount !== null) {
-        void queueAccountCleanup();
-      }
-    } else {
-      const tokenProvider = getRelayToken;
-      const activateSession = () => {
-        if (!cancelled) {
-          activateManagedRelayAuthentication(userId, tokenProvider);
-        }
+  return {
+    addListener(listener: (resources: AccountResources) => void) {
+      listeners.add(listener);
+      listener(snapshot());
+      return () => {
+        listeners.delete(listener);
       };
-      const activateAfterTransition = (transition: Promise<void>) => {
-        void (async () => {
-          const result = await settlePromise(async () => {
-            await transition;
-            activateSession();
-          });
-          reportAtomCommandResult(result, { label: "cloud account activation" });
-        })();
-      };
-      if (previousAccount !== undefined && previousAccount !== null && previousAccount !== userId) {
-        deactivateManagedRelayAuthentication();
-        activateAfterTransition(queueAccountCleanup());
-      } else {
-        activateAfterTransition(accountTransitionRef.current ?? Promise.resolve());
-      }
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [getRelayToken, isLoaded, isSignedIn, removeRelayEnvironments, userId]);
+    },
+    update(auth: ManagedAuth) {
+      current = auth;
+      for (const listener of listeners) listener(snapshot());
+    },
+    async readToken(accountId: string) {
+      const captured = current;
+      if (!captured.isSignedIn || captured.userId !== accountId) return null;
+      const token = await captured.getRelayToken();
+      return current.isSignedIn &&
+        current.userId === accountId &&
+        current.sessionId === captured.sessionId &&
+        current.generation === captured.generation
+        ? token
+        : null;
+    },
+  };
+}
 
-  useEffect(() => () => deactivateManagedRelayAuthentication(), []);
+const managedRelayAccountService = createCloudAccountService<
+  ReturnType<typeof managedAccountSource>
+>({
+  deactivate: deactivateManagedRelayAuthentication,
+  detach: deactivateManagedRelayAuthentication,
+  cleanUp: async () => {
+    // PWA push credentials are installation-scoped and survive account cleanup.
+    const results = await Promise.all([
+      runAtomCommand(appAtomRegistry, environmentCatalog.removeRelayEnvironments, undefined, {
+        reportFailure: false,
+        reportDefect: false,
+      }),
+      settleAsyncResult(() =>
+        runtime.runPromiseExit(
+          ManagedRelay.ManagedRelayClient.pipe(Effect.flatMap((client) => client.resetTokenCache)),
+        ),
+      ),
+    ]);
+    for (const result of results)
+      reportAtomCommandResult(result, { label: "cloud account cleanup" });
+  },
+  activate: ({ source, accountId }) =>
+    activateManagedRelayAuthentication(accountId, () => source.readToken(accountId)),
+});
 
+export function ManagedRelayAuthProvider({ children }: { readonly children: ReactNode }) {
+  const auth = useManagedAuth();
+  const [source] = useState(() => managedAccountSource(auth));
+  // Updates the external account source after the auth provider commits a new session snapshot.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes committed native or web account snapshots to the external relay account source
+  useEffect(() => source.update(auth), [auth, source]);
+  // The source's lifetime matches the native/web managed-auth provider.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches the relay account service for this provider lifetime and releases its credential reader on unmount
+  useEffect(() => managedRelayAccountService.attach(source), [source]);
   return children;
 }

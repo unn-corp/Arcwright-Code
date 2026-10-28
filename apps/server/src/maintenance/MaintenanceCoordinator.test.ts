@@ -92,7 +92,7 @@ const processRead = (sources: Sources) =>
   );
 const layer = (sources: Sources = {}) =>
   Layer.mergeAll(
-    sources.sqlProjections ? ProjectionStore.layer : ProjectionStore.layerMemory,
+    ProjectionStore.layer,
     Layer.succeed(TerminalManager.TerminalManager, {
       subscribeMetadata: (
         listener: (event: {
@@ -589,7 +589,7 @@ describe("device activity sources", () => {
               Layer.succeed(ProcessDiagnostics.ProcessDiagnostics, {
                 read: Effect.die("processes unreadable"),
               } as never),
-              ProjectionStore.layerMemory,
+              ProjectionStore.layer,
             ).pipe(Layer.provideMerge(broken)),
           ),
         );

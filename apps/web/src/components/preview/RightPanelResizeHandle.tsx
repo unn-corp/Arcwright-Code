@@ -6,18 +6,7 @@ interface Props {
   className?: string;
 }
 
-/**
- * Hit target for resizing a right-anchored panel via its left edge.
- *
- * - Sits on top of the panel's border with a 4px overlap on each side so the
- *   user can grab a few pixels off the edge without aiming.
- * - Visual indicator is a 1px line that lights up on hover/active to mirror
- *   VS Code / Cursor.
- * - touch-action:none is load-bearing: without it the browser treats a finger
- *   drag as a pan and cancels the pointer sequence, so the handle worked with a
- *   mouse and did nothing on a touchscreen. The coarse-pointer before: block
- *   widens the grab zone to a finger without thickening the 1px line.
- */
+/* Widen the panel-edge grab target for touch without thickening its visible line. Keep touch-action:none so dragging does not become a browser pan that cancels the pointer sequence. */
 export function RightPanelResizeHandle({ handlers, className }: Props) {
   return (
     <div

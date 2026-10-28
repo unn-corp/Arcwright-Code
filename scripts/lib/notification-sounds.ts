@@ -1,14 +1,4 @@
-/**
- * Synthesis for the selectable agent-notification sound set.
- *
- * These are generated rather than sampled so the shipped set is an original
- * work with no third-party licensing, and so the character of a sound can be
- * tuned by editing a spec instead of sourcing a new recording.
- *
- * Rendering is fully deterministic: the one noise-driven timbre uses a seeded
- * PRNG, so regenerating the assets from an unchanged spec reproduces the same
- * bytes and a rebuild never shows up as a spurious binary diff.
- */
+/** Original, deterministic synthesis avoids third-party recordings and spurious binary diffs; noise uses a seeded PRNG. */
 
 export const SAMPLE_RATE = 48_000;
 

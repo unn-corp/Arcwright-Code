@@ -32,8 +32,7 @@ export const OrganizationRepositorySyncCoordinatorLive = Layer.effect(
       for (const row of due) {
         yield* repositories
           .syncBackground({ organizationId: OrganizationId.make(row.organization_id) })
-          .pipe(withAutomationWork)
-          .pipe(Effect.ignoreCause({ log: false }));
+          .pipe(withAutomationWork, Effect.ignoreCause({ log: false }));
       }
       return due.length;
     });

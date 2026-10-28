@@ -66,20 +66,7 @@ export function registerPwaServiceWorker(): Promise<PwaServiceWorkerState> {
   return registrationPromise;
 }
 
-/**
- * Discards everything cached for this installation and reloads from the server.
- *
- * An installed PWA can hold a shell that names bundles by content hash, so a
- * stale shell keeps asking for files that no longer exist and the app pins
- * itself to an old build. The server now sends no-cache for the shell, which
- * prevents that going forward, but a client already holding a stale copy has
- * no way to notice on its own. Remove legacy workers, drop every cache, and
- * reload. The current notification worker does not cache files; preserve its
- * registration because it owns this installation's push subscription.
- *
- * Pairing and settings live in localStorage and IndexedDB, which are left
- * alone, so this does not sign the device out or lose its environments.
- */
+/* Recover stale PWA shells by removing legacy workers and caches before reloading. Preserve the notification worker, which owns this installation’s push subscription. Pairings and settings in localStorage and IndexedDB stay intact. */
 export async function clearPwaCachesAndReload(): Promise<void> {
   if (typeof window === "undefined") return;
   try {

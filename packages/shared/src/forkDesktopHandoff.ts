@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off processEnv:off globalConsole:off — an external process outlives the app it replaces.
 /**
- * The external half of a desktop binary swap. The desktop writes a plan, starts this through the cached recovery
- * runtime and exits; this waits for exactly that process to be gone, verifies the payload it was told to install,
- * replaces the application, and starts it again. It changes nothing else: it never touches data homes, journals or the
- * coordinator fence, and never reads user backups. The (new or previous) desktop finishes the transaction from the
- * coordinator journal when it starts.
+ * After the exact desktop process exits, verify and replace its binary, then restart it. Never touch
+ * data homes, backups, journals or the fence; the new/prior desktop completes the coordinator
+ * transaction.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";

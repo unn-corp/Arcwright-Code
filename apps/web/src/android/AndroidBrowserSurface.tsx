@@ -27,6 +27,7 @@ export function AndroidBrowserSurface({
   const readInitialUrl = useEffectEvent(() => initialUrl);
   const environmentId = threadRef.environmentId;
   const threadId = threadRef.threadId;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the DOM viewport and occluding dialogs for the native browser surface, releasing observers and frames on unmount
   useEffect(() => {
     const node = ref.current;
     if (!node) return;

@@ -1,5 +1,5 @@
 import { makeExecutionMemo } from "alchemy/Runtime/ExecutionMemo";
-import { resolveConnectionOptions } from "alchemy/SQL/PostgresTls";
+import { resolveConnectionOptions } from "@alchemy.run/sql/PostgresTls";
 import { proxyChain } from "alchemy/Util/proxy-chain";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

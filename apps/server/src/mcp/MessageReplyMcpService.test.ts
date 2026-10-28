@@ -1,3 +1,4 @@
+import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -52,6 +53,7 @@ it.effect("allows only the current provider to select a direct reply and namespa
     const dispatched: OrchestrationV2ServerCommand[] = [];
     const dependencies = Layer.mergeAll(
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+      Layer.mock(RemoteDelegation.RemoteDelegation)({}),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
       NodeServices.layer,
       Layer.mock(ThreadManagement.ThreadManagementService)({

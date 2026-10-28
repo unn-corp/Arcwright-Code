@@ -5,7 +5,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {

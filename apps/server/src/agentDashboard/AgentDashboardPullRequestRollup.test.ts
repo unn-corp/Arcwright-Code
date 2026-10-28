@@ -188,9 +188,7 @@ describe("pull request rollup schedule", () => {
           check: Effect.void,
           checkAutomation: Effect.gen(function* () {
             if (yield* Ref.get(held)) {
-              return yield* Effect.fail(
-                new MaintenanceWorkHeld({ cause: "restored review required" }),
-              );
+              return yield* new MaintenanceWorkHeld({ cause: "restored review required" });
             }
           }),
         };

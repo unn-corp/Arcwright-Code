@@ -312,12 +312,14 @@ export const make = Effect.gen(function* () {
       }
     });
   return WorktreeStorage.of({
-    usage: (cwd) => Cache.get(usageCache, NodePath.resolve(cwd)),
+    usage: Effect.fn("WorktreeStorage.usage")((cwd) =>
+      Cache.get(usageCache, NodePath.resolve(cwd)),
+    ),
     support,
     read,
     restore,
     capture,
-    withLock: (repository, effect) => {
+    withLock: Effect.fn("WorktreeStorage.withLock")((repository, effect) => {
       const key = repositoryDirectory(repository);
       let lock = cacheLocks.get(key);
       if (lock === undefined) {
@@ -325,6 +327,6 @@ export const make = Effect.gen(function* () {
         cacheLocks.set(key, lock);
       }
       return lock.withPermits(1)(effect);
-    },
+    }),
   });
 });

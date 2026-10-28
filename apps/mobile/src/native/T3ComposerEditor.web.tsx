@@ -48,6 +48,7 @@ export function ComposerEditor({
   const bodyText = useScaledTextRole("body");
   const fontFamily = FONT_FAMILIES.regular;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the web editor paste listener so image paste is prevented synchronously before asynchronous conversion
   useEffect(() => {
     const element = wrapperRef.current as unknown as HTMLElement | null;
     if (!element || !onPasteImages) return;

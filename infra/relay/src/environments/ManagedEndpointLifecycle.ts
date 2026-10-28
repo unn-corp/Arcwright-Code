@@ -518,7 +518,7 @@ const make = Effect.gen(function* () {
   });
 
   return ManagedEndpointLifecycle.of({
-    get: (key) =>
+    get: Effect.fn("ManagedEndpointLifecycle.get")((key) =>
       persist(
         "get",
         key,
@@ -529,7 +529,8 @@ const make = Effect.gen(function* () {
           return rows[0] ?? null;
         }),
       ),
-    acquireOperation: (input) =>
+    ),
+    acquireOperation: Effect.fn("ManagedEndpointLifecycle.acquireOperation")((input) =>
       transaction(
         "acquire",
         input.key,
@@ -599,73 +600,78 @@ const make = Effect.gen(function* () {
           };
         }),
       ),
-    publishProvision: ({ claim, origin, publication }) =>
-      transaction(
-        "publish-provision",
-        claim,
-        Effect.gen(function* () {
-          const publicKey =
-            publication.kind === "link"
-              ? publication.proof.environmentPublicKey
-              : publication.environmentPublicKey;
-          const link = yield* lockPublicationLink(claim, publicKey);
-          const row = yield* load(claim);
-          if (
-            !row ||
-            claim.kind !== "provision" ||
-            !recordedReady(row, claim) ||
-            !configuredOrigin(row, origin)
-          )
-            return stale;
-          const endpoint = managedEndpointForHostname(row.hostname);
-          if (publication.kind === "recover") {
-            if (!currentAuthority(link, row, publication)) return stale;
-            yield* completeReady(claim, origin, publicKey, true);
-            return { status: "Applied" as const, kind: "recover" as const, endpoint };
-          }
-          if (
-            !publication.request.managedTunnelsEnabled ||
-            !consistentProof(claim, publication.request, publication.proof) ||
-            origin.localHttpHost !== publication.proof.origin.localHttpHost ||
-            origin.localHttpPort !== publication.proof.origin.localHttpPort
-          )
-            return yield* new LifecycleTransitionRejected({ reason: "invalid-publication" });
-          const environmentCredential = yield* publishLink(
-            claim,
-            publication.request,
-            publication.proof,
-            endpoint,
-            link?.environmentPublicKey,
-          );
-          yield* completeReady(claim, origin, publicKey, false);
-          return {
-            status: "Applied" as const,
-            kind: "link" as const,
-            endpoint,
-            environmentCredential,
-          };
-        }),
-      ),
-    completeReconcile: ({ claim, origin, expectedLink }) =>
-      transaction(
-        "complete-reconcile",
-        claim,
-        Effect.gen(function* () {
-          const link = yield* lockPublicationLink(claim, expectedLink.environmentPublicKey);
-          const row = yield* load(claim);
-          if (
-            !row ||
-            claim.kind !== "reconcile" ||
-            !recordedReady(row, claim) ||
-            !configuredOrigin(row, origin) ||
-            !currentAuthority(link, row, expectedLink)
-          )
-            return stale;
-          yield* completeReady(claim, origin, expectedLink.environmentPublicKey, true);
-          return applied;
-        }),
-      ),
-    revokeAndRequestCleanup: (key) =>
+    ),
+    publishProvision: Effect.fn("ManagedEndpointLifecycle.publishProvision")(
+      ({ claim, origin, publication }) =>
+        transaction(
+          "publish-provision",
+          claim,
+          Effect.gen(function* () {
+            const publicKey =
+              publication.kind === "link"
+                ? publication.proof.environmentPublicKey
+                : publication.environmentPublicKey;
+            const link = yield* lockPublicationLink(claim, publicKey);
+            const row = yield* load(claim);
+            if (
+              !row ||
+              claim.kind !== "provision" ||
+              !recordedReady(row, claim) ||
+              !configuredOrigin(row, origin)
+            )
+              return stale;
+            const endpoint = managedEndpointForHostname(row.hostname);
+            if (publication.kind === "recover") {
+              if (!currentAuthority(link, row, publication)) return stale;
+              yield* completeReady(claim, origin, publicKey, true);
+              return { status: "Applied" as const, kind: "recover" as const, endpoint };
+            }
+            if (
+              !publication.request.managedTunnelsEnabled ||
+              !consistentProof(claim, publication.request, publication.proof) ||
+              origin.localHttpHost !== publication.proof.origin.localHttpHost ||
+              origin.localHttpPort !== publication.proof.origin.localHttpPort
+            )
+              return yield* new LifecycleTransitionRejected({ reason: "invalid-publication" });
+            const environmentCredential = yield* publishLink(
+              claim,
+              publication.request,
+              publication.proof,
+              endpoint,
+              link?.environmentPublicKey,
+            );
+            yield* completeReady(claim, origin, publicKey, false);
+            return {
+              status: "Applied" as const,
+              kind: "link" as const,
+              endpoint,
+              environmentCredential,
+            };
+          }),
+        ),
+    ),
+    completeReconcile: Effect.fn("ManagedEndpointLifecycle.completeReconcile")(
+      ({ claim, origin, expectedLink }) =>
+        transaction(
+          "complete-reconcile",
+          claim,
+          Effect.gen(function* () {
+            const link = yield* lockPublicationLink(claim, expectedLink.environmentPublicKey);
+            const row = yield* load(claim);
+            if (
+              !row ||
+              claim.kind !== "reconcile" ||
+              !recordedReady(row, claim) ||
+              !configuredOrigin(row, origin) ||
+              !currentAuthority(link, row, expectedLink)
+            )
+              return stale;
+            yield* completeReady(claim, origin, expectedLink.environmentPublicKey, true);
+            return applied;
+          }),
+        ),
+    ),
+    revokeAndRequestCleanup: Effect.fn("ManagedEndpointLifecycle.revokeAndRequestCleanup")((key) =>
       transaction(
         "revoke-cleanup",
         key,
@@ -682,28 +688,31 @@ const make = Effect.gen(function* () {
           return { revoked, ...(yield* cleanupCaptured(row)) };
         }),
       ),
-    publishWithoutTunnel: ({ userId, request, verifiedProof, endpoint }) => {
-      const key = { userId, environmentId: verifiedProof.environmentId };
-      return transaction(
-        "publish-without-tunnel",
-        key,
-        Effect.gen(function* () {
-          if (request.managedTunnelsEnabled || !consistentProof(key, request, verifiedProof))
-            return yield* new LifecycleTransitionRejected({ reason: "invalid-publication" });
-          const link = yield* lockPublicationLink(key, verifiedProof.environmentPublicKey);
-          const row = yield* load(key);
-          const environmentCredential = yield* publishLink(
-            key,
-            request,
-            verifiedProof,
-            endpoint,
-            link?.environmentPublicKey,
-          );
-          return { environmentCredential, ...(yield* cleanupCaptured(row)) };
-        }),
-      );
-    },
-    beginMutation: (input) =>
+    ),
+    publishWithoutTunnel: Effect.fn("ManagedEndpointLifecycle.publishWithoutTunnel")(
+      ({ userId, request, verifiedProof, endpoint }) => {
+        const key = { userId, environmentId: verifiedProof.environmentId };
+        return transaction(
+          "publish-without-tunnel",
+          key,
+          Effect.gen(function* () {
+            if (request.managedTunnelsEnabled || !consistentProof(key, request, verifiedProof))
+              return yield* new LifecycleTransitionRejected({ reason: "invalid-publication" });
+            const link = yield* lockPublicationLink(key, verifiedProof.environmentPublicKey);
+            const row = yield* load(key);
+            const environmentCredential = yield* publishLink(
+              key,
+              request,
+              verifiedProof,
+              endpoint,
+              link?.environmentPublicKey,
+            );
+            return { environmentCredential, ...(yield* cleanupCaptured(row)) };
+          }),
+        );
+      },
+    ),
+    beginMutation: Effect.fn("ManagedEndpointLifecycle.beginMutation")((input) =>
       transaction(
         "begin",
         input.claim,
@@ -734,7 +743,8 @@ const make = Effect.gen(function* () {
             : { status: "Stale" as const };
         }),
       ),
-    completeMutation: (input) =>
+    ),
+    completeMutation: Effect.fn("ManagedEndpointLifecycle.completeMutation")((input) =>
       transaction(
         "complete",
         input.claim,
@@ -823,7 +833,8 @@ const make = Effect.gen(function* () {
           return updated.length === 1 ? applied : stale;
         }),
       ),
-    recordObservation: (input) =>
+    ),
+    recordObservation: Effect.fn("ManagedEndpointLifecycle.recordObservation")((input) =>
       transaction(
         "observe",
         input.claim,
@@ -894,7 +905,8 @@ const make = Effect.gen(function* () {
           return updated.length === 1 ? applied : stale;
         }),
       ),
-    retainUncertain: (claim) =>
+    ),
+    retainUncertain: Effect.fn("ManagedEndpointLifecycle.retainUncertain")((claim) =>
       transaction(
         "uncertain",
         claim,
@@ -928,9 +940,14 @@ const make = Effect.gen(function* () {
           return updated.length === 1 ? applied : stale;
         }),
       ),
-    finishIdle: (claim) => settle("finish-idle", claim),
-    finishReleased: ({ claim, markReleased }) => settle("finish-released", claim, markReleased),
-    removeClaimed: (claim) =>
+    ),
+    finishIdle: Effect.fn("ManagedEndpointLifecycle.finishIdle")((claim) =>
+      settle("finish-idle", claim),
+    ),
+    finishReleased: Effect.fn("ManagedEndpointLifecycle.finishReleased")(
+      ({ claim, markReleased }) => settle("finish-released", claim, markReleased),
+    ),
+    removeClaimed: Effect.fn("ManagedEndpointLifecycle.removeClaimed")((claim) =>
       transaction(
         "remove",
         claim,
@@ -957,7 +974,8 @@ const make = Effect.gen(function* () {
           return removed.length === 1 ? applied : stale;
         }),
       ),
-    requestCleanup: (target) =>
+    ),
+    requestCleanup: Effect.fn("ManagedEndpointLifecycle.requestCleanup")((target) =>
       transaction(
         "cleanup-intent",
         target.key,
@@ -979,6 +997,7 @@ const make = Effect.gen(function* () {
           return updated.length === 1 ? applied : stale;
         }),
       ),
+    ),
   });
 });
 

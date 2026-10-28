@@ -190,9 +190,6 @@ export class RelayConfiguration extends Context.Service<
   }
 >()("t3code-relay/Config/RelayConfiguration") {}
 
-export const make = (configuration: RelayConfiguration["Service"]) =>
-  RelayConfiguration.of(configuration);
-
 /** Validate injected runtime services too, before accepting any credential. */
 class InvalidClerkAuthPolicy extends Data.TaggedError("InvalidClerkAuthPolicy") {}
 
@@ -210,15 +207,15 @@ export const resolveClerkAuthPolicy = Effect.fn("Config.resolveClerkAuthPolicy")
       return yield* new InvalidClerkAuthPolicy();
     }
   } else {
-    let frontendApi = "";
-    try {
-      const encoded = configuration.clerkPublishableKey.match(
-        /^pk_(?:live|test)_([A-Za-z0-9+/=]+)$/,
-      )?.[1];
-      frontendApi = encoded ? atob(encoded) : "";
-    } catch {
-      return yield* new InvalidClerkAuthPolicy();
-    }
+    const frontendApi = yield* Effect.try({
+      try: () => {
+        const encoded = configuration.clerkPublishableKey.match(
+          /^pk_(?:live|test)_([A-Za-z0-9+/=]+)$/,
+        )?.[1];
+        return encoded ? atob(encoded) : "";
+      },
+      catch: () => new InvalidClerkAuthPolicy(),
+    });
     if (
       frontendApi !== `${new URL(policy.issuer).host}$` ||
       !/^[A-Za-z0-9_-]+$/.test(configuration.clerkJwtAudience)
@@ -230,4 +227,4 @@ export const resolveClerkAuthPolicy = Effect.fn("Config.resolveClerkAuthPolicy")
 });
 
 export const layer = (configuration: RelayConfiguration["Service"]) =>
-  Layer.succeed(RelayConfiguration, make(configuration));
+  Layer.succeed(RelayConfiguration, RelayConfiguration.of(configuration));

@@ -81,6 +81,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly linuxWmClass: string;
     readonly linuxApplicationsDir: string;
     readonly urlHandlerExecTarget: Option.Option<string>;
+    readonly desktopLauncherPath: Option.Option<string>;
     readonly appImagePath: Option.Option<string>;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
     readonly runtimeInfo: DesktopRuntimeInfo;
@@ -113,9 +114,12 @@ export function resolveDesktopAppBranding(input: {
     stageLabel,
     displayName: input.isDevelopment
       ? `${APP_BASE_NAME} (Dev)`
-      : preview
-        ? `${APP_BASE_NAME} — ${preview[1] === "preview" ? "Local Nightly" : "Nightly"} ${preview[2]}`
-        : APP_BASE_NAME,
+      : preview?.[1] === "nightly"
+        ? // oxlint-disable-next-line t3code/no-em-dash-copy -- AGENTS.md requires the allocated nightly product name.
+          `${APP_BASE_NAME} — Nightly ${preview[2]}`
+        : preview
+          ? `${APP_BASE_NAME} Preview ${preview[2]}`
+          : APP_BASE_NAME,
   };
 }
 
@@ -250,6 +254,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
     linuxApplicationsDir,
     urlHandlerExecTarget: config.urlHandlerExecTarget,
+    desktopLauncherPath: config.desktopLauncherPath,
     appImagePath: config.appImagePath,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),
     runtimeInfo: resolveDesktopRuntimeInfo({

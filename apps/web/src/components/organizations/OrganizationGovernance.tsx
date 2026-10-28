@@ -89,6 +89,7 @@ export function OrganizationGovernance({
   const [drainError, setDrainError] = useState<string | null>(null);
   const [drainNotice, setDrainNotice] = useState<string | null>(null);
   const drainPausedRef = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates organization data when the external drain operation reaches its paused state
   useEffect(() => {
     if (drain.data?.state === "paused" && !drainPausedRef.current) {
       drainPausedRef.current = true;

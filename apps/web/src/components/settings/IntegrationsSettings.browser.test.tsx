@@ -6,7 +6,7 @@ import { page } from "vite-plus/test/browser";
 
 import "../../index.css";
 import { render } from "../../../test/render";
-import { IntegrationsSettingsPanel } from "./IntegrationsSettings";
+import { BrowserSettingsPanel, DevicesSettingsPanel } from "./IntegrationsSettings";
 
 const { listBrowserImportSources } = vi.hoisted(() => ({
   listBrowserImportSources: vi.fn().mockResolvedValue([]),
@@ -53,52 +53,58 @@ function setup() {
   listBrowserImportSources.mockClear();
 }
 
-async function openSettings() {
+async function openSettings(page: "browser" | "devices" = "browser") {
   await using stack = new AsyncDisposableStack();
   const screen = stack.use(
     await render(
       <StrictMode>
-        <IntegrationsSettingsPanel />
+        {page === "browser" ? <BrowserSettingsPanel /> : <DevicesSettingsPanel />}
       </StrictMode>,
     ),
   );
   await vi.waitFor(() =>
-    expect(screen.container.querySelector("section#integrations-links")).not.toBeNull(),
+    expect(
+      screen.container.querySelector(
+        page === "browser" ? "section#browser-agent-access" : "section#devices",
+      ),
+    ).not.toBeNull(),
   );
   stack.move();
   return screen;
 }
 
 describe("Integrations browser discovery", () => {
-  it("keeps agent browser access in the Links & previews section", async () => {
+  it("keeps agent browser access in its extracted browser section", async () => {
     setup();
     await using screen = await openSettings();
 
     expect(
-      page.getByRole("heading", { name: "Links & previews", exact: true }).elements(),
+      page.getByRole("heading", { name: "Agent access", exact: true }).elements(),
     ).toHaveLength(1);
     const access = page.getByRole("switch", { name: "Agent browser access", exact: true });
     await expect.element(access).toBeVisible();
     expect(access.element().closest("section")).toBe(
-      screen.container.querySelector("section#integrations-links"),
+      screen.container.querySelector("section#browser-agent-access"),
     );
     expect(access.element().closest("#agent-browser-access")).not.toBeNull();
   });
 
-  it("groups browser settings before device setup and voice", async () => {
+  it("groups the extracted browser controls together", async () => {
     setup();
     await using screen = await openSettings();
     const sections = Array.from(
       screen.container.querySelectorAll("section[id]"),
       (section) => section.id,
     );
-    expect(sections).toEqual([
-      "integrations-links",
-      "integrations-profiles",
-      "integrations-defaults",
-      "integrations-recordings",
-      "devices",
-      "integrations-voice",
-    ]);
+    expect(sections).toEqual(["browser-agent-access", "browser", "browser-recordings"]);
+  });
+  it("keeps voice and dictation on the Devices page", async () => {
+    setup();
+    await using screen = await openSettings("devices");
+    const sections = Array.from(
+      screen.container.querySelectorAll("section[id]"),
+      (section) => section.id,
+    );
+    expect(sections).toEqual(["devices", "integrations-voice"]);
   });
 });

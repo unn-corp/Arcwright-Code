@@ -1,9 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Credentials from "@distilled.cloud/cloudflare/Credentials";
 import * as Alchemy from "alchemy";
-import { dnsReadWriteClient } from "alchemy/Cloudflare/DNS";
-import type { DnsAuth } from "alchemy/Cloudflare/DNS";
-import { readWriteClient } from "alchemy/Cloudflare/Tunnel";
+import { dnsReadWriteClient } from "@alchemy.run/cloudflare/DNS";
+import type { DnsAuth } from "@alchemy.run/cloudflare/DNS";
+import { readWriteClient } from "@alchemy.run/cloudflare/Tunnel";
 import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
 import * as Pause from "./CloudflareApiPause.ts";
@@ -56,7 +56,9 @@ function clients(
         Effect.provideService(HttpClient.HttpClient, http),
         Effect.provideService(
           Credentials.Credentials,
-          Effect.succeed(Credentials.apiTokenCredentials({ apiToken: "local-test-token" })),
+          Effect.succeed(
+            Credentials.apiTokenCredentials({ apiToken: Redacted.make("local-test-token") }),
+          ),
         ),
       ),
   };

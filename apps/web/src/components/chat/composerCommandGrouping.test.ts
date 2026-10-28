@@ -22,11 +22,7 @@ const allItemIds = (groups: ReturnType<typeof groupCommandItems>): string[] =>
   groups.flatMap((group) => group.items.map((item) => item.id));
 
 describe("groupCommandItems", () => {
-  // The /resume session list is reached from the slash-command trigger, and
-  // grouping is on whenever the query is empty (typing "/" and clicking
-  // /resume). This branch previously kept only slash-command and
-  // provider-slash-command items, so every conversation was silently dropped
-  // and the picker rendered nothing.
+  /* Opening /resume from the empty slash query must retain session rows alongside command rows instead of producing an empty picker. */
   it("keeps session rows when slash sections are grouped", () => {
     const groups = groupCommandItems(
       [slashItem("model"), sessionItem("abc"), sessionItem("def")],

@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { reifyBoundConfigProvider } from "alchemy/Runtime";
 import { expect, it } from "@effect/vitest";
 import * as Config from "effect/Config";
@@ -46,12 +46,11 @@ it.effect.each([
     ).toEqual(expected);
     // Plan provides {}, but must retain the already validated operator-owned policy.
     expect(
-      yield* clerkAuthPolicyConfig
-        .pipe(Effect.andThen(loadWorkerClerkAuthPolicy))
-        .pipe(
-          Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env })),
-          Effect.provideService(Cloudflare.WorkerEnvironment, {}),
-        ),
+      yield* clerkAuthPolicyConfig.pipe(
+        Effect.andThen(loadWorkerClerkAuthPolicy),
+        Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env })),
+        Effect.provideService(Cloudflare.WorkerEnvironment, {}),
+      ),
     ).toEqual(expected);
   }),
 );
@@ -83,12 +82,11 @@ it.effect.each([
     );
     // Same sequencing used by alchemy.run: preflight precedes Layer provisioning.
     yield* Effect.flip(
-      clerkAuthPolicyConfig
-        .pipe(Effect.andThen(loadWorkerClerkAuthPolicy.pipe(Effect.provide(workerLayer))))
-        .pipe(
-          Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env })),
-          Effect.provideService(Cloudflare.WorkerEnvironment, {}),
-        ),
+      clerkAuthPolicyConfig.pipe(
+        Effect.andThen(loadWorkerClerkAuthPolicy.pipe(Effect.provide(workerLayer))),
+        Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env })),
+        Effect.provideService(Cloudflare.WorkerEnvironment, {}),
+      ),
     );
     expect(builtWorker).toBe(false);
   }),

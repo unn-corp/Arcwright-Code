@@ -72,7 +72,7 @@ it("jumps and focuses sections through ticks and the compact menu, then follows 
   }
   const container = document.createElement("div");
   document.body.append(container);
-  await using screen = await render(<Fixture />, { container, router: false });
+  await using _screen = await render(<Fixture />, { container, router: false });
   container.querySelector<HTMLElement>("[data-settings-section-menu]")!.getBoundingClientRect =
     () => new DOMRect();
   const tick = container.querySelector<HTMLButtonElement>('[aria-label="Go to Performance"]')!;

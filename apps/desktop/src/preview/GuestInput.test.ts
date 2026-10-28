@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { sendPageCommand, toKeyboardInputEvents } from "./GuestInput.ts";
 
-/** A guest whose page reports `focusedDocument` for the focus probe. */
 const makeGuest = ({
   focused,
   focusedDocument = true,
@@ -16,6 +15,7 @@ const makeGuest = ({
       : { result: {} },
   );
   const webContents = {
+    isFocused: () => focused,
     focusedFrame: focused ? {} : null,
     insertText: vi.fn(async () => {}),
     sendInputEvent: vi.fn(),
@@ -49,6 +49,15 @@ describe("preview guest input", () => {
       /cross-site frame/,
     );
     expect(guest.webContents.insertText).not.toHaveBeenCalled();
+  });
+
+  it("refuses root keyboard events until the requested preview has desktop focus", async () => {
+    const guest = makeGuest({ focused: false });
+    await expect(
+      guest.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter" }),
+    ).rejects.toThrow(/select the requested preview tab/i);
+    expect(guest.webContents.sendInputEvent).not.toHaveBeenCalled();
+    expect(guest.sendCommand).not.toHaveBeenCalled();
   });
 });
 

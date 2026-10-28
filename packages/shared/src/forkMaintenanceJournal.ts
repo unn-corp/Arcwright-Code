@@ -1,14 +1,8 @@
 import * as Schema from "effect/Schema";
 
 /**
- * Durable transaction boundaries. A journal is the only record the next process
- * trusts; every phase is persisted (fsync + atomic rename) before the step it
- * names begins to matter.
- *
- * update:   fenced → snapshotted → trial → verified → committed
- *                                     └→ restoring → restored → restore-verified
- * recovery: fenced → snapshotted(rescued) → restoring → restored → restore-verified
- * `aborted` is a pre-trial boundary: no live data was touched.
+ * Persist every journal phase with fsync and atomic rename before its side effects. Only the durable
+ * journal is trusted after restart. Aborted is pre-trial: live data has not changed.
  */
 export const MaintenancePhase = Schema.Literals([
   "fenced",

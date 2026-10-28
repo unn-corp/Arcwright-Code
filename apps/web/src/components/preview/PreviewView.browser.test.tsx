@@ -167,6 +167,7 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { useBrowserPointerStore } from "~/browser/browserPointerStore";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
+import { dispatchPreviewAction } from "./previewActionBus";
 import { PreviewView } from "./PreviewView";
 import { PreviewAnnotationEditorHost } from "./PreviewAnnotationEditor";
 
@@ -278,7 +279,7 @@ describe("PreviewView", () => {
 
   it("shows the cursor in a replacement browser while the old instance still records", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     mocks.recordingTabIds.add(TEST_RUNTIME_TAB_ID);
     mocks.recordingRuntimeTabId = TEST_RUNTIME_TAB_ID;
     const replacementTabId = previewRuntimeTabId(TEST_THREAD_REF, "replacement-server", "tab-1");
@@ -302,7 +303,7 @@ describe("PreviewView", () => {
     "aligns the cursor and responsive viewport after host zoom changes (native server tab: %s)",
     async (nativeServerTab) => {
       await using _fixture = await setup();
-      const { root, container } = _fixture;
+      const { root } = _fixture;
       mocks.nativeServerTab = nativeServerTab;
       let windowZoom = 1;
       vi.stubGlobal("desktopBridge", {
@@ -363,7 +364,7 @@ describe("PreviewView", () => {
 
   it("does not rerender while loading time passes", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     using _timers = fakeTimers();
     mocks.loading = true;
     const onRender = vi.fn();
@@ -388,7 +389,7 @@ describe("PreviewView", () => {
     "preserves a direct localhost URL %s in a WSL environment and records it",
     async (submitted, expected) => {
       await using _fixture = await setup();
-      const { root, container } = _fixture;
+      const { root } = _fixture;
       await render(root, view());
       await submitAddress(submitted);
       await vi.waitFor(() =>
@@ -401,7 +402,7 @@ describe("PreviewView", () => {
 
   it("maps an empty-state localhost server onto the WSL host", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     mocks.showEmptyState = true;
     mocks.servers = [
       {
@@ -439,7 +440,7 @@ describe("PreviewView", () => {
 
   it("opens and closes a thread-scoped floating preview for the active tab", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     await render(root, view());
     await userEvent.click(page.getByRole("button", { name: "Float preview over chat" }));
     expect(usePreviewMiniPlayerStore.getState().byThreadKey).toMatchObject({
@@ -453,7 +454,7 @@ describe("PreviewView", () => {
 
   it("keeps the native preview window as a secondary menu action", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     await render(root, view());
     await userEvent.click(page.getByRole("button", { name: "Preview menu" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Open separate preview window" }));
@@ -475,7 +476,7 @@ describe("PreviewView", () => {
     "forwards %s+Enter annotations from the durable modal to the original composer",
     async (modifier) => {
       await using _fixture = await setup();
-      const { root, container } = _fixture;
+      const { root } = _fixture;
       const onSendAnnotation = vi.fn();
       await render(root, view(onSendAnnotation));
       await captureAnnotation();
@@ -504,7 +505,7 @@ describe("PreviewView", () => {
 
   it("retains the annotation locally when its own environment loses access during submission", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     const onSendAnnotation = vi.fn();
     let finishRender!: (annotation: PreviewAnnotationPayload) => void;
     let pendingAnnotation!: PreviewAnnotationPayload;
@@ -542,7 +543,7 @@ describe("PreviewView", () => {
 
   it("does not reopen a discarded annotation after its snapshot capture finishes", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     let finishCapture!: (value: DesktopPreviewAnnotationSnapshot) => void;
     mocks.captureAnnotationSnapshot.mockImplementationOnce(
       () =>
@@ -565,7 +566,7 @@ describe("PreviewView", () => {
 
   it("keeps capture failures in the modal without sending an incomplete annotation", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     const onSendAnnotation = vi.fn();
     mocks.captureAnnotationSnapshot.mockRejectedValueOnce(
       new Error("Page reloaded during capture"),
@@ -583,7 +584,7 @@ describe("PreviewView", () => {
 
   it("preserves annotation text for retry when the captured screenshot is malformed", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     const onSendAnnotation = vi.fn();
     mocks.renderAnnotationScreenshot.mockImplementationOnce(
       async (annotation: PreviewAnnotationPayload) => ({
@@ -615,5 +616,19 @@ describe("PreviewView", () => {
         expect.objectContaining({ type: "image" }),
       ),
     );
+  });
+
+  it("focuses the address bar each time the focus-url shortcut fires", async () => {
+    await using _fixture = await setup();
+    await render(_fixture.root, view());
+    const address = page.getByRole("textbox");
+
+    act(() => dispatchPreviewAction("focus-url"));
+    await expect.element(address).toHaveFocus();
+
+    (address.element() as HTMLInputElement).blur();
+    await expect.element(address).not.toHaveFocus();
+    act(() => dispatchPreviewAction("focus-url"));
+    await expect.element(address).toHaveFocus();
   });
 });

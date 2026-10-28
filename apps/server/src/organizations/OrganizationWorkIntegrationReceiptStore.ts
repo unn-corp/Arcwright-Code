@@ -454,14 +454,16 @@ export const OrganizationWorkIntegrationVerifierFromReceipts = Layer.effect(
   Effect.gen(function* () {
     const store = yield* OrganizationWorkIntegrationReceiptStore;
     return {
-      verifyIntegration: (target: OrganizationWorkIntegrationTarget) =>
-        store
-          .verifyIntegration(target)
-          .pipe(
-            Effect.mapError(
-              (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+      verifyIntegration: Effect.fn("OrganizationWorkIntegrationVerifier.verifyIntegration")(
+        (target: OrganizationWorkIntegrationTarget) =>
+          store
+            .verifyIntegration(target)
+            .pipe(
+              Effect.mapError(
+                (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+              ),
             ),
-          ),
+      ),
     };
   }),
 );

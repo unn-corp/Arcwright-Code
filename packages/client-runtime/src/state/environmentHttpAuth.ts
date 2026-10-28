@@ -37,12 +37,8 @@ export function withOrchestrationProtocolHeader(
 }
 
 /**
- * Primary/local environments with no bearer or DPoP credential authenticate the
- * browser via a session cookie. A cross-origin `fetch` does not send cookies by
- * default, so those requests must opt into credentialed mode; bearer/DPoP
- * connections carry their credential in a header and need no cookies. Applied
- * per-request via `FetchHttpClient.RequestInit`, which the fetch client reads
- * from the fiber context at request time.
+ * Cookie-authenticated environments need credentialed mode for cross-origin fetches; bearer/DPoP uses headers.
+ * `FetchHttpClient` reads `RequestInit` from the fiber context per request.
  */
 const withEnvironmentCredentials = <A, E, R>(
   authorization: PreparedHttpAuthorization | null,
@@ -86,15 +82,7 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
   },
 );
 
-/**
- * Resolve relay credentials at request time without replacing the live socket.
- * A rejected credential gets one refresh and retry, with a new request-bound
- * proof. Cookie and bearer requests keep their existing authentication behavior.
- *
- * A DPoP request is Arcwright Connect work, so its span starts an exported trace that
- * the environment continues; its local caller's span would leave that trace
- * without a root.
- */
+/* Resolve relay credentials per request and retry a rejected credential once with a fresh proof. Keep bearer/cookie behavior unchanged. Start exported DPoP traces here so the remote continuation has a root. */
 export const executeAuthenticatedEnvironmentHttpRequest = <
   Group extends Parameters<typeof makeEnvironmentHttpApiGroupClient>[1],
   A,

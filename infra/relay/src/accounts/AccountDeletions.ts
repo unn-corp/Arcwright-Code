@@ -182,9 +182,13 @@ export const make = Effect.fn("AccountDeletions.make")(function* (
     );
   });
   return AccountDeletions.of({
-    acceptManual: (subject) => accept({ kind: "manual", subject }),
-    acceptClerkDeletion: ({ verifiedSubject: subject, svixId, eventTimestamp }) =>
-      accept({ kind: "webhook", subject, svixId, eventTimestamp }),
+    acceptManual: Effect.fn("AccountDeletions.acceptManual")((subject) =>
+      accept({ kind: "manual", subject }),
+    ),
+    acceptClerkDeletion: Effect.fn("AccountDeletions.acceptClerkDeletion")(
+      ({ verifiedSubject: subject, svixId, eventTimestamp }) =>
+        accept({ kind: "webhook", subject, svixId, eventTimestamp }),
+    ),
   });
 });
 export const layer = (authority: ConfiguredAccountAuthority) =>

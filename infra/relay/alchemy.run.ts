@@ -1,19 +1,21 @@
 // @effect-diagnostics anyUnknownInErrorContext:off layerMergeAllWithDependencies:off - Alchemy provider helpers expose framework-owned any requirements.
 import * as Alchemy from "alchemy";
 import * as Output from "alchemy/Output";
-import * as Axiom from "alchemy/Axiom";
-import * as Cloudflare from "alchemy/Cloudflare";
-import * as Drizzle from "alchemy/Drizzle";
+import * as Axiom from "@alchemy.run/axiom";
+import * as Cloudflare from "@alchemy.run/cloudflare";
+import * as Drizzle from "@alchemy.run/drizzle";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Planetscale from "alchemy/Planetscale";
+import * as Planetscale from "@alchemy.run/planetscale";
 import * as Redacted from "effect/Redacted";
 import * as Config from "effect/Config";
 
 import { PublishClientConfig, tokenDigest } from "./src/clientConfig.ts";
 import * as RelayDb from "./src/db.ts";
-import { RelayObservability } from "./src/observability.ts";
-import { ManagedEndpointZone, RelayApiZone } from "./src/zone.ts";
+import { MobileSourceMapsUploadCredentials, RelayObservability } from "./src/observability.ts";
+import { isPreviewStage } from "./src/previewStages.ts";
+import { PreviewTunnelSweep, PreviewTunnelSweepProvider } from "./src/previewTunnelSweep.ts";
+import { ManagedEndpointZone, RelayApiZone, RelayDeploymentConfig } from "./src/zone.ts";
 import * as RelayWorker from "./src/worker.ts";
 import { clerkAuthPolicyConfig } from "./src/Config.ts";
 import {
@@ -57,6 +59,7 @@ const stack = Alchemy.Stack(
             ? Layer.empty
             : Layer.mergeAll(Drizzle.providers(), Planetscale.providers()),
           tracingEnabled ? Axiom.providers() : Layer.empty,
+          PreviewTunnelSweepProvider(),
         );
       }).pipe(Effect.orDie),
     ),
@@ -65,13 +68,25 @@ const stack = Alchemy.Stack(
   preflight.pipe(
     Effect.andThen(
       Effect.gen(function* () {
+        const { stage } = yield* Alchemy.Stack;
         const externalDatabase = (yield* relayDatabaseProviderConfig) === "existing-hyperdrive";
         const db = externalDatabase ? undefined : yield* RelayDb.PlanetscaleDatabase;
         const hyperdrive = externalDatabase ? undefined : yield* RelayDb.RelayHyperdrive;
         const managedEndpointZone = yield* ManagedEndpointZone.pipe(Effect.orDie);
         const relayApiZone = yield* RelayApiZone.pipe(Effect.orDie);
         const observability = yield* RelayObservability;
+        const mobileSourceMapsUploadCredentials = yield* MobileSourceMapsUploadCredentials;
         const api = yield* RelayWorker.Api;
+        // Raw teardown is confined to disposable stage databases. An operator-owned
+        // database retains lifecycle reservations and must use its captured cleanup protocol.
+        if (!externalDatabase && isPreviewStage(stage)) {
+          const { managedEndpointZoneName } = yield* RelayDeploymentConfig;
+          yield* PreviewTunnelSweep("PreviewTunnelSweep", {
+            stage,
+            tunnelZoneName: managedEndpointZoneName,
+            workerName: api.workerName,
+          });
+        }
         const tracing =
           observability === null
             ? {
@@ -114,6 +129,11 @@ const stack = Alchemy.Stack(
           relayApiZoneId: relayApiZone.zoneId,
           managedEndpointZoneId: managedEndpointZone.zoneId,
           ...tracing,
+          mobileLogsDataset: observability?.mobileLogs.name ?? "",
+          mobileMetricsDataset: observability?.mobileMetrics.name ?? "",
+          mobileSourceMapsBucket: observability?.mobileSourceMaps.bucketName ?? "",
+          // The MOBILE_SOURCEMAPS_R2 secret for GitHub Actions and EAS Build.
+          mobileSourceMapsUploadCredentials,
         };
       }).pipe(Effect.provide(RelayWorker.layer)),
     ),

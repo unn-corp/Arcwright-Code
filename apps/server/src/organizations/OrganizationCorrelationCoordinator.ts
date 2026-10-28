@@ -16,6 +16,8 @@ import {
   type OrganizationCorrelationPrincipal,
 } from "./OrganizationFindingCorrelator.ts";
 
+const isOrganizationIntakeError = Schema.is(OrganizationIntakeError);
+
 export type OrganizationCorrelationCoordinatorResult = {
   readonly outcome: "created" | "duplicate" | "insufficient" | "ambiguous" | "skipped";
   readonly finding: OrganizationTentativeFinding | null;
@@ -41,6 +43,8 @@ type PersistedObservation = {
   attributes_json: string;
 };
 const AttributesJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
+
+const decodeAttributesJson = Schema.decodeEffect(AttributesJson);
 const intakeError = (code: OrganizationIntakeError["code"], message: string) =>
   new OrganizationIntakeError({ code, message });
 const skipped = (reason: Exclude<OrganizationCorrelationCoordinatorResult["reason"], null>) => ({
@@ -73,9 +77,7 @@ const make = Effect.gen(function* () {
           "Observation identity does not match persisted intake.",
         );
       if (row.project_id === null) return skipped("missing-project");
-      const attributes = yield* Schema.decodeUnknownEffect(AttributesJson)(
-        row.attributes_json,
-      ).pipe(
+      const attributes = yield* decodeAttributesJson(row.attributes_json).pipe(
         Effect.mapError(() => intakeError("invalid", "Stored observation attributes are invalid.")),
       );
       const correlationKey = attributes.correlationKey;
@@ -94,7 +96,7 @@ const make = Effect.gen(function* () {
       return { ...result, reason: null };
     },
     Effect.mapError((cause) =>
-      Schema.is(OrganizationIntakeError)(cause)
+      isOrganizationIntakeError(cause)
         ? cause
         : intakeError("unavailable", "Organization correlation coordination is unavailable."),
     ),

@@ -5,12 +5,7 @@ export const MOBILE_DEFAULT_THEME_ID = "t3-code";
 
 export const MOBILE_THEME_IDS = [MOBILE_DEFAULT_THEME_ID, ...BUILT_IN_THEME_IDS] as const;
 
-/**
- * Ids a theme may not take: the appearance keywords a stored preference uses,
- * every built-in, and the legacy aliases older saves still carry. Taking one
- * would either be shadowed by the built-in or capture clients that never chose
- * it, so the client library and the publish path both consult this set.
- */
+/** Reserve appearance keywords, built-ins, and legacy aliases so custom themes cannot capture stored preferences. */
 export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "system",
   "light",
@@ -23,12 +18,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "t3-iris",
 ]);
 
-/**
- * Additionally closed to a machine publishing a theme: the mobile default is
- * not a web or desktop built-in, so a saved theme may legitimately carry that
- * id, but no client that follows published themes can resolve it -- publishing
- * it would report success and change nothing.
- */
+/** The mobile default id is valid in saved themes but cannot be published because web/desktop cannot resolve it. */
 export const UNPUBLISHABLE_THEME_IDS: ReadonlySet<string> = new Set([
   ...RESERVED_THEME_IDS,
   MOBILE_DEFAULT_THEME_ID,
@@ -117,13 +107,8 @@ export type ThemeDefinition = Readonly<{
 }>;
 
 /**
- * The palette Arcwright Code wears with no theme installed, captured from the app's
- * stock tokens (index.css) so a draft seeded from the default look paints the
- * pixels the user is already seeing. Alpha-bearing tokens are flattened over
- * their real backdrops (canvas, or the sidebar for its rows) because theme
- * colors are stored as opaque OKLCH tokens.
- * Search uses amber across built-ins to separate matches from accent-tinted
- * inline code. The current match uses a stronger gold with dark text.
+ * Flatten stock alpha tokens over their actual backdrops before storing opaque OKLCH theme colors.
+ * Search uses amber, with stronger gold and dark text for the current match.
  */
 export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
   searchMatchBackground: "#ffde8b",

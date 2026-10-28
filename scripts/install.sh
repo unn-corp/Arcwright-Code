@@ -53,14 +53,14 @@ step "Finding your release..."
 # Exit 44 on a 404 so callers can tell "no such asset" from a network failure.
 fetch() {
   if command -v curl >/dev/null 2>&1; then
-    status="$(curl -sSL -w '%{http_code}' "$1" -o "$2")" || return 1
+    status="$(curl -sSL -H "Accept: ${3:-*/*}" -w '%{http_code}' "$1" -o "$2")" || return 1
     case "$status" in
       2??) return 0 ;;
       404) return 44 ;;
       *) printf 'GET %s returned HTTP %s\n' "$1" "$status" >&2; return 1 ;;
     esac
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --server-response "$1" -O "$2" 2>"$2.headers" && rm -f "$2.headers" && return 0
+    wget -q --server-response --header="Accept: ${3:-*/*}" "$1" -O "$2" 2>"$2.headers" && rm -f "$2.headers" && return 0
     if grep -q ' 404 ' "$2.headers" 2>/dev/null; then rm -f "$2.headers"; return 44; fi
     cat "$2.headers" >&2; rm -f "$2.headers"; return 1
   else
@@ -149,27 +149,33 @@ if [ -z "$version" ]; then
   # Tags are fork-v<semver>; the channel is the prerelease identifier, or none for
   # stable. Only tags of the requested train are considered, so a stable
   # install can never pick up a nightly or preview build by accident.
-  case "$channel" in
-    stable) tag_pattern='fork-v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)' ;;
-    nightly | preview) tag_pattern="fork-v\([0-9][^\"]*-${channel}\.[0-9]*\.[0-9]*\)" ;;
-    *) fail "T3CODE_CHANNEL must be stable, nightly, or preview" ;;
-  esac
+  case "$channel" in stable | nightly | preview) ;; *) fail "T3CODE_CHANNEL must be stable, nightly, or preview" ;; esac
   tmp_index="$(mktemp)"
-  fetch "https://api.github.com/repos/${repo}/releases?per_page=100" "$tmp_index"
-  version="$(python3 - "$tmp_index" "$channel" <<'PYINDEX'
+  page=1
+  while [ -z "$version" ] && [ "$page" -le 10 ]; do
+    if [ "$channel" = stable ]; then
+      fetch "https://api.github.com/repos/${repo}/releases/latest" "$tmp_index"
+    else
+      fetch "https://api.github.com/repos/${repo}/releases?per_page=100&page=${page}" "$tmp_index"
+    fi
+    version="$(python3 - "$tmp_index" "$channel" <<'PYINDEX'
 import json, re, sys
 rows = json.load(open(sys.argv[1]))
+if isinstance(rows, dict): rows = [rows]
 channel = sys.argv[2]
 pattern = r"fork-v(\d+\.\d+\.\d+)" if channel == "stable" else r"fork-v(\d+\.\d+\.\d+-" + re.escape(channel) + r"\.\d+\.\d+)"
 for row in rows:
-    assets = row.get("assets", [])
-    names = [a.get("name") for a in assets]
+    names = [a.get("name") for a in row.get("assets", [])]
     if row.get("draft", True) or not row.get("published_at") or re.search(r"^<!-- t3-fork-release:withdrawn\b", row.get("body") or "", re.M): continue
     match = re.fullmatch(pattern, row.get("tag_name", ""))
     if match and names.count("fork-release.json") == 1 and names.count("SHA256SUMS") == 1:
         print(match.group(1)); break
 PYINDEX
 )"
+    [ "$channel" != stable ] || break
+    grep -q '"tag_name"' "$tmp_index" || break
+    page=$((page + 1))
+  done
   rm -f "$tmp_index"
   [ -n "$version" ] || fail "could not find a ${channel} release; set T3CODE_VERSION"
 fi

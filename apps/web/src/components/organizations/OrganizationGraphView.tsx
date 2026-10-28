@@ -109,9 +109,11 @@ export function OrganizationGraphView({
   })();
   const bounds = roleBounds(displayedPositions);
   const boundsRef = useRef(bounds);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes current graph bounds to the mounted ResizeObserver callback before it fits the viewport
   useEffect(() => {
     boundsRef.current = bounds;
   }, [bounds, boundsRef]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes graph container dimensions and releases the DOM ResizeObserver on unmount
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame || typeof ResizeObserver === "undefined") return;
@@ -138,6 +140,7 @@ export function OrganizationGraphView({
     );
   }
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fits the organization graph to its measured DOM container once per organization
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame || fittedOrganizationId.current === organization.id) return;
@@ -165,6 +168,7 @@ export function OrganizationGraphView({
     }
   }, [fittedOrganizationId, organization.id, organization.graph.roles, positions, selectedRoleId]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reveals the selected graph role using the mounted frame dimensions, including selection from external navigation
   useEffect(() => {
     if (lastSelectedRoleId.current === selectedRoleId) return;
     lastSelectedRoleId.current = selectedRoleId;

@@ -57,6 +57,7 @@ export function DictationMicrophonePicker({
     );
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the mounted microphone picker to MediaDevices changes and releases its listener on cleanup
   useEffect(() => {
     void refreshDeviceList();
     const available = availableMediaDevices();

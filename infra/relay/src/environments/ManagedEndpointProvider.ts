@@ -4,7 +4,7 @@ import * as Clock from "effect/Clock";
 import * as CloudflareApiPause from "./CloudflareApiPause.ts";
 import type { ResultInfo } from "@distilled.cloud/cloudflare/Pagination";
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import { TunnelNotFound, DuplicateTunnelName } from "@distilled.cloud/cloudflare/zero-trust";
@@ -191,15 +191,9 @@ export class ManagedEndpointProvider extends Context.Service<
       readonly target: ManagedEndpointDeprovisionTarget | null;
     }) => Effect.Effect<boolean, ManagedEndpointDeprovisioningFailed>;
     /**
-     * Deletes the provisioned Cloudflare tunnel while keeping the allocation
-     * (hostname + tunnel name reservation) and DNS record. Cloudflare bills per
-     * provisioned tunnel, so environments release the tunnel when they shut
-     * down; the next `provision` recreates it under the same name and repoints
-     * the CNAME, preserving the endpoint URL.
-     *
-     * True requires durable confirmed absence or never-created history.
-     * Busy/stale owners return false; unresolved identities and ambiguous
-     * provider outcomes retain the reservation and require explicit repair.
+     * Deletes the billed tunnel while retaining its allocation, name and DNS for recreation.
+     * True requires confirmed absence or never-created history; busy/stale owners return false.
+     * Ambiguous outcomes retain the reservation and require explicit repair.
      */
     readonly release: (input: {
       readonly userId: string;
@@ -414,10 +408,16 @@ function normalizeHostname(hostname: string): string {
 
 const isTunnelClientError = Schema.is(ManagedEndpointTunnelClientError);
 const isDnsClientError = Schema.is(ManagedEndpointDnsClientError);
-const isTunnelNotFound = Schema.is(TunnelNotFound);
-const isRecordNotFound = Schema.is(RecordNotFound);
-const isDuplicateTunnelName = Schema.is(DuplicateTunnelName);
-const isDnsRecordAlreadyExists = Schema.is(DnsRecordAlreadyExists);
+// The SDK's lite errors are classes rather than Effect schemas in beta.84.
+// Preserve concrete SDK provenance before accepting absence or duplicate evidence.
+const isTunnelNotFound = (error: unknown): error is TunnelNotFound =>
+  error instanceof TunnelNotFound;
+const isRecordNotFound = (error: unknown): error is RecordNotFound =>
+  error instanceof RecordNotFound;
+const isDuplicateTunnelName = (error: unknown): error is DuplicateTunnelName =>
+  error instanceof DuplicateTunnelName;
+const isDnsRecordAlreadyExists = (error: unknown): error is DnsRecordAlreadyExists =>
+  error instanceof DnsRecordAlreadyExists;
 
 // Only a direct operation wrapper and an actual SDK error are admissible.
 const tunnelAbsent = (error: unknown, operation: ManagedEndpointTunnelClientError["operation"]) =>
@@ -1629,7 +1629,7 @@ export const makeCloudflareTunnelClient = (
     ),
 ): ManagedEndpointTunnelClient["Service"] =>
   ManagedEndpointTunnelClient.of({
-    get: (tunnelId) =>
+    get: Effect.fn("ManagedEndpointClient.get")((tunnelId) =>
       gate(tunnelClient.get(tunnelId)).pipe(
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1642,7 +1642,8 @@ export const makeCloudflareTunnelClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    list: (request) =>
+    ),
+    list: Effect.fn("ManagedEndpointClient.list")((request) =>
       gate(tunnelClient.list(request)).pipe(
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1655,7 +1656,8 @@ export const makeCloudflareTunnelClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    create: (request) =>
+    ),
+    create: Effect.fn("ManagedEndpointClient.create")((request) =>
       gate(tunnelClient.create(request).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
@@ -1669,7 +1671,8 @@ export const makeCloudflareTunnelClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    putConfiguration: (tunnelId, config) =>
+    ),
+    putConfiguration: Effect.fn("ManagedEndpointClient.putConfiguration")((tunnelId, config) =>
       gate(tunnelClient.putConfiguration(tunnelId, config).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
@@ -1683,7 +1686,8 @@ export const makeCloudflareTunnelClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    getToken: (tunnelId) =>
+    ),
+    getToken: Effect.fn("ManagedEndpointClient.getToken")((tunnelId) =>
       gate(tunnelClient.getToken(tunnelId)).pipe(
         Effect.timeout("8 seconds"),
         Effect.mapError(
@@ -1696,7 +1700,8 @@ export const makeCloudflareTunnelClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    delete: (tunnelId) =>
+    ),
+    delete: Effect.fn("ManagedEndpointClient.delete")((tunnelId) =>
       gate(tunnelClient.delete(tunnelId).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
@@ -1710,6 +1715,7 @@ export const makeCloudflareTunnelClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
+    ),
   });
 
 export const makeCloudflareDnsClient = (
@@ -1783,8 +1789,10 @@ export const makeCloudflareDnsClient = (
   return ManagedEndpointDnsClient.of({
     getRecord,
     listRecordsPage,
-    listExactRecords: (hostname) => listExactDnsRecords(listRecordsPage, hostname),
-    listRecords: (hostname) =>
+    listExactRecords: Effect.fn("ManagedEndpointDnsClient.listExactRecords")((hostname) =>
+      listExactDnsRecords(listRecordsPage, hostname),
+    ),
+    listRecords: Effect.fn("ManagedEndpointDnsClient.listRecords")((hostname) =>
       gate(dnsClient.listDnsRecords({ search: hostname })).pipe(
         Effect.timeout("8 seconds"),
         Effect.map((response) =>
@@ -1804,7 +1812,8 @@ export const makeCloudflareDnsClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    createRecord: (request) =>
+    ),
+    createRecord: Effect.fn("ManagedEndpointClient.createRecord")((request) =>
       gate(dnsClient.createDnsRecord(request).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
@@ -1819,7 +1828,8 @@ export const makeCloudflareDnsClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    updateRecord: (dnsRecordId, request) =>
+    ),
+    updateRecord: Effect.fn("ManagedEndpointClient.updateRecord")((dnsRecordId, request) =>
       gate(dnsClient.updateDnsRecord(dnsRecordId, request).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
@@ -1835,7 +1845,8 @@ export const makeCloudflareDnsClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
-    deleteRecord: (dnsRecordId) =>
+    ),
+    deleteRecord: Effect.fn("ManagedEndpointClient.deleteRecord")((dnsRecordId) =>
       gate(dnsClient.deleteDnsRecord(dnsRecordId).pipe(Retry.none)).pipe(
         Retry.none,
         Effect.timeout("8 seconds"),
@@ -1849,6 +1860,7 @@ export const makeCloudflareDnsClient = (
         ),
         Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
       ),
+    ),
   });
 };
 

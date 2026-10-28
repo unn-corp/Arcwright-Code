@@ -26,6 +26,18 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { redactOrganizationArchitectText } from "./OrganizationArchitectRedaction.ts";
 
+const decodeOrganizationArchitectMessage = Schema.decodeEffect(OrganizationArchitectMessage);
+const decodeOrganizationArchitectProposal = Schema.decodeEffect(OrganizationArchitectProposal);
+const decodeOrganizationArchitectRequestStatus = Schema.decodeEffect(
+  OrganizationArchitectRequestStatus,
+);
+const isOrganizationArchitectError = Schema.is(OrganizationArchitectError);
+const decodeOrganizationArchitectSendInput = Schema.decodeEffect(OrganizationArchitectSendInput);
+const decodeOrganizationArchitectTurnOutput = Schema.decodeEffect(OrganizationArchitectTurnOutput);
+const decodeUnknownOrganizationArchitectAllowedChange = Schema.decodeUnknownEffect(
+  OrganizationArchitectAllowedChange,
+);
+
 /** The server transport supplies this subject. It is never taken from message JSON. */
 export interface OrganizationArchitectPrincipal {
   readonly subject: string;
@@ -106,17 +118,26 @@ const stableId = (kind: string, requestId: string, position = 0) =>
   `${kind}:${hash(`${requestId}:${position}`)}`;
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const JsonUnknown = Schema.fromJsonString(Schema.Unknown);
+
+const encodeSyncJsonUnknown = Schema.encodeSync(JsonUnknown);
+const decodeJsonUnknown = Schema.decodeEffect(JsonUnknown);
 const ModelSelectionJson = Schema.fromJsonString(ModelSelection);
+
+const decodeModelSelectionJson = Schema.decodeEffect(ModelSelectionJson);
+const encodeModelSelectionJson = Schema.encodeEffect(ModelSelectionJson);
 const ChangeJson = Schema.fromJsonString(OrganizationArchitectAllowedChange);
-const json = (value: unknown) => Schema.encodeSync(JsonUnknown)(value);
+
+const decodeChangeJson = Schema.decodeEffect(ChangeJson);
+const encodeChangeJson = Schema.encodeEffect(ChangeJson);
+const json = (value: unknown) => encodeSyncJsonUnknown(value);
 
 const decodeMessage = Effect.fn("OrganizationArchitectTranscriptStore.decodeMessage")(
   function* (row: MessageRow) {
     const modelSelection =
       row.model_selection_json === null
         ? null
-        : yield* Schema.decodeUnknownEffect(ModelSelectionJson)(row.model_selection_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationArchitectMessage)({
+        : yield* decodeModelSelectionJson(row.model_selection_json);
+    return yield* decodeOrganizationArchitectMessage({
       id: row.message_id,
       organizationId: row.organization_id,
       requestId: row.request_id,
@@ -131,8 +152,8 @@ const decodeMessage = Effect.fn("OrganizationArchitectTranscriptStore.decodeMess
 );
 const decodeProposal = Effect.fn("OrganizationArchitectTranscriptStore.decodeProposal")(
   function* (row: ProposalRow) {
-    const change = yield* Schema.decodeUnknownEffect(ChangeJson)(row.change_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationArchitectProposal)({
+    const change = yield* decodeChangeJson(row.change_json);
+    return yield* decodeOrganizationArchitectProposal({
       id: row.proposal_id,
       organizationId: row.organization_id,
       responseMessageId: row.response_message_id,
@@ -144,7 +165,7 @@ const decodeProposal = Effect.fn("OrganizationArchitectTranscriptStore.decodePro
   Effect.mapError(() => unavailable()),
 );
 const decodeRequestStatus = (row: RequestRow) =>
-  Schema.decodeUnknownEffect(OrganizationArchitectRequestStatus)({
+  decodeOrganizationArchitectRequestStatus({
     requestId: row.request_id,
     organizationId: row.organization_id,
     baseRevision: row.base_revision,
@@ -182,9 +203,7 @@ const make = Effect.gen(function* () {
     sql
       .withTransaction(effect)
       .pipe(
-        Effect.mapError((cause) =>
-          Schema.is(OrganizationArchitectError)(cause) ? cause : unavailable(),
-        ),
+        Effect.mapError((cause) => (isOrganizationArchitectError(cause) ? cause : unavailable())),
       );
   const requestRows = (requestId: OrganizationArchitectMessageId) =>
     sql<RequestRow>`SELECT * FROM organization_architect_requests WHERE request_id = ${requestId}`;
@@ -248,14 +267,14 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         if (!principal.subject.trim())
           return yield* forbidden("An authenticated actor is required.");
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationArchitectSendInput)(
-          input,
-        ).pipe(Effect.mapError(() => invalid("Architect message is invalid.")));
+        const parsed = yield* decodeOrganizationArchitectSendInput(input).pipe(
+          Effect.mapError(() => invalid("Architect message is invalid.")),
+        );
         if (Buffer.byteLength(parsed.text, "utf8") > MAX_USER_TEXT_BYTES)
           return yield* invalid("Architect message exceeds its size limit.");
-        const modelJson = yield* Schema.encodeEffect(ModelSelectionJson)(
-          parsed.modelSelection,
-        ).pipe(Effect.mapError(() => invalid("Model selection is invalid.")));
+        const modelJson = yield* encodeModelSelectionJson(parsed.modelSelection).pipe(
+          Effect.mapError(() => invalid("Model selection is invalid.")),
+        );
         if (Buffer.byteLength(modelJson, "utf8") > MAX_MODEL_BYTES)
           return yield* invalid("Model selection exceeds its size limit.");
         const inputDigest = hash(
@@ -326,21 +345,21 @@ const make = Effect.gen(function* () {
     transaction(
       Effect.gen(function* () {
         const request = yield* checkedRequest(input, principal);
-        const output = yield* Schema.decodeUnknownEffect(OrganizationArchitectTurnOutput)(
-          input.output,
-        ).pipe(Effect.mapError(() => invalid("Architect output is invalid.")));
+        const output = yield* decodeOrganizationArchitectTurnOutput(input.output).pipe(
+          Effect.mapError(() => invalid("Architect output is invalid.")),
+        );
         if (Buffer.byteLength(output.reply, "utf8") > MAX_TEXT_BYTES)
           return yield* invalid("Architect reply exceeds its size limit.");
         if (output.proposals.some((proposal) => proposal.baseRevision !== request.base_revision))
           return yield* conflict("Architect proposal revision differs from its request.");
         const changes: string[] = [];
         for (const proposal of output.proposals) {
-          const sanitized = yield* Schema.decodeUnknownEffect(OrganizationArchitectAllowedChange)(
+          const sanitized = yield* decodeUnknownOrganizationArchitectAllowedChange(
             redactStrings(proposal.change),
           ).pipe(
             Effect.mapError(() => invalid("Architect proposal became invalid after redaction.")),
           );
-          const encoded = yield* Schema.encodeEffect(ChangeJson)(sanitized).pipe(
+          const encoded = yield* encodeChangeJson(sanitized).pipe(
             Effect.mapError(() => invalid("Architect proposal is invalid.")),
           );
           if (Buffer.byteLength(encoded, "utf8") > MAX_CHANGE_BYTES)
@@ -476,9 +495,7 @@ const make = Effect.gen(function* () {
           )`;
         const visibleProposalIds = new Set(proposals.map((proposal) => proposal.id));
         for (const row of batchAudits) {
-          const decoded = yield* Schema.decodeUnknownEffect(JsonUnknown)(row.payload_json).pipe(
-            Effect.result,
-          );
+          const decoded = yield* decodeJsonUnknown(row.payload_json).pipe(Effect.result);
           if (decoded._tag === "Failure") continue;
           const payload = decoded.success;
           if (!payload || typeof payload !== "object") continue;

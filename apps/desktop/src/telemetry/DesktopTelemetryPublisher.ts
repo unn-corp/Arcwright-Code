@@ -147,7 +147,7 @@ function sampleInterval(
   return LIVE_SAMPLE_INTERVAL;
 }
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const powerMonitor = yield* ElectronPowerMonitor.ElectronPowerMonitor;
@@ -436,8 +436,9 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
     updateCommits: Stream.fromQueue(updateCommitQueue),
     updateCancellations: Stream.fromQueue(updateCancellationQueue),
     maintenanceRequests: Stream.fromQueue(maintenanceRequestQueue),
-    publishMaintenanceReport: (report) =>
-      PubSub.publish(maintenanceReportChanges, report).pipe(Effect.asVoid),
+    publishMaintenanceReport: Effect.fn("DesktopTelemetryPublisher.publishMaintenanceReport")(
+      (report) => PubSub.publish(maintenanceReportChanges, report).pipe(Effect.asVoid),
+    ),
   });
 });
 

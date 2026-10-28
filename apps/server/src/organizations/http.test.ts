@@ -21,6 +21,13 @@ import { OrganizationStore, OrganizationStoreLive } from "./OrganizationStore.ts
 import { OrganizationIntakeStore, OrganizationIntakeStoreLive } from "./OrganizationIntakeStore.ts";
 import { organizationIntakeHttpRouteLayer } from "./http.ts";
 
+const encodeOrganizationIntakeEventInputJson = Schema.encodeEffect(
+  Schema.fromJsonString(OrganizationIntakeEventInput),
+);
+const decodeUnknownOrganizationIntakeHttpReceipt = Schema.decodeUnknownEffect(
+  OrganizationIntakeHttpReceipt,
+);
+
 const layer = it.layer(
   Layer.mergeAll(OrganizationStoreLive, OrganizationIntakeStoreLive).pipe(
     Layer.provideMerge(NodeSqliteClient.layerMemory()),
@@ -85,9 +92,7 @@ layer("Organization intake HTTP boundary", (it) => {
       const web = HttpRouter.toWebHandler(routes, { disableLogger: true });
       const post = (sourceId: OrganizationIntakeSourceId, secret: string, suffix: string) =>
         Effect.gen(function* () {
-          const body = yield* Schema.encodeEffect(
-            Schema.fromJsonString(OrganizationIntakeEventInput),
-          )({
+          const body = yield* encodeOrganizationIntakeEventInputJson({
             organizationId,
             sourceId,
             projectId,
@@ -113,13 +118,13 @@ layer("Organization intake HTTP boundary", (it) => {
       try {
         const first = yield* post(sourceA.source.id, sourceA.ingestSecret!, "report");
         expect(first.status).toBe(201);
-        const firstResult = yield* Schema.decodeUnknownEffect(OrganizationIntakeHttpReceipt)(
+        const firstResult = yield* decodeUnknownOrganizationIntakeHttpReceipt(
           yield* Effect.promise(() => first.json()),
         );
         expect(firstResult.outcome).toBe("recorded");
         const sameSource = yield* post(sourceA.source.id, sourceA.ingestSecret!, "report-again");
         expect(sameSource.status).toBe(201);
-        const sameSourceResult = yield* Schema.decodeUnknownEffect(OrganizationIntakeHttpReceipt)(
+        const sameSourceResult = yield* decodeUnknownOrganizationIntakeHttpReceipt(
           yield* Effect.promise(() => sameSource.json()),
         );
         expect(sameSourceResult.outcome).toBe("recorded");
@@ -128,18 +133,14 @@ layer("Organization intake HTTP boundary", (it) => {
         expect(second.status).toBe(201);
         const secondBody = yield* Effect.promise(() => second.json());
         expect(secondBody).not.toHaveProperty("correlation");
-        const secondResult = yield* Schema.decodeUnknownEffect(OrganizationIntakeHttpReceipt)(
-          secondBody,
-        );
+        const secondResult = yield* decodeUnknownOrganizationIntakeHttpReceipt(secondBody);
         expect(secondResult.outcome).toBe("recorded");
         const retry = yield* post(sourceB.source.id, sourceB.ingestSecret!, "telemetry");
         expect(retry.status).toBe(200);
         const retryBody = yield* Effect.promise(() => retry.json());
         expect(retryBody).not.toHaveProperty("observation");
         expect(retryBody).not.toHaveProperty("correlation");
-        const retryResult = yield* Schema.decodeUnknownEffect(OrganizationIntakeHttpReceipt)(
-          retryBody,
-        );
+        const retryResult = yield* decodeUnknownOrganizationIntakeHttpReceipt(retryBody);
         expect(retryResult.outcome).toBe("duplicate");
         const jobs = yield* sql<{ state: string }>`SELECT state
           FROM organization_intake_correlation_jobs
@@ -196,7 +197,7 @@ layer("Organization intake HTTP boundary", (it) => {
         Layer.provide(NodeServices.layer),
       );
       const web = HttpRouter.toWebHandler(routes, { disableLogger: true });
-      const body = yield* Schema.encodeEffect(Schema.fromJsonString(OrganizationIntakeEventInput))({
+      const body = yield* encodeOrganizationIntakeEventInputJson({
         organizationId,
         sourceId,
         projectId: null,

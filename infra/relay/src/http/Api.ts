@@ -108,8 +108,7 @@ export { verifyRelayClientBearerToken } from "../auth/ClerkClientAuth.ts";
 import { isRelayHookPath } from "../hooks/HookForwarder.ts";
 import * as RelayDb from "../db.ts";
 
-// Delegated thread IDs carry escaped command provenance and exceed the router's
-// default 100-character path parameter limit. Match the environment server.
+// Delegated IDs exceed the router's default 100-character limit; match the environment server.
 export const RELAY_HTTP_ROUTER_CONFIG = {
   maxParamLength: 512,
 } as const;
@@ -216,21 +215,14 @@ export const layerDocsRedirectRoute = HttpRouter.add(
   HttpServerResponse.redirect("/docs"),
 );
 
-// Shorter than the mobile client's 10s request timeout on purpose: when a
-// request hangs (e.g. a stuck upstream query), the client would otherwise
-// abort first, the invocation would die with the request span still open, and
-// the batched spans would never export — leaving no server-side trace at all.
+// Finish before the mobile client's 10 s timeout so request cancellation cannot discard unexported spans.
 export const RELAY_REQUEST_DEADLINE_MS = 9_000;
 // Linking/unlinking owns several short database transactions around Cloudflare
 // tunnel and DNS calls. Give that bounded setup room to finish before the
 // corresponding client's 50s timeout, without extending ordinary API requests.
 export const RELAY_ENVIRONMENT_LINK_DEADLINE_MS = 45_000;
-/**
- * Webhook forwarding reads a body of up to 1 MiB, waits up to the upstream
- * timeout, and may then hold the request, so it needs more room than an API
- * call; cutting it off before the hold would drop a request it should keep.
- */
-export const RELAY_HOOK_REQUEST_DEADLINE_MS = 25_000;
+/** Allow body reading, upstream wait, and inbox hold; an API-sized deadline would drop held webhooks. */
+const RELAY_HOOK_REQUEST_DEADLINE_MS = 25_000;
 
 export const relayRequestDeadline = <A, E, R>(
   httpEffect: Effect.Effect<A, E, HttpServerRequest.HttpServerRequest | R>,
@@ -240,22 +232,22 @@ export const relayRequestDeadline = <A, E, R>(
     Effect.timeoutOption(Duration.millis(deadlineMs)),
     Effect.flatMap(
       Option.match({
-        onNone: () =>
-          Effect.gen(function* () {
-            const request = yield* HttpServerRequest.HttpServerRequest;
-            yield* Effect.logError("relay request exceeded deadline", {
-              "http.method": request.method,
-              "http.url": request.url,
-              "relay.request.deadline_ms": deadlineMs,
-            });
-            yield* Effect.annotateCurrentSpan({
-              "relay.request.deadline_exceeded": true,
-            });
-            return HttpServerResponse.jsonUnsafe(
-              { error: "relay_request_deadline_exceeded" },
-              { status: 504 },
-            );
-          }),
+        // The enclosing operation owns the span for this inline handler.
+        onNone: Effect.fnUntraced(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          yield* Effect.logError("relay request exceeded deadline", {
+            "http.method": request.method,
+            "http.url": request.url,
+            "relay.request.deadline_ms": deadlineMs,
+          });
+          yield* Effect.annotateCurrentSpan({
+            "relay.request.deadline_exceeded": true,
+          });
+          return HttpServerResponse.jsonUnsafe(
+            { error: "relay_request_deadline_exceeded" },
+            { status: 504 },
+          );
+        }),
         onSome: (value: A) => Effect.succeed<A | HttpServerResponse.HttpServerResponse>(value),
       }),
     ),
@@ -279,7 +271,7 @@ const annotateRelayEdgeLocation = Effect.gen(function* () {
 });
 
 // The method-named server span is created below; this wrapper must not add another span.
-export const traceRelayHttpRequest = Effect.fnUntraced(function* <E, R>(
+const traceRelayHttpRequest = Effect.fnUntraced(function* <E, R>(
   httpEffect: Effect.Effect<
     HttpServerResponse.HttpServerResponse,
     E,
@@ -1106,9 +1098,7 @@ export const layerClientApi = HttpApiBuilder.group(
           const { params } = args;
           const { userId } = yield* RelayClientPrincipal;
           yield* limiter.admit("releaseEnvironmentTunnel", { kind: "user", userId });
-          // ok mirrors whether the connector token is now dead: false means a
-          // concurrent provision kept the recorded tunnel alive, so the caller
-          // must not discard its runtime config.
+          // False means concurrent provisioning retained the tunnel; the caller must keep its runtime config.
           const released = yield* managedEndpointProvider
             .release({
               userId,
@@ -1384,12 +1374,6 @@ export const layerServerApi = HttpApiBuilder.group(
           });
         },
         mapErrorTags({
-          EnvironmentPublishPublicKeyMissing: (_error, traceId) =>
-            new RelayAuthInvalidError({
-              code: "auth_invalid",
-              reason: "not_authorized",
-              traceId,
-            }),
           EnvironmentPublishSignatureExpired: (_error, traceId) =>
             new RelayAgentActivityPublishProofExpiredError({
               code: "agent_activity_publish_proof_expired",
@@ -1765,12 +1749,6 @@ export const pwaApi = HttpApiBuilder.group(
             return { ok: true, deliveries };
           },
           mapErrorTags({
-            EnvironmentPublishPublicKeyMissing: (_error, traceId) =>
-              new RelayAgentActivityPublishProofInvalidError({
-                code: "agent_activity_publish_proof_invalid",
-                reason: "invalid_signature_or_payload",
-                traceId,
-              }),
             EnvironmentPublishSignatureExpired: (_error, traceId) =>
               new RelayAgentActivityPublishProofExpiredError({
                 code: "agent_activity_publish_proof_expired",
@@ -2224,8 +2202,12 @@ const layerRelayHttpPlatform = Layer.succeed(HttpPlatform.HttpPlatform, {
     algorithms: new Set<HttpPlatform.CompressionAlgorithm>(),
     compressResponse: (response) => Effect.succeed(response),
   },
-  fileResponse: () => Effect.die("Relay API does not serve filesystem responses"),
-  fileWebResponse: () => Effect.die("Relay API does not serve file responses"),
+  fileResponse: Effect.fn("HttpPlatform.HttpPlatform.fileResponse")(() =>
+    Effect.die("Relay API does not serve filesystem responses"),
+  ),
+  fileWebResponse: Effect.fn("HttpPlatform.HttpPlatform.fileWebResponse")(() =>
+    Effect.die("Relay API does not serve file responses"),
+  ),
 });
 
 /** Production and offline fixtures use the same router, docs, catch-all, and configuration. */

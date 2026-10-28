@@ -5,6 +5,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 // tokenizer preserves non-ASCII distinctions and literal punctuation in substrings.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const existing =
+    yield* sql`SELECT 1 FROM sqlite_master WHERE name = 'orchestration_v2_message_search'`;
+  if (existing.length > 0) return;
   yield* sql`CREATE VIRTUAL TABLE orchestration_v2_message_search USING fts5(text, tokenize='trigram case_sensitive 1')`;
   yield* sql`INSERT INTO orchestration_v2_message_search(rowid, text)
     SELECT rowid, lower(json_extract(payload_json, '$.text'))

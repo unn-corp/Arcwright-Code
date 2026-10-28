@@ -85,6 +85,7 @@ export function OrganizationWorkspace({ organizationId }: { readonly organizatio
 
   const queryRefresh = query.refresh;
   const listRefresh = list.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates the organization queries when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !isOffline) {
       queryRefresh();

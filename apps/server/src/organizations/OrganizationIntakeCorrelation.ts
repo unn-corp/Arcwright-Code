@@ -34,10 +34,8 @@ export const correlateRecordedIntake = (
               } satisfies OrganizationIntakeResult;
             }),
           ),
-          Effect.catch(() =>
-            Effect.succeed({
-              ...intake,
-              correlation: { outcome: "unavailable" as const, findingId: null, reason: null },
-            }),
-          ),
+          Effect.orElseSucceed(() => ({
+            ...intake,
+            correlation: { outcome: "unavailable" as const, findingId: null, reason: null },
+          })),
         );

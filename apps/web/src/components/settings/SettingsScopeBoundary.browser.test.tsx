@@ -28,7 +28,7 @@ vi.mock(import("./SettingsScopeNotice"), () => ({
     <section data-target-id={targetId}>{children}</section>
   ),
 }));
-import { SettingsScopeBoundary } from "../../routes/settings";
+import { SettingsScopeBoundary } from "../../routes/_chat.settings";
 
 it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
   "keeps %s reachable by asking for one computer before rendering its settings",
@@ -39,7 +39,7 @@ it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
     const container = screen.container;
     const render = () =>
       screen.rerender(
-        <SettingsScopeBoundary pathname="/settings/general">
+        <SettingsScopeBoundary pathname="/settings/maintenance">
           <p>Settings destination</p>
         </SettingsScopeBoundary>,
       );

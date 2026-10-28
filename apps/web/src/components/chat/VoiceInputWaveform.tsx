@@ -80,6 +80,7 @@ export function VoiceInputWaveform({
   const secondaryPathRef = useRef<SVGPathElement>(null);
   const inputLevelRef = useRef(0);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the audio-analyser animation and DOM geometry observers for the mounted voice waveform
   useLayoutEffect(() => {
     const container = containerRef.current;
     const svg = svgRef.current;

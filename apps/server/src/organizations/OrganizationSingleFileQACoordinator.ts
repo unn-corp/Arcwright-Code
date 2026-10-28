@@ -60,7 +60,9 @@ export class OrganizationSingleFileQAPolicy extends Context.Service<
 export const OrganizationSingleFileQAPolicyDisabled = Layer.succeed(
   OrganizationSingleFileQAPolicy,
   {
-    select: () => Effect.fail(failure("forbidden", "Independent QA policy is disabled.")),
+    select: Effect.fn("OrganizationSingleFileQAPolicy.select")(() =>
+      Effect.fail(failure("forbidden", "Independent QA policy is disabled.")),
+    ),
   },
 );
 
@@ -117,12 +119,10 @@ export const runOrganizationSingleFileQA = Effect.fn(
         ON b.organization_id = o.organization_id AND b.binding_id = ${work.bindingId}
       JOIN projection_projects p ON p.project_id = b.project_id AND p.deleted_at IS NULL
       WHERE o.organization_id = ${work.organizationId} AND b.project_id = ${work.projectId}`)[0];
-    let capabilities: unknown;
-    try {
-      capabilities = current && JSON.parse(current.capabilities_json);
-    } catch {
-      /* Invalid authority fails closed. */
-    }
+    const capabilities = yield* Effect.try({
+      try: (): unknown => current && JSON.parse(current.capabilities_json),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
     if (
       !current ||
       current.lifecycle !== "active" ||
@@ -147,12 +147,10 @@ export const runOrganizationSingleFileQA = Effect.fn(
   )
     return yield* failure("conflict", "Saved artifact identity does not match submitted work.");
   yield* artifacts.verifySubmitted(artifact);
-  let canonical;
-  try {
-    canonical = decodeOrganizationSingleFileArtifact(artifact.patchBytes);
-  } catch {
-    return yield* failure("invalid", "Saved artifact is not canonical single-file evidence.");
-  }
+  const canonical = yield* Effect.try({
+    try: () => decodeOrganizationSingleFileArtifact(artifact.patchBytes),
+    catch: () => failure("invalid", "Saved artifact is not canonical single-file evidence."),
+  });
   if (canonical.baseCommit !== work.codeRevision)
     return yield* failure("conflict", "Saved artifact base commit does not match pinned work.");
   const target: OrganizationSingleFileQAPolicyTarget = {
@@ -172,19 +170,18 @@ export const runOrganizationSingleFileQA = Effect.fn(
     Buffer.byteLength(decision.reviewerSubject, "utf8") > 128
   )
     return yield* failure("forbidden", "QA reviewer must be independent of the worker.");
-  let policyPlanSha256: string;
-  let planSnapshot: OrganizationSingleFileQAPlan;
-  try {
-    // Capture the server-owned oracle exactly once. Policy objects may be shared
-    // and mutable; hashing one version and evaluating another would mislabel QA.
-    const serialized = JSON.stringify(decision.plan);
-    if (Buffer.byteLength(serialized, "utf8") > 24 * 1024)
-      return yield* failure("invalid", "Server QA plan exceeds its byte limit.");
-    planSnapshot = JSON.parse(serialized);
-    policyPlanSha256 = digest(Buffer.from(serialized));
-  } catch {
-    return yield* failure("invalid", "Server QA plan is not serializable.");
-  }
+  // Serialize once so the evaluated plan and its receipt identify the same snapshot.
+  const serializedPlan = yield* Effect.try({
+    try: () => JSON.stringify(decision.plan),
+    catch: () => failure("invalid", "Server QA plan is not serializable."),
+  });
+  if (Buffer.byteLength(serializedPlan, "utf8") > 24 * 1024)
+    return yield* failure("invalid", "Server QA plan exceeds its byte limit.");
+  const planSnapshot: OrganizationSingleFileQAPlan = yield* Effect.try({
+    try: () => JSON.parse(serializedPlan),
+    catch: () => failure("invalid", "Server QA plan is not serializable."),
+  });
+  const policyPlanSha256 = digest(Buffer.from(serializedPlan));
   // An existing receipt is the durable retry point after capture and before transition.
   const saved = yield* qa.get(input.attemptId);
   const evaluation = saved
@@ -211,19 +208,19 @@ export const runOrganizationSingleFileQA = Effect.fn(
   const accepted = saved?.accepted ?? evaluation!.accepted;
   let savedPlanSha256: string | undefined;
   if (saved) {
-    try {
-      const parsed: unknown = JSON.parse(Buffer.from(saved.evidenceBytes).toString("utf8"));
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        "policyPlanSha256" in parsed &&
-        typeof parsed.policyPlanSha256 === "string"
-      )
-        savedPlanSha256 = parsed.policyPlanSha256;
-    } catch {
-      /* Invalid evidence fails closed. */
-    }
+    const parsed = yield* Effect.try({
+      try: (): unknown => JSON.parse(Buffer.from(saved.evidenceBytes).toString("utf8")),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "policyPlanSha256" in parsed &&
+      typeof parsed.policyPlanSha256 === "string"
+    )
+      savedPlanSha256 = parsed.policyPlanSha256;
   }
+
   if (
     saved &&
     (saved.reviewerSubject !== decision.reviewerSubject ||

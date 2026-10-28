@@ -21,6 +21,11 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const decodeOrganizationTentativeFinding = Schema.decodeEffect(OrganizationTentativeFinding);
+const decodeOrganizationCorrelationInput = Schema.decodeEffect(OrganizationCorrelationInput);
+const decodeOrganizationCorrelationResult = Schema.decodeEffect(OrganizationCorrelationResult);
+const isOrganizationIntakeError = Schema.is(OrganizationIntakeError);
+
 /** Created from a server-owned correlation policy, never from event attributes. */
 export interface OrganizationCorrelationPrincipal {
   readonly subject: string;
@@ -66,7 +71,12 @@ const unavailable = () =>
   });
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const PartsJson = Schema.fromJsonString(Schema.Array(Schema.String));
+
+const encodeSyncPartsJson = Schema.encodeSync(PartsJson);
 const EvidenceIdsJson = Schema.fromJsonString(Schema.Array(OrganizationObservationId));
+
+const decodeEvidenceIdsJson = Schema.decodeEffect(EvidenceIdsJson);
+const encodeEvidenceIdsJson = Schema.encodeEffect(EvidenceIdsJson);
 const EvidenceRefsJson = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({
@@ -76,16 +86,17 @@ const EvidenceRefsJson = Schema.fromJsonString(
     }),
   ),
 );
+
+const decodeEvidenceRefsJson = Schema.decodeEffect(EvidenceRefsJson);
+const encodeEvidenceRefsJson = Schema.encodeEffect(EvidenceRefsJson);
 const hash = (parts: ReadonlyArray<string>) =>
   NodeCrypto.createHash("sha256")
-    .update(Schema.encodeSync(PartsJson)([...parts]))
+    .update(encodeSyncPartsJson([...parts]))
     .digest("hex");
 const decodeFinding = Effect.fn("OrganizationFindingCorrelator.decodeFinding")(function* (
   row: FindingRow,
 ) {
-  const observationIds = yield* Schema.decodeUnknownEffect(EvidenceIdsJson)(
-    row.observation_ids_json,
-  );
+  const observationIds = yield* decodeEvidenceIdsJson(row.observation_ids_json);
   const evidence =
     row.evidence_json === null
       ? observationIds.map((observationId) => ({
@@ -93,8 +104,8 @@ const decodeFinding = Effect.fn("OrganizationFindingCorrelator.decodeFinding")(f
           sourceId: OrganizationIntakeSourceId.make(row.source_id),
           projectId: null,
         }))
-      : yield* Schema.decodeUnknownEffect(EvidenceRefsJson)(row.evidence_json);
-  return yield* Schema.decodeUnknownEffect(OrganizationTentativeFinding)({
+      : yield* decodeEvidenceRefsJson(row.evidence_json);
+  return yield* decodeOrganizationTentativeFinding({
     id: row.finding_id,
     organizationId: row.organization_id,
     sourceId: row.source_id,
@@ -127,9 +138,9 @@ const make = Effect.gen(function* () {
     sql
       .withTransaction(
         Effect.gen(function* () {
-          const input = yield* Schema.decodeUnknownEffect(OrganizationCorrelationInput)(
-            rawInput,
-          ).pipe(Effect.mapError(() => invalid("Correlation target is invalid.")));
+          const input = yield* decodeOrganizationCorrelationInput(rawInput).pipe(
+            Effect.mapError(() => invalid("Correlation target is invalid.")),
+          );
           if (!principal.subject.trim() || !authority.permits(principal, input))
             return yield* forbidden("Finding correlation requires server policy authority.");
           const organization = (yield* sql<{
@@ -171,9 +182,7 @@ const make = Effect.gen(function* () {
                 (row.source_project_id !== null && row.source_project_id !== input.projectId),
             )
           )
-            return yield* Schema.decodeUnknownEffect(OrganizationCorrelationResult)(
-              outcome("ambiguous"),
-            );
+            return yield* decodeOrganizationCorrelationResult(outcome("ambiguous"));
           // Multiple source credentials may relay the same upstream issue or email.
           // They are distinct registry sources, but not independent evidence.
           const upstreamIdentities = new Set(
@@ -190,9 +199,7 @@ const make = Effect.gen(function* () {
             new Set(rows.map((row) => row.source_id)).size < 2 ||
             upstreamIdentities.size < 2
           )
-            return yield* Schema.decodeUnknownEffect(OrganizationCorrelationResult)(
-              outcome("insufficient"),
-            );
+            return yield* decodeOrganizationCorrelationResult(outcome("insufficient"));
           const dedupKey = `correlation-v1:${hash([
             input.organizationId,
             input.projectId,
@@ -208,12 +215,8 @@ const make = Effect.gen(function* () {
           const observationIds = evidence.map((ref) => ref.observationId);
           if (existing) {
             if (existing.project_id !== input.projectId || existing.evidence_json === null)
-              return yield* Schema.decodeUnknownEffect(OrganizationCorrelationResult)(
-                outcome("ambiguous"),
-              );
-            const prior = yield* Schema.decodeUnknownEffect(EvidenceRefsJson)(
-              existing.evidence_json,
-            );
+              return yield* decodeOrganizationCorrelationResult(outcome("ambiguous"));
+            const prior = yield* decodeEvidenceRefsJson(existing.evidence_json);
             if (
               prior.length !== evidence.length ||
               prior.some(
@@ -223,10 +226,8 @@ const make = Effect.gen(function* () {
                   ref.projectId !== input.projectId,
               )
             )
-              return yield* Schema.decodeUnknownEffect(OrganizationCorrelationResult)(
-                outcome("ambiguous"),
-              );
-            return yield* Schema.decodeUnknownEffect(OrganizationCorrelationResult)({
+              return yield* decodeOrganizationCorrelationResult(outcome("ambiguous"));
+            return yield* decodeOrganizationCorrelationResult({
               outcome: "duplicate",
               finding: yield* decodeFinding(existing),
               evidenceCount,
@@ -236,8 +237,8 @@ const make = Effect.gen(function* () {
           const findingId = OrganizationTentativeFindingId.make(
             `tentative-finding:${hash([input.organizationId, anchorSourceId, dedupKey])}`,
           );
-          const observationIdsJson = yield* Schema.encodeEffect(EvidenceIdsJson)(observationIds);
-          const evidenceJson = yield* Schema.encodeEffect(EvidenceRefsJson)(evidence);
+          const observationIdsJson = yield* encodeEvidenceIdsJson(observationIds);
+          const evidenceJson = yield* encodeEvidenceRefsJson(evidence);
           const createdAt = yield* now;
           yield* sql`INSERT INTO organization_intake_findings
         (finding_id, organization_id, source_id, project_id, dedup_key, title, summary,
@@ -248,18 +249,14 @@ const make = Effect.gen(function* () {
           ${observationIdsJson}, ${evidenceJson}, 'tentative', ${createdAt})`;
           const inserted = (yield* sql<FindingRow>`SELECT * FROM organization_intake_findings
         WHERE finding_id = ${findingId}`)[0]!;
-          return yield* Schema.decodeUnknownEffect(OrganizationCorrelationResult)({
+          return yield* decodeOrganizationCorrelationResult({
             outcome: "created",
             finding: yield* decodeFinding(inserted),
             evidenceCount,
           });
         }),
       )
-      .pipe(
-        Effect.mapError((cause) =>
-          Schema.is(OrganizationIntakeError)(cause) ? cause : unavailable(),
-        ),
-      );
+      .pipe(Effect.mapError((cause) => (isOrganizationIntakeError(cause) ? cause : unavailable())));
   return { correlate } satisfies OrganizationFindingCorrelatorShape;
 });
 

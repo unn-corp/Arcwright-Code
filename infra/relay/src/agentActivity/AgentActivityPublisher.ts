@@ -2,10 +2,6 @@ import {
   makeAggregateState,
   TERMINAL_AGENT_ACTIVITY_DISPLAY_TTL_MS,
 } from "./agentActivityAggregate.ts";
-export {
-  makeAggregateState,
-  TERMINAL_AGENT_ACTIVITY_DISPLAY_TTL_MS,
-} from "./agentActivityAggregate.ts";
 import type {
   RelayAgentActivityState,
   RelayDeliveryResult,
@@ -339,13 +335,14 @@ export const make = Effect.gen(function* () {
       );
     }).pipe(Effect.withSpan("relay.agent_activity_publisher.end_idle_live_activities")),
     publishToRecipients,
-    publish: (input) =>
+    publish: Effect.fn("AgentActivityPublisher.publish")((input) =>
       links
         .listDeliveryUsersForEnvironment({
           environmentId: input.environmentId,
           environmentPublicKey: input.environmentPublicKey,
         })
         .pipe(Effect.flatMap((deliveryUsers) => publishToRecipients({ ...input, deliveryUsers }))),
+    ),
   });
 });
 

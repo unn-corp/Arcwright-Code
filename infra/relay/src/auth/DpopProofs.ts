@@ -201,7 +201,9 @@ const make = Effect.gen(function* () {
   return DpopProofReplay.of({
     verify,
     consumeVerified,
-    verifyAndConsume: (input) => verify(input).pipe(Effect.flatMap(consumeVerified)),
+    verifyAndConsume: Effect.fn("DpopProofReplay.verifyAndConsume")((input) =>
+      verify(input).pipe(Effect.flatMap(consumeVerified)),
+    ),
     consume,
     pruneExpired,
   });

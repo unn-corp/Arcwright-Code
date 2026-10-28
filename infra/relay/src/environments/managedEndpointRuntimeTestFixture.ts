@@ -154,7 +154,7 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
       ),
   );
   const tunnels = Provider.ManagedEndpointTunnelClient.of({
-    get: (id) =>
+    get: Effect.fn("Provider.ManagedEndpointTunnelClient.get")((id) =>
       call(
         "tunnel-get",
         Effect.suspend(() => {
@@ -164,7 +164,8 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
             : Effect.fail(notFoundTunnel(id));
         }),
       ),
-    list: (input) =>
+    ),
+    list: Effect.fn("Provider.ManagedEndpointTunnelClient.list")((input) =>
       call(
         "tunnel-list",
         Effect.sync(() => {
@@ -188,7 +189,8 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
           };
         }),
       ),
-    create: (input) =>
+    ),
+    create: Effect.fn("Provider.ManagedEndpointTunnelClient.create")((input) =>
       call(
         "tunnel-create",
         Effect.suspend(() => {
@@ -230,27 +232,32 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
           return Effect.succeed(options.malformedCreate ? { ...row, id: "" } : row);
         }),
       ),
-    putConfiguration: (tunnelId, config) =>
-      call(
-        "tunnel-configure",
-        Effect.suspend(() => {
-          configurationCalls.push({ tunnelId, config });
-          return options.configurationNotFound
-            ? Effect.fail(
-                new Provider.ManagedEndpointTunnelClientError({
-                  operation: "put-configuration",
-                  tunnelId,
-                  cause: new TunnelNotFound({
-                    code: 1002,
-                    message: "Missing exact configured tunnel",
+    ),
+    putConfiguration: Effect.fn("Provider.ManagedEndpointTunnelClient.putConfiguration")(
+      (tunnelId, config) =>
+        call(
+          "tunnel-configure",
+          Effect.suspend(() => {
+            configurationCalls.push({ tunnelId, config });
+            return options.configurationNotFound
+              ? Effect.fail(
+                  new Provider.ManagedEndpointTunnelClientError({
+                    operation: "put-configuration",
+                    tunnelId,
+                    cause: new TunnelNotFound({
+                      code: 1002,
+                      message: "Missing exact configured tunnel",
+                    }),
                   }),
-                }),
-              )
-            : Effect.succeed(options.malformedConfiguration ? {} : { tunnelId, config });
-        }),
-      ),
-    getToken: () => call("token", Effect.succeed(options.token ?? "fixture-connector-token")),
-    delete: (id) =>
+                )
+              : Effect.succeed(options.malformedConfiguration ? {} : { tunnelId, config });
+          }),
+        ),
+    ),
+    getToken: Effect.fn("Provider.ManagedEndpointTunnelClient.getToken")(() =>
+      call("token", Effect.succeed(options.token ?? "fixture-connector-token")),
+    ),
+    delete: Effect.fn("Provider.ManagedEndpointTunnelClient.delete")((id) =>
       call(
         "tunnel-delete",
         Effect.suspend(() => {
@@ -271,6 +278,7 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
           );
         }),
       ),
+    ),
   });
   const dnsCall = <A, E>(operation: string, effect: Effect.Effect<A, E>) =>
     call(operation, effect).pipe(
@@ -293,16 +301,21 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
       ),
     );
   const dns = Provider.ManagedEndpointDnsClient.of({
-    getRecord: (id) =>
+    getRecord: Effect.fn("Provider.ManagedEndpointDnsClient.getRecord")((id) =>
       dnsCall(
         "dns-get",
         Effect.suspend(() =>
           dnsRows.has(id) ? Effect.succeed(dnsRows.get(id)!) : Effect.fail(notFoundDns(id)),
         ),
       ),
-    listRecords: () => Effect.die("Legacy DNS discovery forbidden"),
-    listRecordsPage: () => Effect.die("Unused normalized page port"),
-    listExactRecords: (hostname) =>
+    ),
+    listRecords: Effect.fn("Provider.ManagedEndpointDnsClient.listRecords")(() =>
+      Effect.die("Legacy DNS discovery forbidden"),
+    ),
+    listRecordsPage: Effect.fn("Provider.ManagedEndpointDnsClient.listRecordsPage")(() =>
+      Effect.die("Unused normalized page port"),
+    ),
+    listExactRecords: Effect.fn("Provider.ManagedEndpointDnsClient.listExactRecords")((hostname) =>
       dnsCall(
         "dns-list",
         Effect.sync(
@@ -311,7 +324,8 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
             [...dnsRows.values()].filter((row) => row.name === hostname),
         ),
       ),
-    createRecord: (input) =>
+    ),
+    createRecord: Effect.fn("Provider.ManagedEndpointDnsClient.createRecord")((input) =>
       dnsCall(
         "dns-create",
         Effect.suspend(() => {
@@ -340,7 +354,8 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
           return Effect.succeed(row);
         }),
       ),
-    updateRecord: (id, input) =>
+    ),
+    updateRecord: Effect.fn("Provider.ManagedEndpointDnsClient.updateRecord")((id, input) =>
       dnsCall(
         "dns-update",
         Effect.sync(() => {
@@ -349,7 +364,8 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
           return options.wrongDnsUpdateResponse ? { ...row, id: "wrong-id" } : row;
         }),
       ),
-    deleteRecord: (id) =>
+    ),
+    deleteRecord: Effect.fn("Provider.ManagedEndpointDnsClient.deleteRecord")((id) =>
       dnsCall(
         "dns-delete",
         Effect.sync(() => {
@@ -357,6 +373,7 @@ export const makeRuntime = Effect.fnUntraced(function* (options: Options = {}) {
           return options.malformedDnsDeletion ? {} : { id };
         }),
       ),
+    ),
   });
   const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
   const provider = yield* Provider.make.pipe(

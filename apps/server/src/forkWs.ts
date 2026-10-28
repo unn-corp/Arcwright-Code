@@ -101,6 +101,8 @@ import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import { ForkWsRpcGroup as ForkRpcGroup } from "@t3tools/contracts";
+
+const isOrganizationArchitectError = Schema.is(OrganizationArchitectError);
 const decodeWorkIntentPage = Schema.decodeEffect(OrganizationWorkIntentListResult);
 const isOrganizationWorkError = Schema.is(OrganizationWorkError);
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -110,7 +112,7 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
       const sql = yield* SqlClient.SqlClient;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
-      const review = yield* ReviewService.ReviewService;
+      yield* ReviewService.ReviewService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const providerInstances = yield* ProviderInstanceRegistry;
       const config = yield* ServerConfig.ServerConfig;
@@ -223,7 +225,7 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
-      const pullRequests = yield* PullRequestService.PullRequestService;
+      yield* PullRequestService.PullRequestService;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
           message: `The authenticated token is missing required scope: ${requiredScope}.`,
@@ -243,7 +245,7 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
         effect: Effect.Effect<A, E, R>,
         _traceAttributes?: Readonly<Record<string, unknown>>,
       ) => authorizeEffect(requiredScopeForRpcMethod(method), effect);
-      const path = yield* Path.Path;
+      yield* Path.Path;
       const runAgentDashboardInvestigation = (projectId?: ProjectId | null) =>
         reviewJobService
           .enqueueReview({
@@ -649,7 +651,7 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
                           {
                             organizationId: input.organizationId,
                             messageId: input.messageId,
-                            ...(Schema.is(OrganizationArchitectError)(error)
+                            ...(isOrganizationArchitectError(error)
                               ? { failureMessage: error.message }
                               : {}),
                           },

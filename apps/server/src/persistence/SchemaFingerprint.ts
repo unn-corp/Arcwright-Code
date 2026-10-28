@@ -140,11 +140,9 @@ export const recordSchemaFingerprint = Effect.fn("SchemaFingerprint.recordSchema
       (object) => actual.get(`${object.type}:${object.name}`) !== canonicalSchemaDefinition(object),
     );
     if (incorrect.length > 0)
-      return yield* Effect.fail(
-        new SchemaFingerprintError({
-          reason: `Database schema differs from this build: ${incorrect.map((object) => object.name).join(", ")}. No completed schema fingerprint was recorded.`,
-        }),
-      );
+      return yield* new SchemaFingerprintError({
+        reason: `Database schema differs from this build: ${incorrect.map((object) => object.name).join(", ")}. No completed schema fingerprint was recorded.`,
+      });
     const ledger = yield* readLedger;
     // A schema SHA does not prove data migrations ran. Require the exact migration ledger too.
     if (

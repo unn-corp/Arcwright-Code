@@ -77,7 +77,11 @@ export class OrganizationSingleFileProposalPolicy extends Context.Service<
 ) {}
 export const OrganizationSingleFileProposalPolicyDisabled = Layer.succeed(
   OrganizationSingleFileProposalPolicy,
-  { select: () => Effect.fail(failure("forbidden", "Single-file proposal policy is disabled.")) },
+  {
+    select: Effect.fn("OrganizationSingleFileProposalPolicy.select")(() =>
+      Effect.fail(failure("forbidden", "Single-file proposal policy is disabled.")),
+    ),
+  },
 );
 
 export interface OrganizationSingleFileProposalResult {
@@ -152,15 +156,16 @@ export const proposeOrganizationSingleFileArtifact = Effect.fn(
     baseCommit: before.baseCommit,
   };
   const selected = yield* policy.select(target);
-  let selection: OrganizationSingleFileProposalSelection;
-  try {
-    const serialized = JSON.stringify(selected);
-    if (Buffer.byteLength(serialized, "utf8") > 8_192)
-      return yield* failure("invalid", "Policy selection exceeds its limit.");
-    selection = JSON.parse(serialized);
-  } catch {
-    return yield* failure("invalid", "Policy selection is not plain JSON.");
-  }
+  const serializedSelection = yield* Effect.try({
+    try: () => JSON.stringify(selected),
+    catch: () => failure("invalid", "Policy selection is not plain JSON."),
+  });
+  if (Buffer.byteLength(serializedSelection, "utf8") > 8_192)
+    return yield* failure("invalid", "Policy selection exceeds its limit.");
+  const selection: OrganizationSingleFileProposalSelection = yield* Effect.try({
+    try: () => JSON.parse(serializedSelection),
+    catch: () => failure("invalid", "Policy selection is not plain JSON."),
+  });
   if (
     !selection ||
     typeof selection.fileName !== "string" ||
@@ -208,24 +213,23 @@ export const proposeOrganizationSingleFileArtifact = Effect.fn(
     baseDigest: source.sha256,
   }).pipe(Effect.mapError(() => failure("invalid", "Patch generation input is invalid.")));
   const rawProposal = yield* generateOrganizationPatchProposal(generationInput);
-  let proposalSnapshot: unknown;
-  try {
-    const serialized = JSON.stringify(rawProposal);
-    if (Buffer.byteLength(serialized, "utf8") > 70_000)
-      return yield* failure("invalid", "Patch proposal exceeds its limit.");
-    proposalSnapshot = JSON.parse(serialized);
-  } catch {
-    return yield* failure("invalid", "Patch proposal is not plain JSON.");
-  }
+  const serializedProposal = yield* Effect.try({
+    try: () => JSON.stringify(rawProposal),
+    catch: () => failure("invalid", "Patch proposal is not plain JSON."),
+  });
+  if (Buffer.byteLength(serializedProposal, "utf8") > 70_000)
+    return yield* failure("invalid", "Patch proposal exceeds its limit.");
+  const proposalSnapshot = yield* Effect.try({
+    try: (): unknown => JSON.parse(serializedProposal),
+    catch: () => failure("invalid", "Patch proposal is not plain JSON."),
+  });
   const proposal = yield* decodeProposal(proposalSnapshot).pipe(
     Effect.mapError(() => failure("invalid", "Patch proposal has invalid fields.")),
   );
-  let artifactBytes: Uint8Array;
-  try {
-    artifactBytes = buildOrganizationPatchArtifact(source, proposal);
-  } catch {
-    return yield* failure("conflict", "Patch proposal does not match pinned source.");
-  }
+  const artifactBytes = yield* Effect.try({
+    try: () => buildOrganizationPatchArtifact(source, proposal),
+    catch: () => failure("conflict", "Patch proposal does not match pinned source."),
+  });
   const after = yield* planner.plan(workId);
   if (!samePlan(before, after))
     return yield* failure("conflict", "Work or current Project authority changed during proposal.");

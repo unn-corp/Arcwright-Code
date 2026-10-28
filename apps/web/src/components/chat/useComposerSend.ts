@@ -8,7 +8,6 @@ import {
   restorePlanFollowUpComposer,
   buildExpiredTerminalContextToastCopy,
   deriveComposerSendState,
-  revokeUserMessagePreviewUrls,
   boundAttachmentIds,
   formatOutgoingPrompt,
   optimisticMessageAttachments,
@@ -31,7 +30,10 @@ import {
 } from "@t3tools/contracts";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
-import { declinePendingApprovals } from "@t3tools/client-runtime/state/thread-requests";
+import {
+  declinePendingApprovals,
+  sendApprovalFeedback,
+} from "@t3tools/client-runtime/state/thread-requests";
 import {
   parseCodexFeedbackCommand,
   submitCodexFeedback,
@@ -110,6 +112,7 @@ import {
 } from "../../lib/attachmentUploadQueue";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { fileAttachmentCapabilityBlockReason } from "./composerAttachmentFiles";
+import { useLinkedEnvironments } from "../../state/peerLinks";
 import { readEnvironmentScope } from "../../state/session";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import {
@@ -164,6 +167,7 @@ type UsageLimitsPanel = ReturnType<typeof useUsageLimitsPanel>;
 type TimelineFollow = ReturnType<typeof useTimelineFollow>;
 
 interface ComposerSendInput {
+  readonly isConnecting?: boolean;
   readonly environmentId: EnvironmentId;
   readonly routeThreadKey: string;
   readonly currentRouteThreadKeyRef: { readonly current: string | null };
@@ -197,7 +201,6 @@ interface ComposerSendInput {
   readonly composerTerminalContextsRef: { current: TerminalContextDraft[] };
   readonly feedbackUploadsInFlightRef: { readonly current: Set<string> };
   readonly queuedRunEdit: ReturnType<typeof useQueuedRunEdit>;
-  readonly isConnecting: boolean;
   readonly isRevertingCheckpoint: boolean;
   readonly threadDetailLoading: boolean;
   readonly activeEnvironmentUnavailable: boolean;
@@ -228,6 +231,11 @@ interface ComposerSendInput {
   readonly setDockedDraftHeroThreadKey: Dispatch<SetStateAction<string | null>>;
   readonly setSetupQueueSendThreadKey: Dispatch<SetStateAction<string | null>>;
   readonly setOptimisticUserMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  /** Takes ownership of, and later releases, an optimistic message's blob previews. */
+  readonly optimisticBlobPreviews: {
+    readonly track: (message: ChatMessage) => void;
+    readonly release: (message: ChatMessage) => void;
+  };
   readonly setFeedbackSubmissionsByThreadKey: Dispatch<
     SetStateAction<Record<string, ReadonlyArray<CodexFeedbackSubmission>>>
   >;
@@ -285,6 +293,7 @@ export function useComposerSend(input: ComposerSendInput) {
     feedbackUploadsInFlightRef,
     queuedRunEdit,
     isConnecting,
+    isRevertingCheckpoint,
     threadDetailLoading,
     activeEnvironmentUnavailable,
     isSendBusy,
@@ -314,6 +323,7 @@ export function useComposerSend(input: ComposerSendInput) {
     setDockedDraftHeroThreadKey,
     setSetupQueueSendThreadKey,
     setOptimisticUserMessages,
+    optimisticBlobPreviews,
     setFeedbackSubmissionsByThreadKey,
     setThreadError,
     setKeepFullHistory,
@@ -323,6 +333,7 @@ export function useComposerSend(input: ComposerSendInput) {
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
   } = input;
+  const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
   const clientSettingsHydrated = useClientSettingsHydrated();
@@ -343,6 +354,9 @@ export function useComposerSend(input: ComposerSendInput) {
   );
   const setComposerDraftReviewComments = useComposerDraftStore((store) => store.setReviewComments);
   const setComposerDraftThreadContexts = useComposerDraftStore((store) => store.setThreadContexts);
+  const setComposerDraftEnvironmentContexts = useComposerDraftStore(
+    (store) => store.setEnvironmentContexts,
+  );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const sendToMultipleModels = useMultipleModelSend({
     environmentId,
@@ -365,7 +379,6 @@ export function useComposerSend(input: ComposerSendInput) {
     activeProposedPlan,
     isServerThread,
     isSendBusy,
-    isConnecting,
     composerRef,
     beginLocalDispatch,
     resetLocalDispatch,
@@ -382,6 +395,7 @@ export function useComposerSend(input: ComposerSendInput) {
   // A send awaits uploads before it declines, so it reads the approvals pending by then.
   const pendingApprovalsRef = useRef(pendingApprovals);
   const respondingRequestIdsRef = useRef(respondingRequestIds);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors approvals into refs that an async send reads after awaiting uploads
   useLayoutEffect(() => {
     pendingApprovalsRef.current = pendingApprovals;
     respondingRequestIdsRef.current = respondingRequestIds;
@@ -437,6 +451,7 @@ export function useComposerSend(input: ComposerSendInput) {
       !activeThread ||
       (isSendBusy && !sendQueuesBehindSetup) ||
       isConnecting ||
+      isRevertingCheckpoint ||
       !clientSettingsHydrated ||
       threadDetailLoading ||
       readPendingEnvironmentChange() !== null ||
@@ -488,6 +503,10 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const multipleModelSelections = sendCtx.multipleModelSelections;
+    const approvalFeedbackTarget = pendingApprovalsRef.current.find(
+      (approval) =>
+        approval.supportsFeedback && approval.requestId === sendCtx.shownPendingApprovalIds[0],
+    );
     const multipleModelBlock =
       multipleModelSelections === null
         ? null
@@ -522,6 +541,7 @@ export function useComposerSend(input: ComposerSendInput) {
       previewAnnotations: sendContextPreviewAnnotations,
       reviewComments: composerReviewComments,
       threadContexts: composerThreadContexts,
+      environmentContexts: composerEnvironmentContexts,
       selectedProvider: ctxSelectedProvider,
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
@@ -549,6 +569,7 @@ export function useComposerSend(input: ComposerSendInput) {
       text: promptForSend,
       records: composerThreadContexts,
       environmentId,
+      linkedEnvironments,
     })[0];
     if (strandedThread) {
       const owner =
@@ -576,6 +597,7 @@ export function useComposerSend(input: ComposerSendInput) {
           reviewComments: composerReviewComments,
           previewAnnotations: composerPreviewAnnotations,
           threadContexts: composerThreadContexts,
+          environmentContexts: composerEnvironmentContexts,
         },
         setThreadError,
       );
@@ -593,7 +615,8 @@ export function useComposerSend(input: ComposerSendInput) {
       elementContextCount:
         composerPreviewAnnotations.length +
         composerReviewComments.length +
-        composerThreadContexts.length,
+        composerThreadContexts.length +
+        composerEnvironmentContexts.length,
     });
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
@@ -602,7 +625,8 @@ export function useComposerSend(input: ComposerSendInput) {
       sendableComposerTerminalContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
       composerReviewComments.length === 0 &&
-      composerThreadContexts.length === 0
+      composerThreadContexts.length === 0 &&
+      composerEnvironmentContexts.length === 0
         ? parseCodexFeedbackCommand(trimmed)
         : null;
     if (feedbackCommand && multipleModelSelections === null) {
@@ -678,6 +702,7 @@ export function useComposerSend(input: ComposerSendInput) {
       const followUpReviewComments = [...composerReviewComments];
       const followUpPreviewAnnotations = [...composerPreviewAnnotations];
       const followUpThreadContexts = [...composerThreadContexts];
+      const followUpEnvironmentContexts = [...composerEnvironmentContexts];
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
@@ -688,6 +713,7 @@ export function useComposerSend(input: ComposerSendInput) {
           reviewComments: composerReviewComments,
           previewAnnotations: composerPreviewAnnotations,
           threadContexts: composerThreadContexts,
+          environmentContexts: composerEnvironmentContexts,
         }),
         interactionMode: followUp.interactionMode,
       });
@@ -702,6 +728,7 @@ export function useComposerSend(input: ComposerSendInput) {
             reviewComments: followUpReviewComments,
             previewAnnotations: followUpPreviewAnnotations,
             threadContexts: followUpThreadContexts,
+            environmentContexts: followUpEnvironmentContexts,
           },
           writePrompt: (prompt) => setComposerDraftPrompt(composerDraftTarget, prompt),
           writeTerminalContexts: (contexts) =>
@@ -712,6 +739,8 @@ export function useComposerSend(input: ComposerSendInput) {
             setComposerDraftPreviewAnnotations(composerDraftTarget, [...annotations]),
           writeThreadContexts: (records) =>
             setComposerDraftThreadContexts(composerDraftTarget, [...records]),
+          writeEnvironmentContexts: (records) =>
+            setComposerDraftEnvironmentContexts(composerDraftTarget, [...records]),
           resetCursor: (options) => composerRef.current?.resetCursorState(options),
         });
       } else if (
@@ -729,7 +758,8 @@ export function useComposerSend(input: ComposerSendInput) {
       sendableComposerTerminalContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
       composerReviewComments.length === 0 &&
-      composerThreadContexts.length === 0
+      composerThreadContexts.length === 0 &&
+      composerEnvironmentContexts.length === 0
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
     if (standaloneSlashCommand && multipleModelSelections === null) {
@@ -776,6 +806,7 @@ export function useComposerSend(input: ComposerSendInput) {
       previewAnnotations: composerPreviewAnnotations,
       reviewComments: composerReviewComments,
       threadContexts: composerThreadContexts,
+      environmentContexts: composerEnvironmentContexts,
     });
     const {
       files: composerFilesSnapshot,
@@ -784,6 +815,7 @@ export function useComposerSend(input: ComposerSendInput) {
       previewAnnotations: composerPreviewAnnotationsSnapshot,
       reviewComments: composerReviewCommentsSnapshot,
       threadContexts: composerThreadContextsSnapshot,
+      environmentContexts: composerEnvironmentContextsSnapshot,
       messageText: messageTextForSend,
     } = sendSnapshot;
     const {
@@ -818,6 +850,7 @@ export function useComposerSend(input: ComposerSendInput) {
         reviewComments: composerReviewCommentsSnapshot,
         previewAnnotations: composerPreviewAnnotationsSnapshot,
         threadContexts: composerThreadContextsSnapshot,
+        environmentContexts: composerEnvironmentContextsSnapshot,
         attachments: composerAttachmentsSnapshot.map((attachment, index) => ({
           attachment,
           attachmentId: attachmentIds[index] ?? attachment.id,
@@ -841,8 +874,7 @@ export function useComposerSend(input: ComposerSendInput) {
 
     const readLiveAttachmentCapabilities = () => {
       const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId) ?? null;
-      const liveSupportsAttachmentUploads =
-        config?.environment.capabilities.attachmentUploads === true;
+      const liveSupportsAttachmentUploads = config !== null;
       return {
         supportsAttachmentUploads: liveSupportsAttachmentUploads,
         fileBlockReason: fileAttachmentCapabilityBlockReason({
@@ -882,8 +914,7 @@ export function useComposerSend(input: ComposerSendInput) {
     const turnUsesAttachmentUploads =
       composerFilesSnapshot.length > 0
         ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
-        : readEnvironmentPresentation(environmentId)?.serverConfig?.environment.capabilities
-            .attachmentUploads === true;
+        : (readEnvironmentPresentation(environmentId)?.serverConfig ?? null) !== null;
     if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
       for (const attachment of composerAttachmentsSnapshot) {
         const upload =
@@ -962,7 +993,7 @@ export function useComposerSend(input: ComposerSendInput) {
             sendCtx?.shownPendingApprovalIds.includes(approval.requestId),
           )
         : [];
-    if (approvalsToDecline.length > 0) {
+    if (approvalsToDecline.length > 0 || approvalFeedbackTarget !== undefined) {
       // A draft edited since send, or a paste still landing in it, is no longer the message
       // the user sent.
       const attachmentIdsAtSend = composerAttachmentsSnapshot.map((attachment) => attachment.id);
@@ -998,6 +1029,42 @@ export function useComposerSend(input: ComposerSendInput) {
       const approvalResponding = approvalsToDecline.some((approval) =>
         respondingRequestIdsRef.current.includes(approval.requestId),
       );
+      if (approvalFeedbackTarget !== undefined) {
+        if (composerAttachmentsSnapshot.length > 0 || outgoingMessageContext !== undefined) {
+          setThreadError(
+            threadIdForSend,
+            "Send approval feedback without attachments or added context.",
+          );
+          sendInFlightRef.current = false;
+          return;
+        }
+        if (
+          changedBeforeDecline ||
+          approvalResponding ||
+          currentRouteThreadKeyRef.current !== routeThreadKey
+        ) {
+          sendInFlightRef.current = false;
+          return;
+        }
+        const sent = await sendApprovalFeedback(
+          approvalFeedbackTarget,
+          messageTextForSend,
+          onRespondToApprovalStable,
+        ).catch(() => false);
+        sendInFlightRef.current = false;
+        if (
+          sent &&
+          !draftChangedSinceSend() &&
+          currentRouteThreadKeyRef.current === routeThreadKey &&
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget) ===
+            draftBeforeDecline
+        ) {
+          promptRef.current = "";
+          clearComposerDraftContent(composerDraftTarget);
+          composerRef.current?.resetCursorState();
+        }
+        return;
+      }
       const declined =
         !changedBeforeDecline &&
         !approvalResponding &&
@@ -1086,25 +1153,30 @@ export function useComposerSend(input: ComposerSendInput) {
         messageIdForSend,
       );
     }
-    setOptimisticUserMessages((existing) => [
-      ...existing,
-      {
-        id: messageIdForSend,
-        role: "user",
-        text: outgoingMessageText,
-        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-        ...(outgoingMessageContext !== undefined ? { context: outgoingMessageContext } : {}),
-        runId: null,
-        createdAt: messageCreatedAt,
-        updatedAt: messageCreatedAt,
-        streaming: false,
-        ...(shouldQueueBehindActiveRun
-          ? { inputIntent: "queued_turn" as const }
-          : phase === "running" && dispatchMode === "steer"
-            ? { inputIntent: "steer" as const }
-            : {}),
-      },
-    ]);
+    const optimisticMessage: ChatMessage = {
+      id: messageIdForSend,
+      role: "user",
+      text: outgoingMessageText,
+      ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
+      ...(outgoingMessageContext !== undefined ? { context: outgoingMessageContext } : {}),
+      runId: null,
+      createdAt: messageCreatedAt,
+      updatedAt: messageCreatedAt,
+      streaming: false,
+      ...(shouldQueueBehindActiveRun
+        ? { inputIntent: "queued_turn" as const }
+        : phase === "running" && dispatchMode === "steer"
+          ? { inputIntent: "steer" as const }
+          : {}),
+    };
+    // After leaving the thread during an upload, its previews were already released and the
+    // message is never shown, so tracking them would keep them alive past the thread.
+    if (currentRouteThreadKeyRef.current === routeThreadKey) {
+      optimisticBlobPreviews.track(optimisticMessage);
+    } else {
+      optimisticBlobPreviews.release(optimisticMessage);
+    }
+    setOptimisticUserMessages((existing) => [...existing, optimisticMessage]);
     setThreadError(threadIdForSend, null);
     if (expiredTerminalContextCount > 0) {
       const toastCopy = buildExpiredTerminalContextToastCopy(
@@ -1173,7 +1245,13 @@ export function useComposerSend(input: ComposerSendInput) {
         environmentId,
         input: {
           threadId: threadIdForSend,
-          message: { messageId: newMessageId(), role: "user", text: "/compact", attachments: [] },
+          message: {
+            messageId: newMessageId(),
+            role: "user",
+            text: "/compact",
+            attachments: [],
+            idleCompaction: "onReturn",
+          },
           ...(getModelSelectionForDispatch ? { getModelSelectionForDispatch } : {}),
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -1230,15 +1308,13 @@ export function useComposerSend(input: ComposerSendInput) {
             role: "user",
             attachments: turnAttachmentsResult.value,
             ...withMessageContext({
+              supportsInlineMessageContext:
+                appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
+                  .capabilities.inlineMessageContext === true,
               text: outgoingMessageText,
               context: buildOutgoingMessageContext(
                 boundAttachmentIds(turnAttachmentsResult.value, composerAttachmentsSnapshot),
               ),
-              // Read at dispatch time: the upload and persistence awaits above can
-              // span a server reconnect that changes it.
-              supportsInlineMessageContext:
-                appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
-                  .capabilities.inlineMessageContext === true,
             }),
           },
           ...(getModelSelectionForDispatch ? { getModelSelectionForDispatch } : {}),
@@ -1337,13 +1413,11 @@ export function useComposerSend(input: ComposerSendInput) {
         )
       ) {
         setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageIdForSend);
-          for (const message of removed) {
-            revokeUserMessagePreviewUrls(message);
-          }
           const next = existing.filter((message) => message.id !== messageIdForSend);
           return next.length === existing.length ? existing : next;
         });
+        // The restored draft clones its images, so the sent copies are no longer used.
+        optimisticBlobPreviews.release(optimisticMessage);
         const retryComposerImages = restoreComposerDraft(composerDraftTarget, sendSnapshot);
         if (currentRouteThreadKeyRef.current === routeThreadKey) {
           promptRef.current = messageTextForSend;

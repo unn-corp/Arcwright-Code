@@ -1,5 +1,3 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
 import { describe, expect, it } from "@effect/vitest";
 import * as Redacted from "effect/Redacted";
 
@@ -10,25 +8,6 @@ import {
 } from "./apnsDeliveryJobs.ts";
 
 const secret = Redacted.make("queue-signing-secret");
-const aggregate: RelayAgentActivityAggregateState = {
-  title: "Arcwright Code",
-  subtitle: "Agent work in progress",
-  activeCount: 1,
-  updatedAt: "2026-05-25T00:00:00.000Z",
-  activities: [
-    {
-      environmentId: EnvironmentId.make("env"),
-      threadId: ThreadId.make("thread"),
-      projectTitle: "Project",
-      threadTitle: "Thread",
-      modelTitle: "gpt-5.4",
-      phase: "running",
-      status: "Working",
-      updatedAt: "2026-05-25T00:00:00.000Z",
-      deepLink: "/threads/env/thread",
-    },
-  ],
-};
 
 describe("apnsDeliveryJobs", () => {
   it("rejects tampered signed queue jobs", () => {

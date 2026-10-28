@@ -359,16 +359,16 @@ const unusedProjection = {
   getCounts: () => Effect.die("unused"),
   getRecentActivitySummaries: () => Effect.die("unused"),
   getEventReplayStats: () => Effect.die("unused"),
-  getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-  getProjectShellById: () => Effect.succeed(Option.none()),
-  getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+  getActiveProjectByWorkspaceRoot: () => Effect.succeedNone,
+  getProjectShellById: () => Effect.succeedNone,
+  getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
   getImportedAgentSessionSources: () => Effect.succeed([]),
-  getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-  getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-  getThreadShellById: () => Effect.succeed(Option.none()),
-  getThreadRuntimeContext: () => Effect.succeed(Option.none()),
-  getTurnStartMessage: () => Effect.succeed(Option.none()),
-  getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+  getThreadCheckpointContext: () => Effect.succeedNone,
+  getFullThreadDiffContext: () => Effect.succeedNone,
+  getThreadShellById: () => Effect.succeedNone,
+  getThreadRuntimeContext: () => Effect.succeedNone,
+  getTurnStartMessage: () => Effect.succeedNone,
+  getThreadDetailSnapshot: () => Effect.succeedNone,
   searchThreads: () => Effect.succeed({ matches: [] }),
 };
 
@@ -377,9 +377,9 @@ const makeTempStateDir = () =>
 
 const makeObservedRunHistory = (baseDir: string) =>
   Effect.gen(function* () {
-    const persisted = yield* Effect.gen(function* () {
-      return yield* AgentDashboardRunHistory.AgentDashboardRunHistory;
-    }).pipe(
+    const persisted = yield* Effect.suspend(
+      () => AgentDashboardRunHistory.AgentDashboardRunHistory,
+    ).pipe(
       Effect.provide(AgentDashboardRunHistory.layerForStateDir(NodePath.join(baseDir, "userdata"))),
     );
     const writes = yield* Queue.unbounded<AgentDashboardAutomationRun>();
@@ -531,7 +531,7 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
                     ),
                   runRandomReview: Effect.succeed({ ...reviewResult, workspaceRoot: baseDir }),
                 },
-                getThreadDetailById: () => Effect.succeed(Option.none()),
+                getThreadDetailById: () => Effect.succeedNone,
               }),
             ),
           );
@@ -599,7 +599,7 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
                     Effect.asVoid,
                   ),
               },
-              getThreadDetailById: () => Effect.succeed(Option.none()),
+              getThreadDetailById: () => Effect.succeedNone,
             }),
           ),
         );
@@ -631,7 +631,7 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
                 Ref.update(dispatchCount, (count) => count + 1).pipe(Effect.as(reviewResult)),
               runRandomReview: Effect.succeed(reviewResult),
             },
-            getThreadDetailById: () => Effect.succeed(Option.none()),
+            getThreadDetailById: () => Effect.succeedNone,
           }),
         ),
         Effect.scoped,
@@ -758,7 +758,7 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
                 }),
               runRandomReview: Effect.succeed(reviewResult),
             },
-            getThreadDetailById: () => Effect.succeed(Option.none()),
+            getThreadDetailById: () => Effect.succeedNone,
           }),
         ),
         Effect.scoped,
@@ -926,25 +926,23 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
               runRandomReview: Effect.succeed({ ...reviewResult, workspaceRoot: baseDir }),
             },
             getThreadDetailById: () =>
-              Effect.succeed(
-                Option.some({
-                  latestTurn: {
-                    turnId: "turn-missing",
-                    state: "completed",
-                    assistantMessageId: ASSISTANT_ID,
-                    requestedAt: "2026-08-10T00:00:00.000Z",
-                    startedAt: "2026-08-10T00:00:00.000Z",
-                    completedAt: "2026-08-10T00:00:10.000Z",
+              Effect.succeedSome({
+                latestTurn: {
+                  turnId: "turn-missing",
+                  state: "completed",
+                  assistantMessageId: ASSISTANT_ID,
+                  requestedAt: "2026-08-10T00:00:00.000Z",
+                  startedAt: "2026-08-10T00:00:00.000Z",
+                  completedAt: "2026-08-10T00:00:10.000Z",
+                },
+                messages: [
+                  {
+                    id: ASSISTANT_ID,
+                    role: "assistant",
+                    text: "Human report without metadata.",
                   },
-                  messages: [
-                    {
-                      id: ASSISTANT_ID,
-                      role: "assistant",
-                      text: "Human report without metadata.",
-                    },
-                  ],
-                } as never),
-              ),
+                ],
+              } as never),
           }),
         ),
         Effect.scoped,
@@ -1025,25 +1023,23 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
               runRandomReview: Effect.succeed(reviewResult),
             },
             getThreadDetailById: () =>
-              Effect.succeed(
-                Option.some({
-                  latestTurn: {
-                    turnId: "turn-done",
-                    state: "completed",
-                    assistantMessageId: ASSISTANT_ID,
-                    requestedAt: "2026-08-10T00:00:00.000Z",
-                    startedAt: "2026-08-10T00:00:00.000Z",
-                    completedAt: "2026-08-10T00:00:01.000Z",
+              Effect.succeedSome({
+                latestTurn: {
+                  turnId: "turn-done",
+                  state: "completed",
+                  assistantMessageId: ASSISTANT_ID,
+                  requestedAt: "2026-08-10T00:00:00.000Z",
+                  startedAt: "2026-08-10T00:00:00.000Z",
+                  completedAt: "2026-08-10T00:00:01.000Z",
+                },
+                messages: [
+                  {
+                    id: ASSISTANT_ID,
+                    role: "assistant",
+                    text: sampleFindingMetadata,
                   },
-                  messages: [
-                    {
-                      id: ASSISTANT_ID,
-                      role: "assistant",
-                      text: sampleFindingMetadata,
-                    },
-                  ],
-                } as never),
-              ),
+                ],
+              } as never),
           }),
         ),
         Effect.scoped,
@@ -1142,20 +1138,18 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
                 threads: [],
               } as never),
             getThreadDetailById: () =>
-              Effect.succeed(
-                Option.some({
-                  latestTurn: {
-                    turnId: "turn-resumed",
-                    state: "completed",
-                    assistantMessageId: ASSISTANT_ID,
-                    requestedAt: "2026-08-10T00:00:00.000Z",
-                    startedAt: "2026-08-10T00:00:00.000Z",
-                    completedAt: "2026-08-10T00:00:10.000Z",
-                  },
-                  messages: [{ id: ASSISTANT_ID, role: "assistant", text: sampleFindingMetadata }],
-                  activities: [],
-                } as never),
-              ),
+              Effect.succeedSome({
+                latestTurn: {
+                  turnId: "turn-resumed",
+                  state: "completed",
+                  assistantMessageId: ASSISTANT_ID,
+                  requestedAt: "2026-08-10T00:00:00.000Z",
+                  startedAt: "2026-08-10T00:00:00.000Z",
+                  completedAt: "2026-08-10T00:00:10.000Z",
+                },
+                messages: [{ id: ASSISTANT_ID, role: "assistant", text: sampleFindingMetadata }],
+                activities: [],
+              } as never),
           }),
         ),
         Effect.scoped,

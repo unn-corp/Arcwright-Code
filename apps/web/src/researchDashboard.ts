@@ -12,7 +12,10 @@ import type {
   VcsWorktreeEntry,
 } from "@t3tools/contracts";
 
-import { buildProjectGroups, type ProjectGroup } from "./logicalProject";
+import {
+  buildProjectGroups,
+  type ProjectGroup,
+} from "@t3tools/client-runtime/state/project-grouping";
 
 export const DEFAULT_RESEARCH_DASHBOARD_URL =
   "https://artizia-x-plasma.tailbebf90.ts.net:8446/research";

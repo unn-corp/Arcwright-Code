@@ -140,7 +140,6 @@ function attach(bridge: UpdateBridge) {
   if (attached === bridge) return;
   attached = bridge;
   // AndroidX exposes one onmessage callback on its injected object.
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
   bridge.onmessage = ({ data }) => {
     try {
       const response: {
@@ -238,14 +237,7 @@ export function subscribeAndroidUpdates(listener: (status: AndroidUpdateStatus) 
   };
 }
 
-/**
- * Reports in-flight web uploads so an installation cannot replace the app mid-transfer. The hold
- * fails closed: a missing heartbeat never releases it, because it does not prove the transfer
- * stopped. Native drops it only when the count is reported as zero or the shell page is replaced
- * or destroyed (which cancels the transfer), and the process dying clears it. The heartbeat only
- * re-sends the count. Returns the release function; call it in `finally`, after the request has
- * actually ended. Without the bridge this is a no-op, so callers need no platform checks.
- */
+/* Hold native installation until the upload finishes. Missing heartbeats fail closed; only a zero count, shell replacement/destruction or process exit releases the hold. Call the returned release in finally after the transfer ends; without the bridge this is a no-op. */
 export const UPLOAD_HEARTBEAT_MS = 30_000;
 let activeUploads = 0;
 let heartbeat: number | undefined;

@@ -14,6 +14,7 @@ export function ParticipantProfileSync() {
   const { isLoaded, user } = useUser();
   const clerk = useClerk();
   const sessionId = clerk.session?.id;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- synchronizes Clerk account metadata with persisted participant profiles and cancels stale account completions
   useEffect(() => {
     if (!isLoaded) return;
     let canceled = false;

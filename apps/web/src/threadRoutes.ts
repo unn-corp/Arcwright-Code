@@ -88,16 +88,7 @@ const CONVERSATION_ROUTE_IDS: ReadonlySet<string> = new Set([
 /** Mirrors `HistoryAction` from `@tanstack/history`, which is not re-exported. */
 export type ThreadRouteHistoryAction = "PUSH" | "REPLACE" | "FORWARD" | "BACK" | "GO";
 
-/**
- * On a phone the thread list lives behind the sidebar sheet, so the list is not
- * a history entry the way it is on desktop. A back gesture from a conversation
- * therefore walks into whichever conversation was open before, when what the
- * gesture means is "up to the list". Blocking that back and opening the sheet
- * instead makes the list the parent of every conversation.
- *
- * Back is left alone once the sheet is open, so the gesture still has a way out
- * of the app instead of toggling the sheet forever.
- */
+/* On phones, back from a conversation opens its parent sidebar instead of walking older conversations. Once the sheet is open, leave back unblocked so the gesture can exit the app. */
 export function shouldOpenThreadListOnBack(input: {
   isMobile: boolean;
   isThreadListOpen: boolean;

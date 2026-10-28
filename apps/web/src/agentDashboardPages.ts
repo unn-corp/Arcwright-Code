@@ -16,7 +16,7 @@ import {
   type ThreadTurnStartBootstrap,
 } from "@t3tools/contracts";
 import { buildAgentDashboardFindingPrompt } from "@t3tools/shared/agentDashboardFinding";
-import { normalizeProjectPathForComparison } from "./lib/projectPaths";
+import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 
 const GITHUB_REPOSITORY_PART = /^[A-Za-z0-9_.-]+$/;
 

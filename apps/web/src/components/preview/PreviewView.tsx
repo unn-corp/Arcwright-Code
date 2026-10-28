@@ -1,5 +1,5 @@
-import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+
 import { isAndroidPwa } from "~/env";
 import { AndroidPreviewView } from "~/android/AndroidPreviewView";
 import { previewStreamDownloadUrl } from "@t3tools/client-runtime/preview/server-browser-stream";
@@ -11,7 +11,6 @@ import {
   DEFAULT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
-  type PreviewViewportSetting,
   type ScopedThreadRef,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   PREVIEW_ZOOM_LEVELS,
@@ -29,7 +28,6 @@ import {
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT,
   recordVisitForThread,
   removeUrlForThread,
-  setTitleForThreadUrl,
   useThreadRecentHistory,
 } from "~/browserHistoryStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
@@ -68,10 +66,7 @@ import { showPreviewPopup } from "./showPreviewPopup";
 import { PreviewChromeRow } from "./PreviewChromeRow";
 import { PreviewEmptyState } from "./PreviewEmptyState";
 import { PreviewMoreMenu, type PreviewMoreMenuActions } from "./PreviewMoreMenu";
-import {
-  commitBrowserViewportChange,
-  subscribeBrowserViewportChange,
-} from "~/browser/browserViewportActions";
+import { commitBrowserViewportChange } from "~/browser/browserViewportActions";
 import { browserResponsiveViewportForToggle, useBrowserDefaults } from "~/browser/browserDefaults";
 import { BrowserDeviceToolbar } from "~/browser/BrowserDeviceToolbar";
 import { BROWSER_DEVICE_TOOLBAR_HEIGHT } from "~/browser/browserViewportLayout";
@@ -154,7 +149,7 @@ export function PreviewView(props: Props) {
 }
 
 function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, visible }: Props) {
-  const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
+  const urlInputRef = useRef<HTMLInputElement | null>(null);
   const [pickActive, setPickActive] = useState(false);
   const annotationOpen = usePreviewAnnotationEditorStore(
     (state) =>
@@ -166,11 +161,10 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   // Kept in sync so the title effect can depend on the stable thread key
   // instead of the thread object, which is recreated on every update.
   const threadRefRef = useRef(threadRef);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the committed thread reference to asynchronous preview bridge callbacks
   useLayoutEffect(() => {
     threadRefRef.current = threadRef;
   }, [threadRef]);
-  const pickActiveRef = useRef<{ cancelled: boolean } | null>(null);
-  const isMountedRef = useRef(true);
   const previewState = useThreadPreviewState(threadRef);
   const recentHistoryEntries = useThreadRecentHistory(
     threadRef,
@@ -181,15 +175,11 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   );
   const addPreviewAnnotation = useComposerDraftStore((store) => store.addPreviewAnnotation);
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(threadRef.environmentId);
-  const environmentHostname = environmentHttpBaseUrl
-    ? new URL(environmentHttpBaseUrl).hostname
-    : null;
   const open = useAtomCommand(previewEnvironment.open);
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
   const environmentLabel = useEnvironment(threadRef.environmentId)?.label ?? "the environment";
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const serverBrowser = useEnvironmentSupportsServerBrowser(threadRef.environmentId);
-  const resize = useAtomCommand(previewEnvironment.resize, "preview viewport resize");
   const pickElement = useAtomCommand(previewEnvironment.pickElement, { reportFailure: false });
   const adjust = useAtomCommand(previewEnvironment.adjust, "preview appearance or zoom");
 
@@ -211,10 +201,11 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const serverOwnsRendering = snapshot?.runtime === "server";
   const serverSurfaceRef = useRef<ServerBrowserHandle | null>(null);
   const [serverAspectRatioLocked, setServerAspectRatioLocked] = useState(false);
-  const serverBodyRef = useRef<HTMLDivElement | null>(null);
   const [serverToolbarWidth, setServerToolbarWidth] = useState(0);
   const serverToolbarShown =
     snapshot?.runtime === "server" && (snapshot.viewport ?? FILL_PREVIEW_VIEWPORT)._tag !== "fill";
+  const serverBodyRef = useRef<HTMLDivElement | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- ResizeObserver on the server preview body sizes the viewport toolbar
   useEffect(() => {
     const element = serverBodyRef.current;
     if (!element || !serverToolbarShown) return;
@@ -225,7 +216,9 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const [serverControlledTabId, setServerControlledTabId] = useState<string | null>(null);
   const serverInputDisabled = isServerTab && serverControlledTabId !== runtimeTabId;
   const [serverFrameTabId, setServerFrameTabId] = useState<string | null>(null);
-  const desktopOverlay = tabId ? (previewState.desktopByTabId[tabId] ?? null) : null;
+  // A desktop page that mounted before its tab went headless leaves its stale state here.
+  const desktopOverlay =
+    tabId && !isServerTab ? (previewState.desktopByTabId[tabId] ?? null) : null;
   const layoutZoomFactor = useBrowserLayoutZoomFactor(desktopOverlay?.zoomFactor ?? 1);
   const navStatus = snapshot?.navStatus ?? { _tag: "Idle" as const };
   const url = navStatus._tag === "Idle" ? "" : navStatus.url;
@@ -240,28 +233,12 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const controller = desktopOverlay?.controller ?? "none";
   const viewport = snapshot?.viewport ?? FILL_PREVIEW_VIEWPORT;
   const browserDefaults = useBrowserDefaults();
-  // Passing the snapshot's raw `undefined` through would reach the IPC layer
-  // as "every profile".
+  // IPC interprets undefined profile ids as all profiles.
   const activeProfileId = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID;
   const activeProfileName = previewProfileName(browserDefaults.profiles, activeProfileId);
   const panelRect = useBrowserSurfaceStore((state) =>
     runtimeTabId ? (state.byTabId[runtimeTabId]?.rect ?? null) : null,
   );
-
-  const navUrl = navStatus._tag === "Success" ? navStatus.url : null;
-  const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
-  const latestHistoryUrl = recentHistoryEntries[0]?.url;
-  // Keyed on the ids rather than threadRef, which is recreated on every update.
-  const { environmentId: threadEnvironmentId, threadId } = threadRef;
-  useEffect(() => {
-    if (!navUrl || !navTitle || !latestHistoryUrl) return;
-    setTitleForThreadUrl(
-      scopeThreadRef(threadEnvironmentId, threadId),
-      navUrl,
-      navTitle,
-      environmentHostname,
-    );
-  }, [environmentHostname, latestHistoryUrl, navTitle, navUrl, threadEnvironmentId, threadId]);
 
   const navigateToResolvedUrl = async (resolvedUrl: string) => {
     if (isServerTab && serverSurfaceRef.current) {
@@ -363,37 +340,16 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     else if (previewBridge && runtimeTabId) void previewBridge.resetZoom(runtimeTabId);
   };
 
-  const handleViewportChange = async (nextViewport: PreviewViewportSetting) => {
-    if (!tabId) return;
-    const result = await resize({
-      environmentId: threadRef.environmentId,
-      input: {
-        threadId: threadRef.threadId,
-        tabId,
-        viewport: nextViewport,
-      },
-    });
-    if (result._tag === "Failure") {
-      const error = squashAtomCommandFailure(result);
-      toastManager.add({
-        type: "error",
-        title: "Unable to resize browser viewport",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-      throw error;
-    }
-    updatePreviewServerSnapshot(threadRef, result.value);
-  };
-
   const handleToggleDeviceToolbar = () => {
-    if (!runtimeTabId) return;
+    if (!runtimeTabId || !tabId) return;
+    const target = { threadRef, tabId, runtimeTabId };
     if (viewport._tag !== "fill") {
-      void commitBrowserViewportChange(runtimeTabId, FILL_PREVIEW_VIEWPORT).catch(() => undefined);
+      void commitBrowserViewportChange(target, FILL_PREVIEW_VIEWPORT).catch(() => undefined);
       return;
     }
 
     void commitBrowserViewportChange(
-      runtimeTabId,
+      target,
       browserResponsiveViewportForToggle({
         defaults: browserDefaults,
         panelRect,
@@ -401,14 +357,6 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       }),
     ).catch(() => undefined);
   };
-
-  const onViewportChange = useEffectEvent(handleViewportChange);
-  useEffect(() => {
-    if (!runtimeTabId) return;
-    return subscribeBrowserViewportChange(runtimeTabId, (nextViewport) =>
-      onViewportChange(nextViewport),
-    );
-  }, [runtimeTabId]);
 
   const handleBack = () => {
     if (isServerTab) serverSurfaceRef.current?.history(-1);
@@ -853,8 +801,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     })();
   };
 
-  // Subscribe only while visible; `toggle-panel` is owned by ChatView's
-  // URL-aware handler regardless of whether the panel is currently mounted.
+  // Subscribe only while visible; ChatView always owns URL-aware toggle-panel handling.
   const onPreviewAction = useEffectEvent(
     (action: Parameters<Parameters<typeof subscribePreviewAction>[0]>[0]) => {
       switch (action) {
@@ -862,7 +809,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
           handleRefresh();
           return;
         case "focus-url":
-          setFocusUrlNonce((value) => (value ?? 0) + 1);
+          urlInputRef.current?.focus();
           return;
         case "zoom-in":
           handleZoomIn();
@@ -878,6 +825,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       }
     },
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to preview actions while the view is visible
   useEffect(() => {
     if (!visible) return;
     return subscribePreviewAction((action) => onPreviewAction(action));
@@ -895,7 +843,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         canGoForward={canGoForward && !serverInputDisabled}
         refreshDisabled={refreshDisabled || serverInputDisabled}
         inputDisabled={serverInputDisabled}
-        focusUrlNonce={focusUrlNonce}
+        urlInputRef={urlInputRef}
         onBack={handleBack}
         onForward={handleForward}
         onRefresh={handleRefresh}
@@ -924,7 +872,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         // user wouldn't be able to actually click anything underneath).
         pickDisabled={!tabId || isUnreachable}
         pickDisabledReason={
-          isUnreachable ? "Page didn't load — pick unavailable until the page renders" : undefined
+          isUnreachable ? "Page didn't load. Pick is unavailable until the page renders" : undefined
         }
         leadingActions={
           activeProfileId !== browserDefaults.profileId ? (
@@ -942,7 +890,12 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
               <PreviewDeviceMenu
                 viewport={viewport}
                 disabled={!tabId || isUnreachable}
-                onChange={(next) => void handleViewportChange(next)}
+                onChange={(next) => {
+                  if (!tabId || !runtimeTabId) return;
+                  void commitBrowserViewportChange({ threadRef, tabId, runtimeTabId }, next).catch(
+                    () => undefined,
+                  );
+                }}
               />
             ) : null}
             {moreMenuActions ? (
@@ -983,7 +936,12 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
                   width={serverToolbarWidth}
                   aspectRatio={serverAspectRatioLocked ? viewport.width / viewport.height : null}
                   onAspectRatioChange={(ratio) => setServerAspectRatioLocked(ratio !== null)}
-                  onChange={(setting) => commitBrowserViewportChange(runtimeTabId, setting)}
+                  onChange={(setting) =>
+                    commitBrowserViewportChange(
+                      { threadRef, tabId: snapshot.tabId, runtimeTabId },
+                      setting,
+                    )
+                  }
                 />
               </div>
             ) : null}

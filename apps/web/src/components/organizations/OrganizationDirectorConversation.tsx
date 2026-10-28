@@ -115,6 +115,7 @@ export function OrganizationDirectorConversation({
   );
 
   const listRefresh = list.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates director conversation history when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) listRefresh();
     wasOffline.current = offline;

@@ -53,11 +53,11 @@ import {
 } from "../organizations/OrganizationPatchPrompt.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
+const isTextGenerationError = Schema.is(TextGenerationError);
+
 const CODEX_TIMEOUT_MS = 180_000;
 const CODEX_MCP_LIST_TIMEOUT_MS = 10_000;
-// Plugins and apps bring MCP servers of their own; the user's are listed and
-// turned off by name below. These follow the user's launch args, so they win
-// over a `-c features.plugins=true` there, which `--disable plugins` does not.
+// Plugins/apps add MCP servers; use trailing config overrides because --disable loses to user -c flags.
 const CODEX_NO_PLUGIN_ARGS = [
   "--config",
   "features.plugins=false",
@@ -69,10 +69,7 @@ const CodexMcpServers = Schema.fromJsonString(
 );
 const decodeCodexMcpServers = Schema.decodeEffect(CodexMcpServers);
 
-/**
- * `mcp_servers={}` merges into the user's servers rather than replacing them,
- * so each is named; quoting the name keeps one with a dot a single key.
- */
+// mcp_servers={} merges instead of replacing; disable named entries and quote dotted names.
 const codexMcpServersOff = (names: ReadonlyArray<string>): string | null =>
   names.length === 0
     ? null
@@ -114,16 +111,12 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     );
 
   const safeUnlink = (filePath: string): Effect.Effect<void, never> =>
-    fileSystem.remove(filePath).pipe(Effect.catch(() => Effect.void));
+    fileSystem.remove(filePath).pipe(Effect.ignoreCause);
 
   const removeTempFileDir = (filePath: string): Effect.Effect<void, never> =>
-    fileSystem
-      .remove(path.dirname(filePath), { recursive: true })
-      .pipe(Effect.catch(() => Effect.void));
+    fileSystem.remove(path.dirname(filePath), { recursive: true }).pipe(Effect.ignore);
 
-  // Deliberately unscoped: text generation runs from background fibers whose
-  // ambient scope may already be closed (a closed scope reaps the temp
-  // directory the moment it is created).
+  // Background fibers may inherit closed scopes that immediately reap temp files; write unscoped.
   const writeTempFile = (
     operation: string,
     prefix: string,
@@ -350,9 +343,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         [
           "exec",
           ...execLaunchArgs,
-          // Text generation needs only the prompt. A user's MCP server would
-          // otherwise start and could act on it, as Claude's --strict-mcp-config
-          // prevents for Claude.
+          // A user's MCP server could act on the text-generation prompt.
           ...CODEX_NO_PLUGIN_ARGS,
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),
           "--ephemeral",
@@ -453,7 +444,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
             if (observer) yield* observer.exited(handle);
           }).pipe(
             Effect.mapError((cause) =>
-              Schema.is(TextGenerationError)(cause)
+              isTextGenerationError(cause)
                 ? cause
                 : normalizeCliError("codex", operation, cause, "Failed to verify Codex CLI exit"),
             ),

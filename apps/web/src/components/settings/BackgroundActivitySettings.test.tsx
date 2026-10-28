@@ -69,7 +69,7 @@ it.each([...BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS])(
       return Promise.resolve();
     });
     try {
-      expect(settingsTargetDestination(target)).toBe("/settings/general");
+      expect(settingsTargetDestination(target)).toBe("/settings/maintenance");
       await act(async () => root.render(<Fixture />));
       await vi.waitFor(() => expect(document.activeElement?.id).toBe(target));
       expect(scroll).toHaveBeenCalled();

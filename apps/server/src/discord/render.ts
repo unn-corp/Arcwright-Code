@@ -1,10 +1,6 @@
 /**
- * Pure rendering helpers for the Discord bridge.
- *
- * Everything in this module is a plain function with no Effect, no I/O and no
- * clock access, so it can be exhaustively unit tested. All of the genuinely
- * fiddly logic (chunk boundaries, code fences spanning a split, surrogate
- * pairs) lives here rather than in the reactor.
+ * Keep rendering free of I/O and clocks so chunk boundaries, code fences and surrogate handling remain
+ * deterministic.
  */
 
 /** Discord's hard cap for a normal message body. */

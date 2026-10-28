@@ -83,6 +83,7 @@ export function PinnedTimelineParticipant({
 }) {
   const headerRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState<ReturnType<typeof pinnedParticipant>>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the mounted virtual list and observes its viewport to position the pinned participant heading
   useLayoutEffect(() => {
     if (isAndroidPwa) return;
     const refresh = () => {
@@ -124,6 +125,7 @@ export function PinnedTimelineParticipant({
       refreshRef.current = () => {};
     };
   }, [groups, listRef, refreshRef]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the pinned heading DOM height to keep its collision position current until that heading unmounts
   useLayoutEffect(() => {
     if (!pinned?.group || !headerRef.current) return;
     refreshRef.current();

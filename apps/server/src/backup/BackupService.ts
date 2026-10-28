@@ -29,6 +29,8 @@ export const BackupManifest = Schema.Struct({
     Schema.Struct({ path: Schema.String, sha256: Schema.String, bytes: Schema.Number }),
   ),
 });
+
+const decodeUnknownSyncBackupManifest = Schema.decodeUnknownSync(BackupManifest);
 export class BackupError extends Schema.TaggedError<BackupError>()("BackupError", {
   operation: Schema.String,
   message: Schema.String,
@@ -127,7 +129,7 @@ export class BackupService extends Context.Service<
 >()("t3/backup/BackupService") {}
 const make = Effect.succeed(
   BackupService.of({
-    create: ({ homeDir, outputDir }) =>
+    create: Effect.fn("BackupService.create")(({ homeDir, outputDir }) =>
       operation("create", async () => {
         const source = await NodeFSP.realpath(NodePath.join(NodePath.resolve(homeDir), "userdata"));
         const destination = NodePath.resolve(outputDir);
@@ -182,7 +184,8 @@ const make = Effect.succeed(
           throw cause;
         }
       }),
-    restore: ({ inputDir, homeDir }) =>
+    ),
+    restore: Effect.fn("BackupService.restore")(({ inputDir, homeDir }) =>
       operation("restore", async () => {
         const source = await NodeFSP.realpath(NodePath.resolve(inputDir));
         const payload = NodePath.join(source, "userdata");
@@ -191,7 +194,7 @@ const make = Effect.succeed(
           (await NodeFSP.lstat(payload)).isSymbolicLink()
         )
           throw new Error("Invalid backup data directory.");
-        const manifest = Schema.decodeUnknownSync(BackupManifest)(
+        const manifest = decodeUnknownSyncBackupManifest(
           JSON.parse(await NodeFSP.readFile(NodePath.join(source, "manifest.json"), "utf8")),
         );
         const actual = await filesBelow(payload);
@@ -234,6 +237,7 @@ const make = Effect.succeed(
           throw cause;
         }
       }),
+    ),
   }),
 );
 export const layer = Layer.effect(BackupService, make);

@@ -29,7 +29,6 @@ const mobileEndorsementRows = [
 ---
 
 <Layout>
-  <!-- ── Hero ──────────────────────────────────────────────────── -->
   <section class="hero">
     <div class="hero-grid" aria-hidden="true"></div>
 
@@ -111,7 +110,6 @@ const mobileEndorsementRows = [
     </div>
   </section>
 
-  <!-- ── Endorsements ─────────────────────────────────────────── -->
   <section id="endorsements" class="sec-endorsements" aria-labelledby="endorsements-title">
     <div class="container">
       <div class="endorsements-head">
@@ -197,7 +195,6 @@ const mobileEndorsementRows = [
     </div>
   </section>
 
-  <!-- ── Harnesses ─────────────────────────────────────────────── -->
   <section id="harnesses" class="sec-harness">
     <div class="container">
       <div class="section-head">
@@ -262,7 +259,6 @@ const mobileEndorsementRows = [
     </div>
   </section>
 
-  <!-- ── Git ──────────────────────────────────────────────────── -->
   <section id="git" class="sec-git">
     <div class="container git-inner">
       <div
@@ -327,7 +323,6 @@ const mobileEndorsementRows = [
     </div>
   </section>
 
-  <!-- ── Open source ───────────────────────────────────────────── -->
   <section id="open" class="sec-open">
     <div class="container">
       <div class="section-head open-head">
@@ -393,7 +388,6 @@ const mobileEndorsementRows = [
     </div>
   </section>
 
-  <!-- ── Final CTA ─────────────────────────────────────────────── -->
   <section id="download" class="sec-cta">
     <div class="container cta-inner">
       <h2 class="display cta-title">
@@ -431,10 +425,7 @@ const mobileEndorsementRows = [
     return null;
   }
 
-  // Macs always get the arm64 build. Browsers cannot reliably tell Apple Silicon
-  // from Intel (the UA lies, GPU strings lie), and a wrong guess hands an Apple
-  // Silicon user a broken app. Intel users pick their build on /download.
-  // Do NOT add arch detection back here.
+  // Browser architecture hints are unreliable; serve arm64 and let Intel users choose on /download.
   function pickAsset(assets: ReleaseAsset[], platform: Platform): string | null {
     if (platform.os === "win") {
       return assets.find((a) => a.name.endsWith("-x64.exe"))?.browser_download_url ?? null;
@@ -495,7 +486,6 @@ const mobileEndorsementRows = [
 </script>
 
 <style>
-  /* ── Section base ─────────────────────────────────────────── */
   section {
     position: relative;
     padding: 96px 0;
@@ -547,7 +537,6 @@ const mobileEndorsementRows = [
     flex-shrink: 0;
   }
 
-  /* ── Hero ─────────────────────────────────────────────────── */
   .hero {
     padding: 72px 0 60px;
     position: relative;
@@ -650,7 +639,6 @@ const mobileEndorsementRows = [
     text-decoration-color: var(--fg);
   }
 
-  /* Download button icons (platform-aware) */
   .dl-icon {
     display: none;
     width: 14px;
@@ -796,7 +784,6 @@ const mobileEndorsementRows = [
     object-position: center top;
   }
 
-  /* ── Harnesses ─────────────────────────────────────────── */
   .sec-harness { background: #09090b; }
 
   .harness-grid {
@@ -847,7 +834,6 @@ const mobileEndorsementRows = [
   }
   .harness-footer-item svg { color: var(--ok); }
 
-  /* ── Endorsements ─────────────────────────────────────── */
   .sec-endorsements {
     overflow: hidden;
   }
@@ -1006,7 +992,6 @@ const mobileEndorsementRows = [
     -webkit-line-clamp: 3;
   }
 
-  /* ── Git ──────────────────────────────────────────────── */
   .git-inner {
     display: grid;
     grid-template-columns: 1.1fr 1fr;
@@ -1087,7 +1072,6 @@ const mobileEndorsementRows = [
     padding: 2px 6px; border-radius: 4px;
   }
 
-  /* ── Open source ──────────────────────────────────────── */
   .open-head {
     text-align: center;
     margin: 0 auto 56px;
@@ -1228,7 +1212,6 @@ const mobileEndorsementRows = [
     color: var(--fg);
   }
 
-  /* ── Final CTA ────────────────────────────────────────── */
   .sec-cta {
     text-align: center;
     padding: 120px 0;
@@ -1262,7 +1245,6 @@ const mobileEndorsementRows = [
     margin-bottom: 24px;
   }
 
-  /* ── Responsive ────────────────────────────────────────── */
   @media (max-width: 960px) {
     .hero-preview {
       width: min(860px, calc(100vw - 24px));

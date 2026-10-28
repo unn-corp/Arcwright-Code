@@ -53,6 +53,7 @@ export function AndroidBrowserHosts() {
     .filter((environment) => environment.entry.enabled)
     .map((environment) => environment.environmentId);
   const key = JSON.stringify(ids);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reconciles native browser tabs with the enabled environment allowlist when the catalog changes
   useEffect(() => {
     if (!isReady || !supportsAndroidBrowser()) return;
     const allowedIds = JSON.parse(key) as EnvironmentId[];
@@ -87,6 +88,7 @@ function PhoneBrowserHost({ environmentId }: { readonly environmentId: Environme
   const tabs = useAndroidBrowserTabs((state) => state.tabs);
   const foreground = useAndroidBrowserTabs((state) => state.foreground);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes this environment to native browser navigation events and releases the bridge listener on unmount
   useEffect(
     () =>
       subscribeAndroidBrowser((event) => {
@@ -249,6 +251,7 @@ function PhoneBrowserHost({ environmentId }: { readonly environmentId: Environme
   };
   const [handlerAtom] = useState(() => Atom.make({ handle }));
   const setHandler = useAtomSet(handlerAtom);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the current browser automation handler to the mounted host registry
   useEffect(() => {
     setHandler({ handle });
   }, [handle, setHandler]);
@@ -262,6 +265,7 @@ function PhoneBrowserHost({ environmentId }: { readonly environmentId: Environme
     label: `preview:phone:${environmentId}:${clientId}`,
   });
   useAtomValue(consumer);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reports window focus and native tab visibility to the browser host while its connection is mounted
   useEffect(() => {
     const report = () => {
       if (!connectionId) return;

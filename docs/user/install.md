@@ -61,7 +61,7 @@ Build this checkout when a fork release is not yet available.
 
 The fork release pipeline targets Windows x64 and Linux x64. Other architectures
 and macOS are not in its automatic delivery matrix. Build from source or use
-upstream Arcwright Code, with its own release/update behavior.
+upstream T3 Code, with its own release/update behavior.
 
 ## Desktop app
 
@@ -83,7 +83,7 @@ update fails. Download the new `.deb` and install it the same way.
 ### The `t3` command
 
 The desktop app includes the `t3` command-line tool. To run it from any
-terminal, open **Settings → General → About** and choose **Install** next to
+terminal, open **Settings → About** and choose **Install** next to
 **t3 command**. On macOS and Linux it adds a `t3` link to a folder on your
 `PATH`; on Windows it adds the app's command folder to your `PATH`. Open a new
 terminal afterwards. **Remove** takes it off again. If you already have `t3`
@@ -91,7 +91,7 @@ from npm, it stays as it is.
 
 ### Windows Subsystem for Linux
 
-Choose a WSL distro in **Settings → Connections** to run agents and projects
+Choose a WSL distro in **Settings → Sharing & access** to run agents and projects
 there. Install the provider CLIs inside that distro. Arcwright Code installs its own
 server runtime there automatically; the first launch after an app update can
 take longer.
@@ -117,7 +117,7 @@ Install Arcwright Code from the
 The phone connects to a server on another machine. Follow
 [remote access](./remote-access.md) to link it through Arcwright Connect or a pairing URL.
 
-Store links and QR codes are also available in **Settings → General → Mobile app**
+Store links and QR codes are also available in **Settings → About → Mobile app**
 on web and desktop. The store apps work with both stable and Nightly servers. Test builds are optional:
 
 - **iPhone and iPad:** TestFlight is invite-only.
@@ -147,6 +147,7 @@ computer.
 | Antigravity | Install and sign in with Google from Arcwright Code's provider settings.                                                                                  |
 | Pi          | Install [Pi](./providers-pi.md#set-up-pi) with Node.js 22.19 or newer, then run `pi` and `/login`.                                                        |
 | Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |
+| fx          | Install [fx](https://fx.sh) with `curl -fsSL https://fx.sh/setup.sh \| bash`, then run `fx login`.                                                        |
 
 Provider CLIs must be on the server's `PATH`. If Arcwright Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
@@ -175,8 +176,8 @@ their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 [Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
-[Antigravity](./providers-antigravity.md), [Pi](./providers-pi.md), and
-[Muse Code](./providers-muse.md).
+[Antigravity](./providers-antigravity.md), [Pi](./providers-pi.md),
+[Muse Code](./providers-muse.md), and [fx](./providers-fx.md).
 
 ## Next steps
 

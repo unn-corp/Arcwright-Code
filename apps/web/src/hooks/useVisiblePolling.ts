@@ -3,6 +3,7 @@ import { useEffect, useEffectEvent } from "react";
 /** Fallback for status APIs without a complete push path. */
 export function useVisiblePolling(refresh: () => void, enabled: boolean, intervalMs: number) {
   const refreshLatest = useEffectEvent(refresh);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the visible polling timer and focus/visibility listeners for this mounted surface
   useEffect(() => {
     if (!enabled) return;
     let timer: ReturnType<typeof setInterval> | undefined;

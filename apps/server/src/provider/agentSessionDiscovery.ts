@@ -1,17 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Discovery of agent CLI sessions that already exist on disk, for `/resume`.
- *
- * Each supported driver stores conversations in its own layout, under a home
- * directory that is per provider *instance* — so "the Claude account currently
- * selected" is just "the home path on that instance's settings":
- *
- * - codex:  `<home>/sessions/YYYY/MM/DD/rollout-*.jsonl`, one JSONL per session
- * - claude: `<configDir>/projects/<slugified-cwd>/<sessionId>.jsonl`
- * - grok:   `<home>/sessions/<url-encoded-cwd>/<sessionId>/chat_history.jsonl`
- *
- * Codex discovery lives in `codexSessionDiscovery.ts`; this module adds the
- * other drivers and the dispatch that picks one.
+ * Discover native sessions under each configured provider instance's own home. Codex discovery is
+ * separate; this module dispatches Claude/Grok layouts and preserves account isolation.
  */
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";

@@ -376,7 +376,6 @@ export const RelayAgentActivityPublishProofPayload = Schema.Struct({
 });
 export type RelayAgentActivityPublishProofPayload =
   typeof RelayAgentActivityPublishProofPayload.Type;
-export type RelayAgentActivityPublishProof = string;
 
 export const RelayAgentActivityPublishRequest = Schema.Struct({
   state: Schema.NullOr(RelayActivityStateInput).annotate({
@@ -1078,12 +1077,7 @@ export const RelayCloudEnvironmentHealthProofPayload = Schema.Struct({
 export type RelayCloudEnvironmentHealthProofPayload =
   typeof RelayCloudEnvironmentHealthProofPayload.Type;
 
-/**
- * Sent with every webhook the relay forwards, signed with the relay's mint key
- * (`x-t3-relay-delivery`). The environment trusts the relay's delivery id,
- * receive time and trace context only when this verifies, since its webhook
- * URL can also be called directly.
- */
+/** Verify x-t3-relay-delivery with the relay mint key before trusting delivery id, time, or trace context. */
 export const RelayHookDeliveryProofPayload = Schema.Struct({
   ...RelaySignedJwtRegisteredClaims,
   environmentId: EnvironmentId,
@@ -1570,14 +1564,8 @@ const RelayPwaGroup = HttpApiGroup.make("pwa")
   )
   .annotate(OpenApi.Description, "Anonymous, installation-scoped PWA Web Push.");
 
-/**
- * Public, stateless webhook forwarding to an environment's managed tunnel.
- * Unauthenticated: the token in the path is the environment's credential, and
- * the relay only routes and forwards. Raw, so the body reaches the
- * environment byte for byte and signatures still verify there. `endpointKey`
- * names one managed endpoint (its tunnel's hash of user and environment), not
- * the environment id, which any account can link.
- */
+// Path token authenticates; forward raw bytes for signature verification.
+// endpointKey is the managed endpoint hash, not the account-linkable environment id.
 const RelayHookParams = Schema.Struct({
   endpointKey: Schema.String,
   hookId: Schema.String,
@@ -1594,6 +1582,22 @@ const RelayHooksGroup = HttpApiGroup.make("hooks")
   )
   .annotate(OpenApi.Description, "Forward webhook requests to an environment.");
 
+export const RelayMobileTelemetrySignal = Schema.Literals(["logs", "metrics", "traces"]);
+export type RelayMobileTelemetrySignal = typeof RelayMobileTelemetrySignal.Type;
+
+// expo-observe appends `<easProjectId>/v1/<signal>` to its endpoint URL and cannot send credentials.
+const RelayMobileTelemetryParams = Schema.Struct({
+  projectId: Schema.String.check(Schema.isGUID()),
+  signal: RelayMobileTelemetrySignal,
+});
+const RelayMobileTelemetryGroup = HttpApiGroup.make("mobileTelemetry")
+  .add(
+    HttpApiEndpoint.post("ingest", "/v1/mobile/observe/:projectId/v1/:signal", {
+      params: RelayMobileTelemetryParams,
+    }),
+  )
+  .annotate(OpenApi.Description, "Receive mobile app telemetry from expo-observe.");
+
 export const RelayApi = HttpApi.make("RelayApi")
   .add(
     RelayHealthGroup,
@@ -1605,6 +1609,7 @@ export const RelayApi = HttpApi.make("RelayApi")
     RelayServerGroup,
     RelayPwaGroup,
     RelayHooksGroup,
+    RelayMobileTelemetryGroup,
   )
   .annotate(OpenApi.Title, "Arcwright Code Relay API")
   .annotate(OpenApi.Version, "1.0.0")

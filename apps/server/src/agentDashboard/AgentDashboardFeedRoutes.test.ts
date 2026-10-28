@@ -44,7 +44,6 @@ const makeAuthLayer = (mode: "reject" | "allow" | "no-read-scope") =>
     issueSession: unusedAuthOperation as never,
     listSessions: unusedAuthOperation as never,
     revokeSession: unusedAuthOperation as never,
-    revokeOtherSessionsExcept: unusedAuthOperation as never,
     listClientSessions: unusedAuthOperation as never,
     revokeClientSession: unusedAuthOperation as never,
     revokeOtherClientSessions: unusedAuthOperation as never,

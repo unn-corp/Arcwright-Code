@@ -34,6 +34,8 @@ import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
 import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
 import {
+  BrowserRecordingFrameRate,
+  DEFAULT_BROWSER_RECORDING_FRAME_RATE,
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   FILL_PREVIEW_VIEWPORT,
@@ -96,6 +98,45 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 3;
+
+export const MAX_SNOOZE_PRESET_MINUTES = 30 * 24 * 60;
+export const MAX_SNOOZE_PRESETS = 8;
+export const SnoozePresetDay = Schema.Literals([
+  "today",
+  "tomorrow",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+]);
+export type SnoozePresetDay = typeof SnoozePresetDay.Type;
+/** `after` wakes a fixed time from now. `at` wakes at a local time; a weekday is its next occurrence after today. */
+export const SnoozePresetSetting = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("after"),
+    minutes: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_SNOOZE_PRESET_MINUTES })),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("at"),
+    day: SnoozePresetDay,
+    time: Schema.String.check(Schema.isPattern(/^([01]\d|2[0-3]):[0-5]\d$/)),
+  }),
+]);
+export type SnoozePresetSetting = typeof SnoozePresetSetting.Type;
+export const SnoozePresetSettings = Schema.Array(SnoozePresetSetting).check(
+  Schema.isMaxLength(MAX_SNOOZE_PRESETS),
+);
+export const DEFAULT_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
+  { kind: "after", minutes: 60 },
+  { kind: "after", minutes: 180 },
+  { kind: "at", day: "today", time: "18:00" },
+  { kind: "at", day: "tomorrow", time: "09:00" },
+  { kind: "at", day: "monday", time: "09:00" },
+];
+
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;
 export const GlassOpacity = Schema.Int.check(
@@ -157,7 +198,15 @@ export const TerminalFontSize = Schema.Int.check(
 export type TerminalFontSize = typeof TerminalFontSize.Type;
 const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
-export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
+// "artwork" follows the running channel and shows nothing on Latest. The fixed artwork
+// modes let any channel opt into a specific channel's art.
+export const EnvironmentIdentificationMode = Schema.Literals([
+  "artwork",
+  "nightly-artwork",
+  "dev-artwork",
+  "pill",
+  "none",
+]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
 
@@ -248,25 +297,18 @@ const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyCo
 export const FontFamilyPreference = Schema.String.check(Schema.isMaxLength(200));
 export type FontFamilyPreference = typeof FontFamilyPreference.Type;
 
-/**
- * The environment's theme, set with `t3 theme set <id>`. Each client applies
- * it once per value — live when connected, on its next connect otherwise — so
- * setting it switches every client, while a theme a user picks in Settings
- * afterwards sticks until the next set. Empty means "no environment theme",
- * which is also how it is cleared.
- */
+/** Clients apply each environment theme set once; later local choices persist until the next set. Empty clears it. */
 export const DefaultThemePreference = Schema.String.check(Schema.isMaxLength(64));
-// Deliberately absent from ServerSettingsPatch: `t3 theme set` checks that an
-// id is syntactically valid and actually resolvable, and a generic RPC patch
-// would let a client write a theme no client can resolve, bypassing both.
+// Excluded from RPC patches so t3 theme set can validate syntax and resolvability.
 export type DefaultThemePreference = typeof DefaultThemePreference.Type;
 
 export const DEFAULT_BROWSER_VIEWPORT: PreviewViewportSetting = FILL_PREVIEW_VIEWPORT;
 export const DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW = true;
-export const BROWSER_RECORDING_FRAME_RATES = [30, 60] as const;
-export const BrowserRecordingFrameRate = Schema.Literals(BROWSER_RECORDING_FRAME_RATES);
-export type BrowserRecordingFrameRate = typeof BrowserRecordingFrameRate.Type;
-export const DEFAULT_BROWSER_RECORDING_FRAME_RATE: BrowserRecordingFrameRate = 30;
+export {
+  BROWSER_RECORDING_FRAME_RATES,
+  BrowserRecordingFrameRate,
+  DEFAULT_BROWSER_RECORDING_FRAME_RATE,
+} from "./preview.ts";
 export const BrowserLinkTarget = Schema.Literals(["system", "app"]);
 export type BrowserLinkTarget = typeof BrowserLinkTarget.Type;
 export const DEFAULT_BROWSER_LINK_TARGET: BrowserLinkTarget = "system";
@@ -344,8 +386,7 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
   ),
   diffLayout: DiffLayout.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_DIFF_LAYOUT))),
-  // Panel motion defaults to zero because width and height transitions cause
-  // layout work on every frame, which is noticeable on lower-power clients.
+  // Zero avoids per-frame layout work from width/height transitions.
   panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
   ),
@@ -399,9 +440,6 @@ export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   confirmThreadUnpin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
   diffFilesCollapsed: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   dictationMicrophoneDeviceId: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -435,9 +473,7 @@ export const ClientSettingsSchema = Schema.Struct({
   fontFamilyTerminal: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 
   fontSmoothing: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // `null` alone does not mean "show the wizard" — every install that predates
-  // this field decodes to `null` — so the gate also requires an empty workspace
-  // before it treats the client as a fresh install.
+  // Older installs also decode to null; onboarding must additionally require an empty workspace.
   onboardingCompletedAt: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -464,14 +500,12 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("enter")),
   ),
   followUpBehavior: Schema.Literals(["queue", "steer"]).pipe(
-    Schema.withDecodingDefault(Effect.succeed("queue")),
+    Schema.withDecodingDefault(Effect.succeed("steer")),
   ),
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  sidebarWorkingShelfEnabled: Schema.Boolean.pipe(
-    Schema.withDecodingDefault(Effect.succeed(false)),
-  ),
+  sidebarWorkingShelfEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -677,11 +711,8 @@ export const IDLE_COMPACTION_MODES = [
 export const IdleCompactionMode = Schema.Literals(IDLE_COMPACTION_MODES.map((mode) => mode.value));
 export type IdleCompactionMode = typeof IdleCompactionMode.Type;
 
-// `compactIdleThreads` was a beta on/off switch for compacting before the cache
-// expires. Shipped clients decode it as a boolean and drop the whole server config
-// otherwise, so it stays a boolean on the wire and the mode lives in
-// `idleCompaction`. Servers before that split sent the mode here, so a string is
-// still read.
+// Shipped clients reject the whole server config unless `compactIdleThreads` is boolean.
+// Keep the mode in `idleCompaction`, but accept strings from older servers.
 const LegacyCompactIdleThreads = Schema.Union([Schema.Boolean, IdleCompactionMode]);
 
 const INSTANCE_IDLE_COMPACTION_MODES = [
@@ -748,7 +779,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Compact idle threads",
         description:
-          "When to compact an idle thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Overrides the default in General settings.",
+          "When to compact an idle thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Overrides the default in Providers > Advanced.",
         providerSettingsForm: {
           control: "select",
           options: INSTANCE_IDLE_COMPACTION_MODES,
@@ -1093,10 +1124,6 @@ export const UsageLimitSourceConfig = Schema.Struct({
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
 
-export const GitHubHost = TrimmedNonEmptyString.pipe(
-  Schema.decodeTo(Schema.String, SchemaTransformation.toLowerCase()),
-);
-
 export const SourceControlHostSettings = Schema.Record(Schema.String, Schema.Unknown);
 export type SourceControlHostSettings = typeof SourceControlHostSettings.Type;
 
@@ -1179,7 +1206,6 @@ export const BackgroundActivityOverrides = Schema.Struct({
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   hostPowerMonitorActiveInterval: Schema.optionalKey(Schema.DurationFromMillis),
   hostPowerMonitorIdleInterval: Schema.optionalKey(Schema.DurationFromMillis),
-  idleClientTtl: Schema.optionalKey(Schema.DurationFromMillis),
   pauseWhenHostLocked: Schema.optionalKey(Schema.Boolean),
   pauseWhenHostLowPower: Schema.optionalKey(Schema.Boolean),
   pauseWhenClientLowPower: Schema.optionalKey(Schema.Boolean),
@@ -1198,14 +1224,8 @@ export const BackgroundActivitySettings = Schema.Struct({
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
 /**
- * Discord bridge configuration.
- *
- * The bot token is deliberately absent: it lives in the server secret store,
- * because this struct is written to settings.json, copied around as test data,
- * and returned to clients. Only non-secret routing and policy lives here.
- *
- * `enabled` defaults to false so the bridge is a complete no-op until a user
- * opts in.
+ * The Discord token belongs only in the secret store; settings.json and client responses contain
+ * routing/policy only. The bridge stays inert until explicitly enabled.
  */
 export const DiscordBridgeSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1529,6 +1549,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "enableAgentBrowserAccess",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
+  "threadTitleInstructions",
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
   "reviewGuideInstructions",
@@ -1552,15 +1573,8 @@ export const ProjectProviderInstanceOverride = Schema.Struct({
 });
 export type ProjectProviderInstanceOverride = typeof ProjectProviderInstanceOverride.Type;
 
-/**
- * An absent key inherits the environment value; `null` is a real value where
- * the environment type is nullable (no default model, no dedicated writer
- * model, never auto-settle).
- *
- * `providerInstances` sits outside `PROJECT_SCOPED_SERVER_SETTING_KEYS`: every
- * other key replaces its `ServerSettings` field whole, while this one keeps the
- * settings.json shape but overrides field by field, per `ProviderInstanceId`.
- */
+/** Absent keys inherit; null is a value for nullable settings.
+ * providerInstances overrides fields per instance; other keys replace the whole setting. */
 export const ProjectSettingsOverrides = Schema.Struct({
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
@@ -1575,6 +1589,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
+  threadTitleInstructions: Schema.optionalKey(TrimmedString),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
@@ -1596,12 +1611,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
 } satisfies Record<ProjectScopedServerSettingKey | "providerInstances", unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
-/**
- * Whether `null` is a stored override value for this key rather than "unset".
- * Clients writing a project override treat null for every other key as a
- * request to remove the override, so a picker's "Inherit" item and the row's
- * reset do the same thing.
- */
+/** True if null stores an override; otherwise null removes it. */
 export function isNullableProjectSettingsOverride(key: ProjectScopedServerSettingKey): boolean {
   return NULLABLE_PROJECT_SETTINGS_OVERRIDES.has(key);
 }
@@ -1620,19 +1630,17 @@ const NULLABLE_PROJECT_SETTINGS_OVERRIDES: ReadonlySet<ProjectScopedServerSettin
 /** Reclaimable bytes from which the offline `t3 doctor` repair is worth suggesting. */
 export const DATABASE_COMPACTION_RECOMMENDED_BYTES = 1024 ** 3;
 
-/** Live SQLite file accounting for the environment's state database. */
 export const DatabaseStorageStatus = Schema.Struct({
   databaseBytes: Schema.Number,
   /** Free pages inside the file that an offline VACUUM (or incremental auto_vacuum) returns to disk. */
   reclaimableBytes: Schema.Number,
   /** False on databases created before incremental auto_vacuum; `t3 doctor` converts them. */
   incrementalVacuumEnabled: Schema.Boolean,
-  /** Command to run on the host to reclaim the space offline. */
+  /** Run on the host while offline. */
   compactCommand: Schema.String,
 });
 export type DatabaseStorageStatus = typeof DatabaseStorageStatus.Type;
 
-/** Only suggest the offline conversion when it can reclaim enough to matter. */
 export function shouldRecommendDatabaseCompaction(status: DatabaseStorageStatus): boolean {
   return (
     !status.incrementalVacuumEnabled &&
@@ -1705,8 +1713,7 @@ export const ServerSettings = Schema.Struct({
   threadRunLimits: Schema.Record(ThreadId, Schema.NullOr(RunLimits)).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  // Null means no client has migrated this preference yet; an empty value is
-  // authoritative so another device cannot resurrect cleared preferences.
+  // Null means unmigrated; empty is authoritative and must not resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   providerModelPreferences: Schema.NullOr(ProviderModelPreferences).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1726,10 +1733,7 @@ export const ServerSettings = Schema.Struct({
    * or `~/worktrees`. Empty uses `<T3 home>/worktrees`.
    */
   worktreesDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  /**
-   * Custom locations used before the current one. Server-maintained so
-   * worktrees left there stay eligible for cleanup and review diffs.
-   */
+  /** Server-maintained history keeps old worktrees eligible for cleanup and review diffs. */
   previousWorktreesDirectories: Schema.Array(TrimmedString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -1766,17 +1770,11 @@ export const ServerSettings = Schema.Struct({
   projectSettingsOverrides: Schema.Record(ProjectId, ProjectSettingsOverrides).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  /**
-   * The fold runs once so a later reset in the settings UI is not undone by the
-   * next server start.
-   */
+  /** Fold once so restarts cannot undo later UI resets. */
   projectSettingsFolded: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 
   enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  /**
-   * Kept separate from agent access so enabling the user's Device panel does
-   * not also grant providers control of simulators and emulators.
-   */
+  /** Enabling the Device panel must not grant providers device control. */
   enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   deviceHosts: SshDeviceHostConfigs.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
@@ -1790,6 +1788,16 @@ export const ServerSettings = Schema.Struct({
   idleCompaction: Schema.optionalKey(IdleCompactionMode),
   snoozeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   autoResumeLimitedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  snoozePresets: SnoozePresetSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNOOZE_PRESETS)),
+  ),
+  /** Beta: guest links for this machine's threads. Off refuses new links and pauses existing ones. */
+  guestSharingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * Beta: links to the user's other machines, both ways. Off refuses new links, calls over links
+   * and tasks on another machine; tasks already running there finish.
+   */
+  linkedEnvironmentsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarAutoSettleKeepPullRequests: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1810,31 +1818,20 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BACKGROUND_ACTIVITY_PROFILE)),
   ),
   defaultTheme: DefaultThemePreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  /**
-   * When the environment's theme was last set, so clients can tell a re-set of
-   * the same value from one they already applied: `t3 theme set` must act even
-   * when it names the theme it named before.
-   */
+  /** Distinguishes repeated sets of the same theme so clients apply each one. */
   defaultThemeSetAt: Schema.String.check(Schema.isMaxLength(64)).pipe(
     Schema.withDecodingDefault(Effect.succeed("")),
   ),
   environmentIcon: ForwardCompatibleNullable(EnvironmentMachineKind).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  /**
-   * Null means inherit: the repository's t3.json, then "local". Null stays off the wire
-   * so older clients, which require a literal here, keep decoding.
-   */
+  /** Null inherits t3.json, then local; omit it on the wire for older clients requiring a literal. */
   defaultThreadEnvMode: OmittedWhenNull(ThreadEnvMode),
   spaceEfficientWorktrees: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
-  /**
-   * Null defers to the repository's t3.json, then to recursive. A value
-   * picked on a newer server decodes as null here rather than failing the
-   * whole settings snapshot for an older client.
-   */
+  /** Null inherits t3.json, then recursive; unknown values decode to null for older clients. */
   worktreeSubmodules: ForwardCompatibleNullable(WorktreeSubmodules).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1853,6 +1850,7 @@ export const ServerSettings = Schema.Struct({
       }),
     ),
   ),
+  threadTitleInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   branchNamingMode: BranchNamingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("static" as const)),
   ),
@@ -1875,12 +1873,8 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
 
-  // Legacy single-instance-per-driver settings. Continues to be the source
-  // of truth until `providerInstances` (below) lands per-driver migration
-  // shims and the server starts hydrating instances from it. Driver-specific
-  // schemas live here for the duration of the migration; once each driver
-  // owns its config in its own package, this struct shrinks to nothing and
-  // is removed entirely.
+  // Retain legacy provider settings for per-driver decoding and migration into providerInstances;
+  // installed configurations must remain readable.
   providers: Schema.Struct({
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -1891,11 +1885,8 @@ export const ServerSettings = Schema.Struct({
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     antigravity: AntigravitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
-  // are `ProviderInstanceConfig` envelopes. The driver-specific config blob
-  // is `Schema.Unknown` at this layer so envelopes with unknown drivers
-  // (forks, downgrades, in-flight PR branches) round-trip without loss.
-  // See providerInstance.ts for the forward/backward compatibility invariant.
+  // Keep unknown driver config blobs as Schema.Unknown so forks, downgrades and new provider types
+  // round-trip without loss.
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1907,8 +1898,7 @@ export const ServerSettings = Schema.Struct({
   sourceControlHosts: Schema.Record(Schema.String, SourceControlHostSettings).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  // Keyed by a user-chosen id so a source keeps its rows across edits. Entries
-  // this build cannot decode round-trip untouched, as provider instances do.
+  // User-chosen ids preserve rows across edits; undecodable entries round-trip untouched.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1944,11 +1934,9 @@ export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | un
   return typeof enabled === "boolean" ? enabled : undefined;
 };
 
-/**
- * Matches the `enabled` decoding default of each driver's settings schema.
- */
+// Must match each driver's enabled decoding default.
 const DEFAULT_DISABLED_PROVIDER_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
-  ["cursor", "grok", "muse", "pi", "opencode", "antigravity"].map((driver) =>
+  ["cursor", "grok", "fx", "muse", "pi", "opencode", "antigravity"].map((driver) =>
     ProviderDriverKind.make(driver),
   ),
 );
@@ -2235,14 +2223,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
-  /**
-   * Per-project entry replacement: each entry replaces that project's whole
-   * override set and `null` removes it.
-   *
-   * `providerInstances` is the one exception: an entry that omits the key keeps
-   * the stored value instead of clearing it, so a client built before that
-   * field existed cannot wipe it by editing another key.
-   */
+  /** Replaces each project's override set; null removes it. Omitted providerInstances retains its stored value. */
   projectSettingsOverrides: Schema.optionalKey(
     Schema.Record(
       ProjectId,
@@ -2266,6 +2247,9 @@ export const ServerSettingsPatch = Schema.Struct({
   sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   autoResumeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   snoozeLimitedThreads: Schema.optionalKey(Schema.Boolean),
+  snoozePresets: Schema.optionalKey(SnoozePresetSettings),
+  guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
+  linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
       schemaVersion: Schema.optionalKey(Schema.Literal(1)),
@@ -2283,6 +2267,7 @@ export const ServerSettingsPatch = Schema.Struct({
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
   branchNameInstructions: Schema.optionalKey(TrimmedString),
@@ -2382,11 +2367,7 @@ export const ServerSettingsPatch = Schema.Struct({
       modelSelection: Schema.optionalKey(ModelSelection),
     }),
   ),
-  /**
-   * Merges per host: a patched field replaces the saved one, so a client sends a per-server-host
-   * map whole, with the redaction marker for each saved secret it keeps. An empty or omitted
-   * secret is removed from the secret store.
-   */
+  /** Merges per host, replacing patched fields whole; redaction markers retain secrets, empty or omitted secrets remove them. */
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
@@ -2400,13 +2381,9 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   sourceControlHosts: Schema.optionalKey(Schema.Record(Schema.String, SourceControlHostSettings)),
-  // Whole-map replacement for the new instance config. Patching individual
-  // entries is intentionally out of scope: the map is small, and partial
-  // patches risk leaving driver-specific config in a half-merged state.
+  // Replace whole maps to avoid half-merged driver configs.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
-  // Per-entry, unlike `providerInstances`: a client only ever adds or removes
-  // one source, and sending the whole map races another edit that has not
-  // echoed back yet. `null` removes; the server merges into its current map.
+  // Merge per source to avoid racing other edits; null removes an entry.
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
   ),
@@ -2443,11 +2420,7 @@ export function requiredScopesForServerSettingsPatch(
   ];
 }
 
-/**
- * Project scripts run on the host when a worktree is created or a thread
- * settles, so a project mutation that carries them needs the same grant as
- * saving project scripts through settings, on top of `orchestration:operate`.
- */
+/** Host-executed project scripts require settings-write authority in addition to orchestration:operate. */
 export function requiredScopesForProjectMutation(
   mutation: ProjectMutation,
 ): ReadonlyArray<AuthEnvironmentScope> {

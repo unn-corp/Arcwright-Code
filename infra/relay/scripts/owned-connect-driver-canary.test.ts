@@ -1,9 +1,10 @@
 import { expect, it } from "@effect/vitest";
+import * as NodeURL from "node:url";
 import * as Alchemy from "alchemy";
-import * as Workers from "alchemy/Cloudflare/Workers";
+import * as Workers from "@alchemy.run/cloudflare/Workers";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import * as Artifacts from "alchemy/Artifacts";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Provider from "alchemy/Provider";
 import * as Output from "alchemy/Output";
 import * as Context from "effect/Context";
@@ -25,7 +26,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { Request } from "alchemy/Cloudflare/Workers";
+import { Request } from "@alchemy.run/cloudflare/Workers";
 import { driverCanaryStackBody } from "./owned-connect-driver-canary-stack.ts";
 import { readDriverCanaryConfig } from "./owned-connect-driver-canary-config.ts";
 import {
@@ -77,7 +78,7 @@ function executionOwner() {
     Type: "CanaryTest",
     id: "CanaryTest",
     env: {},
-    get: () => Effect.succeed(undefined),
+    get: () => Effect.void.pipe(Effect.as(undefined)),
     set: () => Effect.die(new CanaryFixtureFailure()),
   });
   return { pending, execution, runtime, rejected: () => rejected };
@@ -392,6 +393,7 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const root = yield* fs.makeTempDirectoryScoped({
         directory: "/tmp",
         prefix: "arcwright-graph-",
@@ -426,6 +428,13 @@ it.effect(
         { providers, state: inMemoryState() },
         driverCanaryStackBody,
       );
+      const blockedCredentials: CredentialsStore["Service"] = {
+        read: () => forbiddenAuthIo,
+        write: () => forbiddenAuthIo,
+        delete: () => forbiddenAuthIo,
+        deleteProfile: () => forbiddenAuthIo,
+        scoped: () => blockedCredentials,
+      };
       const compiled = yield* stack.pipe(
         Effect.provideService(Alchemy.Stage, CANARY_STAGE),
         Effect.provideService(AlchemyContext, {
@@ -436,12 +445,7 @@ it.effect(
         }),
         Effect.provideService(Artifacts.ArtifactStore, Artifacts.createArtifactStore()),
         Effect.provideService(AuthProviders, {}),
-        Effect.provideService(CredentialsStore, {
-          read: () => forbiddenAuthIo,
-          write: () => forbiddenAuthIo,
-          delete: () => forbiddenAuthIo,
-          deleteProfile: () => forbiddenAuthIo,
-        }),
+        Effect.provideService(CredentialsStore, blockedCredentials),
         Effect.provideService(ProfileStore, {
           readManifest: forbiddenAuthIo,
           current: forbiddenAuthIo,
@@ -490,7 +494,10 @@ it.effect(
         ],
       });
       expect(compiled.output.contract).toBe(CANARY_CONTRACT);
-      expect(worker?.Props).toMatchObject(canaryWorkerProps);
+      expect(worker?.Props).toMatchObject({
+        ...canaryWorkerProps,
+        main: path.relative(process.cwd(), NodeURL.fileURLToPath(canaryWorkerProps.main)),
+      });
       expect(Object.keys(worker?.Props ?? {}).sort()).toEqual([
         "compatibility",
         "env",

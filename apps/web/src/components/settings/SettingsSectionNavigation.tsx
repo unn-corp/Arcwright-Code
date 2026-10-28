@@ -27,6 +27,7 @@ export function SettingsSectionNavigation({
   const [sections, setSections] = useState<SettingsSectionDestination[]>([]);
   const [active, setActive] = useState(0);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes settings DOM mutations, sizes and scroll position to maintain section-navigation targets
   useEffect(() => {
     const scroll = scrollRef.current;
     const content = contentRef.current;

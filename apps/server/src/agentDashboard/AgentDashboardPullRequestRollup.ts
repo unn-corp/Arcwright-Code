@@ -767,7 +767,7 @@ const make = Effect.gen(function* () {
         ).pipe(Effect.forkIn(scope), Effect.asVoid),
       { concurrency: 1, discard: true },
     );
-  }).pipe(Effect.catchCause(() => Effect.void));
+  }).pipe(Effect.ignoreCause);
   yield* recoverInterruptedRuns;
 
   const runOnce: AgentDashboardPullRequestRollupService["runOnce"] = Effect.gen(function* () {

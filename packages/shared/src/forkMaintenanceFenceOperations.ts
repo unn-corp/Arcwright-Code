@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * The registry side of the explicit Windows/WSL control channel. A WSL distribution keeps its own
- * coordinator registry (its processes are invisible to Windows), so its Windows parent drives the
- * distribution's fence through these verbs, run inside the distribution as
- * `t3 maintenance fence <verb> ...`. The parent holds the fence remotely: it is never inferred from
- * an address, and never released without a terminal journal mirrored into the distribution.
+ * Windows drives explicit WSL members through maintenance fence verbs inside each distribution. Keep
+ * the remote fence until its terminal journal is mirrored; never infer membership or state from
+ * addresses.
  */
 import { decodeJournal, type MaintenanceJournal } from "./forkMaintenanceJournal.ts";
 import type { CoordinatorStore, ReceiptSlot } from "./forkMaintenanceStore.ts";

@@ -59,6 +59,7 @@ function notificationCopy(event: AgentNotificationEvent, revealNames: boolean) {
 const make = Effect.gen(function* () {
   const settingsStore = yield* DesktopClientSettings.DesktopClientSettings;
   const windows = yield* ElectronWindow.ElectronWindow;
+  const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
 
   const show: DesktopNotifications["Service"]["show"] = Effect.fn("DesktopNotifications.show")(
     function* (event) {
@@ -75,7 +76,7 @@ const make = Effect.gen(function* () {
       return yield* Effect.sync(() => {
         const notification = new Electron.Notification(copy);
         notification.on("click", () => {
-          void Effect.runPromise(
+          void runPromise(
             Effect.gen(function* () {
               const target = yield* windows.currentMainOrFirst;
               if (Option.isSome(target)) {
@@ -89,7 +90,7 @@ const make = Effect.gen(function* () {
         return "attempted" as const;
       });
     },
-    Effect.catch(() => Effect.succeed("error" as const)),
+    Effect.orElseSucceed(() => "error" as const),
   );
 
   return DesktopNotifications.of({ show });

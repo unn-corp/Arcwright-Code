@@ -25,6 +25,17 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const decodeUnknownOrganizationIntakeSource = Schema.decodeUnknownEffect(OrganizationIntakeSource);
+const decodeOrganizationObservation = Schema.decodeEffect(OrganizationObservation);
+const decodeOrganizationTentativeFinding = Schema.decodeEffect(OrganizationTentativeFinding);
+const decodeUnknownOrganizationIntakeAuditEntry = Schema.decodeUnknownEffect(
+  OrganizationIntakeAuditEntry,
+);
+const isOrganizationIntakeError = Schema.is(OrganizationIntakeError);
+const decodeUnknownOrganizationCorrelationJobStatus = Schema.decodeUnknownEffect(
+  OrganizationCorrelationJobStatus,
+);
+
 /** Construct only from authenticated server transport state, never from event JSON. */
 export interface OrganizationIntakePrincipal {
   readonly subject: string;
@@ -136,7 +147,13 @@ const hashSecret = (
 const matchesSecret = (expected: string, actual: string) =>
   NodeCrypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(actual, "hex"));
 const AttributesJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
+
+const decodeAttributesJson = Schema.decodeEffect(AttributesJson);
+const encodeAttributesJson = Schema.encodeEffect(AttributesJson);
 const EvidenceIdsJson = Schema.fromJsonString(Schema.Array(OrganizationObservationId));
+
+const decodeEvidenceIdsJson = Schema.decodeEffect(EvidenceIdsJson);
+const encodeEvidenceIdsJson = Schema.encodeEffect(EvidenceIdsJson);
 const EvidenceRefsJson = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({
@@ -146,8 +163,11 @@ const EvidenceRefsJson = Schema.fromJsonString(
     }),
   ),
 );
+
+const decodeEvidenceRefsJson = Schema.decodeEffect(EvidenceRefsJson);
+const encodeEvidenceRefsJson = Schema.encodeEffect(EvidenceRefsJson);
 const decodeSource = (row: SourceRow) =>
-  Schema.decodeUnknownEffect(OrganizationIntakeSource)({
+  decodeUnknownOrganizationIntakeSource({
     id: row.source_id,
     organizationId: row.organization_id,
     projectId: row.project_id,
@@ -160,8 +180,8 @@ const decodeSource = (row: SourceRow) =>
   }).pipe(Effect.mapError(() => invalid("Stored intake source is invalid.")));
 const decodeObservation = Effect.fn("OrganizationIntakeStore.decodeObservation")(
   function* (row: ObservationRow) {
-    const attributes = yield* Schema.decodeUnknownEffect(AttributesJson)(row.attributes_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationObservation)({
+    const attributes = yield* decodeAttributesJson(row.attributes_json);
+    return yield* decodeOrganizationObservation({
       id: row.observation_id,
       organizationId: row.organization_id,
       sourceId: row.source_id,
@@ -180,9 +200,7 @@ const decodeObservation = Effect.fn("OrganizationIntakeStore.decodeObservation")
 );
 const decodeFinding = Effect.fn("OrganizationIntakeStore.decodeFinding")(
   function* (row: FindingRow) {
-    const observationIds = yield* Schema.decodeUnknownEffect(EvidenceIdsJson)(
-      row.observation_ids_json,
-    );
+    const observationIds = yield* decodeEvidenceIdsJson(row.observation_ids_json);
     const evidence =
       row.evidence_json === null
         ? observationIds.map((observationId) => ({
@@ -190,8 +208,8 @@ const decodeFinding = Effect.fn("OrganizationIntakeStore.decodeFinding")(
             sourceId: OrganizationIntakeSourceId.make(row.source_id),
             projectId: null,
           }))
-        : yield* Schema.decodeUnknownEffect(EvidenceRefsJson)(row.evidence_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationTentativeFinding)({
+        : yield* decodeEvidenceRefsJson(row.evidence_json);
+    return yield* decodeOrganizationTentativeFinding({
       id: row.finding_id,
       organizationId: row.organization_id,
       sourceId: row.source_id,
@@ -208,7 +226,7 @@ const decodeFinding = Effect.fn("OrganizationIntakeStore.decodeFinding")(
   Effect.mapError(() => invalid("Stored tentative finding is invalid.")),
 );
 const decodeAudit = (row: AuditRow) =>
-  Schema.decodeUnknownEffect(OrganizationIntakeAuditEntry)({
+  decodeUnknownOrganizationIntakeAuditEntry({
     id: row.audit_id,
     organizationId: row.organization_id,
     sourceId: row.source_id,
@@ -299,11 +317,7 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<A, OrganizationIntakeError> =>
     sql
       .withTransaction(effect)
-      .pipe(
-        Effect.mapError((error) =>
-          Schema.is(OrganizationIntakeError)(error) ? error : unavailable(),
-        ),
-      );
+      .pipe(Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())));
   const sourceRows = (organizationId: OrganizationId, sourceId: OrganizationIntakeSourceId) =>
     sql<SourceRow>`SELECT * FROM organization_intake_sources
       WHERE organization_id = ${organizationId} AND source_id = ${sourceId}`;
@@ -464,7 +478,7 @@ const make = Effect.gen(function* () {
       for (const row of rows) sources.push(yield* decodeSource(row));
       return sources;
     },
-    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())),
   );
   const ingest: OrganizationIntakeStoreShape["ingest"] = (input, authentication) =>
     transaction(
@@ -529,7 +543,7 @@ const make = Effect.gen(function* () {
             SECRET_KEY.test(key) ? "[REDACTED]" : redact(value),
           ]),
         );
-        const attributesJson = yield* Schema.encodeEffect(AttributesJson)(attributes);
+        const attributesJson = yield* encodeAttributesJson(attributes);
         const inserted = yield* sql<{
           observation_id: string;
         }>`INSERT INTO organization_intake_observations
@@ -561,7 +575,7 @@ const make = Effect.gen(function* () {
       for (const row of rows) observations.push(yield* decodeObservation(row));
       return observations;
     },
-    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())),
   );
   const listCorrelationJobs: OrganizationIntakeStoreShape["listCorrelationJobs"] = Effect.fn(
     "OrganizationIntakeStore.listCorrelationJobs",
@@ -584,7 +598,7 @@ const make = Effect.gen(function* () {
       const jobs: OrganizationCorrelationJobStatus[] = [];
       for (const row of rows)
         jobs.push(
-          yield* Schema.decodeUnknownEffect(OrganizationCorrelationJobStatus)({
+          yield* decodeUnknownOrganizationCorrelationJobStatus({
             observationId: row.observation_id,
             state: row.state,
             attempts: row.attempts,
@@ -596,7 +610,7 @@ const make = Effect.gen(function* () {
         );
       return jobs;
     },
-    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())),
   );
   const getObservation: OrganizationIntakeStoreShape["getObservation"] = Effect.fn(
     "OrganizationIntakeStore.getObservation",
@@ -611,7 +625,7 @@ const make = Effect.gen(function* () {
         });
       return yield* decodeObservation(row);
     },
-    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())),
   );
   const proposeFinding: OrganizationIntakeStoreShape["proposeFinding"] = (input, principal) =>
     transaction(
@@ -659,10 +673,8 @@ const make = Effect.gen(function* () {
           yield* sql<FindingRow>`SELECT * FROM organization_intake_findings WHERE finding_id = ${findingId}`;
         if (existing[0]) return yield* decodeFinding(existing[0]);
         const createdAt = yield* now;
-        const observationIdsJson = yield* Schema.encodeEffect(EvidenceIdsJson)(
-          input.observationIds,
-        );
-        const evidenceJson = yield* Schema.encodeEffect(EvidenceRefsJson)(evidence);
+        const observationIdsJson = yield* encodeEvidenceIdsJson(input.observationIds);
+        const evidenceJson = yield* encodeEvidenceRefsJson(evidence);
         const projectId =
           evidence[0]?.projectId !== null &&
           evidence.every((item) => item.projectId === evidence[0]?.projectId)
@@ -690,7 +702,7 @@ const make = Effect.gen(function* () {
       for (const row of rows) findings.push(yield* decodeFinding(row));
       return findings;
     },
-    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())),
   );
   const listAudit: OrganizationIntakeStoreShape["listAudit"] = Effect.fn(
     "OrganizationIntakeStore.listAudit",
@@ -702,7 +714,7 @@ const make = Effect.gen(function* () {
       for (const row of rows) entries.push(yield* decodeAudit(row));
       return entries;
     },
-    Effect.mapError((error) => (Schema.is(OrganizationIntakeError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationIntakeError(error) ? error : unavailable())),
   );
   const ingestWithCredential: OrganizationIntakeStoreShape["ingestWithCredential"] = (
     input,

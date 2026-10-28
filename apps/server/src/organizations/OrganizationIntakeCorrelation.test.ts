@@ -5,6 +5,8 @@ import * as Schema from "effect/Schema";
 import type { OrganizationCorrelationCoordinatorShape } from "./OrganizationCorrelationCoordinator.ts";
 import { correlateRecordedIntake } from "./OrganizationIntakeCorrelation.ts";
 
+const decodeOrganizationIntakeResult = Schema.decodeEffect(OrganizationIntakeResult);
+
 it.effect("bounds duplicate adapter replays while explicit user retry remains available", () =>
   Effect.gen(function* () {
     let calls = 0;
@@ -19,7 +21,7 @@ it.effect("bounds duplicate adapter replays while explicit user retry remains av
         });
       },
     };
-    const intake = yield* Schema.decodeUnknownEffect(OrganizationIntakeResult)({
+    const intake = yield* decodeOrganizationIntakeResult({
       outcome: "duplicate",
       observation: {
         id: "saved-observation",

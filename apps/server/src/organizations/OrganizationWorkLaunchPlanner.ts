@@ -48,11 +48,17 @@ export class OrganizationWorkLaunchError extends Schema.TaggedError<Organization
     message: Schema.String,
   },
 ) {}
+
+const isOrganizationWorkLaunchError = Schema.is(OrganizationWorkLaunchError);
 const fail = (code: OrganizationWorkLaunchError["code"], message: string) =>
   new OrganizationWorkLaunchError({ code, message });
 const unavailable = () => fail("unavailable", "Organization work launch preflight is unavailable.");
 const CapabilitiesJson = Schema.fromJsonString(Schema.Array(Schema.String));
+
+const decodeCapabilitiesJson = Schema.decodeEffect(CapabilitiesJson);
 const PublishedJson = Schema.fromJsonString(OrganizationPublishedConfig);
+
+const decodePublishedJson = Schema.decodeEffect(PublishedJson);
 const FULL_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export interface OrganizationWorkLaunchPlannerShape {
@@ -102,9 +108,9 @@ const make = Effect.gen(function* () {
         binding.scope !== work.scope
       )
         return yield* fail("forbidden", "Current Project binding no longer authorizes this work.");
-      const capabilities = yield* Schema.decodeEffect(CapabilitiesJson)(
-        binding.capabilities_json,
-      ).pipe(Effect.mapError(() => unavailable()));
+      const capabilities = yield* decodeCapabilitiesJson(binding.capabilities_json).pipe(
+        Effect.mapError(() => unavailable()),
+      );
       if (
         !capabilities.includes("read-files") ||
         !capabilities.includes("write-files") ||
@@ -119,7 +125,7 @@ const make = Effect.gen(function* () {
         FROM organization_config_versions WHERE organization_id = ${work.organizationId}
           AND revision = ${work.publishedRevision}`)[0];
       if (!configRow) return yield* fail("conflict", "Pinned configuration is missing.");
-      const config = yield* Schema.decodeEffect(PublishedJson)(configRow.config_json).pipe(
+      const config = yield* decodePublishedJson(configRow.config_json).pipe(
         Effect.mapError(() => unavailable()),
       );
       if (
@@ -162,9 +168,7 @@ const make = Effect.gen(function* () {
         branchName: `organization/${suffix}`,
       };
     },
-    Effect.mapError((error) =>
-      Schema.is(OrganizationWorkLaunchError)(error) ? error : unavailable(),
-    ),
+    Effect.mapError((error) => (isOrganizationWorkLaunchError(error) ? error : unavailable())),
   );
   return { plan } satisfies OrganizationWorkLaunchPlannerShape;
 });

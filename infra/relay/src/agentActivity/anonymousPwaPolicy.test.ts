@@ -112,6 +112,7 @@ function guardedRuntime(
   ).pipe(Layer.provide(NodeCrypto.layer));
   const attempts = Layer.succeed(DeliveryAttempts.DeliveryAttempts, {
     record: () => Effect.void,
+    pruneExpired: Effect.succeed(0),
     claimSourceJob: () =>
       Effect.sync(() => {
         calls.claims++;

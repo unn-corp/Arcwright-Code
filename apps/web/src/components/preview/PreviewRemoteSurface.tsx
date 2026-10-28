@@ -21,14 +21,7 @@ import {
   type TouchGesture,
 } from "./remoteSurfaceInput";
 
-/**
- * The preview surface for a client that cannot render the page itself.
- *
- * The host owns the real browser; this draws the frames it publishes and sends
- * pointer and key events back. Frames are drawn to a canvas rather than an
- * <img> so a stale frame never flashes: the canvas keeps the last painted
- * pixels while the next one decodes.
- */
+/* Paint host frames on a canvas and relay input back to the host. Retaining the previous pixels while decoding prevents stale-image flashes. */
 export function PreviewRemoteSurface(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -64,6 +57,7 @@ export function PreviewRemoteSurface(props: {
   const framesAtom = previewEnvironment.frames({ environmentId, input: { threadId, tabId } });
   const frameResult = useAtomValue(framesAtom);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- decodes incoming host frames and paints the mounted preview canvas while rejecting stale sequence numbers
   useEffect(() => {
     if (!AsyncResult.isSuccess(frameResult)) return;
     const event = frameResult.value;
@@ -112,6 +106,7 @@ export function PreviewRemoteSurface(props: {
     };
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the preview canvas and releases its DOM ResizeObserver on unmount
   useEffect(() => {
     measure();
     const canvas = canvasRef.current;

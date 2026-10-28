@@ -24,6 +24,15 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { redactKnownCredentials } from "./CredentialRedaction.ts";
 
+const decodeOrganizationMemoryRecord = Schema.decodeEffect(OrganizationMemoryRecord);
+const decodeOrganizationMemoryRevision = Schema.decodeEffect(OrganizationMemoryRevision);
+const isOrganizationMemoryError = Schema.is(OrganizationMemoryError);
+const decodeUnknownOrganizationMemoryContent =
+  Schema.decodeUnknownEffect(OrganizationMemoryContent);
+const decodeOrganizationMemoryCreateInput = Schema.decodeEffect(OrganizationMemoryCreateInput);
+const decodeOrganizationMemoryListInput = Schema.decodeEffect(OrganizationMemoryListInput);
+const decodeOrganizationMemoryHistoryInput = Schema.decodeEffect(OrganizationMemoryHistoryInput);
+
 /** The transport supplies this principal from an authenticated interactive session. */
 export interface OrganizationMemoryPrincipal {
   readonly subject: string;
@@ -102,11 +111,15 @@ const issue = (code: OrganizationMemoryError["code"], message: string) =>
 const unavailable = () => issue("unavailable", "Organization memory storage is unavailable.");
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const ContentJson = Schema.fromJsonString(OrganizationMemoryContent);
+
+const decodeContentJson = Schema.decodeEffect(ContentJson);
 const SnapshotJson = Schema.fromJsonString(OrganizationMemoryRecord);
+
+const decodeSnapshotJson = Schema.decodeEffect(SnapshotJson);
 const decodeRecord = Effect.fn("OrganizationMemoryStore.decodeRecord")(
   function* (row: RecordRow) {
-    const content = yield* Schema.decodeUnknownEffect(ContentJson)(row.content_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationMemoryRecord)({
+    const content = yield* decodeContentJson(row.content_json);
+    return yield* decodeOrganizationMemoryRecord({
       id: row.record_id,
       organizationId: row.organization_id,
       projectId: row.project_id,
@@ -123,8 +136,8 @@ const decodeRecord = Effect.fn("OrganizationMemoryStore.decodeRecord")(
 );
 const decodeRevision = Effect.fn("OrganizationMemoryStore.decodeRevision")(
   function* (row: RevisionRow) {
-    const snapshot = yield* Schema.decodeUnknownEffect(SnapshotJson)(row.snapshot_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationMemoryRevision)({
+    const snapshot = yield* decodeSnapshotJson(row.snapshot_json);
+    return yield* decodeOrganizationMemoryRevision({
       mutationId: row.mutation_id,
       organizationId: row.organization_id,
       recordId: row.record_id,
@@ -147,11 +160,7 @@ const make = Effect.gen(function* () {
   const transaction = <A, E>(effect: Effect.Effect<A, E, never>) =>
     sql
       .withTransaction(effect)
-      .pipe(
-        Effect.mapError((cause) =>
-          Schema.is(OrganizationMemoryError)(cause) ? cause : unavailable(),
-        ),
-      );
+      .pipe(Effect.mapError((cause) => (isOrganizationMemoryError(cause) ? cause : unavailable())));
   const requirePrincipal = Effect.fn("OrganizationMemoryStore.requirePrincipal")(function* (
     principal: OrganizationMemoryPrincipal,
   ) {
@@ -199,7 +208,7 @@ const make = Effect.gen(function* () {
   const requireContent = Effect.fn("OrganizationMemoryStore.requireContent")(function* (
     content: unknown,
   ) {
-    const parsed = yield* Schema.decodeUnknownEffect(OrganizationMemoryContent)(content).pipe(
+    const parsed = yield* decodeUnknownOrganizationMemoryContent(content).pipe(
       Effect.mapError(() => issue("invalid", "Memory content is invalid.")),
     );
     if (
@@ -271,7 +280,7 @@ const make = Effect.gen(function* () {
     transaction(
       Effect.gen(function* () {
         yield* requirePrincipal(principal);
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationMemoryCreateInput)(input).pipe(
+        const parsed = yield* decodeOrganizationMemoryCreateInput(input).pipe(
           Effect.mapError(() => issue("invalid", "Memory creation is invalid.")),
         );
         const content = yield* requireContent(parsed.content);
@@ -324,7 +333,7 @@ const make = Effect.gen(function* () {
             : action === "archive"
               ? OrganizationMemoryArchiveInput
               : OrganizationMemorySupersedeInput;
-        const parsed = yield* Schema.decodeUnknownEffect(schema)(input).pipe(
+        const parsed = yield* Schema.decodeEffect(schema)(input).pipe(
           Effect.mapError(() => issue("invalid", "Memory change is invalid.")),
         );
         const requestDigest = digest(parsed);
@@ -380,7 +389,7 @@ const make = Effect.gen(function* () {
   const list: OrganizationMemoryStoreShape["list"] = (input) =>
     transaction(
       Effect.gen(function* () {
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationMemoryListInput)(input).pipe(
+        const parsed = yield* decodeOrganizationMemoryListInput(input).pipe(
           Effect.mapError(() => issue("invalid", "Memory list scope is invalid.")),
         );
         yield* requireOrganization(parsed.organizationId, false);
@@ -396,9 +405,9 @@ const make = Effect.gen(function* () {
   const history: OrganizationMemoryStoreShape["history"] = (input) =>
     transaction(
       Effect.gen(function* () {
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationMemoryHistoryInput)(
-          input,
-        ).pipe(Effect.mapError(() => issue("invalid", "Memory history scope is invalid.")));
+        const parsed = yield* decodeOrganizationMemoryHistoryInput(input).pipe(
+          Effect.mapError(() => issue("invalid", "Memory history scope is invalid.")),
+        );
         yield* requireOrganization(parsed.organizationId, false);
         const row = yield* checkedRow(parsed.organizationId, parsed.recordId, false);
         if (row.project_id !== parsed.projectId)

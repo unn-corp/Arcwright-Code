@@ -19,11 +19,8 @@ import {
 
 export const CLOUD_CLI_DESIRED_LINK_SECRET = "cloud-cli-desired-link";
 
-// "managed" provisions a Cloudflare tunnel (default, legacy value "true").
-// "publish_only" links the environment to the relay purely to publish agent
-// activity — no tunnel, no relay-advertised endpoint — so activity can flow to
-// mobile clients even when they reach the environment out of band (Tailscale,
-// direct pairing) without Arcwright Connect.
+// Managed mode provisions a tunnel (legacy true). Publish-only sends activity to the relay without a
+// tunnel or advertised endpoint, including clients using direct or Tailscale pairing.
 export type CliDesiredLinkMode = "managed" | "publish_only";
 
 const MANAGED_BYTES = new TextEncoder().encode("managed");

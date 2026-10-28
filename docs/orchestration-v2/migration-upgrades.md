@@ -1,12 +1,12 @@
 # Migration upgrades
 
-The fork keeps its published migration IDs through 109. The upstream release
-uses IDs 36–66 for a different sequence, so a database upgraded from upstream
+The fork keeps its published migration IDs. The upstream release
+uses IDs 36–72 for a different sequence, so a database upgraded from upstream
 cannot be migrated by comparing only the highest ID. On startup, the server
 recognizes the pinned upstream ledger, matches those completed migrations by
 name, and moves their ledger records to the fork IDs. It then applies the
 fork-only migrations in the gaps before recording the already-present V2 and
-webhook schema at fork IDs 95–98. Upstream MCP App model context, snapshot window indexes, and pull request review guides map to fork IDs 104–106. Reconciliation runs every missing fork migration through the highest remapped identity before restoring the ledger, including lossless storage and the schema fingerprint at 99–103. Upstream ThreadFailureLookupIndex (62) maps to fork 108; fork CompactHistoryBlocks remains 107. A previous fork at 103 applies 104–114; its existing IDs and timestamps stay intact.
+webhook schema at fork IDs 95–98. Upstream MCP App model context, snapshot window indexes, and pull request review guides map to fork IDs 104–106. Reconciliation runs every missing fork migration through the highest remapped identity before restoring the ledger, including lossless storage and the schema fingerprint at 99–103. Upstream ThreadFailureLookupIndex (62) maps to fork 108; fork CompactHistoryBlocks remains 107. A previous fork at 103 applies 104–119; its existing IDs and timestamps stay intact.
 
 Upstream migration 63 maps to fork 110. It is an intentional no-op in the fork:
 V1 archive and recovery readers still need the projection and checkpoint tables
@@ -44,8 +44,12 @@ Before invoking the migrator, the reconciled V2 ledger must contain every requir
 `UpstreamMigrations.ts` records each upstream ID alongside its immutable deployed fork ID.
 `ForkMigrations.ts` contains only fork-owned entries. `Migrations.ts` combines them in deployed
 order; the reconciler derives its identity maps from the upstream registry. Moving source
-ownership never changes the database ledger or skips a migration. Migration 109 is the fork's
-message search index; it remains independent of upstream's current migration sequence.
+ownership never changes the database ledger or skips a migration. Migration 109 is the fork's original message-search index; its installed identity remains
+unchanged. Upstream 68–72 map to fork IDs 115–119. Migration 116 replaces only the
+derived index and its triggers with upstream 69's contentless trigram schema; it
+preserves message rows and the ledger. When adopting an upstream database where
+that index already exists, reconciliation skips creating fork 109's older index
+before applying 116. Peer links and their request indexes use 117–119.
 
 After changing the upstream pin or either registry, run:
 
@@ -65,4 +69,5 @@ Do not fetch a moving upstream branch or change the integrated pin just to make 
 
 Migration 005 now matches upstream exactly; fork migration 47 still introduces the nullable
 GitHub-account field. The project-event migration accepts upstream projects without that field
-and preserves it when present. Final schema and historical migration identities are unchanged.
+and preserves it when present. This compatibility patch preserves the final project schema and
+historical migration identities.

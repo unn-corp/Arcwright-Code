@@ -26,6 +26,8 @@ import { IdAllocatorV2 } from "@t3tools/provider-core/server/IdAllocator";
 import { ThreadCommandExecutor } from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { agentSessionMessageEvents } from "../project/AgentSessionImporter.ts";
 import { CodexSessionsListInput, CodexSessionsResumeInput } from "@t3tools/contracts";
+
+const isNativeSessionResumeError = Schema.is(NativeSessionResumeError);
 const resolveSource = Effect.fn("NativeSessionResume.resolveSource")(function* (
   instanceId?: string,
   driverHint?: string,
@@ -254,7 +256,7 @@ export const resumeNativeSession = Effect.fn("NativeSessionResume.resumeNativeSe
     );
   }).pipe(
     Effect.mapError((cause) =>
-      Schema.is(NativeSessionResumeError)(cause)
+      isNativeSessionResumeError(cause)
         ? cause
         : new NativeSessionResumeError({
             message: "The provider session could not be resumed.",

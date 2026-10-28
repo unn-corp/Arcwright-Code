@@ -90,6 +90,7 @@ export function PwaNotificationSettings() {
     setStatus(getBrowserNotificationStatus());
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns notification focus listeners and cancels the active push operation when the settings surface unmounts
   useEffect(() => {
     mountedRef.current = true;
     window.addEventListener("focus", refreshStatus);

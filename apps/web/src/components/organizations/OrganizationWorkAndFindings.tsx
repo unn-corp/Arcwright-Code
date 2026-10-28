@@ -207,6 +207,7 @@ export function ReviewEvidence({
   );
   const wasOffline = useRef(offline);
   const reviewRefresh = review.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates repository-review data when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) reviewRefresh();
     wasOffline.current = offline;
@@ -638,6 +639,7 @@ export function OrganizationWorkAndFindings({
   const observationsRefresh = observations.refresh;
   const findingsRefresh = findings.refresh;
   const workRefresh = work.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates organization observations, findings and work when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) {
       observationsRefresh();

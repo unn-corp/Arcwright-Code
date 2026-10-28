@@ -11,8 +11,11 @@ const state = vi.hoisted(() => ({
   reset: vi.fn(),
 }));
 vi.mock("../auth/managedAuthContext", () => ({ useManagedAuth: () => state.auth }));
-vi.mock("../connection/catalog", () => ({ environmentCatalog: { removeRelayEnvironments: {} } }));
-vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => state.remove }));
+vi.mock("../connection/catalog", () => ({
+  environmentCatalog: {
+    removeRelayEnvironments: { label: "remove relay environments", run: state.remove },
+  },
+}));
 vi.mock("../lib/runtime", () => ({ runtime: { runPromiseExit: state.reset } }));
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { ManagedRelayAuthProvider, deactivateManagedRelayAuthentication } from "./managedAuth";

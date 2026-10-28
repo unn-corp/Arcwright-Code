@@ -1,6 +1,6 @@
-import * as Worker from "alchemy/Cloudflare/Workers";
-import { Request } from "alchemy/Cloudflare/Workers";
-import * as Drizzle from "alchemy/Drizzle/Postgres";
+import * as Worker from "@alchemy.run/cloudflare/Workers";
+import { Request } from "@alchemy.run/cloudflare/Workers";
+import * as Drizzle from "@alchemy.run/drizzle/Postgres";
 import { sql } from "drizzle-orm";
 import type { EmptyRelations } from "drizzle-orm";
 import type {
@@ -169,11 +169,13 @@ export const runtimeConnectionString = Effect.gen(function* () {
 export const makeCanaryHandler = Effect.fnUntraced(function* (secret: Redacted.Redacted<string>) {
   const token = Redacted.value(secret);
   if (!validCanaryToken(token)) return yield* new InvalidCanarySecret();
-  const db = yield* Drizzle.Postgres(runtimeConnectionString, undefined, {
-    prepare: false,
-    maxConnections: 1,
-    minConnections: 0,
-    connectTimeout: "5 seconds",
+  const db = yield* Drizzle.Postgres(runtimeConnectionString, {
+    client: {
+      prepare: false,
+      maxConnections: 1,
+      minConnections: 0,
+      connectTimeout: "5 seconds",
+    },
   });
   const assert = (condition: boolean) =>
     condition ? Effect.void : Effect.fail(new CanaryAssertionFailed());
@@ -256,7 +258,7 @@ export const makeCanaryHandler = Effect.fnUntraced(function* (secret: Redacted.R
         contract: CANARY_CONTRACT,
         build: {
           compatibilityDate: canaryWorkerProps.compatibility.date,
-          driver: "alchemy/Drizzle/Postgres",
+          driver: "@alchemy.run/drizzle/Postgres",
         },
         prepare: false,
       });

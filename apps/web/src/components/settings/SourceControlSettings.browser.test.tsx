@@ -1,4 +1,4 @@
-import { act, render as renderUi, type Screen } from "../../../test/render";
+import { act, render as renderUi } from "../../../test/render";
 import {
   EnvironmentId,
   SourceControlProviderKind,
@@ -109,15 +109,15 @@ async function setup() {
 
 it("reveals non-GitHub host settings through the page search provider and keeps them open after the hash clears", async () => {
   await using _fixture = await setup();
-  const { root, container } = _fixture;
+  const { root } = _fixture;
   const router = createRouter({
     routeTree: createRootRoute({ component: SourceControlSettingsPanel }),
     history: createMemoryHistory(),
   });
   await router.load();
   await act(async () => root.rerender(<RouterProvider router={router} />));
-  const host = page.getByRole("textbox", { name: "GitCafe host" });
-  expect(host.elements()).toHaveLength(0);
+  const host = page.getByRole("textbox", { name: "GitCafe host", includeHidden: true });
+  await expect.element(host).not.toBeVisible();
 
   const jump = () =>
     act(async () => {
@@ -126,22 +126,24 @@ it("reveals non-GitHub host settings through the page search provider and keeps 
   await jump();
   await expect.element(host).toBeVisible();
   await vi.waitFor(() => expect(router.state.location.hash).toBe(""));
-  const advanced = host.element().closest("details")!;
-  expect(advanced.open).toBe(true);
+  const disclosure = page.getByRole("button", { name: "Toggle GitCafe details" });
+  await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
   await userEvent.fill(host, "https://gitcafe.example.com");
 
-  await userEvent.click(page.getByText("Advanced host configuration", { exact: true }));
-  await vi.waitFor(() => expect(advanced.open).toBe(false));
+  await userEvent.click(disclosure);
+  await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
+  await expect.element(host).not.toBeVisible();
   await jump();
   await expect.element(host).toBeVisible();
   await vi.waitFor(() => expect(router.state.location.hash).toBe(""));
-  expect(advanced.open).toBe(true);
+  await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
   await expect.element(host).toHaveValue("https://gitcafe.example.com");
 
   await userEvent.click(page.getByRole("button", { name: "Toggle GitCafe details" }));
-  await vi.waitFor(() => expect(host.elements()).toHaveLength(0));
+  await expect.element(host).not.toBeVisible();
   await jump();
   await expect.element(host).toBeVisible();
   await vi.waitFor(() => expect(router.state.location.hash).toBe(""));
-  expect(host.element().closest("details")!.open).toBe(true);
+  await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
+  await expect.element(host).toHaveValue("https://gitcafe.example.com");
 });

@@ -49,6 +49,7 @@ import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { resolveServerConfigVersionMismatch } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
+
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
 import { environmentCatalog } from "~/connection/catalog";
 import { readEnvironmentScope } from "~/state/session";
@@ -62,6 +63,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "~/state/server";
 import { OutdatedServerUpdateAction, ServerUpdateProgress } from "../ServerUpdateAction";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
+import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
 
 type SavedBackendListRowProps = {
   environment: EnvironmentPresentation;
@@ -168,11 +170,7 @@ export function SavedBackendListRow({
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
-  // A saved Arcwright Connect machine this device has never reached (unsupported,
-  // or not yet connected) still has a descriptor from relay discovery, so
-  // it can wear its detected glyph instead of the generic server. Discovery
-  // empties its map on every refresh, so hold the last descriptor seen or
-  // the glyph would blink back to the generic one each time.
+  /* Hold the last relay descriptor so an unreachable saved machine keeps its detected glyph while discovery refresh briefly empties the map. */
   const relayDiscovery = useRelayEnvironmentDiscovery();
   const discoveredDescriptor = Option.getOrNull(
     relayDiscovery.environments.get(environmentId)?.status ?? Option.none(),
@@ -504,14 +502,13 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     operationError,
     reconcileCloudState,
   } = useCloudLinkController();
+  const { openAuthPrompt } = useT3ConnectAuthPrompt();
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
 
-  const disabledReason = !isSignedIn
-    ? "Sign in to Arcwright Connect to manage this environment."
-    : !canManageRelay
-      ? "Your session does not have permission to manage Arcwright Connect access."
-      : null;
+  const disabledReason = canManageRelay
+    ? null
+    : "Your session does not have permission to manage Arcwright Connect access.";
   const isBusy = isUpdating || isUpdatingPreference;
   const managedAvailable =
     hasCloudPublicConfig() &&
@@ -521,9 +518,25 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
       primaryCloudLinkState.data?.persistedLinkPresent === true &&
       !primaryCloudLinkState.data.linked
     );
+  const switchDisabled =
+    !canManageRelay ||
+    !isSignedIn ||
+    primaryCloudLinkState.data === null ||
+    primaryCloudLinkState.isPending ||
+    isBusy;
+  // `isSignedIn` is undefined until Clerk loads. Signed out, one row shows a
+  // sign-in button instead of its switch; the onboarding dialog that opens after
+  // a fresh sign-in offers both linking and publishing.
+  const signedOut = isSignedIn === false;
+  const signInButton = (
+    <Button size="sm" variant="outline" onClick={openAuthPrompt}>
+      Sign in
+    </Button>
+  );
   const refreshLinkState = useEffectEvent(primaryCloudLinkState.refresh);
   // The server rechecks reachability when the tunnel's 30 s readiness poll changes.
   // Poll while mounted, so a failed read does not stop later ones.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- 30 s interval that refreshes the cloud link reachability while mounted
   useEffect(() => {
     const interval = window.setInterval(() => refreshLinkState(), 30_000);
     return () => window.clearInterval(interval);
@@ -642,8 +655,29 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
                 reachabilityStatus
               }
               control={
+                signedOut ? (
+                  signInButton
+                ) : (
+                  <CloudLinkSwitch
+                    checked={managedTunnelActive}
+                    disabled={switchDisabled}
+                    disabledReason={disabledReason}
+                    onCheckedChange={(enabled) => void updateManagedTunnel(enabled)}
+                  />
+                )
+              }
+            />
+          ) : null}
+          <SettingsRow
+            title={searchableSetting("publish-agent-activity").title}
+            description="Send activity to mobile notifications and Live Activities without Arcwright Connect."
+            control={
+              signedOut && !window.desktopBridge ? (
+                signInButton
+              ) : (
                 <CloudLinkSwitch
-                  checked={managedTunnelActive}
+                  ariaLabel="Publish agent activity to mobile clients"
+                  checked={publishAgentActivity}
                   disabled={
                     !canManageRelay ||
                     !isSignedIn ||
@@ -652,28 +686,9 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
                     isBusy
                   }
                   disabledReason={disabledReason}
-                  onCheckedChange={(enabled) => void updateManagedTunnel(enabled)}
+                  onCheckedChange={(enabled) => void updatePublishAgentActivity(enabled)}
                 />
-              }
-            />
-          ) : null}
-          <SettingsRow
-            title={searchableSetting("publish-agent-activity").title}
-            description="Send activity to mobile notifications and Live Activities without Arcwright Connect."
-            control={
-              <CloudLinkSwitch
-                ariaLabel="Publish agent activity to mobile clients"
-                checked={publishAgentActivity}
-                disabled={
-                  !canManageRelay ||
-                  !isSignedIn ||
-                  primaryCloudLinkState.data === null ||
-                  primaryCloudLinkState.isPending ||
-                  isBusy
-                }
-                disabledReason={disabledReason}
-                onCheckedChange={(enabled) => void updatePublishAgentActivity(enabled)}
-              />
+              )
             }
           />
           {managedTunnelActive ? (

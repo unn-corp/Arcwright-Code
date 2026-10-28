@@ -1,15 +1,6 @@
 import type { PreviewInputEvent, PreviewInputMouseButton } from "@t3tools/contracts";
 
-/**
- * Pure mapping from browser events on the viewer's canvas to the page
- * coordinates the host will replay.
- *
- * The canvas is laid out to fit its container, so it is almost never the same
- * size as the page it shows. Every pointer coordinate therefore has to be
- * rescaled through the frame's declared page size before it means anything on
- * the host. Keeping that arithmetic here (rather than inline in the component)
- * is what makes it testable without a DOM.
- */
+/* Scale canvas input through the frame’s page dimensions; the fitted viewer and the host page rarely have the same size. */
 export interface RemoteSurfaceGeometry {
   /** On-screen size of the canvas element, in CSS pixels. */
   readonly elementWidth: number;

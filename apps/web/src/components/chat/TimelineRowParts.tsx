@@ -17,14 +17,18 @@ export const MESSAGE_HEADING_LEVEL = 3;
 export function MessageAuthorHeading({
   message,
   showChip = true,
+  children,
 }: {
+  children?: ReactNode;
   message: ChatMessage;
   showChip?: boolean;
 }) {
   const ctx = use(TimelineRowCtx);
   if (!ctx.enhancedFeed) {
     return (
-      <h3 className="sr-only select-none">{message.role === "user" ? "You" : "Arcwright Code"}</h3>
+      <h3 className="sr-only select-none">
+        {children ?? (message.role === "user" ? "You" : "Arcwright Code")}
+      </h3>
     );
   }
   return <ParticipantMessageAuthorHeading message={message} showChip={showChip} />;

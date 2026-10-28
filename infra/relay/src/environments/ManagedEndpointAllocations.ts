@@ -86,7 +86,6 @@ export class ManagedEndpointAllocationPersistenceError extends Schema.TaggedErro
       "lock-tunnel",
       "claim-release",
       "claim-deprovision",
-      "remove",
       "remove-claimed",
       "get-by-tunnel-name",
     ]),

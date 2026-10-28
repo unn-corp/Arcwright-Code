@@ -61,7 +61,7 @@ use a neutral fallback rather than guessing today's model or profile.
 Git-backed projects show branch and worktree controls below the composer while you create a thread.
 The controls retreat as the composer docks after you send the first message.
 
-Turn on **Composer context** to keep those controls visible after the thread starts. This preference
+Turn on **Composer context** in **Settings → Appearance** to keep those controls visible after the thread starts. This preference
 applies to the web and desktop clients.
 
 ## Math

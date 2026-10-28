@@ -224,6 +224,7 @@ export function OrganizationArchitectConversation({
       .map((turn) => ({ ...turn, role: "user" as const, requestId: turn.id })),
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const lastMessageId = visibleMessages.at(-1)?.id;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the mounted transcript DOM scrolled to its end while the reader is following new messages
   useEffect(() => {
     if ((lastMessageId || sending) && nearBottom.current && transcriptRef.current)
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
@@ -238,6 +239,7 @@ export function OrganizationArchitectConversation({
   }
 
   const listRefresh = list.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates architect conversation history when the external connection recovers
   useEffect(() => {
     const currentlyOffline = offline || networkStatus === "offline";
     if (wasOffline.current && !currentlyOffline) {
@@ -269,6 +271,7 @@ export function OrganizationArchitectConversation({
       return;
     sendInFlight.current = true;
     const messageId = OrganizationArchitectMessageId.make(randomUUID());
+    // oxlint-disable-next-line react/purity -- this timestamp is created only inside a user-action callback, never while rendering
     const turn = { id: messageId, text, createdAt: new Date().toISOString() };
     setPendingTurn(turn);
     function retainFailedTurn(failure: string) {

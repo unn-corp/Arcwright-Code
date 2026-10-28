@@ -174,7 +174,9 @@ const make = Effect.gen(function* () {
       Effect.mapError(() => unavailable()),
     );
   };
-  const update: OrganizationProviderBudgetConfigurationShape["update"] = (input) => {
+  const update: OrganizationProviderBudgetConfigurationShape["update"] = Effect.fn("update")((
+    input,
+  ) => {
     const key = scopeKey(input?.scope);
     if (!key || !validRevision(input?.expectedRevision) || !validLimits(input?.limits))
       return Effect.fail(failure("invalid", "Provider budget configuration update is invalid."));
@@ -279,7 +281,7 @@ const make = Effect.gen(function* () {
           isConfigurationError(error) ? error : unavailable(),
         ),
       );
-  };
+  });
   return { get, update } satisfies OrganizationProviderBudgetConfigurationShape;
 });
 

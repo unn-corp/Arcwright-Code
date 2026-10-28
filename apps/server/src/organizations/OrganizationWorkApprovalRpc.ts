@@ -113,24 +113,26 @@ const requestLayer = (
     ),
   );
   const policy = Layer.succeed(OrganizationSingleFileApprovalPolicy, {
-    decide: (target, request) =>
-      target.organizationId === input.organizationId &&
-      target.projectId === pinned.projectId &&
-      target.bindingId === pinned.bindingId &&
-      target.workId === input.workId &&
-      target.attemptId === input.attemptId &&
-      target.artifactDigest === input.artifactDigest &&
-      target.qaReceiptDigest === input.qaReceiptDigest &&
-      target.baseCodeRevision === input.baseCodeRevision &&
-      target.bindingVersion === input.bindingVersion &&
-      request.requestId === input.requestId
-        ? Effect.succeed({ approvalSubject: subject, approved: input.approved })
-        : Effect.fail(
-            new OrganizationSingleFileApprovalCoordinatorError({
-              code: "conflict",
-              message: "Reviewed work evidence or binding has changed.",
-            }),
-          ),
+    decide: Effect.fn("OrganizationSingleFileApprovalPolicy.decide")(
+      (target, request): ReturnType<OrganizationSingleFileApprovalPolicy["Service"]["decide"]> =>
+        target.organizationId === input.organizationId &&
+        target.projectId === pinned.projectId &&
+        target.bindingId === pinned.bindingId &&
+        target.workId === input.workId &&
+        target.attemptId === input.attemptId &&
+        target.artifactDigest === input.artifactDigest &&
+        target.qaReceiptDigest === input.qaReceiptDigest &&
+        target.baseCodeRevision === input.baseCodeRevision &&
+        target.bindingVersion === input.bindingVersion &&
+        request.requestId === input.requestId
+          ? Effect.succeed({ approvalSubject: subject, approved: input.approved })
+          : Effect.fail(
+              new OrganizationSingleFileApprovalCoordinatorError({
+                code: "conflict",
+                message: "Reviewed work evidence or binding has changed.",
+              }),
+            ),
+    ),
   });
   return Layer.fresh(
     Layer.mergeAll(

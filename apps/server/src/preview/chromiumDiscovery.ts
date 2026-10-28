@@ -1,10 +1,6 @@
 /**
- * Finding a Chromium to render previews with, on a host that has no desktop app.
- *
- * Deliberately never downloads a browser. `npx t3` is a small install and a
- * ~150MB Chromium download on first preview would be a surprising thing for it
- * to do. If the machine already has Chrome, Chromium, or Edge, previews work;
- * if it does not, the viewer is told so and nothing else changes.
+ * Never download a browser for preview. Use installed Chrome, Chromium or Edge; otherwise report that
+ * rendering is unavailable.
  */
 const CHROMIUM_PATH_ENV_VARS = [
   "T3_CHROMIUM_PATH",

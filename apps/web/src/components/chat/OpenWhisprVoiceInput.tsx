@@ -152,6 +152,7 @@ export function OpenWhisprVoiceInput({
     }
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the microphone request and transcription cancellation fence for this mounted voice control
   useEffect(() => {
     mountedRef.current = true;
     onPhaseChange("idle");

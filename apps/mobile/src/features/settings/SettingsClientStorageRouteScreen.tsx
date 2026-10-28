@@ -27,7 +27,7 @@ import {
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsControlRow } from "./components/SettingsControlRow";
-import { SettingsActionRow } from "./components/SettingsActionRow";
+import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsScreen } from "./components/SettingsScreen";
 

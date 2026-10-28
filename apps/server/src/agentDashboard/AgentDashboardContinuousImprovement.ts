@@ -1477,7 +1477,8 @@ const make = Effect.gen(function* () {
 
   yield* resumeInterruptedImplementations;
 
-  const tick = resumeInterruptedImplementations.pipe(Effect.andThen(runOnce)).pipe(
+  const tick = resumeInterruptedImplementations.pipe(
+    Effect.andThen(runOnce),
     Effect.tap((result) =>
       result
         ? Effect.logInfo("Continuous Improvement Mode started an implementation agent", {

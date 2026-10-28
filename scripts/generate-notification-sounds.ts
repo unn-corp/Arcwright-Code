@@ -1,14 +1,6 @@
 #!/usr/bin/env node
 
-/**
- * Regenerates the generated agent-notification sounds into
- * `apps/web/public/sounds/`.
- *
- * The .ogg assets are committed, so this only needs to run when a spec in
- * `lib/notification-sounds.ts` changes. Requires `ffmpeg` on PATH.
- *
- *   pnpm --filter @t3tools/scripts exec tsx generate-notification-sounds.ts
- */
+/** Regenerate committed sounds with ffmpeg only after editing lib/notification-sounds.ts. */
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";

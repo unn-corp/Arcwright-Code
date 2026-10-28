@@ -105,7 +105,7 @@ function Fixture() {
   return (
     <AppAtomRegistryProvider>
       <main className="mx-auto max-w-3xl p-4">
-        <p className="mb-4">Isolated updater UI fixture — no installers or user data.</p>
+        <p className="mb-4">Isolated updater UI fixture. No installers or user data.</p>
         <button
           className="mb-4 rounded border p-2"
           onClick={() => {

@@ -41,7 +41,7 @@ describe("DesktopEnvironment", () => {
   it.each([
     ["0.0.45", "Arcwright Code"],
     ["1.0.1-nightly.20261007.50", "Arcwright Code — Nightly 50"],
-    ["1.0.1-preview.20261011.1", "Arcwright Code — Local Nightly 1"],
+    ["1.0.1-preview.20261011.1", "Arcwright Code Preview 1"],
   ])("names installed build %s while preserving its base identity", (appVersion, displayName) => {
     const branding = DesktopEnvironment.resolveDesktopAppBranding({
       isDevelopment: false,

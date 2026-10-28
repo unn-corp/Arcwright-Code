@@ -1,3 +1,4 @@
+import { Atom } from "effect/reactivity";
 import { useAtomValue } from "@effect/atom-react";
 import {
   connectionCatalogDisplayUrl,
@@ -9,6 +10,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 import { environmentCatalog } from "../connection/catalog";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   environmentPresentations,
   environmentSummaries,
@@ -64,6 +66,10 @@ export function usePrimaryEnvironmentId(): EnvironmentId | null {
   return useAtomValue(primaryEnvironmentIdAtom);
 }
 
+export function readPrimaryEnvironmentId(): EnvironmentId | null {
+  return appAtomRegistry.get(primaryEnvironmentIdAtom);
+}
+
 export function useEnvironment(
   environmentId: EnvironmentId | null,
 ): EnvironmentPresentation | null {
@@ -86,10 +92,6 @@ export function useRelayEnvironmentDiscovery(): Discovery.RelayEnvironmentDiscov
   return useAtomValue(relayEnvironmentDiscovery.stateValueAtom);
 }
 
-export function useEnvironmentIds() {
-  return useAtomValue(environmentSummaries.environmentIdsAtom);
-}
-
 export function useEnvironmentIdentities() {
   return useAtomValue(environmentSummaries.identitiesAtom);
 }
@@ -104,4 +106,15 @@ export function useEnvironmentMachines() {
 
 export function useConnectedEnvironmentIds() {
   return useAtomValue(environmentSummaries.connectedEnvironmentIdsAtom);
+}
+
+const activeEnvironmentIdAtom = Atom.make((get): EnvironmentId | null => {
+  const entries = get(environmentCatalog.catalogValueAtom).entries;
+  if ([...entries.values()].some((entry) => entry.target._tag === "PrimaryConnectionTarget"))
+    return null;
+  return entries.keys().next().value ?? null;
+}).pipe(Atom.withLabel("web-active-environment-id"));
+
+export function useActiveEnvironmentId(): EnvironmentId | null {
+  return useAtomValue(activeEnvironmentIdAtom);
 }

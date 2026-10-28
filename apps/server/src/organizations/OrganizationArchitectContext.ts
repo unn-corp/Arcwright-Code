@@ -2,6 +2,8 @@ import type { OrganizationArchitectMessageId } from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
+const isTextGenerationError = Schema.is(TextGenerationError);
+
 /** Failed replies are transport errors, not part of the design conversation. */
 export const completedArchitectTranscript = (
   conversation: {
@@ -40,7 +42,7 @@ export const completedArchitectTranscript = (
 
 /** Only fixed, credential-free messages may cross the provider error boundary. */
 export const architectGenerationFailureMessage = (error: unknown): string => {
-  if (!Schema.is(TextGenerationError)(error))
+  if (!isTextGenerationError(error))
     return "The Architect could not complete this request. Try again.";
   if (/timed out/i.test(error.detail))
     return "The Architect provider timed out. Try again or select another model.";

@@ -9,6 +9,7 @@ import {
   ProviderTurnId,
   RunAttemptId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   VcsProcessExitError,
 } from "@t3tools/contracts";
@@ -71,7 +72,6 @@ function restartEffect(
     attemptCount: 1,
     availableAt: timestamp,
     leaseOwner: "test-worker",
-    leaseExpiresAt: timestamp,
     createdAt: timestamp,
     updatedAt: timestamp,
     completedAt: null,
@@ -86,6 +86,7 @@ function layerExecutorFor(input: {
   readonly continueAfterRestart?: boolean;
   readonly interrupt?: ProviderTurnControlService.ProviderTurnControlServiceV2Shape["interrupt"];
   readonly rollback?: CheckpointRollbackService.CheckpointRollbackServiceV2Shape["execute"];
+  readonly respond?: RuntimeRequestService.RuntimeRequestServiceV2["Service"]["respond"];
 }) {
   const record = (event: string) => Ref.update(input.events, (events) => [...events, event]);
   const layerDependencies = Layer.mergeAll(
@@ -107,7 +108,7 @@ function layerExecutorFor(input: {
       ProviderSessionManager.ProviderSessionManagerV2.of({
         shutdown: Effect.void,
         open: () => Effect.die("unused open"),
-        get: () => Effect.succeed(Option.none()),
+        get: () => Effect.succeedNone,
         isLive: () => Effect.succeed(false),
         close: () => Effect.void,
         closeInstance: () => Effect.void,
@@ -145,7 +146,9 @@ function layerExecutorFor(input: {
     ),
     Layer.succeed(
       RuntimeRequestService.RuntimeRequestServiceV2,
-      RuntimeRequestService.RuntimeRequestServiceV2.of({ respond: () => Effect.void }),
+      RuntimeRequestService.RuntimeRequestServiceV2.of({
+        respond: input.respond ?? (() => Effect.void),
+      }),
     ),
     Layer.succeed(
       ThreadTitleRegenerationService.ThreadTitleRegenerationService,
@@ -272,6 +275,42 @@ it.effect.each([
   }),
 );
 
+it.effect("does not report an answer whose last delivery attempt is interrupted", () =>
+  Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    const reported = yield* Ref.make(0);
+    const layer = layerExecutorFor({
+      events: yield* Ref.make<ReadonlyArray<string>>([]),
+      respond: () => Effect.interrupt,
+      threads: {
+        dispatch: (command) =>
+          Ref.update(reported, (count) =>
+            command.type === "runtime-request.delivery.fail" ? count + 1 : count,
+          ).pipe(Effect.as({ sequence: 1, storedEvents: [] })),
+      },
+    });
+    const exit = yield* Effect.gen(function* () {
+      const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+      return yield* Effect.exit(
+        executor.execute(
+          {
+            ...restartEffect(now, { type: "detach" }),
+            request: {
+              type: "runtime-request.respond",
+              providerSessionId: oldSessionId,
+              requestId: RuntimeRequestId.make("runtime-request:effect-worker-interrupted"),
+              answers: { next: "Ship it" },
+            },
+          },
+          { willRetry: false },
+        ),
+      );
+    }).pipe(Effect.provide(layer));
+    assert.isTrue(Exit.hasInterrupts(exit));
+    assert.equal(yield* Ref.get(reported), 0);
+  }),
+);
+
 it.effect("requeues a claim when a pre-execution worker check fails", () =>
   Effect.gen(function* () {
     const now = DateTime.formatIso(yield* DateTime.now);
@@ -286,7 +325,6 @@ it.effect("requeues a claim when a pre-execution worker check fails", () =>
       attemptCount: 1,
       availableAt: now,
       leaseOwner: workerId,
-      leaseExpiresAt: now,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -302,7 +340,7 @@ it.effect("requeues a claim when a pre-execution worker check fails", () =>
     >([]);
     const executionCount = yield* Ref.make(0);
     const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
-      claimNext: () => Effect.succeed(Option.some(claimedEffect)),
+      claimNext: () => Effect.succeedSome(claimedEffect),
       get: () =>
         Effect.fail(
           new EffectOutbox.EffectOutboxError({
@@ -358,7 +396,6 @@ it.effect("arms cancellation before the durable pre-execution check", () =>
       attemptCount: 1,
       availableAt: now,
       leaseOwner: workerId,
-      leaseExpiresAt: now,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -369,7 +406,7 @@ it.effect("arms cancellation before the durable pre-execution check", () =>
     const executionCount = yield* Ref.make(0);
     const settlementCount = yield* Ref.make(0);
     const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
-      claimNext: () => Effect.succeed(Option.some(claimedEffect)),
+      claimNext: () => Effect.succeedSome(claimedEffect),
       awaitCancellation: () => {
         cancellationArmed = true;
         return Deferred.await(signal);
@@ -426,7 +463,6 @@ it.effect("terminalizes a process-bound claim when success settlement fails", ()
       attemptCount: 1,
       availableAt: now,
       leaseOwner: workerId,
-      leaseExpiresAt: now,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -436,8 +472,8 @@ it.effect("terminalizes a process-bound claim when success settlement fails", ()
     const terminalErrors = yield* Ref.make<ReadonlyArray<string>>([]);
     const executionCount = yield* Ref.make(0);
     const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
-      claimNext: () => Effect.succeed(Option.some(claimedEffect)),
-      get: () => Effect.succeed(Option.some(claimedEffect)),
+      claimNext: () => Effect.succeedSome(claimedEffect),
+      get: () => Effect.succeedSome(claimedEffect),
       awaitCancellation: () => Effect.never,
       clearCancellation: () => Effect.void,
       succeed: () =>
@@ -501,7 +537,6 @@ it.effect("settles a delegated child once its restart continuation fails for goo
       attemptCount: 1,
       availableAt: timestamp,
       leaseOwner: "test-worker",
-      leaseExpiresAt: timestamp,
       createdAt: timestamp,
       updatedAt: timestamp,
       completedAt: null,
@@ -604,7 +639,6 @@ it.effect("requeues a replay-safe claim when success settlement fails", () =>
       attemptCount: 1,
       availableAt: now,
       leaseOwner: workerId,
-      leaseExpiresAt: now,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -613,8 +647,8 @@ it.effect("requeues a replay-safe claim when success settlement fails", () =>
     const retries = yield* Ref.make(0);
     const terminalizations = yield* Ref.make(0);
     const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
-      claimNext: () => Effect.succeed(Option.some(claimedEffect)),
-      get: () => Effect.succeed(Option.some(claimedEffect)),
+      claimNext: () => Effect.succeedSome(claimedEffect),
+      get: () => Effect.succeedSome(claimedEffect),
       awaitCancellation: () => Effect.never,
       clearCancellation: () => Effect.void,
       succeed: () =>
@@ -665,7 +699,6 @@ it.effect("keeps a process-bound executor failure retryable when retry settlemen
       attemptCount: 1,
       availableAt: now,
       leaseOwner: workerId,
-      leaseExpiresAt: now,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -674,8 +707,8 @@ it.effect("keeps a process-bound executor failure retryable when retry settlemen
     const retryAttempts = yield* Ref.make(0);
     const terminalizations = yield* Ref.make(0);
     const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
-      claimNext: () => Effect.succeed(Option.some(claimedEffect)),
-      get: () => Effect.succeed(Option.some(claimedEffect)),
+      claimNext: () => Effect.succeedSome(claimedEffect),
+      get: () => Effect.succeedSome(claimedEffect),
       awaitCancellation: () => Effect.never,
       clearCancellation: () => Effect.void,
       retry: () =>
@@ -737,7 +770,6 @@ it.effect("keeps a max-attempt replay-safe failure terminal when fail settlement
       attemptCount: 5,
       availableAt: now,
       leaseOwner: workerId,
-      leaseExpiresAt: now,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -746,8 +778,8 @@ it.effect("keeps a max-attempt replay-safe failure terminal when fail settlement
     const failAttempts = yield* Ref.make(0);
     const retries = yield* Ref.make(0);
     const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
-      claimNext: () => Effect.succeed(Option.some(claimedEffect)),
-      get: () => Effect.succeed(Option.some(claimedEffect)),
+      claimNext: () => Effect.succeedSome(claimedEffect),
+      get: () => Effect.succeedSome(claimedEffect),
       awaitCancellation: () => Effect.never,
       clearCancellation: () => Effect.void,
       fail: () =>

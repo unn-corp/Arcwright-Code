@@ -16,7 +16,7 @@ import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Undici from "@effect/platform-node/Undici";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as Clock from "effect/Clock";
-import { resolveSource, makeSourceContext } from "alchemy/Cloudflare/Workers";
+import { resolveSource, makeSourceContext } from "@alchemy.run/cloudflare/Workers";
 import * as Artifacts from "alchemy/Artifacts";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import { deadlineFixtureProps } from "./owned-connect-driver-canary-deadline-fixture.ts";
@@ -204,8 +204,9 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
               });
               const phases = ["begin", "commit", "rollback", "scope-finalizer"];
               const start = yield* Clock.currentTimeMillis;
-              const results = yield* Effect.all(
-                phases.map((phase) => request(socket, "POST", `/${phase}`)),
+              const results = yield* Effect.forEach(
+                phases,
+                (phase) => request(socket, "POST", `/${phase}`),
                 { concurrency: 4 },
               );
               elapsedMs = (yield* Clock.currentTimeMillis) - start;
@@ -417,7 +418,10 @@ const config :Workerd.Config = (
                 expect(metadata.status).toBe(200);
                 expect(JSON.parse(metadata.body)).toEqual({
                   contract: CANARY_CONTRACT,
-                  build: { compatibilityDate: "2026-09-18", driver: "alchemy/Drizzle/Postgres" },
+                  build: {
+                    compatibilityDate: "2026-09-18",
+                    driver: "@alchemy.run/drizzle/Postgres",
+                  },
                   prepare: false,
                 });
                 expect((yield* request(socketPath, "GET", "/other", TOKEN)).status).toBe(404);

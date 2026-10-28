@@ -15,13 +15,14 @@ import type { ConnectionCatalogEntry } from "../connection/catalog.ts";
 import { AVAILABLE_CONNECTION_STATE } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import {
-  GitHubRoutingPermissions,
-  type GitHubRoutingPermission,
-  type StoredGitHubRoutingPermission,
-} from "../connection/githubRoutingPermissions.ts";
+  PullRequestRoutingPermissions,
+  type PullRequestRoutingPermission,
+  type StoredPullRequestRoutingPermission,
+} from "../connection/pullRequestRoutingPermissions.ts";
 import {
   createAtomCommandScheduler,
   createRuntimeCommand,
+  environmentSessionGenerationAtom,
   followStreamInEnvironment,
 } from "./runtime.ts";
 
@@ -121,20 +122,22 @@ export function createEnvironmentCatalogAtoms<R, E>(
     }),
   });
 
-  const githubRoutingPermissionsAtom = runtime.atom(
-    Stream.unwrap(GitHubRoutingPermissions.pipe(Effect.map((permissions) => permissions.changes))),
-    { initialValue: [] as ReadonlyArray<StoredGitHubRoutingPermission> },
+  const pullRequestRoutingPermissionsAtom = runtime.atom(
+    Stream.unwrap(
+      PullRequestRoutingPermissions.pipe(Effect.map((permissions) => permissions.changes)),
+    ),
+    { initialValue: [] as ReadonlyArray<StoredPullRequestRoutingPermission> },
   );
-  const githubRoutingPermissionsValueAtom = Atom.make((get) =>
-    Option.getOrElse(AsyncResult.value(get(githubRoutingPermissionsAtom)), () => []),
-  ).pipe(Atom.withLabel("environment-github-routing-permissions"));
-  const setGitHubRoutingPermission = createRuntimeCommand(runtime, {
-    label: "environment-catalog:github-routing-permission",
+  const pullRequestRoutingPermissionsValueAtom = Atom.make((get) =>
+    Option.getOrElse(AsyncResult.value(get(pullRequestRoutingPermissionsAtom)), () => []),
+  ).pipe(Atom.withLabel("environment-pull-request-routing-permissions"));
+  const setPullRequestRoutingPermission = createRuntimeCommand(runtime, {
+    label: "environment-catalog:pull-request-routing-permission",
     scheduler: commandScheduler,
     concurrency: serial,
     execute: Effect.fn(function* (input: {
       readonly environmentId: EnvironmentIdType;
-      readonly permission: GitHubRoutingPermission;
+      readonly permission: PullRequestRoutingPermission;
     }) {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
       const entry = (yield* SubscriptionRef.get(registry.entries)).get(input.environmentId);
@@ -142,7 +145,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
         return yield* new EnvironmentRegistry.EnvironmentNotRegisteredError({
           environmentId: input.environmentId,
         });
-      const permissions = yield* GitHubRoutingPermissions;
+      const permissions = yield* PullRequestRoutingPermissions;
       yield* permissions.set(entry, input.permission);
     }),
   });
@@ -173,6 +176,9 @@ export function createEnvironmentCatalogAtoms<R, E>(
       { initialValue: AVAILABLE_CONNECTION_STATE },
     ),
   );
+
+  const sessionGenerationAtom = (environmentId: EnvironmentIdType) =>
+    environmentSessionGenerationAtom(runtime, environmentId);
 
   const register = createRuntimeCommand(runtime, {
     label: "environment-catalog:register",
@@ -246,11 +252,12 @@ export function createEnvironmentCatalogAtoms<R, E>(
   return {
     catalogAtom,
     catalogValueAtom,
-    githubRoutingPermissionsValueAtom,
-    setGitHubRoutingPermission,
+    pullRequestRoutingPermissionsValueAtom,
+    setPullRequestRoutingPermission,
     networkStatusAtom,
     networkStatusValueAtom,
     stateAtom,
+    sessionGenerationAtom,
     register,
     remove,
     removeRoute,

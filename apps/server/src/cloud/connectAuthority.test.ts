@@ -100,7 +100,7 @@ it.layer(NodeServices.layer)("persisted CLI authority", (it) => {
             ExternalLauncher.ExternalLauncher,
             ExternalLauncher.ExternalLauncher.of({
               resolveAvailableEditors: () => Effect.succeed([]),
-              resolveFileManagerRevealKind: () => Effect.succeed(undefined),
+              resolveFileManagerRevealKind: () => Effect.sync(() => undefined),
               launchBrowser: () => Effect.die("unexpected browser"),
               launchEditor: () => Effect.die("unused"),
             }),
@@ -185,7 +185,7 @@ it.layer(NodeServices.layer)("deliberate selected authorization", (it) => {
             ExternalLauncher.ExternalLauncher,
             ExternalLauncher.ExternalLauncher.of({
               resolveAvailableEditors: () => Effect.succeed([]),
-              resolveFileManagerRevealKind: () => Effect.succeed(undefined),
+              resolveFileManagerRevealKind: () => Effect.sync(() => undefined),
               launchEditor: () => Effect.die("unused"),
               launchBrowser: (url) =>
                 Effect.gen(function* () {

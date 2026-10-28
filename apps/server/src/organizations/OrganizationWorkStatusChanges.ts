@@ -47,13 +47,14 @@ export const layer = Layer.effect(
     const lock = yield* Semaphore.make(1);
     const topics = new Map<OrganizationId, Topic>();
     return OrganizationWorkStatusChanges.of({
-      changed: (id) =>
+      changed: Effect.fn("OrganizationWorkStatusChanges.changed")((id) =>
         Effect.sync(() => {
           // This is only a request for commit verification. It never publishes an
           // invalidation from the producer's potentially nested SQL transaction.
           const topic = topics.get(id);
           if (topic) Queue.offerUnsafe(topic.pending, undefined);
         }),
+      ),
       watch: (id) =>
         Stream.unwrap(
           lock.withPermits(1)(

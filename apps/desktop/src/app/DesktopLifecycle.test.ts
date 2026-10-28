@@ -11,6 +11,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as TestClock from "effect/testing/TestClock";
 
 import type * as Electron from "electron";
 
@@ -141,6 +142,7 @@ describe("DesktopLifecycle", () => {
         platform: input.platform,
         isDevelopment: false,
         urlHandlerExecTarget: Option.fromNullishOr(input.launcher),
+        desktopLauncherPath: Option.none(),
         appImagePath: Option.fromNullishOr(input.image),
       } as DesktopEnvironment.DesktopEnvironment["Service"]);
       const layer = DesktopLifecycle.layer.pipe(
@@ -390,6 +392,60 @@ describe("DesktopLifecycle", () => {
 
       assert.deepEqual(process.listeners("SIGINT"), originalSignals.SIGINT);
       assert.deepEqual(process.listeners("SIGTERM"), originalSignals.SIGTERM);
+    }),
+  );
+
+  it.effect("exits on a repeated quit only once shutdown has stalled", () =>
+    Effect.gen(function* () {
+      const appListeners = new Map<string, (...args: readonly unknown[]) => void>();
+      const exitCodes: number[] = [];
+      const exit = (code = 0) =>
+        Effect.sync(() => {
+          exitCodes.push(code);
+        });
+      const layerEnvironment = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+        platform: "darwin",
+        isDevelopment: false,
+      } as DesktopEnvironment.DesktopEnvironment["Service"]);
+      const layer = DesktopLifecycle.layer.pipe(
+        Layer.provideMerge(layerElectronApp(appListeners, Effect.void, { exit })),
+        Layer.provideMerge(layerElectronTheme),
+        Layer.provideMerge(layerElectronWindow()),
+        Layer.provideMerge(layerDesktopWindow()),
+        Layer.provideMerge(layerEnvironment),
+        // Nothing marks this shutdown complete, so it stays pending.
+        Layer.provideMerge(DesktopShutdown.layer),
+        Layer.provideMerge(DesktopState.layer),
+      );
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+          yield* lifecycle.register;
+
+          let prevented = 0;
+          const event = {
+            preventDefault: () => {
+              prevented += 1;
+            },
+          } as Electron.Event;
+          appListeners.get("before-quit")?.(event);
+          appListeners.get("before-quit")?.(event);
+          yield* TestClock.adjust("39999 millis");
+          appListeners.get("before-quit")?.(event);
+          assert.deepEqual(
+            exitCodes,
+            [],
+            "a repeat before the threshold must not cut shutdown short",
+          );
+
+          yield* TestClock.adjust("1 millis");
+          appListeners.get("before-quit")?.(event);
+
+          assert.deepEqual(exitCodes, [0]);
+          assert.equal(prevented, 4);
+        }),
+      ).pipe(Effect.provide(layer));
     }),
   );
 

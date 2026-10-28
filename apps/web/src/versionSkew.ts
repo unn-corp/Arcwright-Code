@@ -45,19 +45,7 @@ function versionCore(version: string): string {
   return version.replace(/[-+].*$/, "");
 }
 
-/**
- * The skew a user can act on: the connected server runs an older Arcwright Code than
- * this client (or than `clientVersion`, the version this client is about to
- * update to), so the server is the side that needs updating.
- *
- * Fork builds compare their recorded included upstream bases, not installer counters.
- * Fork release availability belongs to the maintenance controller instead.
- * Without provenance, two nightly builds compare their full versions, including the date and run.
- * Other combinations compare their core `major.minor.patch` only, so a stable
- * build and a nightly build with the same core do not cause an update warning.
- * A server ahead of the client does not need an update. Versions that do not
- * parse as semver fall back to plain string inequality.
- */
+/* Forks compare included upstream bases; release availability belongs to maintenance. Without provenance, nightly builds compare full versions and other builds compare core semver. Only older servers need updating; invalid versions use string inequality. */
 export function resolveVersionMismatch(
   serverVersion: string | null | undefined,
   serverUpstreamVersion?: string,
@@ -122,12 +110,6 @@ export function supportsDesktopAppUpdate(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): boolean {
   return serverConfig?.environment.capabilities.desktopAppUpdate === true;
-}
-
-export function supportsServerUpdateThreadContinuation(
-  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
-): boolean {
-  return serverConfig?.environment.capabilities.serverUpdateThreadContinuation === true;
 }
 
 export function manualServerUpdateCommand(

@@ -33,7 +33,6 @@ function message(
     kind: "message",
     id,
     createdAt: "2026-10-13T12:00:00Z",
-    durationStart: "2026-10-13T12:00:00Z",
     showAssistantMeta: false,
     showAssistantCopyButton: false,
     assistantCopyStreaming: false,

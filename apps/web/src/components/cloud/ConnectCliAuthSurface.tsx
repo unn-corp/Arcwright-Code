@@ -7,32 +7,12 @@ import {
   connectCliSignInRedirectUrl,
 } from "../../cloud/connectCliAuth";
 import { isElectron, isAndroidPwa } from "../../env";
-import { AuthSurfaceShell } from "../auth/AuthSurfaceShell";
+import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 import { resolveClerkSignInProps } from "../clerk/authRedirect";
 import { Button } from "../ui/button";
 
-function ConnectCliAuthMessage({
-  eyebrow,
-  title,
-  description,
-}: {
-  readonly eyebrow?: string;
-  readonly title: string;
-  readonly description: string;
-}) {
-  return (
-    <>
-      {eyebrow ? (
-        <p className="text-3xs font-semibold tracking-widest text-primary uppercase">{eyebrow}</p>
-      ) : null}
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
-    </>
-  );
-}
-
 const invalidLinkMessage = {
-  eyebrow: "Authorization request",
+  context: "Authorization request",
   title: "This connect link is incomplete",
   description:
     "The link is missing its authorization request. Re-run `t3 connect` in your terminal and open the freshly printed URL.",
@@ -41,12 +21,12 @@ const invalidLinkMessage = {
 export function ConnectCliAuthorizeSurface() {
   if (isAndroidPwa || isElectron)
     return (
-      <AuthSurfaceShell>
-        <ConnectCliAuthMessage
+      <StandalonePage>
+        <StandalonePageHeader
           title="Open this link in your browser"
           description="Terminal authorization uses the hosted Arcwright Connect page."
         />
-      </AuthSurfaceShell>
+      </StandalonePage>
     );
   return <HostedConnectCliAuthorizeSurface />;
 }
@@ -71,6 +51,7 @@ function HostedConnectCliAuthorizeSurface() {
   };
   const openSignInOnLoad = useEffectEvent(openSignIn);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens Clerk sign-in or navigates the window to the authorize URL once Clerk has loaded
   useEffect(() => {
     if (!request || !isLoaded || redirecting.current) {
       return;
@@ -92,16 +73,16 @@ function HostedConnectCliAuthorizeSurface() {
 
   if (!request) {
     return (
-      <AuthSurfaceShell>
-        <ConnectCliAuthMessage {...invalidLinkMessage} />
-      </AuthSurfaceShell>
+      <StandalonePage>
+        <StandalonePageHeader {...invalidLinkMessage} />
+      </StandalonePage>
     );
   }
 
   return (
-    <AuthSurfaceShell>
-      <ConnectCliAuthMessage
-        eyebrow="Browser authorization"
+    <StandalonePage>
+      <StandalonePageHeader
+        context="Browser authorization"
         title="Connecting your terminal"
         description={
           isSignedIn
@@ -116,6 +97,6 @@ function HostedConnectCliAuthorizeSurface() {
           </Button>
         </div>
       ) : null}
-    </AuthSurfaceShell>
+    </StandalonePage>
   );
 }

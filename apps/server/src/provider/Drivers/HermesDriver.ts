@@ -96,8 +96,8 @@ export const HermesDriver: ProviderDriver<HermesSettings, HermesDriverEnv> = {
     const crypto = yield* Crypto.Crypto;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const httpClient = yield* HttpClient.HttpClient;
-    const serverSettings = yield* ServerSettingsService;
-    const eventLoggers = yield* ProviderEventLoggers;
+    yield* ServerSettingsService;
+    yield* ProviderEventLoggers;
     const processEnv = yield* makeHermesEnvironment(
       config,
       yield* mergeProviderInstanceEnvironment(environment),

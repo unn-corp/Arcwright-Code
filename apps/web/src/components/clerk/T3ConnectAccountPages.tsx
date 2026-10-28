@@ -25,11 +25,7 @@ export const T3_CONNECT_ACCOUNT_PAGES = [
 
 type PortalTargets = Readonly<Record<string, HTMLDivElement | undefined>>;
 
-/**
- * Opens the Clerk account modal on the Arcwright Connect page from outside the
- * UserButton. Clerk mounts custom pages into DOM nodes it owns, so the caller
- * must keep `portals` rendered for as long as the modal can be open.
- */
+/** Keep portals rendered while the modal can open; Clerk owns the custom-page DOM nodes. */
 export function useT3ConnectAccountPage(): {
   readonly open: (() => void) | null;
   readonly portals: ReactNode;

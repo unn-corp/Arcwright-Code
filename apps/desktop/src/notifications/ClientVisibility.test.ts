@@ -8,10 +8,8 @@ const linux = vi.hoisted(() => ({
 }));
 vi.mock("node:child_process", () => ({ execFile: linux.execFile }));
 vi.mock("dbus-next", () => ({
-  Message: class {
-    constructor(input: object) {
-      Object.assign(this, input);
-    }
+  Message: function Message(input: object) {
+    return { ...input };
   },
   sessionBus: () => linux.bus,
 }));

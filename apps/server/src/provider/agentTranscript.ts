@@ -1,21 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Full-transcript reading for `/resume`.
- *
- * `agentSessionDiscovery.ts` reads just enough of each session file to show a
- * preview in the picker. This module reads the whole conversation, so a session
- * started in the terminal can be replayed into a thread.
- *
- * It deliberately does NOT go through the adapters' `readThread`. Only Codex
- * implements that against persisted state (`thread/read`); the Claude and Grok
- * adapters snapshot their own in-memory `context.turns`, which is empty for a
- * session this app never started. The files on disk are the only source that
- * works for all three drivers.
- *
- * Each driver interleaves the conversation with material that is not part of it
- * (tool calls and their results, reasoning/thinking blocks, sub-agent chatter,
- * injected context). Everything here is about keeping the human/assistant text
- * and dropping the rest. Shapes below were taken from real session files.
+ * Read native files for resume; Claude/Grok readThread only sees this process's in-memory turns. Keep
+ * human/assistant text and drop tools, reasoning, subagent chatter and injected context.
  */
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -96,12 +82,8 @@ export function parseClaudeTranscriptLine(line: string): TranscriptTurn | undefi
 }
 
 /**
- * Codex: the human turn is `event_msg`/`user_message` and the reply is
- * `event_msg`/`agent_message`, both carrying `payload.message` as a string.
- *
- * The parallel `response_item` records are skipped on purpose: the user ones
- * repeat injected context, and the `agent_message` ones are sub-agent traffic
- * (they carry `author`/`recipient`) rather than the reply shown to the user.
+ * Only event_msg user_message/agent_message records contain the displayed Codex conversation. Skip
+ * response_item duplicates, injected context and subagent traffic.
  */
 export function parseCodexTranscriptLine(line: string): TranscriptTurn | undefined {
   const record = asRecord(safeParse(line));
@@ -219,12 +201,8 @@ export interface AgentTranscript {
 }
 
 /**
- * Read a transcript, keeping the most recent `maxTurns` turns.
- *
- * Streamed line by line and trimmed as it goes: these files reach tens of
- * megabytes (27MB in this workspace), and only the tail is ever imported.
- * Unreadable or malformed files yield no turns rather than throwing, matching
- * discovery, because a hard failure here would block resuming entirely.
+ * Stream and trim to the most recent maxTurns to bound memory for large transcripts.
+ * Unreadable/malformed files return no turns so discovery failures cannot block resume.
  */
 export async function readAgentTranscript(
   options: ReadAgentTranscriptOptions,

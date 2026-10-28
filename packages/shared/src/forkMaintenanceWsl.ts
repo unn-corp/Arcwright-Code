@@ -1,13 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off
 /**
- * Explicit Windows/WSL cohort protocol. Which WSL distributions belong to a Windows device's update
- * is stated membership, persisted by the desktop and confirmed by the person; it is never inferred from
- * listening addresses, hostnames, or `wsl.exe -l` output. Windows and every member form ONE cohort:
- * one fence, one multi-home snapshot set, one verification, one restore.
- *
- * A member is driven only through `wsl.exe -d <distro> -- <t3> maintenance ...`, so a stopped
- * distribution fails the whole transaction instead of being skipped, and nothing reaches into
- * \\wsl$ paths from Windows.
+ * Windows and explicitly enrolled WSL distributions form one fenced snapshot/verify/restore cohort.
+ * Drive members only through wsl.exe maintenance commands; stopped members fail the whole transaction,
+ * and Windows never accesses their data via WSL shares.
  */
 import * as Schema from "effect/Schema";
 import {

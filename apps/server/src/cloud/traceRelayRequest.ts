@@ -21,15 +21,8 @@ export const traceRelayRequest = <A, E, R>(
 ): Effect.Effect<A, E, R> => effect.pipe(withRelayClientTracing);
 
 /**
- * Traces a request that arrived over Arcwright Connect, continuing the client's
- * trace. The request's span and its authentication timing are exported, so
- * their latency and errors are visible; what the handler then does on the
- * user's machine (database reads, project indexing, processes) is not, unless
- * the handler is connection work and opts back in with {@link traceRelayRequest}.
- *
- * Call it only after the session is verified as Arcwright Connect: an unverified
- * request must not add spans to a trace it names. Authentication therefore
- * runs on the local tracer, and its timing is recorded here afterwards.
+ * Call only after Connect verification to prevent trace injection. Export request/authentication
+ * spans; local work stays private unless connection handlers opt back in with traceRelayRequest.
  */
 export const traceAuthenticatedRelayRequest = <A, E, R>(
   effect: Effect.Effect<A, E, R>,

@@ -3,6 +3,12 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { OrganizationMemoryContent, OrganizationMemoryCreateInput } from "./organizationMemory.ts";
 
+const decodeUnknownExitOrganizationMemoryCreateInput = Schema.decodeUnknownExit(
+  OrganizationMemoryCreateInput,
+);
+const decodeUnknownExitOrganizationMemoryContent =
+  Schema.decodeUnknownExit(OrganizationMemoryContent);
+
 const content = {
   kind: "decision",
   title: "Use a scoped store",
@@ -22,14 +28,12 @@ const input = {
 
 describe("Organization memory contract", () => {
   it("accepts scoped, bounded user records", () => {
-    expect(Exit.isSuccess(Schema.decodeUnknownExit(OrganizationMemoryCreateInput)(input))).toBe(
-      true,
-    );
+    expect(Exit.isSuccess(decodeUnknownExitOrganizationMemoryCreateInput(input))).toBe(true);
   });
   it("rejects oversized content and unsupported record kinds", () => {
     expect(
       Exit.isFailure(
-        Schema.decodeUnknownExit(OrganizationMemoryContent)({
+        decodeUnknownExitOrganizationMemoryContent({
           ...content,
           body: "x".repeat(8_001),
         }),
@@ -37,7 +41,7 @@ describe("Organization memory contract", () => {
     ).toBe(true);
     expect(
       Exit.isFailure(
-        Schema.decodeUnknownExit(OrganizationMemoryContent)({
+        decodeUnknownExitOrganizationMemoryContent({
           ...content,
           kind: "grant-authority",
         }),

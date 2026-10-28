@@ -133,6 +133,7 @@ export function publicRelayHeaderFailure(headers: Readonly<Record<string, string
 type PolicyRoute =
   | { readonly operation: PublicRelayOperation; readonly kind: PublicRelayClass }
   | { readonly kind: "hook" }
+  | { readonly kind: "mobile-telemetry" }
   | { readonly kind: "hook-trace" };
 const routeClassifier = FindMyWay.make<PolicyRoute | undefined>({ maxParamLength: 512 });
 for (const [operation, [method, template, kind]] of Object.entries(publicRelayOperations))
@@ -141,6 +142,10 @@ for (const method of ["POST", "PUT", "PATCH", "GET"])
   routeClassifier.on(method, "/v1/hooks/:endpointKey/:hookId/:token", { kind: "hook" });
 // Privacy marker only: malformed/unsupported hook paths cannot confer raw forwarding.
 routeClassifier.all("/v1/hooks/*", { kind: "hook-trace" });
+// Telemetry has an independent 2 MiB streaming cap and per-IP limiter.
+routeClassifier.on("POST", "/v1/mobile/observe/:projectId/v1/:signal", {
+  kind: "mobile-telemetry",
+});
 // Match the production catch-all, including its effect on HEAD -> GET fallback.
 routeClassifier.all("/*", undefined);
 export function classifyPublicRelayRoute(
@@ -182,6 +187,9 @@ export function relayTracePathDecodeFails(url: string): boolean {
 
 export function isRelayHookRequest(method: string, url: string): boolean {
   return hookRoute(method, url)?.handler?.kind === "hook";
+}
+export function isRelayMobileTelemetryRequest(method: string, url: string): boolean {
+  return hookRoute(method, url)?.handler?.kind === "mobile-telemetry";
 }
 export function isRelayHookTraceRequest(url: string): boolean {
   // Privacy uses the existing GET table even when an extension method has no table.

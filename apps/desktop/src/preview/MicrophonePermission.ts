@@ -35,6 +35,15 @@ export const make = Effect.fn("MicrophonePermission.make")(function* (
     url: string | undefined,
     callback: (allowed: boolean) => void,
   ) => void,
+  clipboardRead?: {
+    readonly request: (
+      contents: WebContents | null,
+      url: string | undefined,
+      callback: (allowed: boolean) => void,
+    ) => void;
+    readonly allowed: (url: string) => boolean;
+    readonly clear: () => void;
+  },
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -48,7 +57,7 @@ export const make = Effect.fn("MicrophonePermission.make")(function* (
   const saved = file
     ? yield* fs.readFileString(file).pipe(
         Effect.map(decodeChoice),
-        Effect.catch(() => Effect.succeed(Option.none())),
+        Effect.orElseSucceed(() => Option.none()),
       )
     : Option.none();
   const choices = new Map<string, boolean>();
@@ -127,6 +136,14 @@ export const make = Effect.fn("MicrophonePermission.make")(function* (
       } else callback(false);
       return;
     }
+    if (permission === "clipboard-read" && clipboardRead) {
+      clipboardRead.request(
+        contents,
+        "requestingUrl" in details ? details.requestingUrl : undefined,
+        callback,
+      );
+      return;
+    }
     if (permission !== "media") {
       callback(allowedPermissions.has(permission));
       return;
@@ -153,6 +170,8 @@ export const make = Effect.fn("MicrophonePermission.make")(function* (
     );
   });
   browserSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    if (permission === "clipboard-read" && clipboardRead)
+      return clipboardRead.allowed(requestingOrigin);
     if (permission !== "media") return allowedPermissions.has(permission);
     const origin = originOf(requestingOrigin);
     return (
@@ -169,6 +188,7 @@ export const make = Effect.fn("MicrophonePermission.make")(function* (
   return {
     clear: Effect.suspend(() => {
       generation++;
+      clipboardRead?.clear();
       choices.clear();
       return gate.withPermits(1)(file ? fs.remove(file, { force: true }) : Effect.void);
     }),

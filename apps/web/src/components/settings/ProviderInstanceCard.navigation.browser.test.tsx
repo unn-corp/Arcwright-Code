@@ -1,4 +1,4 @@
-import { act, render as renderUi, type Screen } from "../../../test/render";
+import { act, render as renderUi } from "../../../test/render";
 import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { useSyncExternalStore, type ReactNode } from "react";
 import { expect, it, vi } from "vite-plus/test";

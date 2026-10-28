@@ -1,5 +1,5 @@
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -113,8 +113,9 @@ export const layerCloudflareQueues = (
       Layer.succeed(
         WebPushDeliveryQueueSender,
         WebPushDeliveryQueueSender.of({
-          send: (body) =>
+          send: Effect.fn("WebPushDeliveryQueueSender.send")((body) =>
             sender.send(body).pipe(Effect.provideService(Alchemy.RuntimeContext, runtime)),
+          ),
         }),
       ),
     ),

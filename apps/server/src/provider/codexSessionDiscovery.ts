@@ -1,17 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Discovery of Codex CLI sessions that already exist on disk.
- *
- * T3 can already resume a Codex thread — `openCodexThread` sends `thread/resume`
- * with a thread id — but the only ids it ever sees are ones it recorded itself in
- * `provider_session_runtime.resume_cursor_json`. A conversation started in the
- * terminal is invisible to the app even though it is the *same* kind of session:
- * both are rollout files under `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`,
- * and a T3-created one is tagged `originator: "t3code_desktop"`.
- *
- * This module reads those rollout files so the UI can offer them for resume. It is
- * deliberately split into pure parsers plus one filesystem walk, so the parsing is
- * testable without fixtures on disk.
+ * Discover terminal-started Codex rollout files under CODEX_HOME/sessions as well as app-recorded
+ * sessions. Pure parsers stay separate from filesystem discovery.
  */
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";

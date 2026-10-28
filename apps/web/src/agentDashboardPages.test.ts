@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -682,7 +683,7 @@ describe("agent dashboard suggestion actions", () => {
           remoteName: "origin",
           remoteUrl: "https://github.com/acme/t3code.git",
         },
-        provider: "github",
+        provider: SourceControlProviderKind.make("github"),
         owner: "acme",
         name: "t3code",
       }),
@@ -695,7 +696,7 @@ describe("agent dashboard suggestion actions", () => {
           remoteName: "origin",
           remoteUrl: "https://gitlab.com/acme/t3code.git",
         },
-        provider: "gitlab",
+        provider: SourceControlProviderKind.make("gitlab"),
         owner: "acme",
         name: "t3code",
       }),

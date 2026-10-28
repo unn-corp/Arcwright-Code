@@ -77,30 +77,33 @@ export function layerCloudflare(
   bindings: Readonly<Partial<Record<30 | 120 | 240 | 60 | 10 | "edge", Binding>>>,
 ) {
   return Layer.succeed(PublicRelayRateLimits, {
-    admit: (operation, subject) =>
-      Effect.suspend(() => {
-        const kind: PublicRelayClass = publicRelayOperations[operation][2];
-        const binding = bindings[subject.kind === "edge" ? "edge" : publicRelayBuckets[kind].limit];
-        if (!binding) return Effect.fail(new PublicRelayLimiterUnavailable({}));
-        return Effect.suspend(() =>
-          binding.limit({ key: publicRelayLimiterKey(config, operation, subject) }),
-        ).pipe(
-          Effect.catchCause((cause) =>
-            Cause.hasInterrupts(cause)
-              ? Effect.interrupt
-              : Effect.fail(new PublicRelayLimiterUnavailable({})),
-          ),
-          Effect.flatMap(
-            (
-              result,
-            ): Effect.Effect<void, PublicRelayRateLimited | PublicRelayLimiterUnavailable> =>
-              result?.success === true
-                ? Effect.void
-                : result?.success === false
-                  ? Effect.fail(new PublicRelayRateLimited({ retryAfterSeconds: 60 }))
-                  : Effect.fail(new PublicRelayLimiterUnavailable({})),
-          ),
-        );
-      }),
+    admit: Effect.fn("PublicRelayRateLimits.admit")(
+      (operation: PublicRelayOperation, subject: PublicRelaySubject) =>
+        Effect.suspend(() => {
+          const kind: PublicRelayClass = publicRelayOperations[operation][2];
+          const binding =
+            bindings[subject.kind === "edge" ? "edge" : publicRelayBuckets[kind].limit];
+          if (!binding) return Effect.fail(new PublicRelayLimiterUnavailable({}));
+          return Effect.suspend(() =>
+            binding.limit({ key: publicRelayLimiterKey(config, operation, subject) }),
+          ).pipe(
+            Effect.catchCause((cause) =>
+              Cause.hasInterrupts(cause)
+                ? Effect.interrupt
+                : Effect.fail(new PublicRelayLimiterUnavailable({})),
+            ),
+            Effect.flatMap(
+              (
+                result,
+              ): Effect.Effect<void, PublicRelayRateLimited | PublicRelayLimiterUnavailable> =>
+                result?.success === true
+                  ? Effect.void
+                  : result?.success === false
+                    ? Effect.fail(new PublicRelayRateLimited({ retryAfterSeconds: 60 }))
+                    : Effect.fail(new PublicRelayLimiterUnavailable({})),
+            ),
+          );
+        }),
+    ),
   });
 }

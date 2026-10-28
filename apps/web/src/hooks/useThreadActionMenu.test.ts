@@ -50,11 +50,8 @@ vi.mock("../state/session", () => ({
 vi.mock("./useExportThread", () => ({ useExportThread: () => vi.fn() }));
 vi.mock("../state/entities", () => ({
   useServerConfigs: () => new Map(),
+  readEnvironmentServerConfigLoaded: () => true,
   readEnvironmentSupportsAutoSettleOptOut: () => true,
-  readEnvironmentSupportsPinning: () => true,
-  readEnvironmentSupportsSettlement: () => true,
-  readEnvironmentSupportsSnooze: () => true,
-  readEnvironmentSupportsTitleRegeneration: () => true,
   readThreadShell: () => ({
     id: "thread",
     environmentId: "secondary",
@@ -86,7 +83,7 @@ vi.mock("../localApi", () => ({
     },
   }),
 }));
-vi.mock("../logicalProject", () => ({
+vi.mock("@t3tools/client-runtime/state/project-grouping", () => ({
   deriveLogicalProjectKeyFromSettings: () => "project",
   derivePhysicalProjectKey: () => "project",
   selectProjectGroupingSettings: () => ({}),
@@ -159,6 +156,7 @@ const createMenu = () =>
     threadRef: target,
     projectCwd: "/project",
     onStartRename: () => recordEffect("rename"),
+    canShareWithGuest: false,
   });
 
 beforeEach(() => {

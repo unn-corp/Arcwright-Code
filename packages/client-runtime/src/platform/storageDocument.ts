@@ -9,7 +9,7 @@ import {
 } from "../connection/catalog.ts";
 import { type ConnectionTarget, PersistedConnectionTarget } from "../connection/model.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
-import { StoredGitHubRoutingPermission } from "../connection/githubRoutingPermissions.ts";
+import { StoredPullRequestRoutingPermission } from "../connection/pullRequestRoutingPermissions.ts";
 import { StoredEnvironmentName } from "../connection/environmentNames.ts";
 
 export const StoredConnectionCredential = Schema.Struct({
@@ -24,7 +24,9 @@ export const ConnectionCatalogDocument = Schema.Struct({
   profiles: Schema.Array(ConnectionProfile),
   credentials: Schema.Array(StoredConnectionCredential),
   remoteDpopTokens: Schema.Array(TokenStore.RemoteDpopAccessToken),
-  githubRoutingPermissions: Schema.optionalKey(Schema.Array(StoredGitHubRoutingPermission)),
+  // Pull request routing grants. The field name predates the rename and stays, so older and
+  // newer clients sharing this document keep reading and revoking the same grants.
+  githubRoutingPermissions: Schema.optionalKey(Schema.Array(StoredPullRequestRoutingPermission)),
   environmentNames: Schema.optionalKey(Schema.Array(StoredEnvironmentName)),
   // Saved environments the user switched off. They stay registered with their
   // credentials and cache but never connect until switched back on. Older

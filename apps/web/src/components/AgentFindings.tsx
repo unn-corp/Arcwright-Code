@@ -440,6 +440,7 @@ export function AgentFindings({
     findingSort,
   );
   const groups = groupDashboardFindingRecords(visibleRecords);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls and focuses the DOM finding targeted by the router once its group has mounted
   useEffect(() => {
     if (!initialSearch.findingId || groups.length === 0) return;
     const frame = requestAnimationFrame(() => {
@@ -790,6 +791,7 @@ export function AgentFindings({
 
     const modelSelection = suggestionWorkModelSelection(availableModelSelection);
     const threadId = newThreadId();
+    // oxlint-disable-next-line react/purity -- this timestamp is created only inside a user-action callback, never while rendering
     const createdAt = new Date().toISOString();
     const prompt =
       intent === "implement" && baseBranch
@@ -914,6 +916,7 @@ export function AgentFindings({
 
     const modelSelection = input.modelSelection;
     const threadId = newThreadId();
+    // oxlint-disable-next-line react/purity -- this timestamp is created only inside a user-action callback, never while rendering
     const createdAt = new Date().toISOString();
     const title = `Ask: ${record.finding.title}`.slice(0, 80);
     setAskingFindingId(record.id);
@@ -1026,6 +1029,7 @@ export function AgentFindings({
     }
 
     const threadId = newThreadId();
+    // oxlint-disable-next-line react/purity -- this timestamp is created only inside a user-action callback, never while rendering
     const createdAt = new Date().toISOString();
     const title = `Combine ${input.pullRequests.length} PRs: ${target.projectName}`.slice(0, 80);
     setCombiningProjectId(target.projectId);

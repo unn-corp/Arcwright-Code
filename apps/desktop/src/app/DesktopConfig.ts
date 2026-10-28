@@ -65,6 +65,7 @@ export const DesktopConfig = Config.all({
     Config.withDefault("http/json"),
   ),
   urlHandlerExecTarget: trimmedString("T3CODE_URL_HANDLER_EXEC_TARGET"),
+  desktopLauncherPath: trimmedString("T3CODE_DESKTOP_LAUNCHER_PATH"),
   appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate,
   mockUpdates: Config.Boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),

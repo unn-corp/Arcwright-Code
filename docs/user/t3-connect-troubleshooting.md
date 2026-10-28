@@ -7,12 +7,12 @@ A Arcwright Connect connection goes through four parts, in this order:
 3. **The host's tunnel** (cloudflared on the host) carries the request to the host.
 4. **Arcwright Code on the host** answers.
 
-When a connection fails, open **Settings > Connections**, find the environment,
+When a connection fails, open **Settings > Environments**, find the environment,
 and select **Details**. The first part marked as failed is the cause. Find its
 section below.
 
 To see the host's side, run `t3 connect status` on the host, or open
-**Settings > Connections** on the host. Both check the host's Arcwright Connect
+**Settings > Sharing & access** on the host. Both check the host's Arcwright Connect
 address from the host, and say why it fails. `t3 connect` runs the same check
 when it finishes setup. This check cannot test another device's network. For a
 problem on one device, use **Details** on that device.
@@ -105,7 +105,7 @@ Arcwright Connect does not have an active link between your account and the host
   account on this device and on the host. On the host, run `t3 connect logout`,
   then `t3 connect`.
 - **Arcwright Connect is off on the host, or the host only publishes agent activity.**
-  On the host, open **Settings > Connections** and turn **Arcwright Connect** on, or
+  On the host, open **Settings > Sharing & access** and turn **Arcwright Connect** on, or
   run `t3 connect`.
 - **The host was linked, but the server did not apply the link yet.** Run
   `t3 service restart` on the host, or restart `t3 serve`.

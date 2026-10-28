@@ -28,6 +28,7 @@ export function AndroidNotificationCoordinator() {
     readonly configuration: string;
     readonly id: string;
   } | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- configures the native notification allowlist before credential registration and releases stale configuration on unmount
   useEffect(() => {
     if (!isReady || !supportsAndroidNotifications()) return;
     let current = true;
@@ -75,6 +76,7 @@ function RegisterEnvironment({
 }) {
   const prepared = usePreparedConnection(environmentId);
   const account = useSyncExternalStore(androidAuthStore.subscribe, androidAuthStore.getSnapshot);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the prepared environment with the native notification service using the current account generation
   useEffect(() => {
     if (Option.isNone(prepared)) return;
     const connection = prepared.value;

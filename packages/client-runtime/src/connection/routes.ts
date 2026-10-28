@@ -215,18 +215,7 @@ export function hasRelayRoute(
   );
 }
 
-/**
- * The routes after the server reports where it listens. Each newly reported
- * address becomes a learned route that authenticates the same way as the route
- * in use: the paired token for a bearer route, the Arcwright Connect credential for
- * relay. A learned route the server still reports keeps its place, so the
- * user's order holds; one it no longer reports is dropped, so a changed LAN
- * address replaces the old one. Routes the user saved are never removed or
- * moved, and an address already saved is not learned twice. Any direct route
- * the server reports is marked as Tailscale while the server finds it on its
- * Tailscale interface, so a route paired by its numeric Tailscale address keeps
- * that label.
- */
+/* Learn reported addresses using the active route’s credentials without moving saved routes or duplicating addresses. Keep reported learned routes in their existing order; drop only learned routes no longer reported. Preserve Tailscale labels while the host reports that interface. */
 export function mergeLearnedRoutes(input: {
   readonly entry: ConnectionCatalogEntry;
   readonly activeRoute: ConnectionRoute;

@@ -15,6 +15,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -79,6 +80,7 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     providerSessionId: ProviderSessionId,
     requestId: RuntimeRequestId,
     decision: Schema.optional(ProviderApprovalDecision),
+    feedback: Schema.optional(Schema.String),
     answers: Schema.optional(ProviderUserInputAnswers),
   }),
   Schema.Struct({
@@ -150,12 +152,7 @@ export const OrchestrationEffectStatusV2 = Schema.Literals([
 ]);
 export type OrchestrationEffectStatusV2 = typeof OrchestrationEffectStatusV2.Type;
 
-/**
- * Command retries are deduplicated by their receipts first, and a run's effects
- * are re-enqueued only around one server restart, so a week is far longer than
- * either and leaves recent history for debugging. Failed rows are kept: storage
- * cleanup keeps a deleted thread's worktree while any of its effects failed.
- */
+/** Receipts deduplicate retries, and restart re-enqueues need far less than a week. Retain failed rows to keep deleted-thread worktrees. */
 export const SETTLED_EFFECT_RETENTION = Duration.days(7);
 const PRUNE_BATCH_SIZE = 500;
 
@@ -168,7 +165,6 @@ export interface OrchestrationEffectV2 {
   readonly attemptCount: number;
   readonly availableAt: string;
   readonly leaseOwner: string | null;
-  readonly leaseExpiresAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly completedAt: string | null;
@@ -227,7 +223,8 @@ export interface EffectOutboxV2Shape {
   >;
   readonly claimNext: (input: {
     readonly workerId: string;
-    readonly leaseDurationMs: number;
+    /** Accepted for callers predating process-owned effects; timed leases are retired. */
+    readonly leaseDurationMs?: number;
     readonly excludeRestartContinuations?: boolean;
     /** Leave memory-demanding starts pending, without taking leases or spending attempts. */
     readonly excludeProviderStarts?: boolean;
@@ -267,7 +264,6 @@ type EffectRow = {
   readonly attempt_count: number;
   readonly available_at: string;
   readonly lease_owner: string | null;
-  readonly lease_expires_at: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly completed_at: string | null;
@@ -290,7 +286,6 @@ const rowToEffect = (row: EffectRow) =>
       attemptCount: row.attempt_count,
       availableAt: row.available_at,
       leaseOwner: row.lease_owner,
-      leaseExpiresAt: row.lease_expires_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
@@ -321,8 +316,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
         available,
         Array.from({ length: Math.min(64, Math.max(0, Math.floor(count))) }, () => undefined),
       ).pipe(Effect.asVoid);
-    // An earlier effect waiting out a retry backoff still blocks later ones, so
-    // a turn cannot start while a failed rollback is about to restore files.
+    // Retry backoff must block later effects so turns cannot race a pending rollback.
     const claimableCandidatePredicate = (
       availableBefore?: string,
       excludeRestartContinuations = false,
@@ -424,11 +418,10 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           WHERE effect_id = ${effectId}
           LIMIT 1
         `.pipe(
+          NodeSqliteClient.readOnly,
           Effect.flatMap((rows) => {
             const row = rows[0];
-            return row === undefined
-              ? Effect.succeed(Option.none())
-              : rowToEffect(row).pipe(Effect.map(Option.some));
+            return row === undefined ? Effect.succeedNone : rowToEffect(row).pipe(Effect.asSome);
           }),
           Effect.mapError((cause) => new EffectOutboxError({ operation: "get", effectId, cause })),
         ),
@@ -441,6 +434,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           WHERE command_id = ${commandId}
           ORDER BY created_at ASC, effect_id ASC
         `.pipe(
+          NodeSqliteClient.readOnly,
           Effect.flatMap((rows) => decodeRows("list", rows)),
           Effect.mapError((cause) =>
             isEffectOutboxError(cause)
@@ -457,7 +451,6 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
             SET
               status = 'cancelled',
               lease_owner = NULL,
-              lease_expires_at = NULL,
               completed_at = ${now},
               updated_at = ${now},
               last_error = ${reason}
@@ -504,7 +497,6 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           SET
             status = 'cancelled',
             lease_owner = NULL,
-            lease_expires_at = NULL,
             completed_at = ${now},
             updated_at = ${now},
             last_error = 'Cancelled because the server process ended before the effect completed.'
@@ -517,7 +509,6 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           SET
             status = 'pending',
             lease_owner = NULL,
-            lease_expires_at = NULL,
             available_at = ${now},
             updated_at = ${now},
             last_error = 'Requeued after the previous server process ended.'
@@ -543,25 +534,18 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
       claimNext: Effect.fnUntraced(
         function* ({
           workerId,
-          leaseDurationMs,
           excludeRestartContinuations = false,
           excludeProviderStarts = false,
         }) {
           const now = yield* DateTime.now;
           const nowIso = DateTime.formatIso(now);
-          const leaseExpiresAt = DateTime.formatIso(
-            DateTime.add(now, { milliseconds: Math.max(1, leaseDurationMs) }),
-          );
-          // Empty safety claims are expected while the daemon is idle. Tracing
-          // this query records the full SQL text on every poll and can dominate
-          // the local trace without adding actionable information.
+          // Idle claims return empty; tracing their full SQL on every poll overwhelms useful traces.
           const claimStatement = sql<EffectRow>`
             UPDATE orchestration_v2_effect_outbox
             SET
               status = 'running',
               attempt_count = attempt_count + 1,
               lease_owner = ${workerId},
-              lease_expires_at = ${leaseExpiresAt},
               updated_at = ${nowIso},
               last_error = NULL
             WHERE effect_id = (
@@ -590,7 +574,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           FROM orchestration_v2_effect_outbox AS candidate
           WHERE ${claimableCandidatePredicate(undefined, excludeProviderStarts)}
             AND ${excludeProviderStarts ? sql`candidate.effect_type NOT IN ('provider-turn.start', 'provider-turn.restart', 'provider-runtime.continue')` : sql`1 = 1`}
-        `.pipe(Effect.withTracerEnabled(false));
+        `.pipe(NodeSqliteClient.readOnly, Effect.withTracerEnabled(false));
           const availableAt = rows[0]?.available_at;
           if (availableAt === undefined || availableAt === null) return Option.none();
           const parsed = DateTime.make(availableAt);
@@ -619,7 +603,6 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
             SET
               status = 'succeeded',
               lease_owner = NULL,
-              lease_expires_at = NULL,
               completed_at = ${now},
               updated_at = ${now},
               last_error = NULL
@@ -660,7 +643,6 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
               status = 'pending',
               available_at = ${availableAt},
               lease_owner = NULL,
-              lease_expires_at = NULL,
               updated_at = ${nowIso},
               last_error = ${error}
             WHERE effect_id = ${effectId}
@@ -694,7 +676,6 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
             SET
               status = 'failed',
               lease_owner = NULL,
-              lease_expires_at = NULL,
               completed_at = ${now},
               updated_at = ${now},
               last_error = ${error}
@@ -721,8 +702,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
         const cutoff = DateTime.formatIso(
           DateTime.subtractDuration(yield* DateTime.now, SETTLED_EFFECT_RETENTION),
         );
-        // Each batch is its own statement, so a large backlog never holds the
-        // write lock for long and writers can commit between batches.
+        // Separate batch statements release the write lock between batches.
         const deleteBatch = sql<{ readonly effect_id: string }>`
           DELETE FROM orchestration_v2_effect_outbox
           WHERE rowid IN (

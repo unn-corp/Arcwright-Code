@@ -17,6 +17,13 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { redactOrganizationArchitectText } from "./OrganizationArchitectRedaction.ts";
 
+const decodeUnknownOrganizationDirectorMessage = Schema.decodeUnknownEffect(
+  OrganizationDirectorMessage,
+);
+const isOrganizationDirectorError = Schema.is(OrganizationDirectorError);
+const decodeOrganizationDirectorAskInput = Schema.decodeEffect(OrganizationDirectorAskInput);
+const decodeOrganizationDirectorListInput = Schema.decodeEffect(OrganizationDirectorListInput);
+
 export interface OrganizationDirectorPrincipal {
   readonly subject: string;
   readonly interactive: boolean;
@@ -44,21 +51,25 @@ type OrgRow = { lifecycle: string; published_revision: number | null };
 type ModeRow = { observation_mode_enabled: number };
 
 const Json = Schema.fromJsonString(Schema.Unknown);
+
+const encodeSyncJson = Schema.encodeSync(Json);
 const EvidenceJson = Schema.fromJsonString(
   Schema.Array(OrganizationDirectorEvidence).check(Schema.isMaxLength(32)),
 );
+
+const decodeEvidenceJson = Schema.decodeEffect(EvidenceJson);
 const fail = (code: OrganizationDirectorError["code"], message: string) =>
   new OrganizationDirectorError({ code, message });
 const unavailable = () => fail("unavailable", "Director conversation storage is unavailable.");
 const hash = (value: string) => NodeCrypto.createHash("sha256").update(value).digest("hex");
-const json = (value: unknown) => Schema.encodeSync(Json)(value);
+const json = (value: unknown) => encodeSyncJson(value);
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const safeText = (value: string, limit: number) =>
   redactOrganizationArchitectText(value).slice(0, limit);
 const decodeMessage = Effect.fn("OrganizationDirectorStore.decodeMessage")(
   function* (row: MessageRow) {
-    const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(row.evidence_json);
-    return yield* Schema.decodeUnknownEffect(OrganizationDirectorMessage)({
+    const evidence = yield* decodeEvidenceJson(row.evidence_json);
+    return yield* decodeUnknownOrganizationDirectorMessage({
       sequence: row.sequence,
       id: row.message_id,
       organizationId: row.organization_id,
@@ -93,9 +104,7 @@ const make = Effect.gen(function* () {
     sql
       .withTransaction(effect)
       .pipe(
-        Effect.mapError((cause) =>
-          Schema.is(OrganizationDirectorError)(cause) ? cause : unavailable(),
-        ),
+        Effect.mapError((cause) => (isOrganizationDirectorError(cause) ? cause : unavailable())),
       );
   const requireOrg = Effect.fn("OrganizationDirectorStore.requireOrg")(function* (
     organizationId: string,
@@ -220,7 +229,7 @@ const make = Effect.gen(function* () {
     ];
     return {
       text: lines.join("\n"),
-      evidence: yield* Schema.decodeUnknownEffect(EvidenceJson)(json(evidence)),
+      evidence: yield* decodeEvidenceJson(json(evidence)),
     };
   });
   const ask: OrganizationDirectorStoreShape["ask"] = (input, principal) =>
@@ -232,7 +241,7 @@ const make = Effect.gen(function* () {
           Buffer.byteLength(principal.subject, "utf8") > 256
         )
           return yield* fail("forbidden", "An authenticated interactive user is required.");
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationDirectorAskInput)(input).pipe(
+        const parsed = yield* decodeOrganizationDirectorAskInput(input).pipe(
           Effect.mapError(() => fail("invalid", "Director question is invalid.")),
         );
         if (Buffer.byteLength(parsed.prompt, "utf8") > 4_000)
@@ -285,7 +294,7 @@ const make = Effect.gen(function* () {
     );
   const list: OrganizationDirectorStoreShape["list"] = Effect.fn("OrganizationDirectorStore.list")(
     function* (input) {
-      const parsed = yield* Schema.decodeUnknownEffect(OrganizationDirectorListInput)(input).pipe(
+      const parsed = yield* decodeOrganizationDirectorListInput(input).pipe(
         Effect.mapError(() => fail("invalid", "Director list input is invalid.")),
       );
       yield* requireOrg(parsed.organizationId);
@@ -298,9 +307,7 @@ const make = Effect.gen(function* () {
       for (const row of page) messages.push(yield* decodeMessage(row));
       return { messages, nextCursor: rows.length > parsed.limit ? page.at(-1)!.sequence : null };
     },
-    Effect.mapError((cause) =>
-      Schema.is(OrganizationDirectorError)(cause) ? cause : unavailable(),
-    ),
+    Effect.mapError((cause) => (isOrganizationDirectorError(cause) ? cause : unavailable())),
   );
   return { ask, list } satisfies OrganizationDirectorStoreShape;
 });

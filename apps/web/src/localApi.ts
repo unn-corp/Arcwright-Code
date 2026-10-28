@@ -11,7 +11,7 @@ import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientP
 
 let cachedApi: LocalApi | undefined;
 
-function createBrowserLocalApi(): LocalApi {
+export function createLocalApi(): LocalApi {
   return {
     dialogs: {
       pickFolder: async (options) => {
@@ -53,7 +53,7 @@ function createBrowserLocalApi(): LocalApi {
       // Only the desktop shell can reach the OS; the web build (and older
       // desktop shells that predate this method) have nothing to open.
       openSystemSettings: async (pane) => {
-        if (!window.desktopBridge?.openSystemSettings) {
+        if (!window.desktopBridge) {
           throw new Error("Unable to open System Settings.");
         }
         const opened = await window.desktopBridge.openSystemSettings(pane);
@@ -72,9 +72,7 @@ function createBrowserLocalApi(): LocalApi {
         }
         return showContextMenuFallback(items, position);
       },
-      // A native desktop menu blocks keyboard input and closes on outside
-      // interaction, so nothing to do there; the DOM fallback needs an explicit
-      // dismiss when the state behind it goes away.
+      // Unlike native menus, the DOM fallback needs dismissal when underlying state disappears.
       close: async () => {
         if (!window.desktopBridge) {
           dismissContextMenu();
@@ -96,10 +94,6 @@ function createBrowserLocalApi(): LocalApi {
       },
     },
   };
-}
-
-export function createLocalApi(): LocalApi {
-  return createBrowserLocalApi();
 }
 
 export function readLocalApi(): LocalApi | undefined {

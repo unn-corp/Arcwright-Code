@@ -1,39 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off processEnv:off globalTimers:off
 /**
- * The external recovery helper: the part of recovery that works when the application directory
- * has been replaced or is broken. Release tooling bundles this implementation through the dedicated
- * `forkRecoveryHelperMain.ts` entry (every dependency inlined) into `t3-recovery-helper-<platform>.mjs`; a device caches it OUTSIDE the app directory
- * together with its own Node runtime (`t3-recovery-node-<platform>`), so recovery needs neither a
- * system Node nor the main app. `print-runtime` shows the exact cached command.
- *
- * It is not a shortcut around the update machinery; it runs the same services:
- *   - the same coordinator store: admission fence, five-minute idle window for every registered
- *     participant, orphaned-process blocking, and the durable journal;
- *   - the same transaction engine and snapshot code (verified rescue copies, idempotent restore);
- *   - the same cohort: ALL homes of the recorded transaction (Windows and every explicitly
- *     registered WSL member) are checked, fenced, rescued and restored together, or none is.
- * It never writes a health receipt, never marks a runtime verified, and never releases the fence:
- * it stops at "restored" and the next healthy start (the service successor, or the desktop
- * controller) verifies the restored runtimes, pins the reverted build, holds restored automation for
- * review, and only then releases admission. If anything fails it fails closed and leaves the fence held.
- *
- * `recover --desktop-plan <retained install plan>` additionally puts the previous desktop build back for a main
- * application that cannot start. The retained plan, both installer payloads and the cached helper/Node pair are verified
- * before anything is replaced; only after EVERY home is rescued and restored is the revert authorized in the journal and
- * handed to a detached `handoff` that waits for this process to exit. The fence stays held until a healthy prior runtime
- * releases it.
- *
- * Commands (the operator is local and explicit; nothing is inferred):
- *   --self-test                          snapshot a temporary home, change it, restore it, verify
- *   print-runtime                        the cached verified runtime and exact command line
- *   handoff --plan <file>                replace or revert the desktop binary from a desktop-written plan (see forkDesktopHandoff)
- *   status  [--coordinator <dir>]        fence, journals, registered runtimes
- *   options [--coordinator <dir>]        recoverable transactions with each home's restore cutoff
- *   recover --transaction <id> --confirm <home>=<restore-point-created> [--confirm ...]
- *           [--members <file>] [--coordinator <dir>]
- *           [--desktop-plan <file>]
- *           `--confirm` must name every home of the transaction with its exact recorded cutoff. `--desktop-plan` names the
- *           retained private `<transaction>-install.json[.consumed]` and is a local file path only, never fetched or inferred.
+ * Run from a digest-verified helper/Node cache outside the app. Use the normal fenced transaction
+ * across every recorded home, with verified rescue copies and explicit cutoffs. Stop at restored; only
+ * a healthy successor verifies and releases admission. Desktop reverts also require the verified
+ * retained plan and both installers.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
@@ -359,11 +329,9 @@ const sameBuild = (left: MaintenanceJournal["previous"], right: MaintenanceJourn
   (left.commit ?? null) === (right.commit ?? null);
 
 /**
- * Proves, before any data is replaced, that the revert can be completed: the retained plan is private, is the install plan
- * of exactly this source transaction, names this coordinator, and agrees with the authorization the controller durably recorded
- * for it; both installer payloads are byte for byte the recorded ones; and the cached helper/Node pair is intact. Nothing is
- * inferred: the previous build's installer digest is the one the source journal recorded, which a legacy previous build
- * identity does not equal.
+ * Before replacing data, verify the private plan matches the source transaction, coordinator and
+ * durable authorization. Verify both recorded installer digests and the helper/Node cache; never infer
+ * a prior installer digest from its build identity.
  */
 async function prepareDesktopRecovery(
   store: CoordinatorStore,

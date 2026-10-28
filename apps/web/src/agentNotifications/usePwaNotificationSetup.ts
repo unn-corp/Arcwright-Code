@@ -28,6 +28,7 @@ export function usePwaNotificationSetup() {
     setAttempt((value) => value + 1);
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns service-worker push discovery and focus/online listeners while the notification setup surface is mounted
   useEffect(() => {
     let cancelled = false;
     let configLoaded = false;

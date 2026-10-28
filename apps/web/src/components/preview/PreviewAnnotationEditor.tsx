@@ -78,6 +78,7 @@ function PreviewAnnotationEditor({ session }: { session: PreviewAnnotationEditor
       comment: appendAnnotationTranscript(current.comment, text),
     }));
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- protects the mounted unsaved annotation from window reload and removes the beforeunload listener on cleanup
   useEffect(() => {
     const protectReload = (event: BeforeUnloadEvent) => {
       event.preventDefault();

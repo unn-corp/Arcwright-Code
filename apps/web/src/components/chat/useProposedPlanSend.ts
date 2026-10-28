@@ -1,3 +1,5 @@
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { environmentServerConfigsAtom } from "../../state/server";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -36,6 +38,7 @@ import type { ChatMessage } from "../../types";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   formatOutgoingPrompt,
+  withMessageContext,
   type makeThreadErrorSetter,
   waitForStartedServerThread,
 } from "../ChatView.logic";
@@ -53,7 +56,6 @@ interface PlanSendBase {
   readonly activeProposedPlan: LatestProposedPlanState | null;
   readonly isServerThread: boolean;
   readonly isSendBusy: boolean;
-  readonly isConnecting: boolean;
   readonly composerRef: ComposerHandleRef;
   readonly beginLocalDispatch: LocalDispatchState["beginLocalDispatch"];
   readonly resetLocalDispatch: LocalDispatchState["resetLocalDispatch"];
@@ -86,7 +88,6 @@ export function usePlanFollowUpSend(input: PlanFollowUpSendInput) {
     activeProposedPlan,
     isServerThread,
     isSendBusy,
-    isConnecting,
     composerRef,
     beginLocalDispatch,
     resetLocalDispatch,
@@ -119,7 +120,6 @@ export function usePlanFollowUpSend(input: PlanFollowUpSendInput) {
       !activeThread ||
       !isServerThread ||
       isSendBusy ||
-      isConnecting ||
       sendInFlightRef.current
     ) {
       return false;
@@ -192,8 +192,13 @@ export function usePlanFollowUpSend(input: PlanFollowUpSendInput) {
           message: {
             messageId: messageIdForSend,
             role: "user",
-            text: outgoingMessageText,
-            ...(context ? { context } : {}),
+            ...withMessageContext({
+              text: outgoingMessageText,
+              context,
+              supportsInlineMessageContext:
+                appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
+                  .capabilities.inlineMessageContext === true,
+            }),
             attachments: [],
           },
           ...(sendCtx.getModelSelectionForDispatch
@@ -258,7 +263,6 @@ export function useImplementPlanInNewThread(input: ImplementPlanInNewThreadInput
     activeProposedPlan,
     isServerThread,
     isSendBusy,
-    isConnecting,
     composerRef,
     beginLocalDispatch,
     resetLocalDispatch,
@@ -283,7 +287,6 @@ export function useImplementPlanInNewThread(input: ImplementPlanInNewThreadInput
       !activeProposedPlan ||
       !isServerThread ||
       isSendBusy ||
-      isConnecting ||
       activeEnvironmentUnavailable ||
       sendInFlightRef.current
     ) {

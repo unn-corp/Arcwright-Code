@@ -20,6 +20,8 @@ import {
   type OrganizationCorrelationCoordinatorResult,
 } from "./OrganizationCorrelationCoordinator.ts";
 
+const decodeOrganizationObservation = Schema.decodeEffect(OrganizationObservation);
+
 const BATCH_SIZE = 32;
 const MAX_ATTEMPTS = 8;
 const LEASE_SECONDS = 60;
@@ -38,13 +40,10 @@ type ObservationRow = {
   body: string;
   attributes_json: string;
 };
-type JobRow = {
-  state: string;
-  attempts: number;
-  outcome: string | null;
-  last_error_code: string | null;
-};
+
 const AttributesJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
+
+const decodeAttributesJson = Schema.decodeEffect(AttributesJson);
 const terminalError = (code: string) =>
   code === "forbidden" || code === "not_found" || code === "conflict" || code === "invalid";
 const errorCode = (cause: unknown) =>
@@ -114,8 +113,8 @@ const make = Effect.gen(function* () {
       const row = (yield* sql<ObservationRow>`SELECT * FROM organization_intake_observations
         WHERE observation_id = ${claimed.observation_id}`)[0];
       if (!row) return yield* Effect.fail({ code: "not_found" });
-      const attributes = yield* Schema.decodeUnknownEffect(AttributesJson)(row.attributes_json);
-      const observation = yield* Schema.decodeUnknownEffect(OrganizationObservation)({
+      const attributes = yield* decodeAttributesJson(row.attributes_json);
+      const observation = yield* decodeOrganizationObservation({
         id: row.observation_id,
         organizationId: row.organization_id,
         sourceId: row.source_id,

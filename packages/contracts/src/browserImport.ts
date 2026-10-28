@@ -1,16 +1,6 @@
 /**
- * Browser import - pulling cookies from a browser already installed on the
- * machine into a Arcwright Code browser profile.
- *
- * Only cookies are imported. They carry the logged-in sessions, which is what
- * makes an imported profile useful; saved passwords are deliberately out of
- * scope because Electron exposes no password store to put them in.
- *
- * Availability is per source and per platform, and the reasons are modelled
- * explicitly: some are a permission the user can grant, one is a limitation
- * no amount of consent works around. The UI needs to tell those apart.
- *
- * @module BrowserImport
+ * Import cookies only, never passwords. Distinguish permissions users can grant from platform
+ * limitations that consent cannot fix.
  */
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -25,6 +15,7 @@ const BROWSER_IMPORT_SOURCE_IDS = [
   "arc",
   "helium",
   "firefox",
+  "zen",
   "safari",
 ] as const;
 
@@ -94,7 +85,7 @@ const BROWSER_IMPORT_UNAVAILABLE_COPY: Readonly<Record<BrowserImportUnavailableR
   notInstalled: "Not installed on this machine.",
   needsKeychainApproval: "Needs Keychain access to read its cookies.",
   keychainItemMissing:
-    "No encryption key in your Keychain — sign in to that browser once, then retry.",
+    "No encryption key in your Keychain. Sign in to that browser once, then retry.",
   needsFullDiskAccess:
     "Give Arcwright Code Full Disk Access in System Settings → Privacy & Security, then retry.",
   browserRunning: "Quit the browser first so its cookie database can be read.",

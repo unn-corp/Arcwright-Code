@@ -17,7 +17,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
@@ -298,22 +298,20 @@ it.effect("starts the provider turn before snoozing the internal review thread",
       getCounts: () => Effect.die("unused"),
       getRecentActivitySummaries: () => Effect.die("unused"),
       getEventReplayStats: () => Effect.die("unused"),
-      getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-      getProjectShellById: () => Effect.succeed(Option.none()),
-      getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+      getActiveProjectByWorkspaceRoot: () => Effect.succeedNone,
+      getProjectShellById: () => Effect.succeedNone,
+      getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
       getImportedAgentSessionSources: () => Effect.succeed([]),
-      getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-      getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+      getThreadCheckpointContext: () => Effect.succeedNone,
+      getFullThreadDiffContext: () => Effect.succeedNone,
       getThreadShellById: () =>
-        Effect.succeed(
-          Option.some({
-            session: { status: "running" },
-          } as never),
-        ),
-      getThreadDetailById: () => Effect.succeed(Option.none()),
-      getThreadRuntimeContext: () => Effect.succeed(Option.none()),
-      getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
-      getTurnStartMessage: () => Effect.succeed(Option.none()),
+        Effect.succeedSome({
+          session: { status: "running" },
+        } as never),
+      getThreadDetailById: () => Effect.succeedNone,
+      getThreadRuntimeContext: () => Effect.succeedNone,
+      getThreadDetailSnapshot: () => Effect.succeedNone,
+      getTurnStartMessage: () => Effect.succeedNone,
       searchThreads: () => Effect.succeed({ matches: [] }),
     } satisfies ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"];
     const orchestration = {

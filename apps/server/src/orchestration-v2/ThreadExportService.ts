@@ -74,11 +74,12 @@ export class ThreadExportService extends Context.Service<
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   return ThreadExportService.of({
-    exportThread: (input) =>
+    exportThread: Effect.fn("ThreadExportService.exportThread")((input) =>
       threads.getThreadProjection(input.threadId).pipe(
         Effect.map((projection) => formatThreadExport(projection, input.format)),
         Effect.mapError((error) => new ThreadExportError({ message: error.message })),
       ),
+    ),
   });
 });
 export const layer = Layer.effect(ThreadExportService, make);

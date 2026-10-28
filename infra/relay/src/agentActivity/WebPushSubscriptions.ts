@@ -384,8 +384,10 @@ export const make = Effect.gen(function* () {
   }, mapPwaAccessError);
 
   return WebPushSubscriptions.of({
-    registerPwa: (input) => registerPwa(input, () => Effect.void, "internal"),
-    registerPwaPublic: (input) =>
+    registerPwa: Effect.fn("WebPushSubscriptions.registerPwa")((input) =>
+      registerPwa(input, () => Effect.void, "internal"),
+    ),
+    registerPwaPublic: Effect.fn("WebPushSubscriptions.registerPwaPublic")((input) =>
       registerPwa(
         input,
         (row) =>
@@ -399,8 +401,11 @@ export const make = Effect.gen(function* () {
           ),
         "public",
       ),
-    removePwa: (input) => removePwa(input, () => Effect.void),
-    removePwaPublic: (input) =>
+    ),
+    removePwa: Effect.fn("WebPushSubscriptions.removePwa")((input) =>
+      removePwa(input, () => Effect.void),
+    ),
+    removePwaPublic: Effect.fn("WebPushSubscriptions.removePwaPublic")((input) =>
       removePwa(input, (row) =>
         PublicLimits.PublicRelayRateLimits.pipe(
           Effect.flatMap((limiter) =>
@@ -411,9 +416,12 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+    ),
     getPwaForCleanup,
-    getPwa: (input) =>
-      anonymousAllowed ? getPwaForCleanup(input) : Effect.fail(new AnonymousPwaUnavailable()),
+    getPwa: Effect.fn("WebPushSubscriptions.getPwa")(function* (input) {
+      if (!anonymousAllowed) return yield* new AnonymousPwaUnavailable();
+      return yield* getPwaForCleanup(input);
+    }),
     register: Effect.fn("relay.web_push_subscriptions.register")(function* (input) {
       const now = DateTime.formatIso(yield* DateTime.now);
       const id = yield* crypto.randomUUIDv4();

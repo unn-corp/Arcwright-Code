@@ -36,6 +36,8 @@ import {
 } from "./OrganizationWorkIntentActivation.ts";
 import { OrganizationWorkStore } from "./OrganizationWorkStore.ts";
 
+const isOrganizationProviderBudgetError = Schema.is(OrganizationProviderBudgetError);
+
 const BATCH_SIZE = 4;
 const POLL_INTERVAL = "15 seconds";
 
@@ -124,7 +126,7 @@ const classifyFailure = (
   if (tagged._tag === "OrganizationProviderBudgetError")
     return tagged.code === "exhausted" ? "budget_exhausted" : "budget_denied";
   if (tagged._tag === "TextGenerationError") {
-    if (Schema.is(OrganizationProviderBudgetError)(tagged.cause))
+    if (isOrganizationProviderBudgetError(tagged.cause))
       return tagged.cause.code === "exhausted" ? "budget_exhausted" : "budget_denied";
     return "provider_unavailable";
   }

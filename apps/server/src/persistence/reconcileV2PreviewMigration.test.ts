@@ -9,6 +9,7 @@ import { migrationEntries, migrationManifest, runMigrations } from "./Migrations
 import PullRequestFilesViewed from "./Migrations/053_PullRequestFilesViewed.ts";
 import RemoveRedundantProjectionIndexes from "./Migrations/056_RemoveRedundantProjectionIndexes.ts";
 import OrchestrationV2 from "./Migrations/055_OrchestrationV2.ts";
+import { upstreamMigrationEntries } from "./UpstreamMigrations.ts";
 
 const seedPreview = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -417,3 +418,110 @@ describe("V2 preview upgrade", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 });
+
+const seedSearchHistory = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`INSERT INTO orchestration_v2_projection_threads
+    (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, payload_json)
+    VALUES ('retained-search', 'saved-project', 'Retained history', 'codex', 'full-access', 'default',
+      '2026-10-01', '2026-10-01', '{"lineage":{"relationshipToParent":null}}')`;
+  yield* sql`INSERT INTO orchestration_v2_projection_messages
+    (message_id, thread_id, role, streaming, created_at, updated_at, payload_json)
+    VALUES ('retained-message', 'retained-search', 'user', 0, '2026-10-01', '2026-10-01',
+      '{"text":"Retain searchable messages","createdBy":"user"}')`;
+});
+
+it.effect(
+  "upgrades deployed fork 109 without changing message bytes or installed ledger identities",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 109 });
+      yield* seedSearchHistory;
+      yield* sql`UPDATE effect_sql_migrations SET created_at = '2026-10-01 01:02:03' WHERE migration_id = 109`;
+      const messages = yield* sql`SELECT * FROM orchestration_v2_projection_messages`;
+      const ledger =
+        yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations ORDER BY migration_id`;
+
+      yield* runMigrations();
+
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM orchestration_v2_projection_messages`,
+        messages,
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id <= 109 ORDER BY migration_id`,
+        ledger,
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id = 116`,
+        [{ migration_id: 116, name: "ThreadMessageSearch" }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT messages.message_id FROM orchestration_v2_message_search AS search
+        JOIN orchestration_v2_projection_messages AS messages ON messages.rowid = search.rowid
+        WHERE orchestration_v2_message_search MATCH 'searchable'`,
+        [{ message_id: "retained-message" }],
+      );
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it.effect(
+  "adopts an upstream 69 database with its indexed messages and migration receipt intact",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* Migrator.make({})({
+        loader: Migrator.fromRecord(
+          Object.fromEntries(
+            upstreamMigrationEntries
+              .filter(([id]) => id <= 69)
+              .map(([id, , name, migration]) => [
+                `${id}_${name}`,
+                id === 63
+                  ? Effect.forEach(
+                      [
+                        "projection_thread_activities",
+                        "projection_turns",
+                        "projection_thread_proposed_plans",
+                        "projection_pending_approvals",
+                        "projection_state",
+                        "checkpoint_diff_blobs",
+                      ],
+                      (table) => sql.unsafe(`DROP TABLE IF EXISTS ${table}`),
+                      { discard: true },
+                    )
+                  : migration,
+              ]),
+          ),
+        ),
+      });
+      yield* seedSearchHistory;
+      yield* sql`UPDATE effect_sql_migrations SET created_at = '2026-10-02 03:04:05' WHERE migration_id = 69`;
+      const messages = yield* sql`SELECT * FROM orchestration_v2_projection_messages`;
+      const index =
+        yield* sql`SELECT sql FROM sqlite_master WHERE name = 'orchestration_v2_message_search'`;
+
+      yield* runMigrations();
+
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM orchestration_v2_projection_messages`,
+        messages,
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id = 116`,
+        [{ migration_id: 116, name: "ThreadMessageSearch", created_at: "2026-10-02 03:04:05" }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT sql FROM sqlite_master WHERE name = 'orchestration_v2_message_search'`,
+        index,
+      );
+      assert.strictEqual(
+        (yield* sql`SELECT rowid FROM orchestration_v2_message_search
+      WHERE orchestration_v2_message_search MATCH 'searchable'`).length,
+        1,
+      );
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);

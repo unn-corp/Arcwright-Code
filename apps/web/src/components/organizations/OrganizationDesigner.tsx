@@ -83,6 +83,7 @@ export function OrganizationDesigner({
   const assistantRef = useRef<HTMLElement | null>(null);
   const assistantToggleRef = useRef<HTMLButtonElement | null>(null);
   const assistantWasOpen = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the mounted assistant panel into view and restores DOM focus when it closes
   useEffect(() => {
     if (assistantOpen && window.matchMedia("(max-width: 1279px)").matches)
       assistantRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
@@ -91,6 +92,7 @@ export function OrganizationDesigner({
   }, [assistantOpen]);
   const addEmployeeRef = useRef<HTMLButtonElement | null>(null);
   const dialogsWereOpen = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores DOM focus to Add employee after either editor dialog closes
   useEffect(() => {
     const open = employee !== null || relationships !== null;
     if (dialogsWereOpen.current && !open) addEmployeeRef.current?.focus();

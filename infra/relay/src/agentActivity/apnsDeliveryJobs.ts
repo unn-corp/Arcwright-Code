@@ -12,23 +12,15 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
 const MAX_JOB_AGE_MS = 10 * 60 * 1_000;
-export const APNS_DELIVERY_JOB_SIGNING_ALGORITHM = "hmac-sha256";
+const APNS_DELIVERY_JOB_SIGNING_ALGORITHM = "hmac-sha256";
 
 const ApnsDeliveryKindSchema = Schema.Literals([
-  "live_activity_start",
   "live_activity_update",
   "live_activity_end",
   "push_notification",
 ]);
-const LiveActivityStartOrUpdateKindSchema = Schema.Literals([
-  "live_activity_start",
-  "live_activity_update",
-]);
-const LiveActivityKindSchema = Schema.Literals([
-  "live_activity_start",
-  "live_activity_update",
-  "live_activity_end",
-]);
+const LiveActivityStartOrUpdateKindSchema = Schema.Literals(["live_activity_update"]);
+const LiveActivityKindSchema = Schema.Literals(["live_activity_update", "live_activity_end"]);
 
 const ApnsDeliveryJobContext = {
   jobId: Schema.String,
@@ -261,8 +253,7 @@ export function makeApnsDeliveryJobPayload(input: {
     },
     aggregate: input.aggregate,
     notification: input.notification ?? null,
-    // Omitted (not null) when absent so signatures stay identical to jobs from
-    // relay builds that predate the field.
+    // Omit absent fields to preserve signatures from older relay builds.
     ...(input.alert ? { alert: input.alert } : {}),
     createdAt: input.createdAt,
     expiresAt: input.expiresAt,
@@ -275,7 +266,6 @@ export function expiresAtForJob(createdAtMs: number): string {
 
 function validatePayloadShape(payload: ApnsDeliveryJobPayload): ApnsDeliveryJobInvalid | null {
   switch (payload.kind) {
-    case "live_activity_start":
     case "live_activity_update":
       if (payload.aggregate === null) {
         return new ApnsDeliveryJobLiveActivityAggregateMissing({

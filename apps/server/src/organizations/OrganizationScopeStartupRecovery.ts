@@ -12,15 +12,17 @@ import {
 } from "./OrganizationWorkScopeStore.ts";
 
 const exactVerifier = Layer.succeed(OrganizationWorkScopeStopVerifier, {
-  verifyStopped: (identity: Parameters<typeof stopAndVerifyOrganizationScopedSandbox>[0]) =>
-    Effect.tryPromise({
-      try: () => stopAndVerifyOrganizationScopedSandbox(identity),
-      catch: () =>
-        new OrganizationWorkScopeError({
-          code: "unavailable",
-          message: "Exact Organization scope stop could not be verified.",
-        }),
-    }),
+  verifyStopped: Effect.fn("OrganizationWorkScopeStopVerifier.verifyStopped")(
+    (identity: Parameters<typeof stopAndVerifyOrganizationScopedSandbox>[0]) =>
+      Effect.tryPromise({
+        try: () => stopAndVerifyOrganizationScopedSandbox(identity),
+        catch: () =>
+          new OrganizationWorkScopeError({
+            code: "unavailable",
+            message: "Exact Organization scope stop could not be verified.",
+          }),
+      }),
+  ),
 });
 
 export interface OrganizationScopeStartupRecoveryReport {

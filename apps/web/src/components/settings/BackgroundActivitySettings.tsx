@@ -69,6 +69,7 @@ export function BackgroundActivitySearchOpener({
   onOpen: (open: boolean) => void;
 }) {
   const target = useSettingsSearchTargetId();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the advanced settings dialog for a router search target that is mounted inside it
   useEffect(() => {
     if (enabled && target !== null && BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS.has(target))
       onOpen(true);
@@ -152,6 +153,7 @@ export function BackgroundActivityAdvancedDialog({
 }) {
   const searchTargetId = useSettingsSearchTargetId();
   const initialTarget = useRef<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- retains the router search target for the imperative dialog initial-focus callback after the hash clears
   useEffect(() => {
     if (searchTargetId && BACKGROUND_ACTIVITY_ADVANCED_TARGET_IDS.has(searchTargetId)) {
       initialTarget.current = searchTargetId;

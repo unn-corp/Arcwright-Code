@@ -36,7 +36,7 @@ function gesture(
     projectExpandedById: {},
     projectOrder: Object.values(members).flat(),
     threadOrder: [],
-    sidebarProjectScopeKey: null,
+    sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,

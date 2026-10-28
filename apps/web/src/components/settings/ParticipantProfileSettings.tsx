@@ -45,6 +45,7 @@ export function ParticipantProfileSettings() {
   const profile = settings.participantProfiles[settings.activeParticipantProfile];
   const auth = useManagedAuth();
   const active = useRef({ auth, profileKey: settings.activeParticipantProfile });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- updates the account fence read by asynchronous native profile-photo operations after the profile commits
   useLayoutEffect(() => {
     active.current = { auth, profileKey: settings.activeParticipantProfile };
   }, [auth, settings.activeParticipantProfile]);

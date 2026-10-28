@@ -36,19 +36,13 @@ function eventKindForTransition(
   return null;
 }
 
-/**
- * Emits local desktop notifications only for live state transitions. The
- * initial snapshot deliberately primes the cache without notifying, so a
- * renderer restart cannot replay old agent work as fresh notifications.
- *
- * Remote delivery will consume the same event contract from the server's
- * durable outbox; this coordinator remains intentionally local to Electron.
- */
+/* Notify only on live desktop transitions. Prime the first snapshot without replaying historical work after a renderer restart; remote delivery belongs to the server outbox. */
 export function DesktopAgentNotificationCoordinator({ router }: { readonly router: AppRouter }) {
   const projects = useProjects();
   const threads = useThreadShells();
   const snapshots = useRef(new Map<string, ThreadSnapshot>());
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the desktop notification bridge to router navigation for the app lifetime
   useEffect(() => {
     const subscribe = window.desktopBridge?.onAgentNotificationNavigate;
     if (typeof subscribe !== "function") return;
@@ -63,6 +57,7 @@ export function DesktopAgentNotificationCoordinator({ router }: { readonly route
     });
   }, [router]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- emits native desktop notifications for live thread transitions while priming the initial snapshot without replay
   useEffect(() => {
     const bridge = window.desktopBridge;
     if (!bridge || typeof bridge.showAgentNotification !== "function") {

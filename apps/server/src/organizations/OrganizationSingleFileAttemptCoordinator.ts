@@ -65,7 +65,11 @@ export class OrganizationSingleFileAttemptPolicy extends Context.Service<
 ) {}
 export const OrganizationSingleFileAttemptPolicyDisabled = Layer.succeed(
   OrganizationSingleFileAttemptPolicy,
-  { select: () => Effect.fail(failure("forbidden", "Single-file worker policy is disabled.")) },
+  {
+    select: Effect.fn("OrganizationSingleFileAttemptPolicy.select")(() =>
+      Effect.fail(failure("forbidden", "Single-file worker policy is disabled.")),
+    ),
+  },
 );
 
 /** An injected host owns both the real scoped handle and its exact OS stop check. */
@@ -91,16 +95,18 @@ export const OrganizationSingleFileAttemptScopeVerifierFromHost = Layer.effect(
   Effect.gen(function* () {
     const host = yield* OrganizationSingleFileAttemptHost;
     return {
-      verifyStopped: (identity: OrganizationWorkScopeIdentity) =>
-        host.verifyStopped(identity).pipe(
-          Effect.mapError(
-            (error) =>
-              new OrganizationWorkScopeError({
-                code: error.code === "unavailable" ? "unavailable" : "conflict",
-                message: error.message,
-              }),
+      verifyStopped: Effect.fn("OrganizationWorkScopeStopVerifier.verifyStopped")(
+        (identity: OrganizationWorkScopeIdentity) =>
+          host.verifyStopped(identity).pipe(
+            Effect.mapError(
+              (error) =>
+                new OrganizationWorkScopeError({
+                  code: error.code === "unavailable" ? "unavailable" : "conflict",
+                  message: error.message,
+                }),
+            ),
           ),
-        ),
+      ),
     };
   }),
 );

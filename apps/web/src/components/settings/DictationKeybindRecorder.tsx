@@ -56,10 +56,12 @@ export function DictationKeybindRecorder({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingValue, setRecordingValue] = useState<string | null>(null);
   const onValueChangeRef = useRef(onValueChange);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- updates the callback used by the mounted global key recorder after the receiving control commits
   useLayoutEffect(() => {
     onValueChangeRef.current = onValueChange;
   }, [onValueChange]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the capturing keyboard listeners for the active shortcut recording and releases them on cleanup
   useEffect(() => {
     if (!isRecording) return;
     const pressedKeys = new Set<string>();
@@ -114,6 +116,10 @@ export function DictationKeybindRecorder({
     };
   }, [isRecording]);
 
+  const steps = value.map((keybinding, index) => ({
+    id: JSON.stringify(value.slice(0, index + 1)),
+    keybinding,
+  }));
   return (
     <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_1.75rem] items-center gap-2">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -151,8 +157,8 @@ export function DictationKeybindRecorder({
         ) : value.length > 0 ? (
           <>
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-              {value.map((keybinding, index) => (
-                <span className="flex min-w-0 items-center gap-1.5" key={`${keybinding}:${index}`}>
+              {steps.map(({ id, keybinding }, index) => (
+                <span className="flex min-w-0 items-center gap-1.5" key={id}>
                   {index > 0 ? <span className="text-muted-foreground/60">then</span> : null}
                   <KeybindingPill value={keybinding} />
                 </span>

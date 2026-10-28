@@ -1,4 +1,4 @@
-import { resolveSource, makeSourceContext } from "alchemy/Cloudflare/Workers";
+import { resolveSource, makeSourceContext } from "@alchemy.run/cloudflare/Workers";
 import * as Artifacts from "alchemy/Artifacts";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import * as NodeServices from "@effect/platform-node/NodeServices";

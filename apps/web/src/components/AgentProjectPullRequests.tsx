@@ -29,7 +29,7 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { defaultDashboardPullRequestCombinationTitle } from "../agentDashboardPages";
 import { cn } from "../lib/utils";

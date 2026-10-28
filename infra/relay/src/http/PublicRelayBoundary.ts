@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -28,6 +28,7 @@ import {
   publicRelayHeaderFailure,
   canonicalEdgeIp,
   isRelayHookRequest,
+  isRelayMobileTelemetryRequest,
 } from "./publicRelayPolicy.ts";
 import { assertRelayForm, parseBoundedJson } from "./publicRelayInputBounds.ts";
 
@@ -244,6 +245,20 @@ const boundary = Effect.fnUntraced(function* <E, R>(
   const request = yield* HttpServerRequest.HttpServerRequest;
   // Hook byte limits and raw forwarding belong to HookForwarder, without reconstruction.
   if (isRelayHookRequest(request.method, request.url)) return yield* router;
+  // Telemetry owns a larger streaming cap and accepts OTLP bodies, including protobuf.
+  // Preserve shared URL/header bounds without consuming or cancelling its body.
+  if (isRelayMobileTelemetryRequest(request.method, request.url)) {
+    const traceId = yield* currentTraceId;
+    if (request.originalUrl.length > publicRelayBounds.urlCharacters) {
+      if (request.source instanceof Request) cancelBody(request.source);
+      return rejected(413, traceId);
+    }
+    if (publicRelayHeaderFailure(request.headers)) {
+      if (request.source instanceof Request) cancelBody(request.source);
+      return rejected(431, traceId);
+    }
+    return yield* router;
+  }
   const original = request.source instanceof Request ? request.source : undefined;
   const aborted = Deferred.makeUnsafe<void>();
   // An active reader owns its cancellation/release; this bracket owns unread ingress.

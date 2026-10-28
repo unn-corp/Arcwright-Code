@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -40,6 +40,7 @@ export function AndroidPreviewView({
   const open = useAtomCommand(previewEnvironment.open);
   const serverNavigate = useAtomCommand(previewEnvironment.navigate);
   const [error, setError] = useState<string | null>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const key = tabId
     ? androidBrowserKey(threadRef.environmentId, state.serverEpoch, threadRef.threadId, tabId)
     : null;
@@ -112,6 +113,7 @@ export function AndroidPreviewView({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PreviewChromeRow
+        urlInputRef={urlInputRef}
         url={url}
         loading={nav?._tag === "Loading"}
         canGoBack={snapshot?.canGoBack ?? false}

@@ -63,6 +63,8 @@ export class GitHubCliCommandError extends Schema.TaggedError<GitHubCliCommandEr
   }
 }
 
+const isGitHubCliCommandError = Schema.is(GitHubCliCommandError);
+
 export class GitHubCliDecodeError extends Schema.TaggedError<GitHubCliDecodeError>()(
   "GitHubCliDecodeError",
   GitHubCliErrorFields,
@@ -71,6 +73,8 @@ export class GitHubCliDecodeError extends Schema.TaggedError<GitHubCliDecodeErro
     return "GitHub returned an invalid project pull request response.";
   }
 }
+
+const isGitHubCliDecodeError = Schema.is(GitHubCliDecodeError);
 
 export type GitHubCliError = GitHubCliCommandError | GitHubCliDecodeError;
 
@@ -160,7 +164,7 @@ export const make = Effect.gen(function* () {
       remoteResolution.host,
     );
     if (locator === null) {
-      return yield* Effect.fail(fail("resolveRepository", cwd));
+      return yield* fail("resolveRepository", cwd);
     }
     return locator;
   });
@@ -217,7 +221,7 @@ export const make = Effect.gen(function* () {
         });
         return withProjectCredential(input.cwd, locator.host, request).pipe(
           Effect.mapError((cause) =>
-            Schema.is(GitHubCliCommandError)(cause) || Schema.is(GitHubCliDecodeError)(cause)
+            isGitHubCliCommandError(cause) || isGitHubCliDecodeError(cause)
               ? cause
               : fail("listProjectPullRequests", input.cwd),
           ),
@@ -238,7 +242,7 @@ export const make = Effect.gen(function* () {
         );
       }),
       Effect.mapError((cause) =>
-        Schema.is(GitHubCliCommandError)(cause) || Schema.is(GitHubCliDecodeError)(cause)
+        isGitHubCliCommandError(cause) || isGitHubCliDecodeError(cause)
           ? cause
           : fail("listProjectPullRequests", input.cwd),
       ),
@@ -260,14 +264,14 @@ export const make = Effect.gen(function* () {
         return withProjectCredential(input.cwd, locator.host, request).pipe(
           Effect.asVoid,
           Effect.mapError((cause) =>
-            Schema.is(GitHubCliCommandError)(cause) || Schema.is(GitHubCliDecodeError)(cause)
+            isGitHubCliCommandError(cause) || isGitHubCliDecodeError(cause)
               ? cause
               : fail("mergePullRequest", input.cwd),
           ),
         );
       }),
       Effect.mapError((cause) =>
-        Schema.is(GitHubCliCommandError)(cause) || Schema.is(GitHubCliDecodeError)(cause)
+        isGitHubCliCommandError(cause) || isGitHubCliDecodeError(cause)
           ? cause
           : fail("mergePullRequest", input.cwd),
       ),

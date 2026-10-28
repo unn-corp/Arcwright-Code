@@ -17,6 +17,7 @@ export function usePwaPushSubscriptionSync({
   readonly onMissingSubscription: () => void;
   readonly onBindingMismatch: () => void;
 }) {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- synchronizes the browser push subscription with its server binding and aborts the mounted request on cleanup
   useEffect(() => {
     if (!enabled || !applicationServerKey) return;
     let cancelled = false;

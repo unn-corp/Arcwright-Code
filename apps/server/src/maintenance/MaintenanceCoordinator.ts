@@ -223,8 +223,8 @@ export const collectActivity = Effect.fn("MaintenanceCoordinator.collectActivity
   // exits first, the coordinator keeps blocking until these are verified gone.
   const processReadStartedAt = yield* Clock.currentTimeMillis;
   const processSnapshot = yield* diagnostics.read.pipe(
-    Effect.map(Option.some),
-    Effect.catchCause(() => Effect.succeed(Option.none())),
+    Effect.asSome,
+    Effect.catchCause(() => Effect.succeedNone),
   );
   if (Option.isNone(processSnapshot)) {
     blockers.push(unknown("Process"));
@@ -318,7 +318,7 @@ const make = Effect.gen(function* () {
         catch: (cause) =>
           new MaintenanceCoordinatorError({ operation: "activity observation", cause }),
       });
-    }).pipe(Effect.catchCause(() => Effect.void));
+    }).pipe(Effect.ignoreCause);
     // A failed pass leaves the old heartbeat, which ages into "unknown participant" and blocks admission.
     yield* observe.pipe(Effect.repeat(Schedule.spaced("5 seconds")), Effect.forkScoped);
     yield* Effect.addFinalizer(() =>
@@ -412,22 +412,14 @@ export const workAdmissionFor = (host: MaintenanceHost) => ({
       : Effect.tryPromise({
           try: () => host.store.beginWork(host.participantId),
           catch: (cause) => new MaintenanceWorkHeld({ cause }),
-        }).pipe(
-          Effect.map(
-            (release) => () => Effect.promise(release).pipe(Effect.catchCause(() => Effect.void)),
-          ),
-        ),
+        }).pipe(Effect.map((release) => () => Effect.promise(release).pipe(Effect.ignoreCause))),
   acquirePassive:
     host.mode !== "active"
       ? Effect.succeed(() => Effect.void)
       : Effect.tryPromise({
           try: () => host.store.beginPassiveWork(host.participantId),
           catch: (cause) => new MaintenanceWorkHeld({ cause }),
-        }).pipe(
-          Effect.map(
-            (release) => () => Effect.promise(release).pipe(Effect.catchCause(() => Effect.void)),
-          ),
-        ),
+        }).pipe(Effect.map((release) => () => Effect.promise(release).pipe(Effect.ignoreCause))),
   check:
     host.mode !== "active"
       ? Effect.void

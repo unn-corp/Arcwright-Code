@@ -34,7 +34,7 @@ export const readPersistedCloudLinkPresent = (
   secrets: ServerSecretStore.ServerSecretStore["Service"],
   options?: { readonly ignoreLocalDisabled?: boolean },
 ) =>
-  Effect.all(
+  Effect.forEach(
     [
       RELAY_URL_SECRET,
       RELAY_ISSUER_SECRET,
@@ -44,7 +44,8 @@ export const readPersistedCloudLinkPresent = (
       CLOUD_ENDPOINT_RUNTIME_CONFIG,
       CLOUD_MINT_PUBLIC_KEY,
       RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
-    ].map((name) => secrets.get(name)),
+    ],
+    (name) => secrets.get(name),
   ).pipe(Effect.map((records) => records.some(Option.isSome)));
 
 const decodeLinkPublicAuthority = Schema.decodeUnknownOption(
@@ -141,8 +142,7 @@ export const readAgentActivityPublishingActive: (
       readSecretString(RELAY_URL_SECRET),
       readSecretString(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
     ]);
-    // Empty strings are as unconfigured as missing files: the publisher's
-    // truthiness gate skips them, so the capability must too.
+    // Match the publisher, which treats empty strings as unconfigured.
     return (
       isAgentActivityPublishingEnabledValue(enabled) &&
       url !== null &&

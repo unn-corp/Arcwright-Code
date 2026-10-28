@@ -161,6 +161,7 @@ export function useForkUpdates(controller: ForkUpdateController | null) {
     controller?.getSnapshot ?? (() => INITIAL),
     () => INITIAL,
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds the update controller subscription only while its status consumer is mounted
   useEffect(() => controller?.watch(), [controller]);
   return view;
 }

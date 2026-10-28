@@ -135,14 +135,15 @@ const make = Effect.gen(function* () {
     const refuse = Effect.fail(new ForkMaintenanceError({ reason }));
     return MaintenanceService.of({
       status: readOnlyStatus(reason, coordinator),
-      updatePolicy: () => refuse,
-      runAction: (input) =>
+      updatePolicy: Effect.fn("MaintenanceService.updatePolicy")(() => refuse),
+      runAction: Effect.fn("MaintenanceService.runAction")((input) =>
         input.action === "confirm-bootstrap" && host.mode === "active"
           ? attempt(() => host.store.confirmBootstrap()).pipe(
               Effect.andThen(readOnlyStatus(reason, coordinator)),
             )
           : refuse,
-      recover: () => refuse,
+      ),
+      recover: Effect.fn("MaintenanceService.recover")(() => refuse),
       recoverySupported: false,
     });
   };
@@ -166,12 +167,17 @@ const make = Effect.gen(function* () {
     ) => receiver.maintenance(operation);
     return MaintenanceService.of({
       status: relay({ op: "status" }),
-      updatePolicy: (patch) => relay({ op: "policy", patch }),
-      runAction: (input) =>
+      updatePolicy: Effect.fn("MaintenanceService.updatePolicy")((patch) =>
+        relay({ op: "policy", patch }),
+      ),
+      runAction: Effect.fn("MaintenanceService.runAction")((input) =>
         input.action === "confirm-bootstrap"
           ? confirmBootstrap.pipe(Effect.andThen(relay({ op: "status" })))
           : relay({ op: "action", input }),
-      recover: (request) => relay({ op: "recover", request }),
+      ),
+      recover: Effect.fn("MaintenanceService.recover")((request) =>
+        relay({ op: "recover", request }),
+      ),
       recoverySupported: true,
     });
   }
@@ -270,8 +276,10 @@ const make = Effect.gen(function* () {
 
   return MaintenanceService.of({
     status: attempt(() => controller.status()),
-    updatePolicy: (patch) => attempt(() => controller.updatePolicy(patch)),
-    runAction: (input) => {
+    updatePolicy: Effect.fn("MaintenanceService.updatePolicy")((patch) =>
+      attempt(() => controller.updatePolicy(patch)),
+    ),
+    runAction: Effect.fn("MaintenanceService.runAction")((input) => {
       switch (input.action) {
         case "check":
           return attempt(async () => {
@@ -297,8 +305,10 @@ const make = Effect.gen(function* () {
         case "confirm-bootstrap":
           return confirmBootstrap.pipe(Effect.andThen(attempt(() => controller.status())));
       }
-    },
-    recover: (request) => attempt(() => controller.recover(request)),
+    }),
+    recover: Effect.fn("MaintenanceService.recover")((request) =>
+      attempt(() => controller.recover(request)),
+    ),
     recoverySupported: launcher.supportsMaintenanceTrial,
   });
 });

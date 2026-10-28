@@ -9,6 +9,11 @@ import { afterEach, expect, it } from "@effect/vitest";
 import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import * as Backup from "./BackupService.ts";
 
+const decodeBackupManifestJson = Schema.decodeEffect(Schema.fromJsonString(Backup.BackupManifest));
+const encodeSyncBackupManifestJson = Schema.encodeSync(
+  Schema.fromJsonString(Backup.BackupManifest),
+);
+
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await NodeFSP.rm(root, { recursive: true, force: true });
@@ -170,21 +175,16 @@ it.effect("rejects traversal entries and symbolic links", () =>
     const data = yield* io(fixture);
     yield* run((service) => service.create({ homeDir: data.home, outputDir: data.outputDir }));
     const manifestPath = NodePath.join(data.outputDir, "manifest.json");
-    const manifest = yield* Schema.decodeUnknownEffect(
-      Schema.fromJsonString(Backup.BackupManifest),
-    )(yield* io(() => NodeFSP.readFile(manifestPath, "utf8")));
+    const manifest = yield* decodeBackupManifestJson(
+      yield* io(() => NodeFSP.readFile(manifestPath, "utf8")),
+    );
     const tampered = {
       ...manifest,
       files: manifest.files.map((file, index) =>
         index === 0 ? { ...file, path: "../../outside" } : file,
       ),
     };
-    yield* io(() =>
-      NodeFSP.writeFile(
-        manifestPath,
-        Schema.encodeSync(Schema.fromJsonString(Backup.BackupManifest))(tampered),
-      ),
-    );
+    yield* io(() => NodeFSP.writeFile(manifestPath, encodeSyncBackupManifestJson(tampered)));
     expect(
       (yield* run((service) =>
         service.restore({ inputDir: data.outputDir, homeDir: data.restored }),

@@ -153,6 +153,7 @@ const routes = Layer.mergeAll(
   Api.layerDpopClientApi,
   Api.layerServerApi,
   Api.pwaApi,
+  HttpApiBuilder.group(RelayApi, "mobileTelemetry", (h) => h.handleRaw("ingest", unused)),
   HttpApiBuilder.group(RelayApi, "health", (h) => h.handleRaw("health", unused)),
   HttpApiBuilder.group(RelayApi, "metadata", (h) =>
     h.handleRaw("authorizationServer", unused).handleRaw("protectedResource", unused),
@@ -177,7 +178,7 @@ export const send = Effect.fn("publicRelayAdmissions.test-fixture.send")(functio
   );
   return HttpServerResponse.toWeb(yield* Deferred.await(sent));
 });
-export function fixture(input: {
+export const fixture = Effect.fn("fixture")(function (input: {
   readonly admit: Limits.PublicRelayRateLimits["Service"]["admit"];
   readonly counts: ReturnType<typeof counters>;
   readonly owners?: () => ReadonlyArray<Links.ActiveEnvironmentLinkRecord>;
@@ -229,10 +230,16 @@ export function fixture(input: {
       const base = yield* Tokens.RelayTokens;
       return {
         ...base,
-        issueLinkChallenge: (args: Parameters<typeof base.issueLinkChallenge>[0]) =>
-          Effect.sync(() => counts.signing++).pipe(Effect.andThen(base.issueLinkChallenge(args))),
-        issueDpopAccessToken: (args: Parameters<typeof base.issueDpopAccessToken>[0]) =>
-          Effect.sync(() => counts.signing++).pipe(Effect.andThen(base.issueDpopAccessToken(args))),
+        issueLinkChallenge: Effect.fn("RelayTokens.issueLinkChallenge")(
+          (args: Parameters<typeof base.issueLinkChallenge>[0]) =>
+            Effect.sync(() => counts.signing++).pipe(Effect.andThen(base.issueLinkChallenge(args))),
+        ),
+        issueDpopAccessToken: Effect.fn("RelayTokens.issueDpopAccessToken")(
+          (args: Parameters<typeof base.issueDpopAccessToken>[0]) =>
+            Effect.sync(() => counts.signing++).pipe(
+              Effect.andThen(base.issueDpopAccessToken(args)),
+            ),
+        ),
       };
     }),
   ).pipe(
@@ -538,7 +545,7 @@ export function fixture(input: {
       ),
     ),
   );
-}
+});
 let nextNonce = 0;
 export const requestForOperation = Effect.fnUntraced(function* (
   operation: PublicRelayOperation,

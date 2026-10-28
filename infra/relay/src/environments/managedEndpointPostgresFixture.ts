@@ -58,12 +58,8 @@ const migrationConfig = {
   migrationsSchema: "task4c_managed_endpoints",
 };
 
-// The installed migrator declaration references the removed
-// effect/unstable/sql/SqlError module, yielding an untyped error channel.
-// Restate its declared union with the actual client's current SqlError type.
-// execute failures, transaction failures and MigratorInitError are unchanged;
-// upgradeIfNeeded adds no typed failure (an unmatched history throws a defect).
-// This checked test-only boundary leaves the runtime function and scoped pool unchanged.
+// The migrator references the removed effect/unstable/sql/SqlError module.
+// Restate its error union using the current client type at this test boundary.
 const checkedMigrate: (
   db: RelayDb.RelayDb["Service"],
   config: MigrationConfig,

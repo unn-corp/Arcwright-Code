@@ -24,20 +24,17 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import {
-  normalizeGitRemoteUrl,
-  isBareGitConfig,
-  parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
-  parseOriginUrlFromGitConfig,
-} from "@t3tools/shared/git";
+import { isBareGitConfig, parseOriginUrlFromGitConfig } from "@t3tools/shared/git";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
+import { repositoryPathFromRemoteUrl } from "@t3tools/source-control-core/server/SourceControlProvider";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as ServerSettings from "../serverSettings.ts";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import {
   createTranscriptJsonReader,
   createTranscriptJsonSelector,
@@ -56,11 +53,7 @@ const MAX_METADATA_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
 const MAX_METADATA_RECORDS_PER_SOURCE = 100_000;
 const MAX_METADATA_RECORDS_PER_TRANSCRIPT = 1_000;
 const RECENT_THREAD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-/**
- * Large tool results (especially screenshots) can make an otherwise ordinary
- * Codex transcript several GiB. Streaming field selection avoids allocating
- * those payloads.
- */
+// Screenshot-heavy transcripts can reach GiB; select fields while streaming to avoid allocating payloads.
 const MAX_IMPORTED_TRANSCRIPT_BYTES = 4 * 1024 * 1024 * 1024;
 const MAX_IMPORTED_MESSAGES = 200;
 const MAX_IMPORT_HISTORY_BYTES = 32 * 1024 * 1024;
@@ -447,9 +440,7 @@ function parseAgentSessionRecords(
     if (record.type === "event_msg" && record.payload?.type === "user_message") {
       const text = record.payload.message ?? "";
       if (text.trim().length === 0) continue;
-      // Codex can write the same prompt as both a response item and an event.
-      // Remove only the matching response copy so mixed-format logs keep every
-      // distinct user message.
+      // Codex can duplicate prompts across formats; remove only matching response copies.
       for (let index = messages.length - 1; index >= 0; index--) {
         const message = messages[index];
         if (message?.role === "assistant") break;
@@ -545,14 +536,9 @@ function shouldRetainDecodedRecord(
 }
 
 /**
- * Arcwright Code runs its own agent sessions inside disposable worktrees. Their
- * transcripts look exactly like user sessions, but re-importing the app's own
- * sandboxes as projects is never right. Matches this server's configured
- * worktrees directory plus the conventional `.t3/worktrees` layout, which
- * also catches sandboxes from other T3 homes on the same machine. Separators
- * are normalized (and, on Windows, case folded) so the prefix match holds
- * there too. Callers check both the recorded spelling and its realpath so a
- * symlink into the worktrees directory cannot bypass the filter.
+ * Never import disposable worktrees as projects. Check configured and conventional .t3/worktrees paths
+ * using both recorded spelling and realpath, normalizing separators and Windows case to prevent
+ * symlink bypasses.
  */
 function normalizeForWorktreeMatch(value: string, caseFold: boolean): string {
   const normalized = `${value.replaceAll("\\", "/")}/`;
@@ -658,11 +644,10 @@ function sameTranscriptIdentity(left: TranscriptIdentity, right: TranscriptIdent
   );
 }
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
-  // Different project imports can arrive concurrently from multiple clients.
-  // Only one transcript may hold its selected-history budget at a time.
+  // Concurrent client imports must not hold multiple selected-history budgets.
   const importReadLock = yield* Semaphore.make(1);
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
@@ -757,8 +742,9 @@ export const make = Effect.gen(function* () {
     return {
       _tag: "Repository",
       git: {
-        remoteKey: originUrl === null ? null : normalizeGitRemoteUrl(originUrl),
-        repository: parseGitHubRepositoryNameWithOwnerFromRemoteUrl(originUrl),
+        remoteKey:
+          originUrl === null ? null : sourceControlDefinitions.repositoryKeyFromRemote(originUrl),
+        repository: repositoryPathFromRemoteUrl(originUrl),
       },
     } as const;
   });
@@ -1337,8 +1323,7 @@ export const make = Effect.gen(function* () {
           : Math.max(existing.lastActiveAtMs, candidate.lastActiveAtMs);
     }
 
-    // Resolve persisted roots too. A project and a transcript can name
-    // different symlinks to the same directory.
+    // Resolve persisted roots too; transcripts may use different symlinks to the same directory.
     const importedProjects = yield* projectStore
       .listShells()
       .pipe(

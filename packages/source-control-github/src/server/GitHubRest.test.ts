@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
@@ -16,6 +17,8 @@ import * as GitHubQuota from "./GitHubQuota.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
 import type * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { makeWithForkApi } from "./driver.ts";
 
 const NOW = Date.parse("2026-10-05T12:00:00.000Z");
 
@@ -58,6 +61,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
   );
   return {
     layer,
+    http,
     requests,
     invalidations: () => invalidations,
     credentialReads: () => credentialReads,
@@ -89,6 +93,53 @@ describe("environmentToken", () => {
 });
 
 describe("GitHubRest", () => {
+  it.effect("shares the fork API's quota reserve with the built driver", () => {
+    const reset = Math.floor(NOW / 1000) + 600;
+    const { http, requests } = harness(() =>
+      json(
+        { title: "A linked issue", body: "Details" },
+        {
+          headers: {
+            "x-ratelimit-resource": "core",
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "499",
+            "x-ratelimit-reset": String(reset),
+          },
+        },
+      ),
+    );
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
+      const { instance, api } = yield* makeWithForkApi;
+      expect(
+        (yield* api.rest({ host: "github.com", operation: "forkRead", path: "user" })).status,
+      ).toBe(200);
+      const linkedIssue = instance.sourceControl.resolveLink?.({
+        cwd: "/fixture",
+        url: new URL("https://github.com/acme/web/issues/7"),
+      });
+      expect(linkedIssue).toBeDefined();
+      const error = yield* Effect.flip(linkedIssue!);
+      expect(error.cause).toMatchObject({
+        _tag: "SourceControlRateLimitPausedError",
+        retryAt: NOW + 600_000,
+      });
+      expect(requests).toHaveLength(1);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          http,
+          NodeCrypto.layer,
+          NodeFileSystem.layer,
+          SourceControlRateLimit.layer,
+          TestSourceControlHost.layer(),
+        ),
+      ),
+      Effect.provideService(HostProcess.Environment, { GH_TOKEN: "fixture-token" }),
+    );
+  });
+
   it.effect("traces the operation, path and quota, never the query string or the token", () => {
     const spans: Array<Tracer.NativeSpan> = [];
     const tracer = Tracer.make({
@@ -117,7 +168,6 @@ describe("GitHubRest", () => {
         "http.response.status_code": 200,
         "github.ratelimit.remaining": 4800,
       });
-      // Nothing recorded carries the query string or the token.
       const everything = spans
         .flatMap((span) => [...span.attributes].map(([key, value]) => `${key}=${String(value)}`))
         .join("\n");

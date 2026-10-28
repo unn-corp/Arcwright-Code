@@ -377,14 +377,16 @@ export const OrganizationWorkEvaluationVerifierFromQAReceipts = Layer.effect(
   Effect.gen(function* () {
     const store = yield* OrganizationWorkQAReceiptStore;
     return {
-      verifyEvaluation: (target: OrganizationWorkEvaluationTarget) =>
-        store
-          .verifyEvaluation(target)
-          .pipe(
-            Effect.mapError(
-              (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+      verifyEvaluation: Effect.fn("OrganizationWorkEvaluationVerifier.verifyEvaluation")(
+        (target: OrganizationWorkEvaluationTarget) =>
+          store
+            .verifyEvaluation(target)
+            .pipe(
+              Effect.mapError(
+                (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+              ),
             ),
-          ),
+      ),
     };
   }),
 );

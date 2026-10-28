@@ -491,15 +491,40 @@ describe("Account deletion isolated actual PostgreSQL DDL", () => {
             dialect: "postgres",
             prevIds: [snapshot.id, upstream.id],
           });
+          const retention = yield* decodeSnapshot(
+            yield* fs.readFileString(
+              `${migrationDirectory}/20261027210820_delivery_attempts_retention/snapshot.json`,
+            ),
+          );
+          const current = yield* decodeSnapshot(
+            yield* fs.readFileString(
+              `${migrationDirectory}/20261028010000_reconcile_upstream_retention/snapshot.json`,
+            ),
+          );
+          expect(current).toMatchObject({
+            version: "8",
+            dialect: "postgres",
+            prevIds: [reconciled.id, retention.id],
+          });
           const regenerated = yield* Effect.promise(() =>
-            generateDrizzleJson(databaseSchema, reconciled.id),
+            generateDrizzleJson(databaseSchema, current.id),
           );
           // Node's module namespace enumerates exports alphabetically; Vite retains
           // source insertion order. Compare every full descriptor, independent of
           // that import enumeration order (including all column/check/FK fields).
           expect(regenerated.ddl.map((entry) => JSON.stringify(entry)).sort()).toEqual(
-            reconciled.ddl.map((entry) => JSON.stringify(entry)).sort(),
+            current.ddl.map((entry) => JSON.stringify(entry)).sort(),
           );
+          const retentionIndexes = yield* db.$client<{ indexname: string }>`
+            SELECT indexname FROM pg_indexes
+            WHERE schemaname = 'task4c_account_deletions'
+              AND indexname IN ('idx_relay_delivery_attempts_created',
+                'idx_relay_delivery_attempts_environment',
+                'idx_relay_agent_activity_rows_updated',
+                'idx_relay_environment_credentials_environment')
+            ORDER BY indexname
+          `;
+          expect(retentionIndexes).toEqual([{ indexname: "idx_relay_delivery_attempts_created" }]);
           const oldDdl = snapshot.ddl.filter(
             (entry) =>
               !(typeof entry.table === "string" && entry.table.startsWith("relay_account_")) &&

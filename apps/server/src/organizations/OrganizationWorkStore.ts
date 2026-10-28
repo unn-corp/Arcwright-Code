@@ -84,13 +84,14 @@ export class OrganizationWorkArtifactVerifier extends Context.Service<
 export const OrganizationWorkArtifactVerifierDisabled = Layer.succeed(
   OrganizationWorkArtifactVerifier,
   {
-    verifySubmitted: () =>
+    verifySubmitted: Effect.fn("OrganizationWorkArtifactVerifier.verifySubmitted")(() =>
       Effect.fail(
         new OrganizationWorkError({
           code: "unavailable",
           message: "Artifact verification is not available.",
         }),
       ),
+    ),
   },
 );
 
@@ -117,13 +118,14 @@ export class OrganizationWorkEvaluationVerifier extends Context.Service<
 export const OrganizationWorkEvaluationVerifierDisabled = Layer.succeed(
   OrganizationWorkEvaluationVerifier,
   {
-    verifyEvaluation: () =>
+    verifyEvaluation: Effect.fn("OrganizationWorkEvaluationVerifier.verifyEvaluation")(() =>
       Effect.fail(
         new OrganizationWorkError({
           code: "unavailable",
           message: "Independent QA evidence verification is not available.",
         }),
       ),
+    ),
   },
 );
 
@@ -152,13 +154,14 @@ export class OrganizationWorkApprovalVerifier extends Context.Service<
 export const OrganizationWorkApprovalVerifierDisabled = Layer.succeed(
   OrganizationWorkApprovalVerifier,
   {
-    verifyApproval: () =>
+    verifyApproval: Effect.fn("OrganizationWorkApprovalVerifier.verifyApproval")(() =>
       Effect.fail(
         new OrganizationWorkError({
           code: "unavailable",
           message: "Human approval evidence verification is not available.",
         }),
       ),
+    ),
   },
 );
 
@@ -188,13 +191,14 @@ export class OrganizationWorkIntegrationVerifier extends Context.Service<
 export const OrganizationWorkIntegrationVerifierDisabled = Layer.succeed(
   OrganizationWorkIntegrationVerifier,
   {
-    verifyIntegration: () =>
+    verifyIntegration: Effect.fn("OrganizationWorkIntegrationVerifier.verifyIntegration")(() =>
       Effect.fail(
         new OrganizationWorkError({
           code: "unavailable",
           message: "Integration result verification is not available.",
         }),
       ),
+    ),
   },
 );
 

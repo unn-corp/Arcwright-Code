@@ -12,6 +12,7 @@ export default function AndroidManagedAuthShell({
   readonly children: ReactNode;
 }) {
   const status = useSyncExternalStore(androidAuthStore.subscribe, androidAuthStore.getSnapshot);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the installation-owned Android authentication bridge when its shell mounts
   useEffect(() => {
     androidAuthStore.start();
   }, []);

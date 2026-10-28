@@ -29,27 +29,6 @@ const GrokTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process.
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
 function makeAcpGrokWrapper(dir: string, env: Record<string, string>, architect = false): string {
-  /*
-  const binDir = NodePath.join(dir, "bin");
-  const grokPath = NodePath.join(binDir, "grok");
-  NodeFS.mkdirSync(binDir, { recursive: true });
-  NodeFS.writeFileSync(
-    grokPath,
-    [
-      "#!/bin/sh",
-      ...Object.entries(env).map(([key, value]) => `export ${key}=${shellSingleQuote(value)}`),
-      'if [ "$1" != "agent" ] || [ "$2" != "--always-approve" ] || [ "$3" != "stdio" ]; then',
-      '  printf "%s\\n" "unexpected args: $*" >&2',
-      "  exit 11",
-      "fi",
-      `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(mockAgentPath)}`,
-      "",
-    ].join("\n"),
-    "utf8",
-  );
-  NodeFS.chmodSync(grokPath, 0o755);
-  return grokPath;
-  */
   return writeFakeCli({
     directory: NodePath.join(dir, "bin"),
     name: "grok",

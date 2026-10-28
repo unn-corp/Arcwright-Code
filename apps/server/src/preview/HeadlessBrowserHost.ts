@@ -1,27 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Chromium needs a real scratch profile directory on disk before any Effect service is involved.
 /**
- * A preview host for environments with no desktop app.
- *
- * Rendering has always belonged to a client: the desktop runtime owns a webview
- * and registers with the automation broker as a host. A server started with
- * `npx t3` and driven from a phone has no such client, so nothing can render a
- * page. This registers the *server* as a host, backed by a headless Chromium
- * driven over CDP, and answers the same broker requests a desktop host does.
- *
- * Two deliberate limits:
- *
- * - **It never downloads a browser.** A ~150MB download on first preview would
- *   be a surprising thing for `npx t3` to do. If the machine already has
- *   Chrome, Chromium, or Edge, previews work; otherwise this stays dormant and
- *   the viewer keeps its existing "nothing can render this" message.
- * - **It advertises only what it implements.** The broker routes by
- *   `supportedOperations`, so the operations that depend on the desktop's
- *   Playwright injected runtime are simply not offered. Claiming them would
- *   send agent calls to a host that cannot serve them, and the broker already
- *   prefers the richer host when both are connected. Element picking is the
- *   exception: it is served here from page script, without React component or
- *   source data, because a viewer watching frames has no page of its own to
- *   pick in and would otherwise have no selection at all.
+ * Use installed Chromium only and launch on demand. Advertise only implemented operations so richer
+ * desktop hosts can win routing; element picking omits unavailable React/source data.
  */
 import {
   Environment as HostProcessEnvironment,
@@ -79,15 +59,8 @@ const NAVIGATION_SETTLE_DELAY = Duration.seconds(2);
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 } as const;
 
 /**
- * Resolves the element under a point, in the page, and reports what a picker
- * chip needs to describe it.
- *
- * This runs as page script rather than through the DOM domain because the
- * answer is mostly page-level knowledge: a stable selector, the author's own
- * CSS, the text a human would recognise the element by. The desktop gets the
- * same information from react-grab inside its preload, which also supplies
- * React component and source data; nothing equivalent is available here, and
- * the payload allows those to be absent rather than guessed at.
+ * Page script supplies selectors, CSS and visible text for picking. React component/source data is
+ * unavailable here and must remain absent rather than be guessed.
  */
 const PICK_ELEMENT_SCRIPT = (x: number, y: number): string => `(() => {
   const element = document.elementFromPoint(${x}, ${y});
@@ -248,16 +221,12 @@ const run = Effect.gen(function* HeadlessBrowserHostRun() {
   }
 
   const parentScope = yield* Effect.scope;
+  const runFrameEffect = Effect.runForkWith(yield* Effect.context<never>());
   const pages = yield* Ref.make<ReadonlyMap<string, PageSession>>(new Map());
 
   /**
-   * Launching is deferred until a request actually needs a page.
-   *
-   * Registering as a host is free, but a browser process is not, and the broker
-   * prefers whichever host supports more operations. So whenever a desktop app
-   * is connected this host is never asked to do anything and never launches
-   * anything: a desktop-hosted environment does not pay for a Chromium it will
-   * not use. The same applies to a CLI server nobody opens a preview on.
+   * Defer Chromium launch until page demand reaches this host; idle CLI servers and richer connected
+   * desktop hosts must not pay for an unused browser.
    */
   const launchBrowser = Effect.fn("HeadlessBrowserHost.launchBrowser")(function* () {
     const userDataDir = yield* Effect.sync(() =>
@@ -304,7 +273,7 @@ const run = Effect.gen(function* HeadlessBrowserHostRun() {
       const sessionId = event.sessionId;
       const data = readString(event.params, "data");
       const metadata = event.params["metadata"];
-      Effect.runFork(
+      runFrameEffect(
         Effect.gen(function* () {
           // Acknowledge first: Chromium will not send another frame until the
           // previous one is acknowledged, which is the backpressure we want.
@@ -395,12 +364,8 @@ const run = Effect.gen(function* HeadlessBrowserHostRun() {
   });
 
   /**
-   * A tab belongs to the server, not to whichever renderer happens to be
-   * showing it. Attaching therefore has to pick up the URL the tab is already
-   * on: a viewer that arrives after the tab was navigated elsewhere would
-   * otherwise get the blank page this host just created, with every status
-   * along the way reporting success. An Idle tab has no URL yet and correctly
-   * stays blank.
+   * Attach to the server-owned tab's current URL so a later viewer sees its navigated page. An Idle
+   * tab has no URL and stays blank.
    */
   const adoptTabUrl = Effect.fn("HeadlessBrowserHost.adoptTabUrl")(function* (page: PageSession) {
     const listed = yield* manager
@@ -448,13 +413,8 @@ const run = Effect.gen(function* HeadlessBrowserHostRun() {
   });
 
   /**
-   * Chrome refuses `Page.startScreencast` with "Not attached to an active
-   * page" until the target owns a live render widget, which it does not for a
-   * short window after being created or navigated. The error arrives as a
-   * command rejection that this host turns into an error response rather than
-   * a failure, so a single attempt fails silently and the viewer waits
-   * forever. Retrying across that window is the whole difference between
-   * frames and a hang.
+   * Chrome briefly rejects screencast start before a new/navigated target has a live render widget.
+   * Retry that window so a reported command failure cannot leave the viewer waiting forever.
    */
   const startScreencast = Effect.fn("HeadlessBrowserHost.startScreencast")(function* (
     page: PageSession,
@@ -519,12 +479,7 @@ const run = Effect.gen(function* HeadlessBrowserHostRun() {
   });
 
   /**
-   * Tells the server where the page actually got to.
-   *
-   * Only the desktop reported navigation status, because it was the only host
-   * that could render. A tab served from here therefore stayed Loading for
-   * ever: the spinner never cleared, and the loading overlay sat over the
-   * surface swallowing taps, so the preview looked both stuck and dead.
+   * Report headless navigation status so Loading clears and its overlay stops swallowing viewer input.
    */
   const reportPageStatus = Effect.fn("HeadlessBrowserHost.reportPageStatus")(function* (
     page: PageSession,

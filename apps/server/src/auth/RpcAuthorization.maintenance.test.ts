@@ -33,15 +33,15 @@ describe("RPC device work admission", () => {
   it("leaves reads and subscriptions alone so a fenced device can still be observed", () => {
     for (const method of [
       WS_METHODS.serverGetConfig,
-      WS_METHODS.serverGetSettings,
+      WS_METHODS.serverGetConfig,
       WS_METHODS.projectsReadFile,
       WS_METHODS.pullRequestsList,
-      WS_METHODS.subscribeTerminalEvents,
+      WS_METHODS.terminalObserve,
       WS_METHODS.subscribeTerminalMetadata,
       WS_METHODS.previewAutomationConnect,
       WS_METHODS.providerAuthSubscribe,
       WS_METHODS.subscribeServerConfig,
-      WS_METHODS.scheduledTasksList,
+      WS_METHODS.scheduledTasksSubscribe,
       WS_METHODS.serverGetMaintenanceStatus,
     ]) {
       expect(rpcMethodNeedsWorkAdmission(method), method).toBe(false);

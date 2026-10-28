@@ -17,14 +17,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 const FILL_VALUE = "fill";
 
-/**
- * Device emulation for a viewer that has no local webview.
- *
- * The desktop exposes this through its device toolbar, which is drawn around
- * its own webview and so never reaches a phone. The underlying resize already
- * travels to whichever host is rendering, so this is the control that was
- * missing rather than the capability.
- */
+/* Expose host viewport resizing to clients without a local webview; the desktop-only toolbar cannot serve those viewers. */
 export function PreviewDeviceMenu(props: {
   readonly viewport: PreviewViewportSetting;
   readonly disabled: boolean;

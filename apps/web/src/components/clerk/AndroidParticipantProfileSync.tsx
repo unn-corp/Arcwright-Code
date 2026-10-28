@@ -11,6 +11,7 @@ export function AndroidParticipantProfileSync() {
     androidAuthStore.subscribe,
     androidAuthStore.getSnapshot,
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- synchronizes native account metadata with persisted participant profiles while fencing stale account completions
   useEffect(() => {
     const status = androidAuthStore.getSnapshot();
     if (

@@ -17,7 +17,7 @@ export const anonymousPwaAllowed = Effect.gen(function* () {
   if (Option.isNone(configuration)) return true;
   return yield* resolveClerkAuthPolicy(configuration.value).pipe(
     Effect.map((policy) => policy.mode === "legacy"),
-    Effect.catch(() => Effect.succeed(false)),
+    Effect.orElseSucceed(() => false),
   );
 });
 

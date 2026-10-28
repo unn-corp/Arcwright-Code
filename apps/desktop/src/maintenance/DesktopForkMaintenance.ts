@@ -126,7 +126,7 @@ const exists = async (target: string) =>
     () => false,
   );
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -326,12 +326,22 @@ export const make = Effect.gen(function* () {
       return { latest: initial, changes: Stream.fromSubscription(subscription) };
     }),
     check: publishing(() => core.check()),
-    install: (digest) => publishing(() => core.install(digest)),
+    install: Effect.fn("DesktopForkMaintenance.install")((digest) =>
+      publishing(() => core.install(digest)),
+    ),
     cancelCountdown: publishing(() => core.cancelCountdown()),
-    updatePolicy: (patch) => publishing(() => core.updatePolicy(patch)),
-    runAction: (input) => publishing(() => core.runAction(input)),
-    recover: (request) => publishing(() => core.recover(request)),
-    reportInteraction: (input) => Effect.sync(() => core.reportInteraction(input)),
+    updatePolicy: Effect.fn("DesktopForkMaintenance.updatePolicy")((patch) =>
+      publishing(() => core.updatePolicy(patch)),
+    ),
+    runAction: Effect.fn("DesktopForkMaintenance.runAction")((input) =>
+      publishing(() => core.runAction(input)),
+    ),
+    recover: Effect.fn("DesktopForkMaintenance.recover")((request) =>
+      publishing(() => core.recover(request)),
+    ),
+    reportInteraction: Effect.fn("DesktopForkMaintenance.reportInteraction")((input) =>
+      Effect.sync(() => core.reportInteraction(input)),
+    ),
     disabledReason: Effect.sync(() => Option.fromNullishOr(disabledReason)),
     prepareStartup,
     resumeInBackground,

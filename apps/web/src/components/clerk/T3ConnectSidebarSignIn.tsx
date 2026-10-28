@@ -33,7 +33,8 @@ function ConfiguredT3ConnectSidebarAvatar() {
       appearance={{
         elements: {
           avatarBox: "size-7",
-          userButtonTrigger: "rounded-lg p-1 hover:bg-sidebar-row-hover",
+          // Clerk's unlayered trigger reset (padding, radius, background) beats layered utilities.
+          userButtonTrigger: "mb-1! rounded-lg! p-1! hover:bg-sidebar-row-hover!",
         },
       }}
     >
@@ -56,7 +57,7 @@ function ConfiguredT3ConnectSidebarAvatar() {
 
 function ConfiguredT3ConnectSidebarSignIn() {
   const { isLoaded, isSignedIn, isSigningIn, isUnavailable, error, surface } = useManagedAuth();
-  const { authPrompt, openAuthPrompt } = useT3ConnectAuthPrompt();
+  const { openAuthPrompt } = useT3ConnectAuthPrompt();
 
   if (isSignedIn || (!isLoaded && surface !== "android")) return null;
 
@@ -96,7 +97,6 @@ function ConfiguredT3ConnectSidebarSignIn() {
           {error}
         </p>
       ) : null}
-      {authPrompt}
     </>
   );
 }

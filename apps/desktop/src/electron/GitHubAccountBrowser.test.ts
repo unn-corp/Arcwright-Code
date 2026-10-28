@@ -38,21 +38,23 @@ describe("parseGitHubAccountWebUrl", () => {
     Effect.gen(function* () {
       const getSession = vi.fn((scope: string) => Effect.succeed({ scope } as never));
       const createdWindows: Array<{ loadURL: ReturnType<typeof vi.fn> }> = [];
-      const create = vi.fn((options: unknown) => {
-        const browserWindow = {
-          isDestroyed: vi.fn(() => false),
-          loadURL: vi.fn(() => Promise.resolve()),
-          show: vi.fn(),
-          focus: vi.fn(),
-          on: vi.fn(),
-          webContents: {
+      const create = vi.fn(
+        (_options: Parameters<ElectronWindow.ElectronWindow["Service"]["create"]>[0]) => {
+          const browserWindow = {
+            isDestroyed: vi.fn(() => false),
+            loadURL: vi.fn(() => Promise.resolve()),
+            show: vi.fn(),
+            focus: vi.fn(),
             on: vi.fn(),
-            setWindowOpenHandler: vi.fn(),
-          },
-        };
-        createdWindows.push(browserWindow);
-        return Effect.succeed(browserWindow as never);
-      });
+            webContents: {
+              on: vi.fn(),
+              setWindowOpenHandler: vi.fn(),
+            },
+          };
+          createdWindows.push(browserWindow);
+          return Effect.succeed(browserWindow as never);
+        },
+      );
       const browserSession = BrowserSession.BrowserSession.of({ getSession } as never);
       const electronWindow = ElectronWindow.ElectronWindow.of({ create } as never);
       const layer = githubAccountBrowserLayer.pipe(

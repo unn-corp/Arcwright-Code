@@ -45,21 +45,47 @@ export const deniedProviderLayer = <E, R>(
       return Effect.die(new Error(`Unexpected Cloudflare ${operation}`));
     });
   const tunnels = ManagedEndpointProvider.ManagedEndpointTunnelClient.of({
-    get: () => forbidden("get"),
-    list: () => forbidden("list"),
-    create: () => forbidden("create"),
-    putConfiguration: () => forbidden("configuration"),
-    getToken: () => forbidden("token"),
-    delete: () => forbidden("delete"),
+    get: Effect.fn("ManagedEndpointProvider.ManagedEndpointTunnelClient.get")(() =>
+      forbidden("get"),
+    ),
+    list: Effect.fn("ManagedEndpointProvider.ManagedEndpointTunnelClient.list")(() =>
+      forbidden("list"),
+    ),
+    create: Effect.fn("ManagedEndpointProvider.ManagedEndpointTunnelClient.create")(() =>
+      forbidden("create"),
+    ),
+    putConfiguration: Effect.fn(
+      "ManagedEndpointProvider.ManagedEndpointTunnelClient.putConfiguration",
+    )(() => forbidden("configuration")),
+    getToken: Effect.fn("ManagedEndpointProvider.ManagedEndpointTunnelClient.getToken")(() =>
+      forbidden("token"),
+    ),
+    delete: Effect.fn("ManagedEndpointProvider.ManagedEndpointTunnelClient.delete")(() =>
+      forbidden("delete"),
+    ),
   });
   const dns = ManagedEndpointProvider.ManagedEndpointDnsClient.of({
-    getRecord: () => Effect.die("Unexpected getRecord"),
-    listRecordsPage: () => Effect.die("Unexpected listRecordsPage"),
-    listExactRecords: () => Effect.die("Unexpected listExactRecords"),
-    listRecords: () => forbidden("dns-list"),
-    createRecord: () => forbidden("dns-create"),
-    updateRecord: () => forbidden("dns-update"),
-    deleteRecord: () => forbidden("dns-delete"),
+    getRecord: Effect.fn("ManagedEndpointProvider.ManagedEndpointDnsClient.getRecord")(() =>
+      Effect.die("Unexpected getRecord"),
+    ),
+    listRecordsPage: Effect.fn("ManagedEndpointProvider.ManagedEndpointDnsClient.listRecordsPage")(
+      () => Effect.die("Unexpected listRecordsPage"),
+    ),
+    listExactRecords: Effect.fn(
+      "ManagedEndpointProvider.ManagedEndpointDnsClient.listExactRecords",
+    )(() => Effect.die("Unexpected listExactRecords")),
+    listRecords: Effect.fn("ManagedEndpointProvider.ManagedEndpointDnsClient.listRecords")(() =>
+      forbidden("dns-list"),
+    ),
+    createRecord: Effect.fn("ManagedEndpointProvider.ManagedEndpointDnsClient.createRecord")(() =>
+      forbidden("dns-create"),
+    ),
+    updateRecord: Effect.fn("ManagedEndpointProvider.ManagedEndpointDnsClient.updateRecord")(() =>
+      forbidden("dns-update"),
+    ),
+    deleteRecord: Effect.fn("ManagedEndpointProvider.ManagedEndpointDnsClient.deleteRecord")(() =>
+      forbidden("dns-delete"),
+    ),
   });
   return ManagedEndpointProvider.layer.pipe(
     Layer.provide(NodeServices.layer),

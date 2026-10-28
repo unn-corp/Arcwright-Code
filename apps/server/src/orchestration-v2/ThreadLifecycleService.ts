@@ -89,26 +89,29 @@ const make = Effect.gen(function* () {
     );
 
   return ThreadLifecycleService.of({
-    archive: (input) =>
+    archive: Effect.fn("ThreadLifecycleService.archive")((input) =>
       dispatch("archive", input.threadId, {
         type: "thread.archive",
         commandId: input.commandId,
         threadId: input.threadId,
       }),
-    unarchive: (input) =>
+    ),
+    unarchive: Effect.fn("ThreadLifecycleService.unarchive")((input) =>
       dispatch("unarchive", input.threadId, {
         type: "thread.unarchive",
         commandId: input.commandId,
         threadId: input.threadId,
       }),
-    delete: (input) =>
+    ),
+    delete: Effect.fn("ThreadLifecycleService.delete")((input) =>
       dispatch("delete", input.threadId, {
         type: "thread.delete",
         commandId: input.commandId,
         threadId: input.threadId,
         ...(input.archivedOnly === undefined ? {} : { archivedOnly: input.archivedOnly }),
       }),
-    updateMetadata: (input) =>
+    ),
+    updateMetadata: Effect.fn("ThreadLifecycleService.updateMetadata")((input) =>
       dispatch("update-metadata", input.threadId, {
         type: "thread.metadata.update",
         commandId: input.commandId,
@@ -117,27 +120,31 @@ const make = Effect.gen(function* () {
         ...(input.branch === undefined ? {} : { branch: input.branch }),
         ...(input.worktreePath === undefined ? {} : { worktreePath: input.worktreePath }),
       }),
-    setRuntimeMode: (input) =>
+    ),
+    setRuntimeMode: Effect.fn("ThreadLifecycleService.setRuntimeMode")((input) =>
       dispatch("set-runtime-mode", input.threadId, {
         type: "thread.runtime-mode.set",
         commandId: input.commandId,
         threadId: input.threadId,
         runtimeMode: input.runtimeMode,
       }),
-    setInteractionMode: (input) =>
+    ),
+    setInteractionMode: Effect.fn("ThreadLifecycleService.setInteractionMode")((input) =>
       dispatch("set-interaction-mode", input.threadId, {
         type: "thread.interaction-mode.set",
         commandId: input.commandId,
         threadId: input.threadId,
         interactionMode: input.interactionMode,
       }),
-    setModelSelection: (input) =>
+    ),
+    setModelSelection: Effect.fn("ThreadLifecycleService.setModelSelection")((input) =>
       dispatch("set-model-selection", input.threadId, {
         type: "thread.model-selection.set",
         commandId: input.commandId,
         threadId: input.threadId,
         modelSelection: input.modelSelection,
       }),
+    ),
   });
 });
 

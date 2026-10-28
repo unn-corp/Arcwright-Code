@@ -239,7 +239,7 @@ const withStore = <A, E, R>(
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
 describe("DesktopConnectionCatalogStore", () => {
-  it.effect("persists, reads, and clears an encrypted connection catalog", () =>
+  it.effect("persists and reads an encrypted connection catalog", () =>
     withStore(
       Effect.gen(function* () {
         const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
@@ -247,9 +247,6 @@ describe("DesktopConnectionCatalogStore", () => {
 
         assert.isTrue(yield* store.set(catalog));
         assert.deepStrictEqual(yield* store.get, Option.some(catalog));
-
-        yield* store.clear;
-        assert.deepStrictEqual(yield* store.get, Option.none());
       }),
     ),
   );
@@ -556,42 +553,33 @@ describe("DesktopConnectionCatalogStore", () => {
     ),
   );
 
-  it.effect.each(["save", "clear"] as const)(
-    "preserves a concurrent %s while Beta key recovery is waiting",
-    (operation) =>
-      Effect.gen(function* () {
-        const lookupStarted = yield* Deferred.make<void>();
-        const lookupReleased = yield* Deferred.make<void>();
-        const linuxKeyLookup = Deferred.succeed(lookupStarted, undefined).pipe(
-          Effect.andThen(Deferred.await(lookupReleased)),
-          Effect.as("beta-secret"),
-        );
-        const newer = savedCatalog.replace("Saved relay", "Updated relay");
+  it.effect("preserves a concurrent save while Beta key recovery is waiting", () =>
+    Effect.gen(function* () {
+      const lookupStarted = yield* Deferred.make<void>();
+      const lookupReleased = yield* Deferred.make<void>();
+      const linuxKeyLookup = Deferred.succeed(lookupStarted, undefined).pipe(
+        Effect.andThen(Deferred.await(lookupReleased)),
+        Effect.as("beta-secret"),
+      );
+      const newer = savedCatalog.replace("Saved relay", "Updated relay");
 
-        yield* withStore(
-          Effect.gen(function* () {
-            const fileSystem = yield* FileSystem.FileSystem;
-            const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
-            const { catalogPath } = yield* writeBetaCatalog("linux");
-            const recovery = yield* store.get.pipe(Effect.forkChild);
-            yield* Deferred.await(lookupStarted);
-            if (operation === "save") {
-              assert.isTrue(yield* store.set(newer));
-            } else {
-              yield* store.clear;
-            }
-            yield* Deferred.succeed(lookupReleased, undefined);
-            yield* Fiber.join(recovery);
+      yield* withStore(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
+          const { catalogPath } = yield* writeBetaCatalog("linux");
+          const recovery = yield* store.get.pipe(Effect.forkChild);
+          yield* Deferred.await(lookupStarted);
+          assert.isTrue(yield* store.set(newer));
+          yield* Deferred.succeed(lookupReleased, undefined);
+          yield* Fiber.join(recovery);
 
-            assert.deepStrictEqual(
-              yield* store.get,
-              operation === "save" ? Option.some(newer) : Option.none(),
-            );
-            assert.equal(yield* fileSystem.exists(catalogPath), operation === "save");
-          }),
-          true,
-          { platform: "linux", linuxKeyLookup },
-        );
-      }),
+          assert.deepStrictEqual(yield* store.get, Option.some(newer));
+          assert.equal(yield* fileSystem.exists(catalogPath), true);
+        }),
+        true,
+        { platform: "linux", linuxKeyLookup },
+      );
+    }),
   );
 });

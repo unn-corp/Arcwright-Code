@@ -1,15 +1,6 @@
 /**
- * A minimal Chrome DevTools Protocol client.
- *
- * Deliberately not Playwright or Puppeteer: the server needs a handful of
- * domains (Target, Page, Runtime, Input, Emulation) and neither library can be
- * added without also adding a browser download step to `npx t3`. Node's global
- * WebSocket carries the whole protocol, so this costs no dependency at all.
- *
- * Flat sessions are used throughout (`Target.attachToTarget` with
- * `flatten: true`), so one socket multiplexes every page: a command carries the
- * `sessionId` of the target it addresses, and events carry the id they came
- * from.
+ * Use Node WebSocket with flat CDP sessions to multiplex targets on one socket. Avoid dependencies
+ * that add a browser download to CLI installation.
  */
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";

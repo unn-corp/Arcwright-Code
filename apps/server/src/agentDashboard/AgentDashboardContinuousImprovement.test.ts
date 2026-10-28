@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as Stream from "effect/Stream";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -82,14 +82,14 @@ const makeProjection = (input: {
     getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
     getRecentActivitySummaries: () => Effect.succeed([]),
     getEventReplayStats: () => Effect.die("unused"),
-    getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-    getProjectShellById: () => Effect.succeed(Option.none()),
-    getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
-    getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-    getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-    getThreadShellById: () => Effect.succeed(Option.none()),
-    getThreadDetailById: () => Effect.succeed(Option.none()),
-    getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+    getActiveProjectByWorkspaceRoot: () => Effect.succeedNone,
+    getProjectShellById: () => Effect.succeedNone,
+    getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
+    getThreadCheckpointContext: () => Effect.succeedNone,
+    getFullThreadDiffContext: () => Effect.succeedNone,
+    getThreadShellById: () => Effect.succeedNone,
+    getThreadDetailById: () => Effect.succeedNone,
+    getThreadDetailSnapshot: () => Effect.succeedNone,
   }) satisfies ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"];
 
 const makeSettingsService = (getSettings: () => ServerSettingsValue) =>

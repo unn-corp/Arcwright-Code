@@ -154,6 +154,7 @@ function harness(
     }),
     Layer.succeed(DeliveryAttempts.DeliveryAttempts, {
       record: () => Effect.die("Unexpected standalone Web Push audit record"),
+      pruneExpired: Effect.succeed(0),
       claimSourceJob: (input) =>
         Effect.gen(function* () {
           calls.claims.push(input);

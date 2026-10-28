@@ -1,18 +1,31 @@
+import {
+  findProjectForChangeRequest,
+  findProjectOnChangeRequestHost,
+  projectChangeRequestUrl,
+} from "@t3tools/client-runtime/change-request-links";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+
+const parseChangeRequestUrl = (url: string) =>
+  sourceControlClients.parseChangeRequestUrl(url)?.link;
+const changeRequestRepositoryUrl = (url: string) => parseChangeRequestUrl(url)?.repositoryUrl;
+const pullRequestCandidateUrlFromReferenceAutolink =
+  sourceControlClients.changeRequestUrlFromReferenceAutolink;
+const matchesLinkedPullRequestUrl = (linked: { url: string }, url: string) =>
+  sourceControlClients.isSameChangeRequest(linked.url, url);
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  changeRequestRepositoryUrl,
-  findProjectForChangeRequest,
-  findProjectOnChangeRequestHost,
-  gitHubPullRequestBrowserUrl,
-  matchesLinkedPullRequestUrl,
   openProjectExternalLink,
   openPullRequestLink,
   PullRequestLinkOpenError,
-  parseChangeRequestUrl,
-  pullRequestCandidateUrlFromReferenceAutolink,
 } from "./openPullRequestLink";
-import { GitHubAccountId, ProjectId, type RepositoryIdentity } from "@t3tools/contracts";
+import {
+  GitHubAccountId,
+  ProjectId,
+  SourceControlProviderKind,
+  type RepositoryIdentity,
+} from "@t3tools/contracts";
 
 function repositoryIdentity(
   provider: string,
@@ -21,12 +34,12 @@ function repositoryIdentity(
 ): RepositoryIdentity {
   return {
     canonicalKey,
-    provider,
+    provider: SourceControlProviderKind.make(provider),
     locator: { source: "git-remote", remoteName: "origin", remoteUrl },
   };
 }
 
-describe("gitHubPullRequestBrowserUrl", () => {
+describe("projectChangeRequestUrl", () => {
   it("uses the requested GitHub repository instead of the project's default repository", () => {
     const identity = repositoryIdentity(
       "github",
@@ -34,7 +47,7 @@ describe("gitHubPullRequestBrowserUrl", () => {
       "https://github.com/acme/default.git",
     );
 
-    expect(gitHubPullRequestBrowserUrl(identity, "acme/other", 42)).toBe(
+    expect(projectChangeRequestUrl(identity, "acme/other", 42)).toBe(
       "https://github.com/acme/other/pull/42",
     );
   });
@@ -46,7 +59,7 @@ describe("gitHubPullRequestBrowserUrl", () => {
       "http://token@github.acme.test:8443/team/default.git",
     );
 
-    expect(gitHubPullRequestBrowserUrl(identity, "platform/api", 7)).toBe(
+    expect(projectChangeRequestUrl(identity, "platform/api", 7)).toBe(
       "http://github.acme.test:8443/platform/api/pull/7",
     );
   });
@@ -63,37 +76,37 @@ describe("gitHubPullRequestBrowserUrl", () => {
   ])("uses the normalized host for a $name remote", ({ remoteUrl }) => {
     const identity = repositoryIdentity("github", "github.acme.test/team/default", remoteUrl);
 
-    expect(gitHubPullRequestBrowserUrl(identity, "platform/api", 9)).toBe(
+    expect(projectChangeRequestUrl(identity, "platform/api", 9)).toBe(
       "https://github.acme.test/platform/api/pull/9",
     );
   });
 
   // regression: #8507 the browser fallback must not open a bogus URL
   it("returns null for missing or invalid GitHub data", () => {
-    expect(gitHubPullRequestBrowserUrl(null, "acme/repository", 1)).toBeNull();
+    expect(projectChangeRequestUrl(null, "acme/repository", 1)).toBeNull();
     expect(
-      gitHubPullRequestBrowserUrl(
+      projectChangeRequestUrl(
         repositoryIdentity("github", "github.com/acme/repository", "https://github.com/a/b"),
         "acme",
         1,
       ),
     ).toBeNull();
     expect(
-      gitHubPullRequestBrowserUrl(
+      projectChangeRequestUrl(
         repositoryIdentity("github", "github.com/acme/repository", "https://github.com/a/b"),
         "../repository",
         1,
       ),
     ).toBeNull();
     expect(
-      gitHubPullRequestBrowserUrl(
+      projectChangeRequestUrl(
         repositoryIdentity("github", "github.com/acme/repository", "https://github.com/a/b"),
         "acme/repository",
         0,
       ),
     ).toBeNull();
     expect(
-      gitHubPullRequestBrowserUrl(
+      projectChangeRequestUrl(
         repositoryIdentity("github", "bad host/acme/repository", "not a remote"),
         "acme/repository",
         1,
@@ -101,19 +114,7 @@ describe("gitHubPullRequestBrowserUrl", () => {
     ).toBeNull();
   });
 
-  // regression: #8507 the browser fallback for failed PR loads must only target GitHub
-  it.each(["gitlab", "bitbucket", "azure-devops", "unknown"])(
-    "does not build a fallback for %s",
-    (provider) => {
-      expect(
-        gitHubPullRequestBrowserUrl(
-          repositoryIdentity(provider, "github.com/acme/repository", "https://github.com/a/b"),
-          "acme/repository",
-          1,
-        ),
-      ).toBeNull();
-    },
-  );
+  // Provider-specific fallback grammars now live with each source-control definition.
 });
 
 describe("changeRequestRepositoryUrl", () => {

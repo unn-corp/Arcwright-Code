@@ -11,6 +11,7 @@ import {
   type SidebarListMarker,
 } from "../Sidebar.logic";
 import { SIDEBAR_SORTABLE_DRAG_DISABLED } from "./SidebarThreadRow";
+import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 
 function SortableSidebarMarker(props: {
   marker: SidebarListMarker;
@@ -105,10 +106,14 @@ export function SidebarSectionHeader(props: {
   threads: ReadonlyArray<SidebarThreadSummary>;
   marker: "working-header" | "snoozed-header" | "settled-header";
   label: string;
+  /** A muted trailing count. */
+  count: number;
   className?: string;
   dragging?: boolean;
   isDropTarget?: boolean;
   toggle: { expanded: boolean; onToggle: () => void };
+  /** The first shelf at the bottom of the list hosts the undo notice just above itself. */
+  hostsUndoNotice?: boolean;
 }) {
   const shelf =
     props.marker === "working-header"
@@ -116,27 +121,33 @@ export function SidebarSectionHeader(props: {
       : props.marker === "snoozed-header"
         ? "snoozed"
         : "settled";
-  const snoozed = shelf === "snoozed";
   return (
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className={cn("mx-0.5 h-8", props.className)}
+      className={cn("relative mx-0.5 h-8", props.className)}
     >
+      {props.hostsUndoNotice ? (
+        <SidebarThreadUndoNotice className="absolute inset-x-0 bottom-full bg-sidebar surface-grain" />
+      ) : null}
       <CollapsibleSectionHeader
+        role="treeitem"
+        tabIndex={-1}
+        data-sidebar-row={`shelf:${shelf}`}
         onClick={props.toggle.onToggle}
         expanded={props.toggle.expanded}
         accessory={
-          props.toggle.expanded ? undefined : (
-            <CollapsedThreadStatusIndicators
-              threads={props.threads}
-              includeFailures={shelf === "working"}
-            />
-          )
+          <>
+            {!props.toggle.expanded && (
+              <CollapsedThreadStatusIndicators
+                threads={props.threads}
+                includeFailures={shelf === "working"}
+              />
+            )}
+            <span className="text-xs tabular-nums text-muted-foreground">{props.count}</span>
+          </>
         }
-        tone={
-          props.isDropTarget ? "accent" : props.dragging ? "emphasized" : snoozed ? "info" : "muted"
-        }
+        tone={props.isDropTarget ? "accent" : props.dragging ? "emphasized" : "muted"}
         data-testid={`sidebar-${shelf}-shelf-toggle`}
       >
         {props.label}

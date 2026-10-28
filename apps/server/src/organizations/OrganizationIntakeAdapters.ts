@@ -15,6 +15,10 @@ import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+const encodeSyncUnknownJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeOrganizationIntakeEventInput = Schema.decodeEffect(OrganizationIntakeEventInput);
+
 const ShortText = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
 const TextBody = Schema.String.check(Schema.isMaxLength(12_000));
 const OpaqueId = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
@@ -57,6 +61,10 @@ export const OrganizationRelayEventInput = Schema.Union([
 ]);
 export type OrganizationRelayEventInput = typeof OrganizationRelayEventInput.Type;
 
+const decodeUnknownOrganizationRelayEventInput = Schema.decodeUnknownEffect(
+  OrganizationRelayEventInput,
+);
+
 export class OrganizationIntakeAdapterError extends Schema.TaggedError<OrganizationIntakeAdapterError>()(
   "OrganizationIntakeAdapterError",
   { code: Schema.Literal("invalid"), message: Schema.String },
@@ -83,9 +91,7 @@ const redact = (value: string) =>
       bearer ? `${bearer}[REDACTED]` : `${key}${separator}[REDACTED]`,
   );
 const hash = (parts: ReadonlyArray<string>) =>
-  NodeCrypto.createHash("sha256")
-    .update(Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(parts))
-    .digest("hex");
+  NodeCrypto.createHash("sha256").update(encodeSyncUnknownJson(parts)).digest("hex");
 const bytes = (value: string) => Buffer.byteLength(value, "utf8");
 const parseRfc3339 = (value: string): string | null => {
   const match = RFC3339.exec(value);
@@ -129,7 +135,7 @@ const hasExactKeys = (value: unknown, expected: ReadonlySet<string>) => {
 export const normalizeOrganizationRelayEvent = Effect.fn(
   "OrganizationIntakeAdapters.normalizeOrganizationRelayEvent",
 )(function* (input: unknown): Effect.fn.Return<NormalizedEvent, OrganizationIntakeAdapterError> {
-  const serialized = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(input).pipe(
+  const serialized = yield* encodeUnknownJson(input).pipe(
     Effect.mapError(() => invalid("Relay event must be a JSON object.")),
   );
   const size = bytes(serialized);
@@ -144,7 +150,7 @@ export const normalizeOrganizationRelayEvent = Effect.fn(
         : null;
   if (keys === null || !hasExactKeys(input, keys))
     return yield* invalid("Relay event has missing or unsupported fields.");
-  const event = yield* Schema.decodeUnknownEffect(OrganizationRelayEventInput)(input).pipe(
+  const event = yield* decodeUnknownOrganizationRelayEventInput(input).pipe(
     Effect.mapError(() => invalid("Relay event fields are invalid.")),
   );
   if (
@@ -201,7 +207,7 @@ export const normalizeOrganizationRelayEvent = Effect.fn(
       ...(event.correlationKey === null ? {} : { correlationKey: event.correlationKey }),
     };
   }
-  return yield* Schema.decodeUnknownEffect(OrganizationIntakeEventInput)({
+  return yield* decodeOrganizationIntakeEventInput({
     organizationId: event.organizationId,
     sourceId: event.sourceId,
     projectId: event.projectId,

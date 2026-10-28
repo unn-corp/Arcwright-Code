@@ -1,9 +1,6 @@
 /**
- * Pre-database resolution of a transaction whose owner exited, for a launcher-managed
- * runtime. The launcher is the only process that outlives a binary swap, so the successor
- * decides from durable facts (the journal and the launcher's recorded outcome) and never
- * from timing. Runs before the database opens: restoring files under a live database would
- * corrupt it.
+ * Resolve exited-owner transactions before opening the database: restoring files beneath a live
+ * database corrupts it. Use the journal and launcher outcome, never timing.
  */
 import { restoreSnapshot } from "@t3tools/shared/forkMaintenanceSnapshot";
 import { RELEASABLE_PHASES, type MaintenanceJournal } from "@t3tools/shared/forkMaintenanceJournal";

@@ -30,6 +30,7 @@ export function beginClientUpdateUpload(): (() => void) | Promise<() => void> {
   return typeof hold === "function" ? admitted(hold) : hold.then(admitted);
 }
 export function ClientUpdateInteractionCoordinator() {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reports shell health and user activity to the native updater with a heartbeat and mounted input listeners
   useEffect(() => {
     const input = () => {
       inputActiveAt = Date.now();

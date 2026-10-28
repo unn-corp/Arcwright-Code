@@ -16,6 +16,7 @@ export function PairingQrScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the camera stream, QR scan timer and visibility listener until the scanner closes
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;

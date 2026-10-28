@@ -146,6 +146,7 @@ export function AgentRuns({
       (statusFilter === "all" || run.status === statusFilter) &&
       (projectFilter === "all" || String(run.repository.projectId) === projectFilter),
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls and focuses the DOM run targeted by the router once its rows have mounted
   useEffect(() => {
     const targetId = initialSearch.runId
       ? `agent-run-${initialSearch.runId}`

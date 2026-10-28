@@ -16,19 +16,11 @@ interface EventCollector {
   readonly drain: Effect.Effect<ReadonlyArray<PreviewEvent>>;
 }
 
-/**
- * Each `it.effect` shares the live PreviewManager layer across the whole
- * `it.layer` block, so tests that assert per-thread counts must use a unique
- * thread id to avoid bleeding state from earlier tests.
- */
+/** The shared live layer retains state between tests; counts need unique thread ids. */
 let nextThreadId = 0;
 const freshThreadId = () => ThreadId.make(`thread-${++nextThreadId}`);
 
-/**
- * Subscribe to the manager's event stream BEFORE the test publishes. We
- * use `subscribeEvents` (synchronous PubSub.subscribe under the hood) so
- * no event can land between subscribe and the consumer drain.
- */
+/** Subscribe synchronously before publishing so the forked consumer cannot miss events. */
 const collectEvents = Effect.gen(function* () {
   const manager = yield* PreviewManager.PreviewManager;
   const subscription = yield* manager.subscribeEvents;
@@ -64,20 +56,13 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     }),
   );
 
-  it.effect("keeps the tab's profile across navigation and status reports", () =>
+  it.effect("keeps the tab's profile across status reports", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();
       const manager = yield* PreviewManager.PreviewManager;
 
       const opened = yield* manager.open({ threadId, profileId: "work" });
       expect(opened.profileId).toBe("work");
-
-      const navigated = yield* manager.navigate({
-        threadId,
-        tabId: opened.tabId,
-        url: "localhost:5173",
-      });
-      expect(navigated.profileId).toBe("work");
 
       yield* manager.reportStatus({
         threadId,
@@ -95,6 +80,39 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
     }),
   );
 
+  it.effect("reissues presentation requests without replaying them on navigation", () =>
+    Effect.gen(function* () {
+      const threadId = freshThreadId();
+      const manager = yield* PreviewManager.PreviewManager;
+      const collector = yield* collectEvents;
+      const opened = yield* manager.open({ threadId, runtime: "server", reveal: false });
+      yield* manager.requestReveal({ threadId, tabId: opened.tabId, force: true });
+      const first = (yield* manager.list({ threadId })).sessions[0];
+      expect(first?.reveal).toBe(true);
+      expect(first?.revealRequest?.force).toBe(true);
+      yield* manager.reportStatus({
+        threadId,
+        tabId: opened.tabId,
+        serverControlled: true,
+        navStatus: { _tag: "Success", url: "http://localhost:5173/", title: "Dev" },
+        canGoBack: false,
+        canGoForward: false,
+      });
+      expect((yield* manager.list({ threadId })).sessions[0]?.revealRequest).toEqual(
+        first?.revealRequest,
+      );
+      yield* manager.requestReveal({ threadId, tabId: opened.tabId, force: false });
+      const second = (yield* manager.list({ threadId })).sessions[0];
+      expect(second?.revealRequest?.id).not.toBe(first?.revealRequest?.id);
+      expect(second?.revealRequest?.force).toBe(false);
+      const events = yield* collector.drain;
+      const last = events.at(-1);
+      expect(last?.type).toBe("navigated");
+      if (last?.type === "navigated")
+        expect(last.snapshot.revealRequest).toEqual(second?.revealRequest);
+    }),
+  );
+
   it.effect("orders list snapshots and events with one monotonic revision", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();
@@ -106,10 +124,12 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
         threadId,
         url: "http://localhost:5173",
       });
-      yield* manager.navigate({
+      yield* manager.reportStatus({
         threadId,
         tabId: opened.tabId,
-        url: "http://localhost:5173/ready",
+        navStatus: { _tag: "Success", url: "http://localhost:5173/ready", title: "Ready" },
+        canGoBack: true,
+        canGoForward: false,
       });
 
       const events = yield* collector.drain;
@@ -145,13 +165,6 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
         height: 768,
       });
 
-      const navigated = yield* manager.navigate({
-        threadId,
-        tabId: opened.tabId,
-        url: "http://localhost:5173/resized",
-      });
-      expect(navigated.viewport).toEqual(resized.viewport);
-
       yield* manager.reportStatus({
         threadId,
         tabId: opened.tabId,
@@ -167,12 +180,7 @@ it.layer(PreviewManager.layer.pipe(Layer.provide(NodeCrypto.layer)))("PreviewMan
       expect(listed.sessions[0]?.viewport).toEqual(resized.viewport);
 
       const events = yield* collector.drain;
-      expect(events.map((event) => event.type)).toEqual([
-        "opened",
-        "resized",
-        "navigated",
-        "navigated",
-      ]);
+      expect(events.map((event) => event.type)).toEqual(["opened", "resized", "navigated"]);
     }),
   );
 

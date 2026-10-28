@@ -141,10 +141,10 @@ const retrySignatureCheckAfterTimeout = () => {
   updater.verifyUpdateCodeSignature = verifyWithRetry;
 };
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = ElectronUpdater.of({
-  setFeedURL: (options) =>
-    Effect.suspend(() => {
+  setFeedURL: Effect.fn("ElectronUpdater.setFeedURL")(function (options) {
+    return Effect.suspend(() => {
       if (typeof options === "string") {
         expectedArtifact = undefined;
         verifiedArtifact = undefined;
@@ -157,43 +157,53 @@ export const make = ElectronUpdater.of({
       // Its verified binding belongs to the download, not to the newest feed.
       autoUpdater.setFeedURL(feed);
       return Effect.void;
-    }),
-  setAutoDownload: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setAutoDownload: Effect.fn("ElectronUpdater.setAutoDownload")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.autoDownload = value;
       return Effect.void;
-    }),
-  setAutoInstallOnAppQuit: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setAutoInstallOnAppQuit: Effect.fn("ElectronUpdater.setAutoInstallOnAppQuit")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.autoInstallOnAppQuit = value;
       return Effect.void;
-    }),
-  setChannel: (channel) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setChannel: Effect.fn("ElectronUpdater.setChannel")(function (channel) {
+    return Effect.suspend(() => {
       autoUpdater.channel = channel;
       return Effect.void;
-    }),
-  setAllowPrerelease: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setAllowPrerelease: Effect.fn("ElectronUpdater.setAllowPrerelease")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.allowPrerelease = value;
       return Effect.void;
-    }),
+    });
+  }),
   allowDowngrade: Effect.sync(() => autoUpdater.allowDowngrade),
-  setAllowDowngrade: (value) =>
-    Effect.suspend(() => {
+  setAllowDowngrade: Effect.fn("ElectronUpdater.setAllowDowngrade")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.allowDowngrade = value;
       return Effect.void;
-    }),
-  setFullChangelog: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setFullChangelog: Effect.fn("ElectronUpdater.setFullChangelog")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.fullChangelog = value;
       return Effect.void;
-    }),
-  setDisableDifferentialDownload: (value) =>
-    Effect.suspend(() => {
-      autoUpdater.disableDifferentialDownload = value;
-      return Effect.void;
-    }),
+    });
+  }),
+  setDisableDifferentialDownload: Effect.fn("ElectronUpdater.setDisableDifferentialDownload")(
+    function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.disableDifferentialDownload = value;
+        return Effect.void;
+      });
+    },
+  ),
   // Use the updater's helper so cache lookup follows the same configuration as downloads.
   pendingDownloadDirectory: Effect.tryPromise(() =>
     (
@@ -229,8 +239,11 @@ export const make = ElectronUpdater.of({
       catch: (cause) => new ElectronUpdaterDownloadUpdateError({ channel, cause }),
     }).pipe(Effect.asVoid);
   }),
-  quitAndInstall: ({ isSilent, isForceRunAfter }) =>
-    Effect.suspend(() => {
+  quitAndInstall: Effect.fn("ElectronUpdater.quitAndInstall")(function ({
+    isSilent,
+    isForceRunAfter,
+  }) {
+    return Effect.suspend(() => {
       const channel = autoUpdater.channel;
       return Effect.tryPromise({
         try: async () => {
@@ -247,8 +260,9 @@ export const make = ElectronUpdater.of({
             cause,
           }),
       });
-    }),
-  on: (eventName, listener) => {
+    });
+  }),
+  on: Effect.fn("ElectronUpdater.on")(function (eventName, listener) {
     const eventTarget = autoUpdater as unknown as {
       on: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
       removeListener: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
@@ -263,7 +277,7 @@ export const make = ElectronUpdater.of({
           eventTarget.removeListener(eventName, untypedListener);
         }),
     ).pipe(Effect.asVoid);
-  },
+  }),
 });
 
 export const layer = Layer.succeed(ElectronUpdater, make);

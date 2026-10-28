@@ -158,6 +158,7 @@ export function ArchivedThreadsPanel() {
     .flatMap((group) => group.threads)
     .filter((thread) => !removedKeys.has(threadKey(thread)));
   const currentThreads = useRef(allThreads);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes current archived threads to the mounted undo callback so it can resolve the latest selection
   useEffect(() => {
     currentThreads.current = allThreads;
   }, [allThreads, currentThreads]);

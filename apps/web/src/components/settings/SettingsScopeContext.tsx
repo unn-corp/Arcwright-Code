@@ -18,7 +18,6 @@ type ProjectFileMember = readonly [
   physicalProjectKey: string,
 ];
 
-// Keyed by the members' identifying fields so each render reads the same atom.
 const memberProjectFilesAtom = Atom.family((membersKey: string) => {
   const members = JSON.parse(membersKey) as ReadonlyArray<ProjectFileMember>;
   return Atom.make((get) => {
@@ -107,6 +106,11 @@ export function SettingsScopeProvider({
   const resolved = useResolvedSettingsScope(search, singleEnvironment);
   const value = { ...resolved, singleEnvironment, selectScope: onChange };
   return <SettingsScopeContext value={value}>{children}</SettingsScopeContext>;
+}
+
+/** Primary-owned controls read and write the app's serving environment, independent of the picker. */
+export function PrimarySettingsBoundary({ children }: { readonly children: ReactNode }) {
+  return <SettingsScopeContext value={null}>{children}</SettingsScopeContext>;
 }
 
 export function useOptionalSettingsScope() {

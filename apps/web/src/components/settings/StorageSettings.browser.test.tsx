@@ -7,8 +7,6 @@ import { DEFAULT_SERVER_SETTINGS, type StorageCleanupReport } from "@t3tools/con
 import { type ReactNode } from "react";
 import { expect, it, vi } from "vite-plus/test";
 
-import { StorageSettingsPanel } from "./StorageSettings";
-
 vi.mock("@tanstack/react-router", async (original) => ({
   ...(await original<typeof import("@tanstack/react-router")>()),
   Link: ({
@@ -90,8 +88,6 @@ vi.mock(import("./useScopedSettings"), async (original) => ({
   useUpdateScopedSettings: () => vi.fn(),
   useClearScopedSettings: () => vi.fn(),
 }));
-// The real page container needs a router and the real row reads write permission and
-// overrides from live environment state; this suite is about the cleanup panel.
 vi.mock(import("./settingsLayout"), async (original) => ({
   ...(await original()),
   SettingsPageContainer: (({ children }: { children: ReactNode }) => children) as never,
@@ -109,6 +105,8 @@ vi.mock(import("../ui/toast"), async (original) => {
   const actual = await original();
   return { ...actual, toastManager: { ...actual.toastManager, add: vi.fn() } };
 });
+
+import { StorageCleanupSections } from "./StorageSettings";
 
 async function setup() {
   state.settings = {
@@ -145,7 +143,7 @@ async function render(root: Screen) {
   await act(async () =>
     root.rerender(
       <RegistryProvider>
-        <StorageSettingsPanel />
+        <StorageCleanupSections />
       </RegistryProvider>,
     ),
   );
@@ -158,7 +156,7 @@ it.each(["machine-wide immediate", "project custom"])(
   "runs cleanup when only %s settled retention is enabled",
   async (scope) => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     if (scope === "machine-wide immediate") {
       state.settings = {
         ...state.settings,
@@ -204,7 +202,7 @@ it.each(["machine-wide immediate", "project custom"])(
 
 it("keeps cleanup disabled when settled retention and all other rules are off", async () => {
   await using _fixture = await setup();
-  const { root, container } = _fixture;
+  const { root } = _fixture;
   const button = await render(root);
 
   expect(button.disabled).toBe(true);

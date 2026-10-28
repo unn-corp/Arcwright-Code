@@ -70,6 +70,12 @@ import Migration0113 from "./Migrations/066_RepairClientSettlementTimestamps.ts"
 
 import Migration0114 from "./Migrations/067_WebhookDedupe.ts";
 
+import Migration0115 from "./Migrations/068_ShellStopRequestIndex.ts";
+import Migration0116 from "./Migrations/069_ThreadMessageSearch.ts";
+import Migration0117 from "./Migrations/070_PeerLinks.ts";
+import Migration0118 from "./Migrations/071_PeerLinkFence.ts";
+import Migration0119 from "./Migrations/072_WaitingLinkRequestIndex.ts";
+
 export const upstreamMigrationEntries = [
   [1, 1, "OrchestrationEvents", Migration0001],
   [2, 2, "OrchestrationCommandReceipts", Migration0002],
@@ -138,4 +144,9 @@ export const upstreamMigrationEntries = [
   [65, 112, "CodexUsageNativeTurnIndex", Migration0112],
   [66, 113, "RepairClientSettlementTimestamps", Migration0113],
   [67, 114, "WebhookDedupe", Migration0114],
+  [68, 115, "ShellStopRequestIndex", Migration0115],
+  [69, 116, "ThreadMessageSearch", Migration0116],
+  [70, 117, "PeerLinks", Migration0117],
+  [71, 118, "PeerLinkFence", Migration0118],
+  [72, 119, "WaitingLinkRequestIndex", Migration0119],
 ] as const;

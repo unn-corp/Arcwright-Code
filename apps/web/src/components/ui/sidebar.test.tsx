@@ -5,10 +5,13 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { resolveSidebarState } from "./sidebarState";
 import { Sidebar, SidebarProvider, useSidebar } from "./sidebar";
 
-vi.mock("~/hooks/useMediaQuery", () => ({ useMediaQuery: () => true }));
-
 it("keeps navigation reachable when the mobile sheet is mounted but closed", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("matchMedia", () => ({
+    matches: true,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
   vi.stubGlobal(
     "ResizeObserver",
     class {

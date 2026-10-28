@@ -68,7 +68,6 @@ function Fetch([string] $uri, [string] $destination, [switch] $progress) {
     Invoke-WebRequest -Uri $uri -OutFile $destination -UseBasicParsing
     return
   }
-  # Read the response once, displaying actual bytes received at most ten times a second.
   Add-Type -AssemblyName System.Net.Http
   $client = New-Object System.Net.Http.HttpClient
   $response = $source = $file = $null
@@ -117,9 +116,7 @@ if ($interactive) {
 }
 Step "Finding your release..."
 
-# PROCESSOR_ARCHITEW6432 reports the real machine when a 32-bit PowerShell
-# runs under WOW64; RuntimeInformation needs .NET 4.7.1+, which 5.1 hosts
-# may lack.
+# PROCESSOR_ARCHITEW6432 bypasses WOW64 emulation; 5.1 hosts can lack RuntimeInformation's required .NET version.
 $rawArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 $arch = switch ($rawArch) {
   "AMD64" { "x64" }
@@ -139,8 +136,19 @@ if (-not $version) {
     "preview" { '^fork-v\d+\.\d+\.\d+-preview\.\d+\.\d+$' }
     default { Fail "T3CODE_CHANNEL must be stable, nightly, or preview" }
   }
-  $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers @{ "User-Agent" = "t3-install" }
-  $tag = ($releases | Where-Object { -not $_.draft -and $_.body -notmatch "(?m)^<!-- t3-fork-release:withdrawn" -and $_.tag_name -match $tagPattern -and $_.assets.name -contains "fork-release.json" -and $_.assets.name -contains "SHA256SUMS" } | Select-Object -First 1).tag_name
+  if ($channel -eq "stable") {
+    # release.yml marks only plain stable releases latest. This is a github.com
+    # page, so it is not cut off by a page of newer nightlies or the API quota.
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers @{ "User-Agent" = "t3-install"; "Accept" = "application/json" }
+    $tag = ($release | Where-Object { -not $_.draft -and $_.published_at -and $_.body -notmatch "(?m)^<!-- t3-fork-release:withdrawn" -and $_.tag_name -match $tagPattern -and $_.assets.name -contains "fork-release.json" -and $_.assets.name -contains "SHA256SUMS" }).tag_name
+  } else {
+    $tag = $null
+    for ($page = 1; -not $tag -and $page -le 10; $page++) {
+      $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100&page=$page" -Headers @{ "User-Agent" = "t3-install" }
+      $tag = ($releases | Where-Object { -not $_.draft -and $_.body -notmatch "(?m)^<!-- t3-fork-release:withdrawn" -and $_.tag_name -match $tagPattern -and $_.assets.name -contains "fork-release.json" -and $_.assets.name -contains "SHA256SUMS" } | Select-Object -First 1).tag_name
+      if (-not $releases) { break }
+    }
+  }
   if (-not $tag) { Fail "could not find a $channel release; set T3CODE_VERSION" }
   $version = $tag.Substring(6)
 }
@@ -210,7 +218,6 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
       $global:ProgressPreference = "SilentlyContinue"
       Expand-Archive -Path (Join-Path $staging $archive) -DestinationPath $staging -Force
     } finally { $global:ProgressPreference = $savedProgress }
-    # The archive wraps everything in one directory named after its stem.
     Get-ChildItem (Join-Path $staging $stem) | Move-Item -Destination $staging
     Remove-Item (Join-Path $staging $stem), (Join-Path $staging $archive), (Join-Path $staging "SHA256SUMS") -Recurse -Force
 

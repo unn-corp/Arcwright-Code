@@ -350,7 +350,7 @@ const make = Effect.gen(function* () {
           Effect.mapError((cause) =>
             PersistenceDecodeError.fromSchemaError(operation, cause, { threadId: row.threadId }),
           ),
-          Effect.map(Option.some),
+          Effect.asSome,
         ),
     });
 

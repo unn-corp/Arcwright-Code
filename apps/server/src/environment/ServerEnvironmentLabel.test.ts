@@ -9,11 +9,6 @@ import { vi } from "vite-plus/test";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerEnvironmentLabel from "./ServerEnvironmentLabel.ts";
 
-interface CapturedLog {
-  readonly message: unknown;
-  readonly annotations: Readonly<Record<string, unknown>>;
-}
-
 const runMock = vi.fn<ProcessRunner.ProcessRunner["Service"]["run"]>();
 
 const layerProcessRunnerTest = Layer.succeed(

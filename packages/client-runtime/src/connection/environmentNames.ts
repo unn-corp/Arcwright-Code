@@ -63,7 +63,7 @@ export const makeEnvironmentNames = Effect.fn("makeEnvironmentNames")(function* 
   const lock = yield* Semaphore.make(1);
   return EnvironmentNames.of({
     changes: SubscriptionRef.changes(state),
-    set: (environmentId, name) =>
+    set: Effect.fn("EnvironmentNames.set")((environmentId: EnvironmentId, name: string | null) =>
       lock.withPermits(1)(
         Effect.gen(function* () {
           const error = name === null ? null : environmentNameError(name);
@@ -84,6 +84,7 @@ export const makeEnvironmentNames = Effect.fn("makeEnvironmentNames")(function* 
           yield* SubscriptionRef.set(state, next);
         }),
       ),
+    ),
   });
 });
 

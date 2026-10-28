@@ -1030,11 +1030,8 @@ const make = Effect.gen(function* () {
       if (existing) return existing;
     }
 
-    // Bound total in-flight work: refuse enqueue when the queue is already full
-    // of active runs at the concurrency limit *and* more are waiting... For
-    // simplicity with maxConcurrent=1, any active run with the same kind for
-    // scheduled/manual default keys is already handled. Additional targeted
-    // runs may still queue; cap absolute active+queued depth.
+    // Bound total active plus queued depth, including targeted runs; duplicate scheduled/manual keys
+    // are handled separately.
     const active = activeCount(current.filter((run) => run.kind === REVIEW_KIND));
     if (active >= MAX_CONCURRENT_REVIEW_RUNS * 4) {
       return yield* new AgentDashboardReviewJobServiceError({

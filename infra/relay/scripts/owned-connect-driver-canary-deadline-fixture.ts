@@ -1,5 +1,5 @@
-import * as Workers from "alchemy/Cloudflare/Workers";
-import { Request } from "alchemy/Cloudflare/Workers";
+import * as Workers from "@alchemy.run/cloudflare/Workers";
+import { Request } from "@alchemy.run/cloudflare/Workers";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";

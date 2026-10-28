@@ -40,7 +40,6 @@ function attach(bridge: BrowserBridge) {
   if (attached === bridge) return;
   attached = bridge;
   // AndroidX exposes one onmessage callback on its injected object.
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
   bridge.onmessage = ({ data }) => {
     try {
       const response: {

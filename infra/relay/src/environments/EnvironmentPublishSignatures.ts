@@ -57,21 +57,9 @@ export class EnvironmentPublishSignatureInvalid extends Schema.TaggedError<Envir
   }
 }
 
-export class EnvironmentPublishPublicKeyMissing extends Schema.TaggedError<EnvironmentPublishPublicKeyMissing>()(
-  "EnvironmentPublishPublicKeyMissing",
-  {
-    environmentId: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `Environment '${this.environmentId}' has no publish public key`;
-  }
-}
-
 export type EnvironmentPublishSignatureError =
   | EnvironmentPublishSignatureExpired
   | EnvironmentPublishSignatureInvalid
-  | EnvironmentPublishPublicKeyMissing
   | DpopProofs.DpopProofReplayPersistenceError;
 
 export interface VerifiedEnvironmentPublishProof extends DpopProofs.VerifiedDpopProof {
@@ -250,7 +238,9 @@ const make = Effect.gen(function* () {
   return EnvironmentPublishSignatures.of({
     verifyStateless,
     consumeVerified,
-    verify: (input) => verifyStateless(input).pipe(Effect.flatMap(consumeVerified)),
+    verify: Effect.fn("EnvironmentPublishSignatures.verify")((input) =>
+      verifyStateless(input).pipe(Effect.flatMap(consumeVerified)),
+    ),
   });
 });
 

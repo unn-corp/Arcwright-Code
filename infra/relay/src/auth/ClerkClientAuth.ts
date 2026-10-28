@@ -116,16 +116,18 @@ function verifyOwnedClerkSessionBearerToken(
       }),
     catch: () => invalidClerkCredential("session_verification_failed"),
   }).pipe(
-    Effect.flatMap((verified) =>
-      verified.iss === policy.issuer &&
-      isClerkUserSubject(verified.sub) &&
-      (typeof verified.aud === "string" ||
-        (Array.isArray(verified.aud) &&
-          verified.aud.length > 0 &&
-          verified.aud.every((audience) => typeof audience === "string" && audience.length > 0))) &&
-      hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience)
-        ? Effect.succeed(verified)
-        : Effect.fail(invalidClerkCredential("invalid_session_claims")),
+    Effect.filterOrFail(
+      (verified) =>
+        verified.iss === policy.issuer &&
+        isClerkUserSubject(verified.sub) &&
+        (typeof verified.aud === "string" ||
+          (Array.isArray(verified.aud) &&
+            verified.aud.length > 0 &&
+            verified.aud.every(
+              (audience) => typeof audience === "string" && audience.length > 0,
+            ))) &&
+        hasExpectedClerkAudience(verified.aud, config.clerkJwtAudience),
+      () => invalidClerkCredential("invalid_session_claims"),
     ),
   );
 }

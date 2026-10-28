@@ -1,85 +1,107 @@
-import {
-  AuthOrchestrationReadScope,
-  EnvironmentId,
-  ThreadId,
-  type AuthSessionState,
-} from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type AssetResource } from "@t3tools/contracts";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
+import { describe, expect, it } from "vite-plus/test";
 
-import { AsyncResult } from "effect/reactivity";
-import { beforeEach, expect, it, vi } from "vite-plus/test";
+import { makeRevisionedAssetUrlFamily } from "./assetUrls";
 
-const state = vi.hoisted(() => ({
-  session: null as Pick<AuthSessionState, "authenticated" | "scopes"> | null,
-  phase: "connected" as "connected" | "offline",
-  assetAtom: {},
-  mint: vi.fn(),
-  assetQuery: vi.fn(),
-  httpBaseUrl: "https://host.test",
-}));
+const environmentId = EnvironmentId.make("environment-1");
+const resource: AssetResource = {
+  _tag: "workspace-file",
+  threadId: ThreadId.make("thread-1"),
+  path: "docs/diagram.png",
+};
 
-vi.mock("react", () => ({ useCallback: <A>(callback: A) => callback }));
-vi.mock("@effect/atom-react", () => ({
-  useAtomValue: (atom: unknown) =>
-    atom === state.assetAtom
-      ? AsyncResult.success({ relativeUrl: "/api/assets/image.png", expiresAt: 1 })
-      : AsyncResult.initial(false),
-}));
-vi.mock("~/state/session", () => ({
-  usePreparedConnection: () => ({ _tag: "Some", value: { httpBaseUrl: state.httpBaseUrl } }),
-}));
-vi.mock("~/state/filesystem", async () => {
-  const { resolveFilesystemReadAccess } = await import("@t3tools/client-runtime/state/filesystem");
-  return {
-    useFilesystemReadAccess: () =>
-      resolveFilesystemReadAccess({
-        isCatalogReady: true,
-        connection: { phase: state.phase, error: null },
-        session: state.session,
-        sessionError: null,
-      }),
+type MintResult = AsyncResult.AsyncResult<{ relativeUrl: string; expiresAt: number }>;
+
+const minted = (n: number): MintResult =>
+  AsyncResult.success({ relativeUrl: `/a/${n}`, expiresAt: 0 });
+
+// A stand-in for the asset URL query: a refresh starts a mint (counted, shown as
+// waiting) and `settle` completes the latest one.
+function setup(initial: MintResult) {
+  let mints = 0;
+  // Node removal runs on the registry's scheduler; `unmount` flushes it so the
+  // next mount of the same revision builds a fresh node.
+  const scheduled: Array<() => void> = [];
+  const registry = AtomRegistry.make({
+    scheduleTask: (task) => {
+      scheduled.push(task);
+      return () => {};
+    },
+  });
+  const server = Atom.make(initial).pipe(Atom.keepAlive);
+  const query = Atom.readable(
+    (get) => get(server),
+    () => {
+      mints += 1;
+      registry.set(server, AsyncResult.waiting(registry.get(server)));
+    },
+  ).pipe(Atom.keepAlive);
+  const revisioned = makeRevisionedAssetUrlFamily(() => query);
+  const mount = (revision: string | null) => {
+    const release = registry.mount(revisioned({ environmentId, input: { resource }, revision }));
+    return () => {
+      release();
+      for (const task of scheduled.splice(0)) task();
+    };
   };
+  const settle = () => registry.set(server, minted(mints + 1));
+  return { mount, settle, mints: () => mints };
+}
+
+describe("makeRevisionedAssetUrlFamily", () => {
+  it("re-mints a settled URL on first read and on each new revision, not on remount", () => {
+    const { mount, settle, mints } = setup(minted(0));
+
+    mount("mutation-1")();
+    expect(mints()).toBe(1);
+    settle();
+
+    mount("mutation-1")();
+    expect(mints()).toBe(1);
+
+    mount("mutation-2")();
+    expect(mints()).toBe(2);
+  });
+
+  it("re-mints when a revert returns to an earlier revision", () => {
+    const { mount, settle, mints } = setup(minted(0));
+
+    mount("mutation-a")();
+    settle();
+    mount("mutation-b")();
+    settle();
+    expect(mints()).toBe(2);
+
+    const reverted = mount("mutation-a");
+    expect(mints()).toBe(3);
+    reverted();
+  });
+
+  it("shares a mint in flight on the first read", () => {
+    const { mount, mints } = setup(AsyncResult.initial(true));
+
+    mount("mutation-1")();
+    expect(mints()).toBe(0);
+  });
+
+  it("re-mints after a mint that was in flight when the revision changed", () => {
+    const { mount, settle, mints } = setup(minted(0));
+
+    const before = mount("mutation-1");
+    settle();
+    const edited = mount("mutation-2");
+    expect(mints()).toBe(2);
+    before();
+
+    const stillMinting = mount("mutation-3");
+    edited();
+    expect(mints()).toBe(2);
+
+    settle();
+    expect(mints()).toBe(3);
+    settle();
+    expect(mints()).toBe(3);
+    stillMinting();
+  });
 });
-vi.mock("~/state/assets", () => ({
-  assetEnvironment: { createUrl: state.assetQuery },
-}));
-vi.mock("~/state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => state.mint }));
-
-import { useAssetUrlRefresh, useAssetUrlState } from "./assetUrls";
-
-const environmentId = EnvironmentId.make("asset-environment");
-const threadId = ThreadId.make("asset-thread");
-const resource = { _tag: "media-file", threadId, path: "/repo/image.png" } as const;
-
-beforeEach(() => {
-  state.session = null;
-  state.phase = "connected";
-  state.httpBaseUrl = "https://host.test";
-  state.assetQuery.mockReset().mockReturnValue(state.assetAtom);
-  state.mint
-    .mockReset()
-    .mockResolvedValue(AsyncResult.success({ relativeUrl: "/api/assets/image.png", expiresAt: 1 }));
-});
-
-it.each(["http://100.70.80.90:3773", "https://workstation.example.ts.net"])(
-  "loads and refreshes evidence using the connected Tailscale origin %s",
-  async (origin) => {
-    state.httpBaseUrl = origin;
-    state.session = {
-      authenticated: true,
-      scopes: [AuthOrchestrationReadScope],
-    };
-    const evidence = {
-      ...resource,
-      _tag: "conversation-evidence" as const,
-      path: "/home/user/.t3/userdata/conversation-evidence/thread/screenshot.png",
-    };
-    expect(useAssetUrlState(environmentId, evidence)).toMatchObject({
-      _tag: "Success",
-      url: `${origin}/api/assets/image.png`,
-    });
-    await expect(useAssetUrlRefresh(environmentId, evidence)()).resolves.toBe(
-      `${origin}/api/assets/image.png`,
-    );
-    expect(state.mint).toHaveBeenCalledWith({ environmentId, input: { resource: evidence } });
-  },
-);

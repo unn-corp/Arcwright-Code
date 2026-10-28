@@ -8,6 +8,8 @@ import * as Schema from "effect/Schema";
 import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
 import { ProviderSessionManagerV2 } from "../orchestration-v2/ProviderSessionManager.ts";
 
+const decodeUnknownOrchestrationV2Command = Schema.decodeUnknownEffect(OrchestrationV2Command);
+
 export class AutomationDispatchError extends Schema.TaggedError<AutomationDispatchError>()(
   "AutomationDispatchError",
   { commandType: Schema.String, cause: Schema.Defect() },
@@ -97,7 +99,7 @@ const make = Effect.gen(function* () {
               : command.type === "thread.meta.update"
                 ? { ...command, type: "thread.metadata.update" }
                 : command;
-          const native = yield* Schema.decodeUnknownEffect(OrchestrationV2Command)(translated);
+          const native = yield* decodeUnknownOrchestrationV2Command(translated);
           return yield* threads.dispatch(native);
         }
       }

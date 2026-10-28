@@ -1,6 +1,6 @@
 import * as Alchemy from "alchemy";
-import * as Axiom from "alchemy/Axiom";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Axiom from "@alchemy.run/axiom";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Config from "effect/Config";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -72,6 +72,7 @@ import * as HookForwarder from "./hooks/HookForwarder.ts";
 import * as HeldHooks from "./hooks/HeldHooks.ts";
 import * as HookInbox from "./hooks/HookInbox.ts";
 import * as HookInboxObject from "./hooks/HookInboxObject.ts";
+import * as MobileTelemetry from "./mobileTelemetry/MobileTelemetry.ts";
 
 const layerWebcrypto = Layer.succeed(
   Crypto.Crypto,
@@ -136,6 +137,7 @@ export const layer = Api.make(
     const managedEndpointZone = yield* ManagedEndpointZone;
     const randomApnsDeliveryJobSigningSecret = yield* ApnsDeliveryJobSigningSecret;
     const randomWebPushDeliveryJobSigningSecret = yield* WebPushDeliveryJobSigningSecret;
+    const observability = yield* RelayObservability;
 
     const apnsEnabled = yield* Config.Boolean("APNS_ENABLED").pipe(Config.withDefault(true));
     const apnsCredentials = apnsEnabled
@@ -170,10 +172,8 @@ export const layer = Api.make(
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
     const hyperdrive = yield* RelayDb.connectRelayHyperdrive;
-    // Named prepared statements collide behind Hyperdrive's transaction-mode
-    // pool: sql-pg < 4.0.0-rc.117 names them `effect1..N` per connection, and
-    // inside a transaction a Bind can reach another request's statement
-    // (#14070, Effect-TS/effect#8320). Unnamed statements cannot collide.
+    // Hyperdrive's transaction pool can route a Bind to another connection's
+    // named prepared statement. Unnamed statements cannot collide.
     const db = yield* runtimePostgres(hyperdrive.connectionString);
 
     const existingClients =
@@ -195,8 +195,7 @@ export const layer = Api.make(
     const legacyTunnelGraceMinutes = Option.getOrUndefined(
       yield* RelayConfiguration.legacyTunnelGraceMinutesConfig,
     );
-    // Keys are endpoint keys or hashes over them, which already differ per
-    // stage, so stages sharing an account cannot collide in these namespaces.
+    // Endpoint keys and their hashes differ by stage, including in shared accounts.
     const hookRateLimit = yield* Cloudflare.RateLimit("HOOK_RATE_LIMIT", {
       namespaceId: 1001,
       simple: {
@@ -236,7 +235,6 @@ export const layer = Api.make(
       simple: { limit: 120, period: 60 },
     });
     const hookInboxes = yield* HookInboxObject.HookInboxObject;
-
     const alchemyRuntimeContext: Alchemy.BaseRuntimeContext = yield* Cloudflare.Worker;
 
     const loadSettings = Effect.gen(function* () {
@@ -283,12 +281,21 @@ export const layer = Api.make(
           ),
         );
     const layerHookInbox = Layer.succeed(HookInbox.HookInbox, {
-      hold: ({ endpointKey, baseUrl, hook }) =>
-        hookInboxes.getByName(endpointKey).hold(hook, baseUrl).pipe(inboxCall("hold", endpointKey)),
-      wake: ({ endpointKey, baseUrl }) =>
-        hookInboxes.getByName(endpointKey).wake(baseUrl).pipe(inboxCall("wake", endpointKey)),
-      clear: ({ endpointKey }) =>
-        hookInboxes.getByName(endpointKey).clear().pipe(inboxCall("clear", endpointKey)),
+      hold: Effect.fn("HookInbox.hold")(function ({ endpointKey, baseUrl, hook }) {
+        return hookInboxes
+          .getByName(endpointKey)
+          .hold(hook, baseUrl)
+          .pipe(inboxCall("hold", endpointKey));
+      }),
+      wake: Effect.fn("HookInbox.wake")(function ({ endpointKey, baseUrl }) {
+        return hookInboxes
+          .getByName(endpointKey)
+          .wake(baseUrl)
+          .pipe(inboxCall("wake", endpointKey));
+      }),
+      clear: Effect.fn("HookInbox.clear")(function ({ endpointKey }) {
+        return hookInboxes.getByName(endpointKey).clear().pipe(inboxCall("clear", endpointKey));
+      }),
     });
 
     const layerRuntimeBase = Layer.empty.pipe(
@@ -324,10 +331,12 @@ export const layer = Api.make(
         FcmDeliveries.layer.pipe(
           Layer.provide(
             Layer.succeed(FcmDeliveryQueueSender.FcmDeliveryQueueSender, {
-              send: (body) =>
-                fcmDeliveryQueueSender
-                  .send(body)
-                  .pipe(Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext)),
+              send: Effect.fn("FcmDeliveryQueueSender.send")(
+                function* (body) {
+                  return yield* fcmDeliveryQueueSender.send(body);
+                },
+                Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+              ),
             }),
           ),
           Layer.provideMerge(FcmClient.layer.pipe(Layer.provide(FcmAssertionSigner.layer))),
@@ -365,18 +374,19 @@ export const layer = Api.make(
       ),
     );
 
-    // Fails open: a limiter outage must not drop webhooks the environment would accept.
+    // Fails open: a limiter outage must not drop webhooks or app telemetry.
     const allowWith =
-      (limiter: typeof hookRateLimit) =>
+      (
+        limiter: typeof hookRateLimit,
+        failedOpenAttribute = "relay.hook.rate_limiter_failed_open",
+      ) =>
       (key: string): Effect.Effect<boolean> =>
         limiter.limit({ key }).pipe(
           Effect.map((result) => result.success),
           Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
           Effect.catch((error) =>
-            Effect.logWarning("Hook rate limiter unavailable", { error: error.message }).pipe(
-              Effect.andThen(
-                Effect.annotateCurrentSpan({ "relay.hook.rate_limiter_failed_open": true }),
-              ),
+            Effect.logWarning("Rate limiter unavailable", { error: error.message }).pipe(
+              Effect.andThen(Effect.annotateCurrentSpan({ [failedOpenAttribute]: true })),
               Effect.as(true),
             ),
           ),
@@ -386,12 +396,99 @@ export const layer = Api.make(
       allowEndpoint: allowWith(hookEndpointRateLimit),
     });
 
-    const layerApp = Layer.merge(
+    const layerMobileTelemetryApi =
+      observability === null
+        ? MobileTelemetry.layerDisabledApi
+        : yield* Effect.gen(function* () {
+            const mobileTelemetryRateLimit = yield* Cloudflare.RateLimit(
+              "MOBILE_TELEMETRY_RATE_LIMIT",
+              {
+                namespaceId: 1003,
+                simple: {
+                  limit: MobileTelemetry.MOBILE_TELEMETRY_RATE_LIMIT.limit,
+                  period: MobileTelemetry.MOBILE_TELEMETRY_RATE_LIMIT.periodSeconds,
+                },
+              },
+            );
+            const mobileSourceMaps = yield* Cloudflare.R2.ReadBucket(
+              observability.mobileSourceMaps,
+            );
+            const mobileTelemetryToken = yield* observability.mobileTelemetryIngestToken.token;
+            const mobileTracesUrl = yield* observability.traces.otelTracesEndpoint;
+            const mobileTracesDataset = yield* observability.traces.name;
+            const mobileLogsUrl = yield* observability.mobileLogs.otelLogsEndpoint;
+            const mobileLogsDataset = yield* observability.mobileLogs.name;
+            const mobileMetricsUrl = yield* observability.mobileMetrics.otelMetricsEndpoint;
+            const mobileMetricsDataset = yield* observability.mobileMetrics.name;
+
+            // `fetch` rebuilds its layers per request; the source map cache must outlive one.
+            const mobileSourceMapLookups = yield* MobileTelemetry.SourceMaps.pipe(
+              Effect.provide(MobileTelemetry.layerSourceMaps),
+              Effect.provideService(MobileTelemetry.SourceMapObjects, {
+                get: (key) =>
+                  mobileSourceMaps.get(key).pipe(
+                    Effect.map((object) =>
+                      object === null
+                        ? undefined
+                        : {
+                            size: object.size,
+                            text: object.text().pipe(
+                              Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+                              Effect.mapError(
+                                (cause) => new MobileTelemetry.SourceMapObjectError({ key, cause }),
+                              ),
+                            ),
+                          },
+                    ),
+                    Effect.provideService(Alchemy.RuntimeContext, alchemyRuntimeContext),
+                    Effect.mapError(
+                      (cause) => new MobileTelemetry.SourceMapObjectError({ key, cause }),
+                    ),
+                  ),
+              }),
+            );
+            const layerMobileTelemetry = MobileTelemetry.layer.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  Layer.effect(
+                    MobileTelemetry.MobileTelemetrySettings,
+                    Effect.gen(function* () {
+                      return MobileTelemetry.MobileTelemetrySettings.of({
+                        axiomToken: yield* mobileTelemetryToken,
+                        destinations: {
+                          traces: {
+                            url: yield* mobileTracesUrl,
+                            dataset: yield* mobileTracesDataset,
+                          },
+                          logs: { url: yield* mobileLogsUrl, dataset: yield* mobileLogsDataset },
+                          metrics: {
+                            url: yield* mobileMetricsUrl,
+                            dataset: yield* mobileMetricsDataset,
+                          },
+                        },
+                      });
+                    }),
+                  ),
+                  Layer.succeed(MobileTelemetry.MobileTelemetryRateLimiter, {
+                    allow: allowWith(
+                      mobileTelemetryRateLimit,
+                      "relay.mobile_telemetry.rate_limiter_failed_open",
+                    ),
+                  }),
+                  Layer.succeed(MobileTelemetry.SourceMaps, mobileSourceMapLookups),
+                ),
+              ),
+            );
+            return MobileTelemetry.layerApi.pipe(Layer.provide(layerMobileTelemetry));
+          });
+
+    const layerApp = Layer.mergeAll(
       layerRelayApi,
       HookForwarder.layerApi.pipe(
         Layer.provide(HookForwarder.layer),
         Layer.provide(layerHookRateLimiter),
       ),
+      layerMobileTelemetryApi,
     ).pipe(
       Layer.provideMerge(RelayHttpApi.layerClientAuth),
       Layer.provideMerge(RelayHttpApi.layerDpopClientAuth),
@@ -474,6 +571,11 @@ export const layer = Api.make(
                 ),
               ),
             ),
+            Effect.andThen(
+              DeliveryAttempts.DeliveryAttempts.pipe(
+                Effect.flatMap((attempts) => attempts.pruneExpired),
+              ),
+            ),
             Effect.catchCause((cause) =>
               Cause.hasInterrupts(cause)
                 ? Effect.interrupt
@@ -546,11 +648,9 @@ export const layer = Api.make(
         Layer.provideMerge(Cloudflare.Tunnel.ReadWriteTunnelBinding),
         Layer.provideMerge(Cloudflare.DNS.ReadWriteDnsHttp),
         Layer.provideMerge(Cloudflare.Workers.RateLimitBinding),
+        Layer.provideMerge(Cloudflare.R2.ReadBucketBinding),
         Layer.provideMerge(HookInboxObject.layer),
-        // The worker runtime opens its own HTTP span around ours. Ours carries
-        // the route, header redaction and webhook URL redaction, and drops a
-        // webhook sender's traceparent, so the runtime's span is off for every
-        // request rather than duplicating it.
+        // Disable the duplicate runtime span; ours applies route/header/token redaction and rejects sender traceparent.
         Layer.provideMerge(
           Alchemy.Telemetry.layer(Layer.succeed(HttpMiddleware.TracerDisabledWhen)(() => true)),
         ),
@@ -571,5 +671,3 @@ export const layer = Api.make(
     ),
   ),
 );
-
-export default layer;

@@ -4,22 +4,22 @@
     {
       "upstreamPath": "apps/server/src/persistence/Migrations/OrchestrationV2/ApplicationEventSource.ts",
       "localPath": "apps/server/src/persistence/Migrations/OrchestrationV2/ApplicationEventSource.ts",
-      "upstreamSha256": "dfe597889b0e45c9efd11f4c61361c660abf4982f6689691782b9cd8ad4e0e86",
-      "forkSha256": "9c4a2a0c296ba1a6007eda9d4ae34349f7dd58969d6d8dd0c9a5a117bd5dcf08",
+      "upstreamSha256": "b0e4ed8c72dd7b9186c822c9c38dc7f191336abcd92cf5f367049574a06dafa1",
+      "forkSha256": "a6dd6b24a345f7f573de78084061fcc3e4a0a00ea6ec436164344de6604d3e8d",
       "reason": "Preserve project GitHub account, icon, favicon, environment mode, and auto-pull preferences when migrating historical project events. Review both versions when either source changes."
     },
     {
       "upstreamPath": "apps/server/src/persistence/Migrations/063_DropUnusedV1Projections.ts",
       "localPath": "apps/server/src/persistence/Migrations/063_DropUnusedV1Projections.ts",
-      "upstreamSha256": "7b07c04d2c3d370f18242f741530799015fe6a72f6ca0e813d4fb03355444ff8",
+      "upstreamSha256": "454b5e8158a301a94a054c9ec1b9f1cd639b46e02dd41e6a9ea2d60565ed3801",
       "forkSha256": "bd626fca549b10472c46afb2bbbad6d54ca5c057aedb43833cd1f99d28ed194f",
       "reason": "Preserve V1 activity archives and checkpoint recovery data still read by the fork; upstream cleanup cannot discard installed history."
     },
     {
       "upstreamPath": "apps/server/src/persistence/Migrations/064_CanonicalizeThreadPullRequestLinks.ts",
       "localPath": "apps/server/src/persistence/Migrations/064_CanonicalizeThreadPullRequestLinks.ts",
-      "upstreamSha256": "f58eb0eaafc1b225129baefba5bb2bf62d37d58a20f9b1d4cd353419ad3b7345",
-      "forkSha256": "1bf8a94d30835fa7e9f02848e65e7cf8d7b6796cce41158a2af1a12014e96701",
+      "upstreamSha256": "417535a406ffa69e9302770dd33d48152054c16291300694ef096063e94ad55c",
+      "forkSha256": "137c2c4823e633adcc4ee56694e61770706ed7f46250b31ba888211ae4e51b7c",
       "reason": "Decode retained compressed event payloads before pull request canonicalization and refresh replay byte counts; preserve unrelated archived events and their blobs during upgrade."
     },
     {
@@ -28,6 +28,13 @@
       "upstreamSha256": "12071d9678d33e3bc092234c6c250f690bf3e839fbdfdceff9dcfec70364c400",
       "forkSha256": "ad1ae190abde4d2b21c09de2bc5380d8b64e81e21e4c0984bfa249de9b99730a",
       "reason": "Decode retained compressed V1 and V2 history during settlement repair, preserve immutable V1 rows and blobs, and refresh replay byte counts on changed V2 events."
+    },
+    {
+      "upstreamPath": "apps/server/src/persistence/Migrations/069_ThreadMessageSearch.ts",
+      "localPath": "apps/server/src/persistence/Migrations/069_ThreadMessageSearch.ts",
+      "reason": "Replace only the derived fork-109 FTS index and triggers with upstream message-search schema at immutable fork ID 116; preserve messages and deployed ledger identities during fork and upstream reconciliation.",
+      "upstreamSha256": "29458e7622e55b2ced26438386ba1fc8262ae7e0b89347b5fc2a41af49bed283",
+      "forkSha256": "644fa506cc1b16bc4b4f8a3c0db82d555154e8552eb94ec2a161814ea3956598"
     }
   ]
 }

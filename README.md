@@ -86,6 +86,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 
 - [Fork Android app: install, pair, and use](./docs/user/android-fork.md)
 - [Fork Android app: build, edit, and backend connections](./docs/operations/android-pwa.md)
+- [FAQ](./docs/user/faq.md)
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)

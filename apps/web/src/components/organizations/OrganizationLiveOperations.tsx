@@ -102,6 +102,7 @@ export function OrganizationLiveOperations({
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const cancelRequestIds = useRef(new Map<string, string>());
   const cancelWork = useAtomCommand(organizationEnvironment.cancelWork, { reportFailure: false });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the minute timer used to age mounted organization metrics
   useEffect(() => {
     const timer = setInterval(() => setMetricsAsOf(Date.now()), 60_000);
     return () => clearInterval(timer);
@@ -166,6 +167,7 @@ export function OrganizationLiveOperations({
   const runtimeStatusRefresh = runtimeStatus.refresh;
   const observationModeRefresh = observationMode.refresh;
   const proposalsRefresh = proposals.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates the live operations queries when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) {
       observationsRefresh();

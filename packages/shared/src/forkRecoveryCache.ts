@@ -1,11 +1,9 @@
 /* oxlint-disable t3code/no-global-process-runtime -- node-only filesystem coordinator: the host platform is the point */
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off
 /**
- * Caches the recovery helper and its own Node runtime OUTSIDE the application directory, so
- * recovery works when the app is replaced or broken and needs neither a system Node nor the
- * main Electron app. Both files are digest-checked against the release manifest, stored
- * owner-only (the runtime executable), proven by running the helper's self-test with the cached
- * runtime from a neutral directory, and only then recorded as the current recovery command.
+ * Cache the helper and private Node runtime outside the app directory. Verify manifest digests,
+ * owner-only permissions and the helper self-test from a neutral directory before recording the
+ * recovery command.
  */
 import * as NodeCrypto from "node:crypto";
 import * as NodeChildProcess from "node:child_process";

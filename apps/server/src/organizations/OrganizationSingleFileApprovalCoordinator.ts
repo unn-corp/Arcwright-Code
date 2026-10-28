@@ -73,7 +73,11 @@ export class OrganizationSingleFileApprovalPolicy extends Context.Service<
 ) {}
 export const OrganizationSingleFileApprovalPolicyDisabled = Layer.succeed(
   OrganizationSingleFileApprovalPolicy,
-  { decide: () => Effect.fail(failure("forbidden", "Interactive human approval is disabled.")) },
+  {
+    decide: Effect.fn("OrganizationSingleFileApprovalPolicy.decide")(() =>
+      Effect.fail(failure("forbidden", "Interactive human approval is disabled.")),
+    ),
+  },
 );
 
 const safeReason = (value: string): string => redactKnownCredentials(value.trim());
@@ -144,12 +148,10 @@ export const runOrganizationSingleFileApproval = Effect.fn(
           ON b.organization_id = o.organization_id AND b.binding_id = ${work.bindingId}
         JOIN projection_projects p ON p.project_id = b.project_id AND p.deleted_at IS NULL
         WHERE o.organization_id = ${work.organizationId} AND b.project_id = ${work.projectId}`)[0];
-    let capabilities: unknown;
-    try {
-      capabilities = current && JSON.parse(current.capabilities_json);
-    } catch {
-      /* Malformed authority fails closed. */
-    }
+    const capabilities = yield* Effect.try({
+      try: (): unknown => current && JSON.parse(current.capabilities_json),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
     if (
       !current ||
       current.lifecycle !== "active" ||
@@ -180,12 +182,10 @@ export const runOrganizationSingleFileApproval = Effect.fn(
   )
     return yield* failure("conflict", "Saved artifact does not match QA-accepted work.");
   yield* artifacts.verifySubmitted(artifact);
-  let canonicalArtifact;
-  try {
-    canonicalArtifact = decodeOrganizationSingleFileArtifact(artifact.patchBytes);
-  } catch {
-    return yield* failure("invalid", "Approval artifact is not canonical single-file evidence.");
-  }
+  const canonicalArtifact = yield* Effect.try({
+    try: () => decodeOrganizationSingleFileArtifact(artifact.patchBytes),
+    catch: () => failure("invalid", "Approval artifact is not canonical single-file evidence."),
+  });
   if (
     canonicalArtifact.baseCommit !== work.codeRevision ||
     !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.mjs$/.test(canonicalArtifact.relativePath)

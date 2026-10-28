@@ -92,9 +92,9 @@ const make = Effect.gen(function* () {
     target: string,
   ) {
     if ((yield* fs.realPath(target)) !== target || (yield* fs.stat(target)).type !== "Directory") {
-      return yield* Effect.fail(
-        new EvidencePathError({ message: "Evidence directories must not be symlinks." }),
-      );
+      return yield* new EvidencePathError({
+        message: "Evidence directories must not be symlinks.",
+      });
     }
   });
   const directory = Effect.fn("ConversationEvidence.directory")(function* (threadId: ThreadId) {
@@ -164,22 +164,18 @@ const make = Effect.gen(function* () {
       sizeBytes <= 0 ||
       sizeBytes > PROVIDER_SEND_TURN_MAX_FILE_BYTES
     ) {
-      return yield* Effect.fail(new EvidencePathError({ message: "Invalid recording upload." }));
+      return yield* new EvidencePathError({ message: "Invalid recording upload." });
     }
     const target = yield* directory(threadId);
     const id = `${threadSegment}-${uuid}-${extension}`;
     const finalPath = path.join(target, `${id}.${extension}`);
     const validate = Effect.fn(function* (filePath: string) {
       if ((yield* fs.realPath(filePath)) !== filePath) {
-        return yield* Effect.fail(
-          new EvidencePathError({ message: "Evidence files must not be symlinks." }),
-        );
+        return yield* new EvidencePathError({ message: "Evidence files must not be symlinks." });
       }
       const stat = yield* fs.stat(filePath);
       if (stat.type !== "File" || Number(stat.size) !== sizeBytes || sizeBytes <= 0) {
-        return yield* Effect.fail(
-          new EvidencePathError({ message: "Incomplete recording upload." }),
-        );
+        return yield* new EvidencePathError({ message: "Incomplete recording upload." });
       }
     });
     // A stop request may be retried after another request claimed this exact upload.
@@ -190,9 +186,9 @@ const make = Effect.gen(function* () {
         path.dirname(path.resolve(pendingPath)) !== path.resolve(config.attachmentsDir) ||
         canonicalSource !== path.join(attachmentsRoot, path.basename(pendingPath))
       ) {
-        return yield* Effect.fail(
-          new EvidencePathError({ message: "Recording must be a pending attachment upload." }),
-        );
+        return yield* new EvidencePathError({
+          message: "Recording must be a pending attachment upload.",
+        });
       }
       yield* validate(canonicalSource);
       yield* fs.rename(canonicalSource, finalPath);
@@ -240,28 +236,34 @@ const make = Effect.gen(function* () {
     return removed;
   });
   return ConversationEvidence.of({
-    resolveFile: (id, filePath) =>
+    resolveFile: Effect.fn("ConversationEvidence.resolveFile")((id, filePath) =>
       resolveFile(id, filePath).pipe(Effect.mapError((e) => failure(id, e))),
-    directory: (id) =>
+    ),
+    directory: Effect.fn("ConversationEvidence.directory")((id) =>
       directory(id).pipe(
         (effect) => withThreadLock(id, effect),
         Effect.mapError((e) => failure(id, e)),
       ),
-    saveScreenshot: (id, url, bytes) =>
+    ),
+    saveScreenshot: Effect.fn("ConversationEvidence.saveScreenshot")((id, url, bytes) =>
       saveScreenshot(id, url, bytes).pipe(
         (effect) => withThreadLock(id, effect),
         Effect.mapError((e) => failure(id, e)),
       ),
-    claimRecording: (id, uploadedAttachmentId, size) =>
-      claimRecording(id, uploadedAttachmentId, size).pipe(
-        (effect) => withThreadLock(id, effect),
-        Effect.mapError((e) => failure(id, e)),
-      ),
-    clean: (id, predicate) =>
+    ),
+    claimRecording: Effect.fn("ConversationEvidence.claimRecording")(
+      (id, uploadedAttachmentId, size) =>
+        claimRecording(id, uploadedAttachmentId, size).pipe(
+          (effect) => withThreadLock(id, effect),
+          Effect.mapError((e) => failure(id, e)),
+        ),
+    ),
+    clean: Effect.fn("ConversationEvidence.clean")((id, predicate) =>
       clean(id, predicate).pipe(
         (effect) => withThreadLock(id, effect),
         Effect.mapError((e) => failure(id, e)),
       ),
+    ),
   });
 });
 

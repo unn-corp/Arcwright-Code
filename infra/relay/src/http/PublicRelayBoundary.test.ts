@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "@effect/vitest";
 import * as Cause from "effect/Cause";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -86,6 +86,9 @@ function fixtureRoutes(
         .handleRaw("registerLiveActivity", handle)
         .handleRaw("getAgentActivitySnapshot", handle)
         .handleRaw("unregisterDevice", handle),
+    ),
+    HttpApiBuilder.group(RelayApi, "mobileTelemetry", (handlers) =>
+      handlers.handleRaw("ingest", handle),
     ),
     HttpApiBuilder.group(RelayApi, "client", (handlers) =>
       handlers
@@ -296,6 +299,26 @@ function withBoundary(
 }
 
 describe("production public relay boundary and route assembly", () => {
+  it.effect("preserves raw telemetry bodies above the public JSON limit", () =>
+    Effect.gen(function* () {
+      const calls = counts();
+      const payload = "x".repeat(128 * 1024);
+      const raw = rawRequest([encode(payload)], {
+        url: "https://relay.test/v1/mobile/observe/1d9067de-b704-4f67-b750-1a29e90db3aa/v1/traces",
+        headers: {
+          "content-type": "application/x-protobuf",
+          "content-length": String(payload.length),
+        },
+      });
+      const endpoint = yield* withBoundary(calls);
+      const response = yield* send(endpoint, raw.request);
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({ text: payload });
+      expect(raw.cancelled()).toBe(0);
+      expect(calls).toEqual({ auth: 0, business: 1, limiter: 0 });
+    }),
+  );
+
   it.effect("decodes a real client environment-link challenge after bounded body admission", () =>
     Effect.gen(function* () {
       const calls = counts();
@@ -504,8 +527,9 @@ describe("production public relay boundary and route assembly", () => {
     ),
   )(
     "closes unread ingress aborted $timing admission with $cancellation cancellation",
-    ({ timing, cancellation }) =>
-      Effect.gen(function* () {
+    ({ timing, cancellation }) => {
+      const controller = new AbortController();
+      return Effect.gen(function* () {
         const calls = counts();
         const entered = yield* Deferred.make<void>();
         const stopped = yield* Deferred.make<void>();
@@ -515,7 +539,7 @@ describe("production public relay boundary and route assembly", () => {
             Effect.ensuring(Deferred.succeed(stopped, undefined)),
           ),
         );
-        const controller = new AbortController();
+
         const raw = rawRequest([encode("{}")], {
           signal: controller.signal,
           neverCancel: cancellation === "never",
@@ -550,15 +574,17 @@ describe("production public relay boundary and route assembly", () => {
           add.mockRestore();
           remove.mockRestore();
         }
-      }).pipe(Effect.scoped),
+      }).pipe(Effect.scoped);
+    },
   );
 
   it.effect(
     "releases public ingress listeners after admitted EOF and retains the original signal",
-    () =>
-      Effect.gen(function* () {
+    () => {
+      const controller = new AbortController();
+      return Effect.gen(function* () {
         const calls = counts();
-        const controller = new AbortController();
+
         const entered = yield* Deferred.make<void>();
         const admitted = yield* Deferred.make<void>();
         const endpoint = yield* withBoundary(calls, () =>
@@ -591,7 +617,8 @@ describe("production public relay boundary and route assembly", () => {
           add.mockRestore();
           remove.mockRestore();
         }
-      }).pipe(Effect.scoped),
+      }).pipe(Effect.scoped);
+    },
   );
 
   it.effect("leaves genuine raw-hook ingress ownership and listeners with its forwarder", () =>
@@ -810,12 +837,13 @@ describe("production public relay boundary and route assembly", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("cancels the original reader on ingress abort without downstream work", () =>
-    Effect.gen(function* () {
+  it.effect("cancels the original reader on ingress abort without downstream work", () => {
+    const controller = new AbortController();
+    return Effect.gen(function* () {
       const calls = counts();
       const endpoint = yield* withBoundary(calls);
       const started = yield* Deferred.make<void>();
-      const controller = new AbortController();
+
       const raw = rawRequest([], {
         hold: true,
         signal: controller.signal,
@@ -830,8 +858,8 @@ describe("production public relay boundary and route assembly", () => {
       expect(raw.cancelled()).toBe(1);
       expect(calls.auth).toBe(0);
       expect(calls.business).toBe(0);
-    }).pipe(Effect.scoped),
-  );
+    }).pipe(Effect.scoped);
+  });
 
   it.effect(
     "boundedJSON depth/shape and boundedform constraints precede auth and accept padded65536 form",

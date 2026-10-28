@@ -7,8 +7,10 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
+  type ServerSettingsPatch,
   type UnifiedSettings,
 } from "@t3tools/contracts";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import { createContext, useContext, type ReactNode } from "react";
 import {
@@ -28,6 +30,7 @@ const state = vi.hoisted(() => ({
   canManageProviders: true,
   canWriteSettings: true,
   searchTargetId: null as string | null,
+  withSettingsScope: false,
   readEnvironmentIds: [] as string[],
   updateEnvironmentIds: [] as string[],
   mutationEnvironmentIds: [] as string[],
@@ -36,6 +39,7 @@ const state = vi.hoisted(() => ({
   uninstall: vi.fn(),
   acceptUrlAuth: vi.fn(),
   updateSettings: vi.fn(),
+  persistSettings: vi.fn(),
   updateModelPreferences: vi.fn(),
   toggleFavorite: vi.fn(),
   mutateProviderInstance: vi.fn(),
@@ -52,6 +56,7 @@ vi.mock(import("../../state/server"), async (original) => {
     updateProvider: "update",
     uninstallAcpRegistryManagedBinary: "uninstall",
     acceptAcpRegistryUrlAuth: "accept-url-auth",
+    updateSettings: "settings-update",
   } as const;
   const labelled = Object.fromEntries(
     Object.entries(commandLabels).map(([key, label]) => [
@@ -78,6 +83,7 @@ vi.mock(import("../../state/use-atom-command"), async (original) => ({
       update: state.updateProvider,
       uninstall: state.uninstall,
       "accept-url-auth": state.acceptUrlAuth,
+      "settings-update": state.persistSettings,
     })[command.label ?? ""] ?? vi.fn()) as never,
 }));
 vi.mock(import("../../state/query"), async (original) => ({
@@ -126,28 +132,33 @@ vi.mock(import("../../state/entities"), async (original) => ({
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
-  useEnvironments: (() => ({ environments: [], isReady: true })) as never,
+  useEnvironments: (() => ({
+    environments: state.withSettingsScope ? [settingsEnvironment()] : [],
+    isReady: true,
+  })) as never,
   usePrimaryEnvironment: () => null,
   usePrimaryEnvironmentId: () => null,
   useEnvironmentProviders: () => new Map(),
 }));
-vi.mock(import("./SettingsScopeContext"), async (original) => ({
-  ...(await original()),
-  useSettingsScope: (() => ({
-    scope: { kind: "all", environmentIds: [] },
-    search: {},
-    environment: null,
-    environments: [],
-    target: null,
-    connectedEnvironments: [],
-    targets: [],
-  })) as never,
-  useOptionalSettingsScope: () => null,
-}));
+vi.mock(import("./SettingsScopeContext"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    useSettingsScope: (() =>
+      actual.useOptionalSettingsScope() ?? {
+        scope: { kind: "all", environmentIds: [] },
+        search: {},
+        environment: null,
+        environments: [],
+        target: null,
+        connectedEnvironments: [],
+        targets: [],
+      }) as never,
+  };
+});
 vi.mock(import("./settingsLayout"), async (original) => ({
   ...(await original()),
   useSettingsSearchTargetId: () => state.searchTargetId,
-  // The real row reads write permission and overrides from live environment state.
   SettingsRow: (({
     id,
     title,
@@ -172,7 +183,6 @@ vi.mock(import("./settingsLayout"), async (original) => ({
     </div>
   )) as never,
 }));
-// Its own data flows are covered by its suite; this one is about the panel.
 vi.mock(import("./UsageProviderSettings"), async (original) => ({
   ...(await original()),
   UsageProviderSettings: (() => null) as never,
@@ -183,11 +193,22 @@ vi.mock(import("../ProviderUpdatesAction"), async (original) => ({
 }));
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { mergeEnvironmentSettings } from "../../hooks/useSettings";
 import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
+import { SettingsScopeProvider } from "./SettingsScopeContext";
 
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
 const customId = ProviderInstanceId.make("codex_work");
+
+function settingsEnvironment() {
+  return {
+    environmentId,
+    label: "Remote device",
+    connection: { phase: "connected" as const },
+    serverConfig: { settings: state.settings },
+  };
+}
 
 function provider(): ServerProvider {
   return {
@@ -231,23 +252,38 @@ async function render(
   options?: {
     readonly readOnly?: boolean;
     readonly targetInstanceId?: ProviderInstanceId;
+    readonly withSettingsScope?: boolean;
   },
 ) {
+  state.withSettingsScope = options?.withSettingsScope === true;
+  const panel = (
+    <div className="@container/providers">
+      <EnvironmentProviderSettings
+        environmentId={environmentId}
+        environmentLabel="Remote device"
+        {...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly })}
+        {...(options?.targetInstanceId === undefined
+          ? {}
+          : { targetInstanceId: options.targetInstanceId })}
+      />
+    </div>
+  );
   await act(async () =>
     root.rerender(
       <panelContext.Provider
         value={
           <RegistryContext.Provider value={appAtomRegistry}>
-            <div className="@container/providers">
-              <EnvironmentProviderSettings
-                environmentId={environmentId}
-                environmentLabel="Remote device"
-                {...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly })}
-                {...(options?.targetInstanceId === undefined
-                  ? {}
-                  : { targetInstanceId: options.targetInstanceId })}
-              />
-            </div>
+            {state.withSettingsScope ? (
+              <SettingsScopeProvider
+                singleEnvironment
+                search={{ machine: environmentId }}
+                onChange={() => {}}
+              >
+                {panel}
+              </SettingsScopeProvider>
+            ) : (
+              panel
+            )}
           </RegistryContext.Provider>
         }
       >
@@ -270,10 +306,20 @@ async function setup() {
   state.canManageProviders = true;
   state.canWriteSettings = true;
   state.searchTargetId = null;
+  state.withSettingsScope = false;
   state.readEnvironmentIds = [];
   state.updateEnvironmentIds = [];
   state.mutationEnvironmentIds = [];
   state.updateSettings.mockReset();
+  state.persistSettings
+    .mockReset()
+    .mockImplementation(async ({ input }: { input: { patch: ServerSettingsPatch } }) => {
+      state.settings = mergeEnvironmentSettings(
+        applyServerSettingsPatch(state.settings, input.patch),
+        state.settings,
+      );
+      return AsyncResult.success(state.settings);
+    });
   state.updateModelPreferences.mockReset();
   state.toggleFavorite.mockReset();
   state.mutateProviderInstance.mockReset().mockResolvedValue(AsyncResult.success({}));
@@ -301,7 +347,7 @@ async function setup() {
 describe("EnvironmentProviderSettings routing", () => {
   it("shows Codex and Claude while hiding untouched disabled provider slots", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await render(root, router);
     await expect.element(select("Codex")).toBeVisible();
     await expect.element(select("Claude")).toBeVisible();
@@ -312,7 +358,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("keeps explicitly configured providers visible when disabled", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -328,7 +374,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("keeps legacy provider configuration visible when disabled", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -345,7 +391,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("reads and writes settings on the selected environment", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await render(root, router);
     await expect.element(select("Codex")).toBeVisible();
     expect(new Set(state.readEnvironmentIds)).toEqual(new Set([environmentId]));
@@ -355,7 +401,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("routes refresh and provider update commands to the selected environment", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await setProviders([provider()]);
     await render(root, router);
 
@@ -376,7 +422,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("opens the requested provider instance instead of the first provider", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -394,7 +440,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("saves model favorites and visibility on the selected environment", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await setProviders([provider()]);
     await render(root, router);
 
@@ -411,7 +457,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("does not substitute another account when the requested instance was removed", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await setProviders([provider()]);
     await render(root, router, { targetInstanceId: customId });
     await expect
@@ -447,7 +493,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("keeps the editable layout interactive when not read only", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await setProviders([provider()]);
     await render(root, router);
     await expect.element(page.getByText("Limited permissions")).not.toBeInTheDocument();
@@ -458,7 +504,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("removes an open add-instance dialog when the provider grant is revoked", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await render(root, router);
     await userEvent.click(addProvider());
     await expect.element(page.getByRole("dialog")).toBeVisible();
@@ -469,21 +515,44 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
 
-  it("links provider polling to its single editor in General", async () => {
+  it("links provider polling to its editor in Maintenance on the same environment", async () => {
     await using _fixture = await setup();
     const { root, container, router } = _fixture;
     await render(root, router);
-    const link = page.getByRole("link", { name: "General performance" });
+    const link = page.getByRole("link", { name: "Background activity" });
     await expect.element(link).toBeVisible();
     expect(link.element().getAttribute("href")).toContain(
-      "/settings/general?machine=remote-device#performance",
+      "/settings/maintenance?machine=remote-device#background",
     );
     expect(container.querySelector("#provider-health-check-interval")).toBeNull();
   });
 
+  it("persists idle compaction from the mounted scoped provider panel", async () => {
+    await using _fixture = await setup();
+    const { root, router } = _fixture;
+    state.settings = { ...DEFAULT_UNIFIED_SETTINGS, idleCompaction: "onReturn" };
+    await render(root, router, { withSettingsScope: true });
+    const compaction = page.getByLabelText("Compact idle threads", { exact: true });
+    await expect.element(compaction).toBeVisible();
+    await userEvent.click(compaction);
+    await userEvent.click(
+      page.getByRole("option", { name: "Before the cache expires (beta)", exact: true }),
+    );
+    await vi.waitFor(() =>
+      expect(state.persistSettings).toHaveBeenCalledExactlyOnceWith({
+        environmentId,
+        input: { patch: { idleCompaction: "beforeCacheExpires" } },
+      }),
+    );
+
+    await act(async () => root.rerender(null));
+    await render(root, router, { withSettingsScope: true });
+    await expect.element(compaction).toHaveTextContent("Before the cache expires (beta)");
+  });
+
   it("opens a dedicated provider detail and returns to the overview", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await render(root, router);
     expect(button("Back to Providers").elements()).toHaveLength(0);
     await userEvent.click(select("Codex"));
@@ -496,7 +565,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("returns from provider detail when search targets shared usage settings", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     await render(root, router, { targetInstanceId: codexId });
     await expect.element(button("Back to Providers")).toBeVisible();
     state.searchTargetId = "usage-providers";
@@ -517,7 +586,7 @@ describe("EnvironmentProviderSettings routing", () => {
     "environment-API_KEY",
   ])("reenters the same provider through its %s hash after Back to Providers", async (anchor) => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     const instanceId = ProviderInstanceId.make("codex-work_config-runtime");
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
@@ -549,7 +618,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("reenters detail with an unchanged instance search parameter", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.searchTargetId = "provider-instance-codex-runtime";
     await render(root, router, { targetInstanceId: codexId });
     await userEvent.click(button("Back to Providers"));
@@ -563,7 +632,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("does not interpret a missing provider prefix as an existing instance", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.searchTargetId = "provider-instance-missing-runtime";
     await render(root, router);
     await expect.element(select("Codex")).toBeVisible();
@@ -572,7 +641,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("deletes and resets provider configuration without erasing shared preferences", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -607,7 +676,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("updates one provider instance without sending a stale whole map", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
@@ -633,7 +702,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("lets the server decide managed ACP cleanup after an atomic delete", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     const firstId = ProviderInstanceId.make("acpRegistry_kilo_one");
     const secondId = ProviderInstanceId.make("acpRegistry_kilo_two");
     const registryInstance = (displayName: string) => ({
@@ -664,7 +733,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("keeps the signed-in ACP account visible when login methods are no longer advertised", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     const instanceId = ProviderInstanceId.make("acpRegistry_devin");
     state.settings = {
       ...DEFAULT_UNIFIED_SETTINGS,
@@ -691,7 +760,7 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("routes explicit ACP browser authentication consent to the selected environment", async () => {
     await using _fixture = await setup();
-    const { root, container, router } = _fixture;
+    const { root, router } = _fixture;
     const instanceId = ProviderInstanceId.make("acpRegistry_antigravity");
     const action = {
       elicitationId: "google-login-1",

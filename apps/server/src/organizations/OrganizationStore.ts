@@ -30,6 +30,20 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const decodeUnknownOrganization = Schema.decodeUnknownEffect(Organization);
+const decodeUnknownOrganizationProjectBinding = Schema.decodeUnknownEffect(
+  OrganizationProjectBinding,
+);
+const decodeUnknownOrganizationPublishedConfig = Schema.decodeUnknownEffect(
+  OrganizationPublishedConfig,
+);
+const decodeUnknownOrganizationAuditEntry = Schema.decodeUnknownEffect(OrganizationAuditEntry);
+const decodeUnknownJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+const isOrganizationError = Schema.is(OrganizationError);
+const decodeUnknownOrganizationArchitectAllowedChange = Schema.decodeUnknownEffect(
+  OrganizationArchitectAllowedChange,
+);
+
 type OrganizationRow = {
   organization_id: string;
   title: string;
@@ -74,23 +88,23 @@ const notFound = () =>
 const unavailable = () =>
   new OrganizationError({ code: "unavailable", message: "Organization storage is unavailable." });
 const decodeOrganization = (value: unknown) =>
-  Schema.decodeUnknownEffect(Organization)(value).pipe(
+  decodeUnknownOrganization(value).pipe(
     Effect.mapError(() => invalid("Stored organization data is invalid.")),
   );
 const decodeBindingValue = (value: unknown) =>
-  Schema.decodeUnknownEffect(OrganizationProjectBinding)(value).pipe(
+  decodeUnknownOrganizationProjectBinding(value).pipe(
     Effect.mapError(() => invalid("Stored Project binding is invalid.")),
   );
 const decodePublished = (value: unknown) =>
-  Schema.decodeUnknownEffect(OrganizationPublishedConfig)(value).pipe(
+  decodeUnknownOrganizationPublishedConfig(value).pipe(
     Effect.mapError(() => invalid("Stored published configuration is invalid.")),
   );
 const decodeAudit = (value: unknown) =>
-  Schema.decodeUnknownEffect(OrganizationAuditEntry)(value).pipe(
+  decodeUnknownOrganizationAuditEntry(value).pipe(
     Effect.mapError(() => invalid("Stored organization audit is invalid.")),
   );
 const parseJson = (text: string) =>
-  Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+  decodeUnknownJson(text).pipe(
     Effect.mapError(() => invalid("Stored organization JSON is invalid.")),
   );
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -573,9 +587,7 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<A, OrganizationError> =>
     sql
       .withTransaction(effect)
-      .pipe(
-        Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
-      );
+      .pipe(Effect.mapError((error) => (isOrganizationError(error) ? error : unavailable())));
 
   const create: OrganizationStoreShape["create"] = (input) =>
     transaction(
@@ -628,7 +640,7 @@ const make = Effect.gen(function* () {
 
   const get: OrganizationStoreShape["get"] = ({ organizationId }) =>
     load(organizationId).pipe(
-      Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+      Effect.mapError((error) => (isOrganizationError(error) ? error : unavailable())),
     );
   const list: OrganizationStoreShape["list"] = Effect.fn("OrganizationStore.list")(
     function* () {
@@ -640,7 +652,7 @@ const make = Effect.gen(function* () {
         organizations.push(yield* load(OrganizationId.make(row.organization_id)));
       return { organizations };
     },
-    Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationError(error) ? error : unavailable())),
   );
 
   const mutate: OrganizationStoreShape["mutate"] = (input) =>
@@ -662,7 +674,7 @@ const make = Effect.gen(function* () {
         const next = yield* Effect.try({
           try: () => applyChange(current, input.change),
           catch: (error) =>
-            Schema.is(OrganizationError)(error) ? error : invalid("Invalid organization change."),
+            isOrganizationError(error) ? error : invalid("Invalid organization change."),
         });
         const issues = validateOrganizationGraph(next);
         if (issues.length > 0) return yield* invalid(issues.join(" "));
@@ -710,7 +722,7 @@ const make = Effect.gen(function* () {
             row.request_status !== "completed"
           )
             return yield* conflict("Architect proposal is no longer available for this draft.");
-          const change = yield* Schema.decodeUnknownEffect(OrganizationArchitectAllowedChange)(
+          const change = yield* decodeUnknownOrganizationArchitectAllowedChange(
             yield* parseJson(row.change_json),
           ).pipe(Effect.mapError(() => invalid("Saved Architect proposal is invalid.")));
           saved.push({
@@ -728,9 +740,7 @@ const make = Effect.gen(function* () {
           next = yield* Effect.try({
             try: () => applyChange(next, proposal.change),
             catch: (error) =>
-              Schema.is(OrganizationError)(error)
-                ? error
-                : invalid("Architect proposal cannot be applied."),
+              isOrganizationError(error) ? error : invalid("Architect proposal cannot be applied."),
           });
         }
         const issues = [
@@ -811,7 +821,7 @@ const make = Effect.gen(function* () {
       if (!row) return yield* notFound();
       return yield* decodePublished(yield* parseJson(row.config_json));
     },
-    Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationError(error) ? error : unavailable())),
   );
 
   const requireNoOpenExecution = Effect.fnUntraced(function* (
@@ -1024,7 +1034,7 @@ const make = Effect.gen(function* () {
         );
       return { entries };
     },
-    Effect.mapError((error) => (Schema.is(OrganizationError)(error) ? error : unavailable())),
+    Effect.mapError((error) => (isOrganizationError(error) ? error : unavailable())),
   );
 
   return {

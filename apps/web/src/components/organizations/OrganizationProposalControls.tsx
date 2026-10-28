@@ -47,6 +47,7 @@ export function OrganizationObservationModeControl({
   const [notice, setNotice] = useState<string | null>(null);
   const wasOffline = useRef(offline);
   const modeRefresh = mode.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates organization proposal mode when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) modeRefresh();
     wasOffline.current = offline;
@@ -169,6 +170,7 @@ export function OrganizationProposalList({
   });
   const wasOffline = useRef(offline);
   const listRefresh = list.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- revalidates organization proposals when the external connection recovers
   useEffect(() => {
     if (wasOffline.current && !offline) listRefresh();
     wasOffline.current = offline;

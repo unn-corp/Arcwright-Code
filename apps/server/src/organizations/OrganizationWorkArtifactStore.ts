@@ -394,14 +394,16 @@ export const OrganizationWorkArtifactVerifierFromStore = Layer.effect(
   Effect.gen(function* () {
     const store = yield* OrganizationWorkArtifactStore;
     return {
-      verifySubmitted: (target: OrganizationWorkArtifactTarget) =>
-        store
-          .verifySubmitted(target)
-          .pipe(
-            Effect.mapError(
-              (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+      verifySubmitted: Effect.fn("OrganizationWorkArtifactVerifier.verifySubmitted")(
+        (target: OrganizationWorkArtifactTarget) =>
+          store
+            .verifySubmitted(target)
+            .pipe(
+              Effect.mapError(
+                (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+              ),
             ),
-          ),
+      ),
     };
   }),
 );

@@ -16,6 +16,8 @@ import { listNativeSessions, resumeNativeSession } from "./provider/NativeSessio
 import { PreviewManager } from "./preview/Manager.ts";
 import { PreviewAutomationBroker } from "./mcp/PreviewAutomationBroker.ts";
 
+const isPreviewPickedElement = Schema.is(PreviewPickedElement);
+
 export const makeForkExtraWsRpcLayer = (session: EnvironmentAuth.AuthenticatedSession) =>
   ForkExtraWsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -82,7 +84,7 @@ export const makeForkExtraWsRpcLayer = (session: EnvironmentAuth.AuthenticatedSe
                       : null;
                   return {
                     tabId: input.tabId,
-                    picked: Schema.is(PreviewPickedElement)(result?.picked) ? result.picked : null,
+                    picked: isPreviewPickedElement(result?.picked) ? result.picked : null,
                     screenshot: typeof result?.screenshot === "string" ? result.screenshot : null,
                   };
                 }),

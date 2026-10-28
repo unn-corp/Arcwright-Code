@@ -50,7 +50,6 @@ export type EnvironmentRpcTag = keyof WsRpcProtocolClient & string;
 type RpcMethod<TTag extends EnvironmentRpcTag> = WsRpcProtocolClient[TTag];
 
 export type EnvironmentSubscriptionRpcTag =
-  | typeof WS_METHODS.codexAuthCallbackSubscribe
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe
   | typeof ORCHESTRATION_V2_WS_METHODS.subscribeShell
@@ -63,7 +62,6 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.scheduledTasksSubscribe
   | typeof WS_METHODS.serverGetStorageCleanupReport
   | typeof WS_METHODS.serverGetDatabaseStorage
-  | typeof WS_METHODS.subscribeTerminalEvents
   | typeof WS_METHODS.subscribeTerminalMetadata
   | typeof WS_METHODS.subscribePreviewEvents
   | typeof WS_METHODS.subscribeDiscoveredLocalServers
@@ -229,28 +227,28 @@ export const requestIdempotentCommand = Effect.fn("EnvironmentRpc.requestIdempot
     const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
     const previous = yield* currentSession();
     return yield* requestOnSession(previous, tag, input).pipe(
-      Effect.catch((error) => {
-        if (
-          !isRpcClientError(error) ||
-          !["SocketCloseError", "SocketReadError", "SocketWriteError", "SocketOpenError"].includes(
+      Effect.catchIf(
+        (error) =>
+          isRpcClientError(error) &&
+          ["SocketCloseError", "SocketReadError", "SocketWriteError", "SocketOpenError"].includes(
             error.reason._tag,
-          )
-        )
-          return Effect.fail(error);
-        // The same command ID is committed with its receipt. A lost acknowledgement
-        // therefore cannot turn this bounded retry into a second message/run.
-        return SubscriptionRef.changes(supervisor.session).pipe(
-          Stream.filter((candidate) => Option.isSome(candidate) && candidate.value !== previous),
-          Stream.map(Option.getOrThrow),
-          Stream.runHead,
-          Effect.timeoutOption("15 seconds"),
-          Effect.flatMap((replacement) =>
-            Option.isSome(replacement) && Option.isSome(replacement.value)
-              ? requestOnSession(replacement.value.value, tag, input)
-              : Effect.fail(error),
           ),
-        );
-      }),
+        (error) => {
+          // The same command ID is committed with its receipt. A lost acknowledgement
+          // therefore cannot turn this bounded retry into a second message/run.
+          return SubscriptionRef.changes(supervisor.session).pipe(
+            Stream.filter((candidate) => Option.isSome(candidate) && candidate.value !== previous),
+            Stream.map(Option.getOrThrow),
+            Stream.runHead,
+            Effect.timeoutOption("15 seconds"),
+            Effect.flatMap((replacement) =>
+              Option.isSome(replacement) && Option.isSome(replacement.value)
+                ? requestOnSession(replacement.value.value, tag, input)
+                : Effect.fail(error),
+            ),
+          );
+        },
+      ),
     );
   },
 );

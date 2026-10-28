@@ -27,14 +27,7 @@ export function parseGitHubAccountWebUrl(rawUrl: string): string | null {
   }
 }
 
-/**
- * Opens GitHub links in one persistent Chromium session per configured account.
- *
- * The session stores the user's normal GitHub cookies, not a PAT. PATs remain
- * server-side for API/agent operations; web login is completed once per
- * account window by the user. This is the only safe way to switch the account
- * used by a GitHub web page without putting a token in a URL or browser header.
- */
+/** Each account has a persistent cookie session. PATs stay on the server and never enter web URLs or headers. */
 export class GitHubAccountBrowser extends Context.Service<
   GitHubAccountBrowser,
   {

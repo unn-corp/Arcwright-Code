@@ -44,6 +44,7 @@ import {
   SettingsRow,
   SettingsSection,
 } from "./settingsLayout";
+import { AdvancedSettings } from "./AdvancedSettings";
 import { searchableSetting } from "./settingsSearch";
 
 const MODE_OPTIONS: Record<SourceControlWritingStyleMode, { label: string; description: string }> =
@@ -177,125 +178,300 @@ export function SourceControlWritingSettingsSection() {
   );
 
   return (
-    <>
-      <SettingsSection id="source-control-text-generation" title="Generated writing">
-        <SettingsRow
-          serverScoped
-          settingKeys={["sourceControlWritingStyle"]}
-          mixed={writingStyleMixed}
-          {...searchableSetting("source-control-writing-style")}
-          description={MODE_OPTIONS[style.mode].description}
-          resetAction={
-            isSourceControlWritingStyleDirty ? (
-              <SettingResetButton
-                label="source control writing style"
-                onClick={() =>
-                  updateSettings({
-                    sourceControlWritingStyle: {
-                      mode: defaults.mode,
-                      customInstructions: defaults.customInstructions,
-                    },
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={modeMixed ? null : style.mode}
-              onValueChange={(value) => {
-                const customInstructions = customInstructionsRef.current?.value.trim();
+    <SettingsSection id="source-control-text-generation" title="Writing & review">
+      <SettingsRow
+        serverScoped
+        settingKeys={["sourceControlWritingStyle"]}
+        mixed={writingStyleMixed}
+        {...searchableSetting("source-control-writing-style")}
+        description={MODE_OPTIONS[style.mode].description}
+        resetAction={
+          isSourceControlWritingStyleDirty ? (
+            <SettingResetButton
+              label="source control writing style"
+              onClick={() =>
                 updateSettings({
                   sourceControlWritingStyle: {
-                    mode: value as SourceControlWritingStyleMode,
-                    ...(customInstructions !== undefined ? { customInstructions } : {}),
+                    mode: defaults.mode,
+                    customInstructions: defaults.customInstructions,
                   },
-                });
-              }}
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <Select
+            value={modeMixed ? null : style.mode}
+            onValueChange={(value) => {
+              const customInstructions = customInstructionsRef.current?.value.trim();
+              updateSettings({
+                sourceControlWritingStyle: {
+                  mode: value as SourceControlWritingStyleMode,
+                  ...(customInstructions !== undefined ? { customInstructions } : {}),
+                },
+              });
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              className="w-full sm:w-56"
+              aria-label="Source control writing style"
             >
-              <SelectTrigger
-                size="sm"
-                className="w-full sm:w-56"
-                aria-label="Source control writing style"
-              >
-                <SelectValue>
-                  {(value: SourceControlWritingStyleMode | null) =>
-                    value === null ? "Mixed" : MODE_OPTIONS[value].label
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                {(Object.keys(MODE_OPTIONS) as SourceControlWritingStyleMode[]).map((mode) => (
-                  <SelectItem key={mode} hideIndicator value={mode}>
-                    {MODE_OPTIONS[mode].label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          }
-        >
-          {writingStyleMixed ? (
-            <div className="mt-3 max-w-2xl space-y-2 pb-3.5">
-              {editingAllInstructions ? (
-                <>
-                  <Textarea
-                    value={allInstructions ?? ""}
-                    onChange={(event) => setAllInstructions(event.target.value)}
-                    rows={4}
-                    aria-label="Custom source control instructions for all selected environments"
-                    placeholder="Write the instructions each selected environment should use."
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={allInstructions === null}
-                    onClick={() => {
-                      if (allInstructions === null) return;
-                      updateSettings({
-                        sourceControlWritingStyle: {
-                          mode: "custom",
-                          customInstructions: allInstructions.trim(),
-                        },
-                      });
-                      setEditingAllInstructions(false);
-                    }}
-                  >
-                    Apply instructions to all
-                  </Button>
-                </>
-              ) : (
+              <SelectValue>
+                {(value: SourceControlWritingStyleMode | null) =>
+                  value === null ? "Mixed" : MODE_OPTIONS[value].label
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {(Object.keys(MODE_OPTIONS) as SourceControlWritingStyleMode[]).map((mode) => (
+                <SelectItem key={mode} hideIndicator value={mode}>
+                  {MODE_OPTIONS[mode].label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      >
+        {writingStyleMixed ? (
+          <div className="mt-3 max-w-2xl space-y-2 pb-3.5">
+            {editingAllInstructions ? (
+              <>
+                <Textarea
+                  value={allInstructions ?? ""}
+                  onChange={(event) => setAllInstructions(event.target.value)}
+                  rows={4}
+                  aria-label="Custom source control instructions for all selected environments"
+                  placeholder="Write the instructions each selected environment should use."
+                />
                 <Button
                   size="sm"
                   variant="outline"
+                  disabled={allInstructions === null}
                   onClick={() => {
-                    setAllInstructions(null);
-                    setEditingAllInstructions(true);
+                    if (allInstructions === null) return;
+                    updateSettings({
+                      sourceControlWritingStyle: {
+                        mode: "custom",
+                        customInstructions: allInstructions.trim(),
+                      },
+                    });
+                    setEditingAllInstructions(false);
                   }}
                 >
-                  Write custom instructions for all
+                  Apply instructions to all
                 </Button>
-              )}
-            </div>
-          ) : style.mode === "custom" ? (
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setAllInstructions(null);
+                  setEditingAllInstructions(true);
+                }}
+              >
+                Write custom instructions for all
+              </Button>
+            )}
+          </div>
+        ) : style.mode === "custom" ? (
+          <div className="mt-3 max-w-2xl pb-3.5">
+            <Textarea
+              key={style.customInstructions}
+              ref={customInstructionsRef}
+              defaultValue={style.customInstructions}
+              onBlur={(event) => {
+                const customInstructions = event.target.value.trim();
+                if (customInstructions !== style.customInstructions) {
+                  updateSettings({ sourceControlWritingStyle: { customInstructions } });
+                }
+              }}
+              rows={4}
+              placeholder="Keep titles concise. Use short bullet points in descriptions."
+              aria-label="Custom source control writing instructions"
+            />
+          </div>
+        ) : null}
+      </SettingsRow>
+
+      <SettingsRow
+        serverScoped
+        settingKeys={["reviewGuidesEnabled"]}
+        mixed={mixedReviewGuidesEnabled}
+        {...searchableSetting("review-guides")}
+        description="Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make."
+        control={
+          <Switch
+            mixed={mixedReviewGuidesEnabled}
+            checked={mixedReviewGuidesEnabled ? false : settings.reviewGuidesEnabled}
+            onCheckedChange={(checked) => updateSettings({ reviewGuidesEnabled: Boolean(checked) })}
+            aria-label="Review guides"
+          />
+        }
+      />
+
+      {settings.reviewGuidesEnabled || mixedReviewGuidesEnabled ? (
+        <>
+          <SettingsRow
+            status={
+              mixedReviewGuideModel
+                ? "Mixed model overrides"
+                : usesReviewGuideModel
+                  ? `Separate model: ${reviewGuideSelection.model}`
+                  : usesDedicatedModel
+                    ? `Uses source control writer model: ${activeSelection.model}`
+                    : `Uses default text-generation model: ${defaultModelSelection.model}`
+            }
+            serverScoped
+            settingKeys={["reviewGuideModelSelection"]}
+            {...searchableSetting("review-guide-model")}
+            description="Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model."
+            control={
+              !hasServerTargets ? (
+                <span className="text-sm text-muted-foreground">
+                  Connect an environment to choose its review guide model.
+                </span>
+              ) : (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {(usesReviewGuideModel || mixedReviewGuideModel) && canEnableDedicatedModel ? (
+                    <ProviderModelPicker
+                      environmentId={environmentId}
+                      activeInstanceId={reviewGuideSelection.instanceId}
+                      model={reviewGuideSelection.model}
+                      lockedProvider={null}
+                      instanceEntries={instanceEntries}
+                      modelOptionsByInstance={reviewGuideModelOptionsByInstance}
+                      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                      triggerAriaLabel="Review guide model"
+                      {...(mixedReviewGuideModel ? { triggerLabel: "Mixed" } : {})}
+                      getModelDisabledReason={writerModelDisabledReason}
+                      onInstanceModelChange={(instanceId, model) => {
+                        const reason = writerModelDisabledReason(instanceId, model);
+                        if (reason) {
+                          toastManager.add({
+                            type: "error",
+                            title: "Review guide model not saved",
+                            description: reason,
+                          });
+                          return;
+                        }
+                        updateSettings({
+                          reviewGuideModelSelection: createModelSelection(instanceId, model),
+                        });
+                      }}
+                    />
+                  ) : null}
+                  {usesReviewGuideModel &&
+                  canEnableDedicatedModel &&
+                  !mixedReviewGuideModel &&
+                  reviewGuideInstanceEntry ? (
+                    <TraitsPicker
+                      provider={reviewGuideInstanceEntry.driverKind}
+                      models={reviewGuideInstanceEntry.models}
+                      model={reviewGuideSelection.model}
+                      modelOptions={reviewGuideSelection.options ?? []}
+                      allowPromptInjectedEffort={false}
+                      planModeEnabled={
+                        settings.planModeEnabled || selectsPlanAgent(reviewGuideSelection.options)
+                      }
+                      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                      onModelOptionsChange={(options) =>
+                        updateSettings({
+                          reviewGuideModelSelection: createModelSelection(
+                            reviewGuideSelection.instanceId,
+                            reviewGuideSelection.model,
+                            options,
+                          ),
+                        })
+                      }
+                    />
+                  ) : null}
+                  <Switch
+                    mixed={mixedReviewGuideModel}
+                    checked={mixedReviewGuideModel ? false : usesReviewGuideModel}
+                    disabled={!usesReviewGuideModel && !canEnableDedicatedModel}
+                    onCheckedChange={(checked) => {
+                      if (!checked) {
+                        updateSettings({ reviewGuideModelSelection: null });
+                        return;
+                      }
+                      const reason = writerModelDisabledReason(
+                        activeSelection.instanceId,
+                        activeSelection.model,
+                      );
+                      if (reason) {
+                        toastManager.add({
+                          type: "error",
+                          title: "Review guide model not saved",
+                          description: reason,
+                        });
+                        return;
+                      }
+                      updateSettings({
+                        reviewGuideModelSelection: createModelSelection(
+                          activeSelection.instanceId,
+                          activeSelection.model,
+                          activeSelection.options,
+                        ),
+                      });
+                    }}
+                    aria-label="Use a separate review guide model"
+                  />
+                </div>
+              )
+            }
+          />
+
+          <SettingsRow
+            serverScoped
+            settingKeys={["reviewGuideInstructions"]}
+            {...searchableSetting("review-guide-instructions")}
+            description="Your preferences for review guides: what to show first, dwell on, or skip. The guide's format and coverage stay the same."
+            resetAction={
+              mixedReviewGuideInstructions || settings.reviewGuideInstructions !== "" ? (
+                <SettingResetButton
+                  label="review guide instructions"
+                  onClick={() => updateSettings({ reviewGuideInstructions: "" })}
+                />
+              ) : null
+            }
+          >
             <div className="mt-3 max-w-2xl pb-3.5">
               <Textarea
-                key={style.customInstructions}
-                ref={customInstructionsRef}
-                defaultValue={style.customInstructions}
-                onBlur={(event) => {
-                  const customInstructions = event.target.value.trim();
-                  if (customInstructions !== style.customInstructions) {
-                    updateSettings({ sourceControlWritingStyle: { customInstructions } });
-                  }
+                key={`${scopeKey}:${mixedReviewGuideInstructions}:${settings.reviewGuideInstructions}`}
+                aria-label="Review guide instructions"
+                onChange={() => {
+                  reviewGuideInstructionsEdited.current = true;
                 }}
                 rows={4}
-                placeholder="Keep titles concise. Use short bullet points in descriptions."
-                aria-label="Custom source control writing instructions"
+                defaultValue={mixedReviewGuideInstructions ? "" : settings.reviewGuideInstructions}
+                placeholder={
+                  mixedReviewGuideInstructions
+                    ? "Mixed. Enter instructions to apply to all selected targets."
+                    : "Show service interfaces before implementations. Skip test files unless they change behavior. Keep summaries to two sentences."
+                }
+                onBlur={(event) => {
+                  const value = event.target.value.trim();
+                  if (
+                    reviewGuideInstructionsEdited.current &&
+                    (mixedReviewGuideInstructions || value !== settings.reviewGuideInstructions)
+                  )
+                    updateSettings({ reviewGuideInstructions: value });
+                  reviewGuideInstructionsEdited.current = false;
+                }}
               />
             </div>
-          ) : null}
-        </SettingsRow>
-
+          </SettingsRow>
+        </>
+      ) : null}
+      <AdvancedSettings
+        targetIds={[
+          searchableSetting("follow-change-request-templates").id,
+          searchableSetting("source-control-writer-model").id,
+        ]}
+      >
         <SettingsRow
           serverScoped
           settingKeys={["sourceControlWritingStyle"]}
@@ -334,9 +510,6 @@ export function SourceControlWritingSettingsSection() {
         />
 
         <SettingsRow
-          serverScoped
-          settingKeys={["sourceControlWriterModelSelection"]}
-          {...searchableSetting("source-control-writer-model")}
           status={
             mixedWriterModel
               ? "Mixed model overrides"
@@ -344,6 +517,9 @@ export function SourceControlWritingSettingsSection() {
                 ? `Separate model: ${activeSelection.model}`
                 : `Uses default text-generation model: ${defaultModelSelection.model}`
           }
+          serverScoped
+          settingKeys={["sourceControlWriterModelSelection"]}
+          {...searchableSetting("source-control-writer-model")}
           description="Model for source control text and branch or bookmark names. Off uses the environment's text generation model."
           control={
             !hasServerTargets ? (
@@ -440,183 +616,7 @@ export function SourceControlWritingSettingsSection() {
             )
           }
         />
-      </SettingsSection>
-      <SettingsSection id="source-control-review-guides" title="Review guides">
-        <SettingsRow
-          serverScoped
-          settingKeys={["reviewGuidesEnabled"]}
-          mixed={mixedReviewGuidesEnabled}
-          {...searchableSetting("review-guides")}
-          description="Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make."
-          control={
-            <Switch
-              mixed={mixedReviewGuidesEnabled}
-              checked={mixedReviewGuidesEnabled ? false : settings.reviewGuidesEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ reviewGuidesEnabled: Boolean(checked) })
-              }
-              aria-label="Review guides"
-            />
-          }
-        />
-
-        {settings.reviewGuidesEnabled || mixedReviewGuidesEnabled ? (
-          <>
-            <SettingsRow
-              serverScoped
-              settingKeys={["reviewGuideModelSelection"]}
-              {...searchableSetting("review-guide-model")}
-              status={
-                mixedReviewGuideModel
-                  ? "Mixed model overrides"
-                  : usesReviewGuideModel
-                    ? `Separate model: ${reviewGuideSelection.model}`
-                    : usesDedicatedModel
-                      ? `Uses source control writer model: ${activeSelection.model}`
-                      : `Uses default text-generation model: ${defaultModelSelection.model}`
-              }
-              description="Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model."
-              control={
-                !hasServerTargets ? (
-                  <span className="text-sm text-muted-foreground">
-                    Connect an environment to choose its review guide model.
-                  </span>
-                ) : (
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {(usesReviewGuideModel || mixedReviewGuideModel) && canEnableDedicatedModel ? (
-                      <ProviderModelPicker
-                        environmentId={environmentId}
-                        activeInstanceId={reviewGuideSelection.instanceId}
-                        model={reviewGuideSelection.model}
-                        lockedProvider={null}
-                        instanceEntries={instanceEntries}
-                        modelOptionsByInstance={reviewGuideModelOptionsByInstance}
-                        triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                        triggerAriaLabel="Review guide model"
-                        {...(mixedReviewGuideModel ? { triggerLabel: "Mixed" } : {})}
-                        getModelDisabledReason={writerModelDisabledReason}
-                        onInstanceModelChange={(instanceId, model) => {
-                          const reason = writerModelDisabledReason(instanceId, model);
-                          if (reason) {
-                            toastManager.add({
-                              type: "error",
-                              title: "Review guide model not saved",
-                              description: reason,
-                            });
-                            return;
-                          }
-                          updateSettings({
-                            reviewGuideModelSelection: createModelSelection(instanceId, model),
-                          });
-                        }}
-                      />
-                    ) : null}
-                    {usesReviewGuideModel &&
-                    canEnableDedicatedModel &&
-                    !mixedReviewGuideModel &&
-                    reviewGuideInstanceEntry ? (
-                      <TraitsPicker
-                        provider={reviewGuideInstanceEntry.driverKind}
-                        models={reviewGuideInstanceEntry.models}
-                        model={reviewGuideSelection.model}
-                        modelOptions={reviewGuideSelection.options ?? []}
-                        allowPromptInjectedEffort={false}
-                        planModeEnabled={
-                          settings.planModeEnabled || selectsPlanAgent(reviewGuideSelection.options)
-                        }
-                        triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                        onModelOptionsChange={(options) =>
-                          updateSettings({
-                            reviewGuideModelSelection: createModelSelection(
-                              reviewGuideSelection.instanceId,
-                              reviewGuideSelection.model,
-                              options,
-                            ),
-                          })
-                        }
-                      />
-                    ) : null}
-                    <Switch
-                      mixed={mixedReviewGuideModel}
-                      checked={mixedReviewGuideModel ? false : usesReviewGuideModel}
-                      disabled={!usesReviewGuideModel && !canEnableDedicatedModel}
-                      onCheckedChange={(checked) => {
-                        if (!checked) {
-                          updateSettings({ reviewGuideModelSelection: null });
-                          return;
-                        }
-                        const reason = writerModelDisabledReason(
-                          activeSelection.instanceId,
-                          activeSelection.model,
-                        );
-                        if (reason) {
-                          toastManager.add({
-                            type: "error",
-                            title: "Review guide model not saved",
-                            description: reason,
-                          });
-                          return;
-                        }
-                        updateSettings({
-                          reviewGuideModelSelection: createModelSelection(
-                            activeSelection.instanceId,
-                            activeSelection.model,
-                            activeSelection.options,
-                          ),
-                        });
-                      }}
-                      aria-label="Use a separate review guide model"
-                    />
-                  </div>
-                )
-              }
-            />
-
-            <SettingsRow
-              serverScoped
-              settingKeys={["reviewGuideInstructions"]}
-              {...searchableSetting("review-guide-instructions")}
-              description="Your preferences for review guides: what to show first, dwell on, or skip. The guide's format and coverage stay the same."
-              resetAction={
-                mixedReviewGuideInstructions || settings.reviewGuideInstructions !== "" ? (
-                  <SettingResetButton
-                    label="review guide instructions"
-                    onClick={() => updateSettings({ reviewGuideInstructions: "" })}
-                  />
-                ) : null
-              }
-            >
-              <div className="mt-3 max-w-2xl pb-3.5">
-                <Textarea
-                  key={`${scopeKey}:${mixedReviewGuideInstructions}:${settings.reviewGuideInstructions}`}
-                  aria-label="Review guide instructions"
-                  onChange={() => {
-                    reviewGuideInstructionsEdited.current = true;
-                  }}
-                  rows={4}
-                  defaultValue={
-                    mixedReviewGuideInstructions ? "" : settings.reviewGuideInstructions
-                  }
-                  placeholder={
-                    mixedReviewGuideInstructions
-                      ? "Mixed. Enter instructions to apply to all selected targets."
-                      : "Show service interfaces before implementations. Skip test files unless they change behavior. Keep summaries to two sentences."
-                  }
-                  onBlur={(event) => {
-                    const value = event.target.value.trim();
-                    if (
-                      reviewGuideInstructionsEdited.current &&
-                      (mixedReviewGuideInstructions || value !== settings.reviewGuideInstructions)
-                    )
-                      updateSettings({ reviewGuideInstructions: value });
-                    reviewGuideInstructionsEdited.current = false;
-                  }}
-                />
-              </div>
-            </SettingsRow>
-          </>
-        ) : null}
-      </SettingsSection>
-    </>
+      </AdvancedSettings>
+    </SettingsSection>
   );
 }

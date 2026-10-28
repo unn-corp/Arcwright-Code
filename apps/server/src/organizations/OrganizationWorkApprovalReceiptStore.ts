@@ -450,14 +450,16 @@ export const OrganizationWorkApprovalVerifierFromReceipts = Layer.effect(
   Effect.gen(function* () {
     const store = yield* OrganizationWorkApprovalReceiptStore;
     return {
-      verifyApproval: (target: OrganizationWorkApprovalTarget) =>
-        store
-          .verifyApproval(target)
-          .pipe(
-            Effect.mapError(
-              (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+      verifyApproval: Effect.fn("OrganizationWorkApprovalVerifier.verifyApproval")(
+        (target: OrganizationWorkApprovalTarget) =>
+          store
+            .verifyApproval(target)
+            .pipe(
+              Effect.mapError(
+                (error) => new OrganizationWorkError({ code: error.code, message: error.message }),
+              ),
             ),
-          ),
+      ),
     };
   }),
 );

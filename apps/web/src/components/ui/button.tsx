@@ -13,17 +13,7 @@ const buttonVariants = cva(
       variant: "default",
     },
     variants: {
-      /*
-       * Touch gets a larger control than a cursor does, on top of the hit area
-       * the base class already provides, because the hit area alone left
-       * controls looking desktop-scaled even where taps landed.
-       *
-       * Only the text sizes grow. Icon variants are deliberately left alone:
-       * they fill dense toolbars, and the cover screen measures 360 CSS px
-       * (1080 physical at 3.0x), where the chat header already reserves 64px
-       * for the panel toggles. Widening every icon there buys legibility on a
-       * row that has no room to pay for it.
-       */
+      /* Enlarge text controls for touch, while keeping icon controls compact so dense toolbars still fit narrow cover screens. */
       size: {
         compact:
           "h-7 gap-1 rounded-md px-[calc(--spacing(2)-1px)] text-xs before:rounded-[calc(var(--radius-md)-1px)] [&_svg:not([class*='size-'])]:size-3.5",
@@ -119,7 +109,7 @@ const inlineButtonVariants = cva(
         muted: "text-muted-foreground hover:text-foreground",
         destructive: "text-destructive/80 hover:text-destructive",
         picker:
-          "gap-1.5 text-foreground underline decoration-foreground/30 decoration-dotted decoration-from-font underline-offset-4 hover:decoration-foreground hover:decoration-solid data-popup-open:decoration-foreground data-popup-open:decoration-solid",
+          "gap-1 text-foreground decoration-from-font underline-offset-4 data-popup-open:underline",
       },
     },
   },

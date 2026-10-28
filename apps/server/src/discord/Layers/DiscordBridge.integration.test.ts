@@ -94,10 +94,8 @@ const makeBridge = (input: {
       snapshots: AutomationSnapshotQuery.ProjectionSnapshotQuery.of({
         getThreadDetailById: () =>
           input.getThread?.() ??
-          Effect.succeed(
-            Option.some({ ...thread, id: input.threadId ?? thread.id } as OrchestrationThread),
-          ),
-        getProjectShellById: () => Effect.succeed(Option.none()),
+          Effect.succeedSome({ ...thread, id: input.threadId ?? thread.id } as OrchestrationThread),
+        getProjectShellById: () => Effect.succeedNone,
       } as unknown as AutomationSnapshotQuery.AutomationSnapshotQueryShape),
       settings: ServerSettings.ServerSettingsService.of({
         getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, discordBridge: config }),
@@ -160,7 +158,7 @@ DB("Discord bridge fenced side effects", (test) => {
           check: Effect.void,
           checkAutomation: Effect.gen(function* () {
             if (yield* Ref.get(held))
-              return yield* Effect.fail(new MaintenanceWorkHeld({ cause: "maintenance hold" }));
+              return yield* new MaintenanceWorkHeld({ cause: "maintenance hold" });
           }),
         };
         const bridge = yield* makeBridge({
@@ -271,7 +269,7 @@ DB("Discord bridge fenced side effects", (test) => {
             check: Effect.void,
             checkAutomation: Effect.gen(function* () {
               if (yield* Ref.get(held))
-                return yield* Effect.fail(new MaintenanceWorkHeld({ cause: "maintenance hold" }));
+                return yield* new MaintenanceWorkHeld({ cause: "maintenance hold" });
             }),
           };
           const bridge = yield* makeBridge({
@@ -422,7 +420,7 @@ DB("Discord bridge fenced side effects", (test) => {
               yield* Ref.update(attempts, (count) => count + 1);
               if ((yield* Ref.get(attempts)) === 1) yield* Deferred.succeed(attempt, undefined);
               if (yield* Ref.get(held))
-                return yield* Effect.fail(new MaintenanceWorkHeld({ cause: "maintenance hold" }));
+                return yield* new MaintenanceWorkHeld({ cause: "maintenance hold" });
             }),
           };
           const event = {

@@ -15,6 +15,7 @@ export function AndroidNotificationSettings() {
   const [status, setStatus] = useState<AndroidNotificationStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads native notification permission status on mount and window focus, releasing the focus listener on cleanup
   useEffect(() => {
     const refresh = () => {
       void androidNotificationRequest("status")

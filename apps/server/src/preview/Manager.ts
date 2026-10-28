@@ -10,8 +10,8 @@ import {
   PreviewShareError,
   type PreviewListInput,
   type PreviewListResult,
-  type PreviewNavigateInput,
   type PreviewOpenInput,
+  type PreviewNavigateInput,
   type PreviewPublishFrameInput,
   type PreviewRefreshInput,
   type PreviewReportStatusInput,
@@ -54,15 +54,19 @@ export class PreviewManager extends Context.Service<
     readonly reportStatus: (
       input: PreviewReportStatusInput & { readonly serverControlled?: boolean },
     ) => Effect.Effect<void, PreviewError>;
+    /** Records that a server tab runs headless. It stays headless until it closes. */
+    readonly markHeadless: (
+      input: PreviewCloseInput & { readonly tabId: string },
+    ) => Effect.Effect<void, PreviewError>;
+    readonly requestReveal: (
+      input: PreviewCloseInput & { readonly tabId: string; readonly force: boolean },
+    ) => Effect.Effect<void, PreviewError>;
     readonly resize: (
       input: PreviewResizeInput,
     ) => Effect.Effect<PreviewSessionSnapshot, PreviewError>;
     readonly adjust: (
       input: PreviewAdjustInput,
     ) => Effect.Effect<PreviewSessionSnapshot, PreviewError>;
-    readonly requestReveal: (
-      input: PreviewCloseInput & { readonly tabId: string; readonly force: boolean },
-    ) => Effect.Effect<void, PreviewError>;
     readonly refresh: (input: PreviewRefreshInput) => Effect.Effect<void, PreviewError>;
     readonly close: (input: PreviewCloseInput) => Effect.Effect<void, PreviewError>;
     readonly list: (input: PreviewListInput) => Effect.Effect<PreviewListResult>;
@@ -218,7 +222,7 @@ const buildIdleSnapshot = (input: {
   updatedAt: input.updatedAt,
 });
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* PreviewManagerMake() {
   const publisher = yield* Effect.serviceOption(PortPublisher.PortPublisher);
   const resolveUrl = Effect.fn("PreviewManager.resolveUrl")(function* (
@@ -246,10 +250,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   const eventsPubSub = yield* PubSub.unbounded<PreviewEvent>();
   const events: Stream.Stream<PreviewEvent> = Stream.fromPubSub(eventsPubSub);
 
-  /**
-   * The event is published INSIDE the lock so observers see events in the same
-   * order as the underlying state transitions.
-   */
+  /** Publish inside the lock to preserve state-transition order. */
   const mutateExistingSession = <R, E>(
     threadId: string,
     tabId: string,
@@ -440,6 +441,34 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           next: { ...session, snapshot },
           emit,
           result: undefined as void,
+        };
+      }),
+    );
+  });
+
+  const markHeadless: PreviewManager["Service"]["markHeadless"] = Effect.fn(
+    "PreviewManager.markHeadless",
+  )(function* (input) {
+    return yield* mutateExistingSession(
+      input.threadId,
+      input.tabId,
+      Effect.fn("PreviewManager.markSessionHeadless")(function* (session) {
+        if (session.snapshot.headless) return { next: session, emit: null, result: undefined };
+        const snapshot: PreviewSessionSnapshot = {
+          ...session.snapshot,
+          headless: true,
+          updatedAt: yield* currentIsoTimestamp,
+        };
+        return {
+          next: { ...session, snapshot },
+          emit: {
+            type: "resized",
+            threadId: session.threadId,
+            tabId: session.tabId,
+            createdAt: snapshot.updatedAt,
+            snapshot,
+          },
+          result: undefined,
         };
       }),
     );
@@ -754,10 +783,11 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   return PreviewManager.of({
     open,
     navigate,
+    requestReveal,
     reportStatus,
+    markHeadless,
     resize,
     adjust,
-    requestReveal,
     refresh,
     close,
     list,

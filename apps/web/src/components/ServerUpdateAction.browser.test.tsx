@@ -16,7 +16,7 @@ import "~/index.css";
 import {
   completeConfirmDialogClose,
   readConfirmDialogState,
-  registerConfirmDialogHost,
+  subscribeConfirmDialogHost,
   resetConfirmDialogForTests,
   respondToConfirmDialog,
 } from "~/confirmDialog";
@@ -136,7 +136,7 @@ describe("server update actions", () => {
   });
   it("requests the verified artifact and reports waiting instead of installation", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     await render(root, <ServerUpdateAction {...target} />);
     await act(async () => updateButton(root).click());
     expect(state.action).toHaveBeenNthCalledWith(1, { action: "check" });
@@ -154,7 +154,7 @@ describe("server update actions", () => {
   });
   it("deduplicates pending requests and permits a later retry", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     let finish!: (value: ForkUpdateStatus) => void;
     state.action.mockImplementationOnce(
       () =>
@@ -175,7 +175,7 @@ describe("server update actions", () => {
   });
   it("routes bulk requests through coordinator grouping and reports each result", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     state.bulk.mockResolvedValue([
       { label: "Laptop", failed: false, message: "waiting" },
       { label: "Deck", failed: true, message: "Offline" },
@@ -253,8 +253,9 @@ describe("server updates from the environment selector", () => {
 
   it("confirms a locked chip update and honors cancellation before updating", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
-    registerConfirmDialogHost();
+    const { root } = _fixture;
+    using _host = new DisposableStack();
+    _host.defer(subscribeConfirmDialogHost(() => {}));
     await render(
       root,
       <BranchToolbarEnvironmentSelector
@@ -287,7 +288,7 @@ describe("server updates from the environment selector", () => {
 
   it("keeps unsupported hosts visible without bypassing admission and selects an action-like environment ID", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
+    const { root } = _fixture;
     const update = { ...serverUpdate, selfUpdate: null, installation: { kind: "npx" } } as const;
     function Picker() {
       const [environmentId, setEnvironmentId] = useState(localId);
@@ -321,8 +322,9 @@ describe("server updates from the environment selector", () => {
 
   it("explains an unsupported desktop update in the picker without offering a runnable action", async () => {
     await using _fixture = await setup();
-    const { root, container } = _fixture;
-    registerConfirmDialogHost();
+    const { root } = _fixture;
+    using _host = new DisposableStack();
+    _host.defer(subscribeConfirmDialogHost(() => {}));
     await render(
       root,
       <BranchToolbarEnvironmentSelector

@@ -28,6 +28,20 @@ import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
 import { withAutomationWork } from "../maintenance/WorkAdmission.ts";
 
+const decodeUnknownOrganizationWorkProposal = Schema.decodeUnknownEffect(OrganizationWorkProposal);
+const isOrganizationProposalError = Schema.is(OrganizationProposalError);
+const decodeOrganizationObservationMode = Schema.decodeEffect(OrganizationObservationMode);
+const decodeStringArrayJson = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Array(Schema.String)),
+);
+const decodeOrganizationObservationModeSetInput = Schema.decodeEffect(
+  OrganizationObservationModeSetInput,
+);
+const decodeOrganizationProposalListInput = Schema.decodeEffect(OrganizationProposalListInput);
+const decodeOrganizationProposalDecisionInput = Schema.decodeEffect(
+  OrganizationProposalDecisionInput,
+);
+
 export interface OrganizationProposalPrincipal {
   readonly subject: string;
   readonly interactive: boolean;
@@ -96,10 +110,17 @@ type MutationRow = {
   snapshot_json: string;
 };
 const Json = Schema.fromJsonString(Schema.Unknown);
+
+const encodeSyncJson = Schema.encodeSync(Json);
+const decodeJson = Schema.decodeEffect(Json);
 const EvidenceJson = Schema.fromJsonString(
   Schema.Array(OrganizationProposalEvidence).check(Schema.isMinLength(1), Schema.isMaxLength(32)),
 );
+
+const decodeEvidenceJson = Schema.decodeEffect(EvidenceJson);
 const PublishedJson = Schema.fromJsonString(OrganizationPublishedConfig);
+
+const decodePublishedJson = Schema.decodeEffect(PublishedJson);
 const MAX_BATCH = 32;
 const MAX_PER_ORGANIZATION = 8;
 const BEARER_SECRET = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi;
@@ -117,8 +138,8 @@ const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const issue = (code: OrganizationProposalError["code"], message: string) =>
   new OrganizationProposalError({ code, message });
 const digest = (value: unknown) =>
-  NodeCrypto.createHash("sha256").update(Schema.encodeSync(Json)(value)).digest("hex");
-const json = (value: unknown) => Schema.encodeSync(Json)(value);
+  NodeCrypto.createHash("sha256").update(encodeSyncJson(value)).digest("hex");
+const json = (value: unknown) => encodeSyncJson(value);
 const proposalId = (findingId: string) =>
   `proposal:${NodeCrypto.createHash("sha256").update(findingId).digest("hex")}`;
 const backoffSeconds = (attempts: number) => Math.min(300, 5 * 2 ** Math.min(6, attempts));
@@ -126,8 +147,8 @@ const decodeProposal = Effect.fn("OrganizationProposalStore.decodeProposal")(fun
   row: ProposalRow,
   staleReason: string | null,
 ) {
-  const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(row.evidence_json);
-  return yield* Schema.decodeUnknownEffect(OrganizationWorkProposal)({
+  const evidence = yield* decodeEvidenceJson(row.evidence_json);
+  return yield* decodeUnknownOrganizationWorkProposal({
     id: row.proposal_id,
     organizationId: row.organization_id,
     findingId: row.finding_id,
@@ -191,7 +212,7 @@ const make = Effect.gen(function* () {
       .withTransaction(effect)
       .pipe(
         Effect.mapError((cause) =>
-          Schema.is(OrganizationProposalError)(cause)
+          isOrganizationProposalError(cause)
             ? cause
             : issue("unavailable", "Organization proposal storage is unavailable."),
         ),
@@ -220,7 +241,7 @@ const make = Effect.gen(function* () {
     const org = yield* organization(organizationId);
     const setting = (yield* sql<SettingRow>`SELECT * FROM organization_proposal_settings
       WHERE organization_id = ${organizationId}`)[0];
-    return yield* Schema.decodeUnknownEffect(OrganizationObservationMode)({
+    return yield* decodeOrganizationObservationMode({
       organizationId,
       enabled: setting?.observation_mode_enabled === 1,
       effective:
@@ -271,14 +292,12 @@ const make = Effect.gen(function* () {
       (binding.access !== "proposal" && binding.access !== "write")
     )
       return "binding-changed";
-    const capabilities = yield* Schema.decodeUnknownEffect(
-      Schema.fromJsonString(Schema.Array(Schema.String)),
-    )(binding.capabilities_json).pipe(Effect.result);
-    if (capabilities._tag === "Failure" || !capabilities.success.includes("propose-work"))
-      return "binding-changed";
-    const evidence = yield* Schema.decodeUnknownEffect(EvidenceJson)(proposal.evidence_json).pipe(
+    const capabilities = yield* decodeStringArrayJson(binding.capabilities_json).pipe(
       Effect.result,
     );
+    if (capabilities._tag === "Failure" || !capabilities.success.includes("propose-work"))
+      return "binding-changed";
+    const evidence = yield* decodeEvidenceJson(proposal.evidence_json).pipe(Effect.result);
     if (evidence._tag === "Failure") return "evidence-invalid";
     for (const ref of evidence.success) {
       if (ref.projectId !== proposal.project_id) return "evidence-scope-changed";
@@ -323,7 +342,7 @@ const make = Effect.gen(function* () {
       row.request_digest !== requestDigest
     )
       return yield* issue("conflict", "Proposal mutation ID was reused for a different request.");
-    return yield* Schema.decodeUnknownEffect(Json)(row.snapshot_json);
+    return yield* decodeJson(row.snapshot_json);
   });
   const audit = (
     mutationId: OrganizationProposalMutationId,
@@ -349,9 +368,9 @@ const make = Effect.gen(function* () {
     transaction(
       Effect.gen(function* () {
         yield* requirePrincipal(principal);
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationObservationModeSetInput)(
-          input,
-        ).pipe(Effect.mapError(() => issue("invalid", "Observation mode change is invalid.")));
+        const parsed = yield* decodeOrganizationObservationModeSetInput(input).pipe(
+          Effect.mapError(() => issue("invalid", "Observation mode change is invalid.")),
+        );
         const requestDigest = digest(parsed);
         const prior = yield* duplicate(
           parsed.mutationId,
@@ -412,7 +431,7 @@ const make = Effect.gen(function* () {
   const list: OrganizationProposalStoreShape["list"] = (input) =>
     transaction(
       Effect.gen(function* () {
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationProposalListInput)(input).pipe(
+        const parsed = yield* decodeOrganizationProposalListInput(input).pipe(
           Effect.mapError(() => issue("invalid", "Proposal list request is invalid.")),
         );
         yield* organization(parsed.organizationId);
@@ -435,9 +454,9 @@ const make = Effect.gen(function* () {
     transaction(
       Effect.gen(function* () {
         yield* requirePrincipal(principal);
-        const parsed = yield* Schema.decodeUnknownEffect(OrganizationProposalDecisionInput)(
-          input,
-        ).pipe(Effect.mapError(() => issue("invalid", "Proposal decision is invalid.")));
+        const parsed = yield* decodeOrganizationProposalDecisionInput(input).pipe(
+          Effect.mapError(() => issue("invalid", "Proposal decision is invalid.")),
+        );
         const requestDigest = digest(parsed);
         const prior = yield* duplicate(
           parsed.mutationId,
@@ -581,9 +600,7 @@ const make = Effect.gen(function* () {
             "published-config-missing",
             false,
           );
-        const configResult = yield* Schema.decodeUnknownEffect(PublishedJson)(
-          configRow.config_json,
-        ).pipe(Effect.result);
+        const configResult = yield* decodePublishedJson(configRow.config_json).pipe(Effect.result);
         if (configResult._tag === "Failure")
           return yield* deferCandidate(
             candidate.finding_id,
@@ -604,9 +621,7 @@ const make = Effect.gen(function* () {
             "published-config-mismatch",
             true,
           );
-        const evidenceResult = yield* Schema.decodeUnknownEffect(EvidenceJson)(
-          finding.evidence_json,
-        ).pipe(Effect.result);
+        const evidenceResult = yield* decodeEvidenceJson(finding.evidence_json).pipe(Effect.result);
         if (evidenceResult._tag === "Failure")
           return yield* deferCandidate(
             candidate.finding_id,
@@ -661,9 +676,9 @@ const make = Effect.gen(function* () {
             "proposal-binding-unavailable",
             false,
           );
-        const capabilitiesResult = yield* Schema.decodeUnknownEffect(
-          Schema.fromJsonString(Schema.Array(Schema.String)),
-        )(binding.capabilities_json).pipe(Effect.result);
+        const capabilitiesResult = yield* decodeStringArrayJson(binding.capabilities_json).pipe(
+          Effect.result,
+        );
         if (capabilitiesResult._tag === "Failure")
           return yield* deferCandidate(
             candidate.finding_id,

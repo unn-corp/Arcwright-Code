@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
-import { usePrimaryEnvironmentId } from "../../state/environments";
+import { usePrimaryEnvironmentId, usePrimaryEnvironment } from "../../state/environments";
 import { type ModelSelection, ProviderDriverKind } from "@t3tools/contracts";
 import {
   DEFAULT_UNIFIED_SETTINGS,
@@ -155,6 +155,7 @@ function AutomationIntegerControl({
 }
 
 export function AutomationSettingsPanel() {
+  const environment = usePrimaryEnvironment();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const continuousModelDirty = !Equal.equals(
@@ -202,8 +203,14 @@ export function AutomationSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <p className="px-3 text-sm text-muted-foreground sm:px-4">
+        {environment
+          ? `Automation settings are saved on ${environment.label}, this app’s primary environment.`
+          : "Connect this app to its primary environment to configure automations."}
+      </p>
       <SettingsSection title="Agent automations">
         <SettingsRow
+          serverScoped
           {...searchableSetting("continuous-improvement")}
           description="Continuously starts one implementation agent at a time for open, ready-to-act findings. Each run works in an isolated branch and must deliver through a draft pull request. Arcwright Code never merges it automatically."
           resetAction={
@@ -239,6 +246,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("continuous-improvement-consolidate-prs")}
           className="bg-muted/20 sm:pl-9"
           description="Before starting work, asks the implementation agent to inspect open pull requests and extend one when its goal and affected code are coherently related. Otherwise the agent opens a new draft pull request."
@@ -275,6 +283,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("continuous-improvement-remove-worktrees")}
           className="bg-muted/20 sm:pl-9"
           description="Safely removes an automation worktree after its draft pull request is delivered or its finding is confirmed stale. Worktrees with uncommitted changes are retained."
@@ -311,6 +320,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("continuous-improvement-model")}
           className="bg-muted/20 sm:pl-9"
           description="Provider account, model, and effort used when Continuous Improvement starts an implementation agent."
@@ -346,6 +356,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("continuous-improvement-max-risk")}
           className="bg-muted/20 sm:pl-9"
           description="Highest qualified risk tier that Continuous Improvement may start without approval."
@@ -398,6 +409,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("continuous-improvement-confidence")}
           className="bg-muted/20 sm:pl-9"
           description="Minimum evidence confidence required before Continuous Improvement may start work."
@@ -443,6 +455,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("inactive-worktree-cleanup")}
           description="Periodically removes inactive Arcwright Code worktrees only when they are settled, clean, and their current commit is confirmed on the branch's configured remote after a fetch. Local and remote branches are retained."
           resetAction={
@@ -477,6 +490,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("inactive-worktree-cleanup-interval")}
           className="bg-muted/20 sm:pl-9"
           description="Number of days between cleanup scans. Turning the automation on makes its first scan due immediately."
@@ -515,6 +529,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("inactive-worktree-cleanup-age")}
           className="bg-muted/20 sm:pl-9"
           description="Minimum age of both the worktree's latest Arcwright Code activity and its current commit before removal is allowed."
@@ -554,6 +569,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup")}
           description="On an N-day interval, starts an isolated agent for each GitHub repository with eligible open pull requests. The agent reviews the combined changes, repairs allowed problems, and opens one pre-release pull request. It never merges the source or rollup pull requests. Turning this off prevents future scans but does not cancel active work sessions."
           resetAction={
@@ -589,6 +605,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-interval")}
           className="bg-muted/20 sm:pl-9"
           description="Number of days between portfolio-wide pull request scans. Turning the automation on makes the first scan due immediately."
@@ -625,6 +642,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-drafts")}
           className="bg-muted/20 sm:pl-9"
           description="Include draft pull requests in the review and rollup pass."
@@ -645,6 +663,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-ready")}
           className="bg-muted/20 sm:pl-9"
           description="Include pull requests that are ready for review."
@@ -665,6 +684,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-idle-days")}
           className="bg-muted/20 sm:pl-9"
           description="Only include pull requests that have not changed for this many days. Use 0 to include newly updated work."
@@ -685,6 +705,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-limit")}
           className="bg-muted/20 sm:pl-9"
           description="Maximum number of pull requests handled per repository in one rollup. The oldest eligible updates are handled first."
@@ -705,6 +726,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-failing-checks")}
           className="bg-muted/20 sm:pl-9"
           description="Allow the agent to diagnose failing checks and push safe repairs to a source pull request branch. Otherwise failing pull requests are excluded."
@@ -725,6 +747,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-conflicts")}
           className="bg-muted/20 sm:pl-9"
           description="Allow the agent to resolve source pull request conflicts on the isolated rollup branch. Otherwise conflicting pull requests are excluded."
@@ -745,6 +768,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-repair-attempts")}
           className="bg-muted/20 sm:pl-9"
           description="Maximum focused repair attempts for each failing or conflicting source pull request. Use 0 to inspect and exclude without repair."
@@ -765,6 +789,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-target")}
           className="bg-muted/20 sm:pl-9"
           description="Base branch for eligible source pull requests and the pre-release pull request. Leave empty to use each repository's default branch."
@@ -785,6 +810,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-branch-prefix")}
           className="bg-muted/20 sm:pl-9"
           description="Prefix used for isolated pre-release rollup branches. Arcwright Code appends the date and a unique identifier."
@@ -806,6 +832,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-title")}
           className="bg-muted/20 sm:pl-9"
           description="Title used for the generated pre-release pull request."
@@ -826,6 +853,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-draft-output")}
           className="bg-muted/20 sm:pl-9"
           description="Keep the generated pre-release pull request in draft until a user explicitly marks it ready."
@@ -846,6 +874,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-remove-worktrees")}
           className="bg-muted/20 sm:pl-9"
           description="Safely remove a clean rollup worktree after Arcwright Code verifies the generated pull request."
@@ -866,6 +895,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-instructions")}
           className="bg-muted/20 sm:pl-9"
           description="Optional repository-agnostic instructions added to every rollup agent, such as release-note or validation requirements."
@@ -886,6 +916,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("pull-request-rollup-model")}
           className="bg-muted/20 sm:pl-9"
           description="Provider account, model, and effort used to review, repair, and roll up pull requests."
@@ -918,6 +949,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("product-opportunity-discovery")}
           description="Adds a dedicated scout-and-critic pass for evidence-backed UX, workflow, and system capability improvements. Each project needs confirmed product context."
           control={
@@ -937,6 +969,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("product-opportunity-limit")}
           className="bg-muted/20 sm:pl-9"
           description="Maximum validated product opportunities returned during each repository review. Zero-output reviews remain valid."
@@ -960,6 +993,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up")}
           description="Starts read-only conversations for findings that need product judgment, more research, or exceed the unattended implementation risk limit."
           control={
@@ -979,6 +1013,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-interval")}
           className="bg-muted/20 sm:pl-9"
           description="How often Arcwright Code checks for findings that need a user decision."
@@ -1009,6 +1044,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-reminders")}
           className="bg-muted/20 sm:pl-9"
           description="Minimum time before Arcwright Code may start another conversation about the same unresolved finding."
@@ -1029,6 +1065,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-limit")}
           className="bg-muted/20 sm:pl-9"
           description="Maximum new decision conversations started during one scheduled scan."
@@ -1052,6 +1089,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-severity")}
           className="bg-muted/20 sm:pl-9"
           description="Minimum severity for ordinary findings. Product opportunities are eligible regardless of severity."
@@ -1088,6 +1126,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-research")}
           className="bg-muted/20 sm:pl-9"
           description="Include findings whose next step still needs product context, external facts, or human judgment."
@@ -1108,6 +1147,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-risk")}
           className="bg-muted/20 sm:pl-9"
           description="Include ready findings whose technical risk exceeds the Continuous Improvement limit. User approval does not lower that risk."
@@ -1128,6 +1168,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("decision-follow-up-model")}
           className="bg-muted/20 sm:pl-9"
           description="Provider account, model, and effort used to prepare and begin decision conversations."
@@ -1160,6 +1201,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("repository-review")}
           description="Periodically inspects repositories and qualifies new or changed findings into implementation-ready work."
           resetAction={
@@ -1194,6 +1236,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("repository-review-interval")}
           className="bg-muted/20 sm:pl-9"
           description="How often Arcwright Code runs the read-only discovery and qualification pass while the app is open."
@@ -1243,6 +1286,7 @@ export function AutomationSettingsPanel() {
         />
 
         <SettingsRow
+          serverScoped
           {...searchableSetting("repository-review-model")}
           className="bg-muted/20 sm:pl-9"
           description="Provider account, model, and effort used for discovery and qualification."
@@ -1277,24 +1321,30 @@ export function AutomationSettingsPanel() {
 
       <SettingsSection title="Background services">
         <SettingsRow
+          serverScoped
           title="Provider updates & discovery"
-          description="Manage provider CLI updates and model catalog checks in Providers."
+          description="Manage provider CLI updates and model catalog checks in Maintenance."
           control={
             <Link
-              to="/settings/providers"
+              to="/settings/maintenance"
               hash="provider-update-checks"
               className="text-sm underline"
             >
-              Open Providers
+              Open Maintenance
             </Link>
           }
         />
         <SettingsRow
+          serverScoped
           title="Background activity"
-          description="Manage background activity presets and advanced intervals in General → Performance."
+          description="Manage background activity presets and advanced intervals in Maintenance."
           control={
-            <Link to="/settings/general" hash="background-activity" className="text-sm underline">
-              Open Performance
+            <Link
+              to="/settings/maintenance"
+              hash="background-activity"
+              className="text-sm underline"
+            >
+              Open Background Activity
             </Link>
           }
         />

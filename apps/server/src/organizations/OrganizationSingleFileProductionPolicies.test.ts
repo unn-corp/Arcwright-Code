@@ -27,6 +27,8 @@ import {
 import { OrganizationWorkStoreReadOnlyLive } from "./OrganizationWorkRuntimeLayers.ts";
 import { OrganizationWorkIntentActivationReadiness } from "./OrganizationWorkIntentActivation.ts";
 
+const isOrganizationProviderBudgetError = Schema.is(OrganizationProviderBudgetError);
+
 const ids = {
   organizationId: "policy-org",
   projectId: "policy-project",
@@ -257,8 +259,8 @@ it.effect("never calls a provider before admission, and never repeats a dispatch
       VALUES (${kind}, ${id}, 1, 1, 140000, ${stamp})`;
     const denied = yield* call(input).pipe(Effect.flip);
     assert.ok(denied.detail.includes("admission"));
-    assert.ok(Schema.is(OrganizationProviderBudgetError)(denied.cause));
-    if (Schema.is(OrganizationProviderBudgetError)(denied.cause))
+    assert.ok(isOrganizationProviderBudgetError(denied.cause));
+    if (isOrganizationProviderBudgetError(denied.cause))
       assert.equal(denied.cause.code, "exhausted");
     assert.equal(providerCalls, 0);
     yield* sql`UPDATE organization_provider_budget_limits

@@ -12,7 +12,7 @@ import { ProjectId, type OrchestrationProjectShell } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { MaintenanceWorkHeld, WorkAdmission } from "../maintenance/WorkAdmission.ts";
 
@@ -71,17 +71,17 @@ const makeProjection = (project: OrchestrationProjectShell) =>
     getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 0 }),
     getRecentActivitySummaries: () => Effect.succeed([]),
     getEventReplayStats: () => Effect.die("unused"),
-    getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-    getProjectShellById: () => Effect.succeed(Option.none()),
-    getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+    getActiveProjectByWorkspaceRoot: () => Effect.succeedNone,
+    getProjectShellById: () => Effect.succeedNone,
+    getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
     getImportedAgentSessionSources: () => Effect.succeed([]),
-    getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-    getFullThreadDiffContext: () => Effect.succeed(Option.none()),
-    getThreadShellById: () => Effect.succeed(Option.none()),
-    getThreadRuntimeContext: () => Effect.succeed(Option.none()),
-    getThreadDetailById: () => Effect.succeed(Option.none()),
-    getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
-    getTurnStartMessage: () => Effect.succeed(Option.none()),
+    getThreadCheckpointContext: () => Effect.succeedNone,
+    getFullThreadDiffContext: () => Effect.succeedNone,
+    getThreadShellById: () => Effect.succeedNone,
+    getThreadRuntimeContext: () => Effect.succeedNone,
+    getThreadDetailById: () => Effect.succeedNone,
+    getThreadDetailSnapshot: () => Effect.succeedNone,
+    getTurnStartMessage: () => Effect.succeedNone,
   });
 
 describe("AgentDashboardSecurityScheduler", () => {

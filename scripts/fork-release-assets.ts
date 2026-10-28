@@ -724,18 +724,7 @@ const sameCommand = (command: ReadonlyArray<string> | null) =>
   command.length === PACKAGE_VALIDATION.run.length &&
   command.every((part, index) => part === PACKAGE_VALIDATION.run[index]);
 
-/**
- * A check is true only when two kinds of evidence both exist for exactly this candidate.
- *
- * Package receipts: every target ran the package validation command defined in code, against this
- * artifact payload, with a zero exit. Update and recovery also name the predecessor they ran from.
- *
- * Suite receipts: every safety suite that check depends on (coordinator, desktop and Android
- * updaters) passed on every target it covers, running exactly the specification defined in code,
- * from a clean checkout of the commit these artifacts were built from, bound to this payload.
- *
- * A missing, failing, substituted, or stale receipt of either kind makes the check false.
- */
+/** Package and required-suite receipts must match this exact clean-source payload and predecessor; missing, failed, substituted or stale evidence blocks every check. */
 export const evaluateChecks = (
   receipts: ReadonlyArray<CheckReceipt>,
   suiteReceipts: ReadonlyArray<SuiteReceipt>,
