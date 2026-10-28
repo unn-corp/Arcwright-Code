@@ -23,7 +23,7 @@ export function summarizeCollapsedThreadStatuses(
   const counts = { input: 0, failed: 0, done: 0 };
   for (const thread of threads) {
     const status = resolveSidebarThreadStatus(thread);
-    if (status === "input" || status === "approval") counts.input += 1;
+    if (status === "input" || status === "approval" || status === "request") counts.input += 1;
     else if (includeFailures && (status === "failed" || status === "limited")) counts.failed += 1;
     else if (
       status === "ready" &&

@@ -309,7 +309,7 @@ describe("settings search targets", () => {
     for (const id of [
       "legacy-plan-mode",
       "legacy-context-window-indicator",
-      "legacy-sidebar",
+      "boring-sidebar",
       "diff-layout",
       "hide-whitespace-changes",
     ]) {
@@ -388,6 +388,8 @@ describe("relocated settings links", () => {
     expect(settingsTargetDestination("#text-generation")).toBe("/settings/threads");
     expect(settingsTargetAnchor("#text-generation")).toBe("text-generation");
     expect(settingsTargetAnchor("#behavior")).toBe("composer");
+    expect(settingsTargetDestination("#legacy-sidebar")).toBe("/settings/labs");
+    expect(settingsTargetAnchor("#legacy-sidebar")).toBe("boring-sidebar");
     expect(settingsTargetDestination("#performance")).toBe("/settings/maintenance");
     expect(settingsTargetAnchor("#performance")).toBe("background");
     expect(settingsTargetAnchor("#project-defaults")).toBe("new-projects");

@@ -58,6 +58,7 @@ import * as Fcm from "../agentActivity/FcmDeliveries.ts";
 import * as Held from "../hooks/HeldHooks.ts";
 import * as Inbox from "../hooks/HookInbox.ts";
 import * as Db from "../db.ts";
+import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
 
 const encodePayloadJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 export const config = {
@@ -113,6 +114,7 @@ export const counters = () => ({
   recipients: [] as string[],
   affected: [] as string[],
   allocationOwners: [] as string[],
+  t3ChatUsers: [] as string[],
 });
 export const owner = (
   userId = "user_verified",
@@ -186,6 +188,7 @@ export const fixture = Effect.fn("fixture")(function (input: {
   readonly links?: Links.EnvironmentLinks["Service"];
   readonly subscriptions?: Subscriptions.WebPushSubscriptions["Service"];
   readonly provider?: Partial<Provider.ManagedEndpointProvider["Service"]>;
+  readonly t3ChatAvailable?: boolean;
   readonly environmentPublicKey?: string;
 }) {
   const counts = input.counts;
@@ -423,6 +426,26 @@ export const fixture = Effect.fn("fixture")(function (input: {
         Effect.sync(() => {
           counts.business++;
           return [];
+        }),
+    }),
+    Layer.mock(T3ChatAccounts.T3ChatAccounts, {
+      available: input.t3ChatAvailable ?? true,
+      getLink: ({ userId }) =>
+        Effect.sync(() => {
+          counts.business++;
+          counts.t3ChatUsers.push(userId);
+          return { email: "fixture@example.test", plan: "pro" as const };
+        }),
+      createLinkUrl: ({ userId }) =>
+        Effect.sync(() => {
+          counts.business++;
+          counts.t3ChatUsers.push(userId);
+          return "https://chat.example.test/link/t3code?token=fixture";
+        }),
+      unlink: ({ userId }) =>
+        Effect.sync(() => {
+          counts.writes++;
+          counts.t3ChatUsers.push(userId);
         }),
     }),
     input.subscriptions

@@ -79,6 +79,7 @@ import * as ManagedEndpointLifecycle from "../environments/ManagedEndpointLifecy
 import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvider.ts";
 import * as AgentActivityPublisher from "../agentActivity/AgentActivityPublisher.ts";
 import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublishSignatures.ts";
+import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
 
 vi.mock("@clerk/backend", () => ({
   createClerkClient: vi.fn(),
@@ -155,6 +156,7 @@ describe("managed endpoint provisioning errors", () => {
           layerTestLimiter,
           Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
           Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {}),
+          Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false }),
         ),
       ),
       Layer.provideMerge(
@@ -272,6 +274,7 @@ describe("device listing compatibility", () => {
               return Effect.succeed([iphone, android]);
             },
           }),
+          Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false }),
         ),
       ),
       Layer.provideMerge(
@@ -316,6 +319,93 @@ describe("device listing compatibility", () => {
   });
 });
 
+describe("T3 Chat unlink response privacy", () => {
+  it.effect.each([
+    { failed: false, status: 200 },
+    { failed: true, status: 500 },
+  ])("sets credential response headers when unlink returns $status", ({ failed, status }) => {
+    const users: string[] = [];
+    const handlers = RelayHttpApi.layerClientApi.pipe(
+      HttpRouter.provideRequest(
+        Layer.mergeAll(
+          Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),
+          Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+          Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
+          Layer.mock(ManagedEndpointLifecycle.ManagedEndpointLifecycle, {}),
+          Layer.mock(RelayDb.RelayTransactions, {}),
+          Layer.mock(HookInbox.HookInbox, {}),
+        ),
+      ),
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(RelayConfiguration.RelayConfiguration, relaySettings),
+          NodeCryptoLayer.layer,
+          layerTestLimiter,
+          Layer.mock(RelayTokens.RelayTokens, { resolveDpopAccessTokenScopes: () => null }),
+          Layer.mock(EnvironmentLinker.EnvironmentLinker, {}),
+          Layer.mock(EnvironmentLinks.EnvironmentLinks, {}),
+          Layer.mock(ManagedEndpointProvider.ManagedEndpointProvider, {}),
+          Layer.mock(Devices.Devices, {}),
+          Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
+          Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {}),
+          Layer.mock(T3ChatAccounts.T3ChatAccounts, {
+            available: true,
+            unlink: ({ userId }) =>
+              Effect.sync(() => users.push(userId)).pipe(
+                Effect.andThen(
+                  failed
+                    ? Effect.fail(
+                        new T3ChatAccounts.T3ChatRequestFailed({
+                          operation: "unlink",
+                          cause: new Error("fixture upstream failure"),
+                        }),
+                      )
+                    : Effect.void,
+                ),
+              ),
+          }),
+        ),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(RelayClientAuth, {
+          clientBearer: (effect) =>
+            Effect.provideService(effect, RelayClientPrincipal, {
+              userId: "user-1",
+              token: "test-token",
+            }),
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const app = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          HttpRouter.toWebHandler(
+            HttpApiBuilder.layer(HttpApi.make("RelayApi").add(RelayApi.groups.client)).pipe(
+              Layer.provide(handlers),
+              Layer.provide(HttpServer.layerServices),
+            ),
+            { disableLogger: true },
+          ),
+        ),
+        (app) => Effect.promise(() => app.dispose()),
+      );
+      const response = yield* Effect.promise(() =>
+        app.handler(
+          new Request("https://relay.example.test/v1/client/t3chat-link", {
+            method: "DELETE",
+            headers: { authorization: "Bearer test-token" },
+          }),
+        ),
+      );
+      expect(response.status).toBe(status);
+      expect(users).toEqual(["user-1"]);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("pragma")).toBe("no-cache");
+      if (!failed) expect(yield* Effect.promise(() => response.json())).toEqual({ ok: true });
+    }).pipe(Effect.scoped);
+  });
+});
+
 describe("Cloudflare rate-limit retry hint", () => {
   const provisioningFailed = (cause?: unknown) =>
     new ManagedEndpointProvider.ManagedEndpointProvisioningFailed({
@@ -356,6 +446,7 @@ describe("Cloudflare rate-limit retry hint", () => {
           layerTestLimiter,
           Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
           Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {}),
+          Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false }),
         ),
       ),
       Layer.provideMerge(
@@ -1874,6 +1965,7 @@ describe("test Web Push authority and queue acceptance through exported handlers
       });
       const clientHandlers = RelayHttpApi.layerClientApi.pipe(
         Layer.provide(layerTestLimiter),
+        Layer.provide(Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false })),
         HttpRouter.provideRequest(
           Layer.mergeAll(
             Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),

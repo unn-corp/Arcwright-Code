@@ -326,13 +326,16 @@ library failures preserve ordinary transcription. Full dictionary echoes retry o
 The extracted [send owner](../../apps/web/src/components/chat/useComposerSend.ts) snapshots
 author and reply context before asynchronous work. [Timeline rows](../../apps/web/src/components/chat/useTimelineRows.ts)
 and their participant/reply renderers preserve the saved feed choice and per-author grouping.
+Pending approval details live in [timeline approval rows](../../apps/web/src/components/chat/TimelinePendingApprovalRow.tsx);
+[composer approval actions](../../apps/web/src/components/chat/ComposerPendingApprovalActions.tsx)
+retain the response controls alongside the enhanced feed and direct replies.
 The [context encoder](../../apps/web/src/lib/composerMessageContext.ts) selects structured
 context using the destination host's `inlineMessageContext` capability. Hosts on the supported
 protocol can still omit that capability; normal sends, fanout and plan follow-ups retain the
 text fallback so terminal, element, review and preview context reaches the provider.
 Sidebar behavior is shared by [Sidebar.tsx](../../apps/web/src/components/Sidebar.tsx),
-[LegacySidebar.tsx](../../apps/web/src/components/LegacySidebar.tsx), their pointer/drag helpers,
-and [GlanceRail.tsx](../../apps/web/src/components/GlanceRail.tsx).
+[project folder headers](../../apps/web/src/components/sidebar/SidebarProjectFolderHeader.tsx),
+their pointer/drag helpers, and [GlanceRail.tsx](../../apps/web/src/components/GlanceRail.tsx).
 The active sidebar retains grouped collapse and navigation state; extracted
 [thread rows](../../apps/web/src/components/sidebar/SidebarThreadRow.tsx) retain change-request
 snapshots and drag handles, while [shelf markers](../../apps/web/src/components/sidebar/SidebarListMarkers.tsx)
@@ -342,9 +345,9 @@ Grouped repository grips use
 shared pointer lifecycle. Drop destinations include each group's heading, active conversation
 rows and adjacent viewport padding; touch grips are larger without changing the sidebar width.
 Touch and keyboard reordering persist through the existing local project-order store.
-The legacy sidebar retains its dnd-kit project sorting. Keep repository destinations distinct
-from thread state drops, and cancel a pending gesture when search replaces the list or a window
-resizes. [Repository gesture tests](../../apps/web/src/components/Sidebar.repositoryDrag.test.ts)
+Project-folder headers use the same persisted repository order and retain collapsed-thread
+status indicators. Keep repository destinations distinct from thread state drops, and cancel a
+pending gesture when search replaces the list or a window resizes. [Repository gesture tests](../../apps/web/src/components/Sidebar.repositoryDrag.test.ts)
 cover physical members moving together, release positions, clicks, and interrupted gestures.
 Automatic status revalidation in
 [client-runtime](../../packages/client-runtime/src/state/vcsStatusRevalidation.ts) marks requests

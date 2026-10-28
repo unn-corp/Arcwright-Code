@@ -19,13 +19,20 @@ import * as Links from "./EnvironmentLinks.ts";
 import * as Credentials from "./EnvironmentCredentials.ts";
 import * as Allocations from "./ManagedEndpointAllocations.ts";
 import * as Reaper from "./ManagedEndpointReaper.ts";
-import { config, publicationFor } from "./managedEndpointProviderTestFixture.ts";
+import {
+  config,
+  publicationFor,
+  t3ChatDisabledLayer,
+} from "./managedEndpointProviderTestFixture.ts";
 import { layerDb } from "./managedEndpointPostgresFixture.ts";
 
 const repositories = Layer.merge(Links.layer, Credentials.layer).pipe(
   Layer.provide(NodeServices.layer),
 );
-const services = Layer.merge(Lifecycle.layer, Limits.layer).pipe(Layer.provideMerge(repositories));
+const services = Layer.merge(Lifecycle.layer, Limits.layer).pipe(
+  Layer.provideMerge(repositories),
+  Layer.provide(t3ChatDisabledLayer),
+);
 export const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.provide(

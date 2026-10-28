@@ -13,10 +13,15 @@ import * as Schema from "effect/Schema";
 import type { SqlError } from "effect/sql/SqlError";
 
 import * as RelayDb from "../db.ts";
+import {
+  verifiedNativeConnection,
+  verifiedNativeClient,
+} from "../ownedNativePostgres.test-fixture.ts";
 
 // Only this explicitly owned disposable fixture is admissible. No ambient DB
 // variable is consulted, and the schema below belongs exclusively to this suite.
-export const fixtureFile = process.env.RELAY_PWA_TEST_FIXTURE_FILE;
+const nativeFixtureFile = process.env.RELAY_MANAGED_ENDPOINT_TEST_FIXTURE_FILE;
+export const fixtureFile = nativeFixtureFile || process.env.RELAY_PWA_TEST_FIXTURE_FILE;
 export const migrationDirectory = "infra/relay/migrations/postgres";
 export const lifecycleMigration = "20261013154149_managed_endpoint_lifecycle";
 const containerId = "dbc30b134c2b29164e8b69094e4038f3541b24158ac5a60cccbba50f1ef35390";
@@ -71,6 +76,10 @@ export const runFixtureMigrations = (db: RelayDb.RelayDb["Service"], config: Mig
 };
 
 const verifiedConnection = Effect.gen(function* () {
+  if (nativeFixtureFile)
+    return yield* verifiedNativeConnection(nativeFixtureFile).pipe(
+      Effect.catchCause(() => Effect.fail(new FixtureConfigurationRejected())),
+    );
   const fs = yield* FileSystem.FileSystem;
   if (!fixtureFile) return yield* new FixtureConfigurationRejected();
   const connection = yield* decodeConnection(yield* fs.readFileString(fixtureFile)).pipe(
@@ -91,8 +100,8 @@ export const connectionLayer = (
 ) =>
   Layer.unwrap(
     verifiedConnection.pipe(
-      Effect.map((connection) =>
-        PgClient.layer({
+      Effect.map((connection) => {
+        const pool = PgClient.layer({
           host: connection.host,
           port: connection.port,
           database: connection.database,
@@ -105,8 +114,12 @@ export const connectionLayer = (
             search_path: schema,
             ...(lockTimeout ? { lock_timeout: lockTimeout } : {}),
           },
-        }),
-      ),
+        });
+        if (!("dataDirectory" in connection)) return pool;
+        return Layer.effect(PgClient.PgClient, verifiedNativeClient(connection)).pipe(
+          Layer.provide(pool),
+        );
+      }),
     ),
   ).pipe(Layer.provide(NodeFileSystem.layer));
 

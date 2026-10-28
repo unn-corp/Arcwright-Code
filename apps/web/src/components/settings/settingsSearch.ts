@@ -457,6 +457,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "boring-sidebar",
+    title: "Boring sidebar (group by project)",
+    to: "/settings/labs",
+    searchTerms: ["beta folders project tree legacy old classic sidebar"],
+  },
+  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/labs",
@@ -1029,13 +1035,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["response output old compatibility"],
   },
   {
-    id: "legacy-sidebar",
-    scope: null,
-    title: "Sidebar (legacy)",
-    to: "/settings/labs",
-    searchTerms: ["project thread tree old flat list"],
-  },
-  {
     id: "keybindings",
     title: "Keybindings",
     to: "/settings/keybindings",
@@ -1527,6 +1526,7 @@ const LEGACY_SETTINGS_SECTIONS: Readonly<Record<string, { to: SettingsPath; targ
   about: { to: "/settings/about", target: "about" },
   "text-generation": { to: "/settings/threads", target: "text-generation" },
   "legacy-features": { to: "/settings/labs", target: "legacy-features" },
+  "legacy-sidebar": { to: "/settings/labs", target: "boring-sidebar" },
   behavior: { to: "/settings/chat", target: "composer" },
   organization: { to: "/settings/general", target: "sidebar" },
   "projects-and-threads": { to: "/settings/threads", target: "auto-settle" },

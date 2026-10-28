@@ -64,6 +64,7 @@ import * as ManagedEndpointLifecycle from "./environments/ManagedEndpointLifecyc
 import * as ManagedEndpointProvider from "./environments/ManagedEndpointProvider.ts";
 import * as ManagedEndpointReaper from "./environments/ManagedEndpointReaper.ts";
 import * as ManagedTunnelLimits from "./environments/ManagedTunnelLimits.ts";
+import * as T3ChatAccounts from "./t3chat/T3ChatAccounts.ts";
 import * as MobileRegistrations from "./agentActivity/MobileRegistrations.ts";
 import * as WebPushRuntime from "./agentActivity/webPushRuntime.ts";
 import * as WebPushDeliveries from "./agentActivity/WebPushDeliveries.ts";
@@ -168,6 +169,15 @@ export const layer = Api.make(
     const clerkPublishableKey = yield* Config.String("CLERK_PUBLISHABLE_KEY");
     const clerkJwtAudience = yield* Config.String("CLERK_JWT_AUDIENCE");
     const clerkAuthPolicy = yield* loadWorkerClerkAuthPolicy;
+    const t3ChatLinkSecret = Option.getOrUndefined(
+      Option.filter(
+        yield* Config.option(Config.Redacted("T3CHAT_LINK_SECRET")),
+        (value) => Redacted.value(value).trim().length > 0,
+      ),
+    );
+    const t3ChatBaseUrl = yield* Config.String("T3CHAT_URL").pipe(
+      Config.withDefault("https://t3.chat"),
+    );
 
     const cloudMintPrivateKey = yield* cloudMintKeyPair.privateKey;
     const cloudMintPublicKey = yield* cloudMintKeyPair.publicKey;
@@ -260,6 +270,9 @@ export const layer = Api.make(
         managedEndpointCleanupMode,
         legacyManagedEndpointCleanupMode,
         ...(legacyTunnelGraceMinutes === undefined ? {} : { legacyTunnelGraceMinutes }),
+        ...(t3ChatLinkSecret
+          ? { t3Chat: { baseUrl: t3ChatBaseUrl, linkSecret: t3ChatLinkSecret } }
+          : {}),
       });
       yield* RelayConfiguration.resolveClerkAuthPolicy(settings);
       return settings;
@@ -358,6 +371,7 @@ export const layer = Api.make(
           ManagedTunnelLimits.layer,
         ),
       ),
+      Layer.provideMerge(T3ChatAccounts.layer),
       Layer.provideMerge(DeliveryAttempts.layer),
       Layer.provideMerge(RelayTokens.layer),
       Layer.provideMerge(
@@ -671,3 +685,5 @@ export const layer = Api.make(
     ),
   ),
 );
+
+export default layer;

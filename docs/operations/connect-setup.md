@@ -296,10 +296,12 @@ See the [lifecycle constraint](../internals/t3-connect.md)
 before deploying runtime writers.
 
 Managed endpoint admission now reserves capacity atomically per user before Cloudflare work.
-The default is three held reservations; an exact user override may change it. Every allocation
+The default is three held reservations. When optional T3 Chat account linking is configured, a
+verified Pro plan raises the default to ten and Premier to one hundred; a user override remains
+exact. Without an override, missing or failed entitlement lookup retains three. Every allocation
 counts, including incomplete provisioning, failed link or credential issuance, offline, unlinked
-but retained, and released or cleanup-failed rows. Three offline or released reservations can block
-a fourth until full teardown is confirmed and the allocation is removed. Reusing the same user's
+but retained, and released or cleanup-failed rows. At the ordinary default, three offline or released
+reservations can block a fourth until full teardown is confirmed and the allocation is removed. Reusing the same user's
 existing environment allocation remains allowed at capacity and after a limit is lowered.
 Do not delete an allocation merely to make room while its external resources may remain.
 

@@ -7,6 +7,7 @@ import {
   AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
   ProviderInstanceId,
+  SourceControlProviderKind,
   ThreadId,
   AuthOrchestrationOperateScope,
   ORCHESTRATION_V2_WS_METHODS,
@@ -147,6 +148,49 @@ describe("RPC scope middleware", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+it.effect("denies forge sign-in mutations before their handlers without settings permission", () =>
+  Effect.gen(function* () {
+    const methods = [
+      WS_METHODS.sourceControlSignInStart,
+      WS_METHODS.sourceControlSignInWait,
+      WS_METHODS.sourceControlSignInCancel,
+    ] as const;
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof methods)[number]> =>
+          !(methods as ReadonlyArray<string>).includes(tag),
+      ),
+    );
+    let handled = false;
+    const handler = () =>
+      Effect.sync(() => {
+        handled = true;
+      }).pipe(Effect.andThen(Effect.never));
+    const client = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          group.toLayerHandler(WS_METHODS.sourceControlSignInStart, handler),
+          group.toLayerHandler(WS_METHODS.sourceControlSignInWait, handler),
+          group.toLayerHandler(WS_METHODS.sourceControlSignInCancel, handler),
+          RpcAuthorization.layer([AuthOrchestrationReadScope]),
+        ),
+      ),
+    );
+    for (const method of methods) {
+      expect(
+        yield* client[method]({
+          provider: SourceControlProviderKind.make("github"),
+          host: "github.com",
+        }).pipe(Effect.flip),
+      ).toMatchObject({
+        _tag: "EnvironmentAuthorizationError",
+        requiredPermission: AuthSettingsWriteScope,
+      });
+    }
+    expect(handled).toBe(false);
+  }).pipe(Effect.scoped),
+);
 
 describe("settings mutation authorization", () => {
   const group = WsRpcGroup.omit(

@@ -34,6 +34,30 @@ afterEach(() => {
 });
 
 describe("client settings hydration", () => {
+  it("retains a saved legacy sidebar choice until the folder preference explicitly replaces it", async () => {
+    persistenceMocks.getClientSettings.mockResolvedValueOnce({
+      ...DEFAULT_CLIENT_SETTINGS,
+      legacySidebarEnabled: true,
+    });
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings().legacySidebarEnabled).toBe(true);
+    expect(getClientSettings().boringSidebarEnabled).toBe(false);
+
+    await persistClientSettingsPatch({ boringSidebarEnabled: true, legacySidebarEnabled: false });
+    const saved = persistenceMocks.setClientSettings.mock.calls.at(-1)![0];
+    __resetClientSettingsPersistenceForTests();
+    persistenceMocks.getClientSettings.mockResolvedValueOnce(saved);
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings().boringSidebarEnabled).toBe(true);
+    expect(getClientSettings().legacySidebarEnabled).toBe(false);
+
+    await persistClientSettingsPatch({ boringSidebarEnabled: false, legacySidebarEnabled: false });
+    expect(persistenceMocks.setClientSettings.mock.calls.at(-1)![0]).toMatchObject({
+      boringSidebarEnabled: false,
+      legacySidebarEnabled: false,
+    });
+  });
+
   it("retains the standard-thread feed choice after saving and hydrating again", async () => {
     await persistClientSettingsPatch({ standardThreadFeed: "arcwright" });
     const saved = persistenceMocks.setClientSettings.mock.calls.at(-1)![0];

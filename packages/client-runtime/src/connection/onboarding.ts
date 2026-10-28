@@ -98,63 +98,88 @@ function differentMachineError(label: string) {
   });
 }
 
+const preparePairingRoute = Effect.fn("clientRuntime.connection.onboarding.preparePairingRoute")(
+  function* (input: PairingConnectionInput) {
+    const target = yield* resolvePairingTarget(input);
+    const presentation = yield* ClientCapabilities.ClientPresentation;
+    const descriptor = yield* fetchRemoteEnvironmentDescriptor({
+      httpBaseUrl: target.httpBaseUrl,
+    }).pipe(Effect.mapError(mapRemoteEnvironmentError));
+    // Checked before redeeming the one-time code, so a wrong link is not spent.
+    if (
+      input.expectedEnvironmentId !== undefined &&
+      descriptor.environmentId !== input.expectedEnvironmentId
+    ) {
+      return yield* differentMachineError(descriptor.label);
+    }
+    const connectionId = bearerConnectionId(descriptor.environmentId, target.httpBaseUrl);
+    const route = {
+      target: new BearerConnectionTarget({
+        environmentId: descriptor.environmentId,
+        label: descriptor.label,
+        connectionId,
+      }),
+      profile: new BearerConnectionProfile({
+        connectionId,
+        environmentId: descriptor.environmentId,
+        label: descriptor.label,
+        httpBaseUrl: target.httpBaseUrl,
+        wsBaseUrl: target.wsBaseUrl,
+      }),
+    };
+    const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
+    // An outdated server is still saved so it can be updated from this client.
+    if (compatibilityError !== null && compatibilityError.serverUpdateRequired !== true) {
+      return yield* compatibilityError;
+    }
+    return {
+      route,
+      credential: bootstrapRemoteBearerSession({
+        httpBaseUrl: target.httpBaseUrl,
+        credential: target.credential,
+        clientMetadata: presentation.metadata,
+      }).pipe(
+        Effect.map((access) => new BearerConnectionCredential({ token: access.access_token })),
+        Effect.mapError(mapRemoteEnvironmentError),
+      ),
+    };
+  },
+);
+
 export const preparePairingRegistration = Effect.fn(
   "clientRuntime.connection.onboarding.preparePairingRegistration",
 )(function* (input: PairingConnectionInput) {
-  const target = yield* resolvePairingTarget(input);
-  const presentation = yield* ClientCapabilities.ClientPresentation;
-  const descriptor = yield* fetchRemoteEnvironmentDescriptor({
-    httpBaseUrl: target.httpBaseUrl,
-  }).pipe(Effect.mapError(mapRemoteEnvironmentError));
-  // Checked before redeeming the one-time code, so a wrong link is not spent.
-  if (
-    input.expectedEnvironmentId !== undefined &&
-    descriptor.environmentId !== input.expectedEnvironmentId
-  ) {
-    return yield* differentMachineError(descriptor.label);
+  const prepared = yield* preparePairingRoute(input);
+  if (input.expectedEnvironmentId === undefined) {
+    const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+    yield* registry.assertKnownAddress({
+      ...prepared.route,
+      profile: Option.some(prepared.route.profile),
+    });
   }
-  const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
-  // An outdated server is still saved so it can be updated from this client.
-  if (compatibilityError !== null && compatibilityError.serverUpdateRequired !== true) {
-    return yield* compatibilityError;
-  }
-  const access = yield* bootstrapRemoteBearerSession({
-    httpBaseUrl: target.httpBaseUrl,
-    credential: target.credential,
-    clientMetadata: presentation.metadata,
-  }).pipe(Effect.mapError(mapRemoteEnvironmentError));
-  const connectionId = bearerConnectionId(descriptor.environmentId, target.httpBaseUrl);
-
   return new BearerConnectionRegistration({
-    target: new BearerConnectionTarget({
-      environmentId: descriptor.environmentId,
-      label: descriptor.label,
-      connectionId,
-    }),
-    profile: new BearerConnectionProfile({
-      connectionId,
-      environmentId: descriptor.environmentId,
-      label: descriptor.label,
-      httpBaseUrl: target.httpBaseUrl,
-      wsBaseUrl: target.wsBaseUrl,
-    }),
-    credential: new BearerConnectionCredential({
-      token: access.access_token,
-    }),
+    ...prepared.route,
+    credential: yield* prepared.credential,
   });
 });
 
 const registerPairingConnection = Effect.fn(
   "clientRuntime.connection.onboarding.registerPairingConnection",
 )(function* (input: PairingConnectionInput) {
-  const registration = yield* preparePairingRegistration(input);
+  const prepared = yield* preparePairingRoute(input);
   const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-  if (!(yield* registry.register(registration))) return registration.target.environmentId;
-  yield* registry.setCompatibility(registration.target.environmentId, null);
+  const environmentId = prepared.route.target.environmentId;
+  const knownAddressOnly = input.expectedEnvironmentId === undefined;
+  if (
+    !(yield* registry.registerBearer(prepared.route, prepared.credential, { knownAddressOnly }))
+  ) {
+    return environmentId;
+  }
+  yield* registry.setCompatibility(environmentId, null);
   yield* registry
-    .setEnabled(registration.target.environmentId, true)
+    .setEnabled(environmentId, true)
     .pipe(Effect.catchTags({ EnvironmentNotRegisteredError: () => Effect.void }));
-  return registration.target.environmentId;
+  return environmentId;
 });
 
 const isBearerCredential = Schema.is(BearerConnectionCredential);

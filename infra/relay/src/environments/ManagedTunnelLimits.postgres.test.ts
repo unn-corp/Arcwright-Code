@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import { SqlError } from "effect/sql/SqlError";
 
 import * as RelayDb from "../db.ts";
+import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
 import {
   relayEnvironmentLinks,
   relayManagedEndpointAllocations,
@@ -19,7 +20,11 @@ import * as ManagedEndpointAllocations from "./ManagedEndpointAllocations.ts";
 import * as ManagedEndpointProvider from "./ManagedEndpointProvider.ts";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
 import { connectDatabase, fixtureFile, layerDb } from "./managedEndpointPostgresFixture.ts";
-import { publicationFor, deniedProviderLayer } from "./managedEndpointProviderTestFixture.ts";
+import {
+  publicationFor,
+  deniedProviderLayer,
+  t3ChatDisabledLayer,
+} from "./managedEndpointProviderTestFixture.ts";
 
 const isPersistenceError = Schema.is(ManagedTunnelLimits.ManagedTunnelLimitPersistenceError);
 const isSqlError = Schema.is(SqlError);
@@ -32,6 +37,7 @@ const input = (environmentId: string, userId = "user") => ({
 });
 const layer = Layer.merge(ManagedTunnelLimits.layer, ManagedEndpointAllocations.layer).pipe(
   Layer.provideMerge(layerDb),
+  Layer.provideMerge(t3ChatDisabledLayer),
 );
 const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.provide(layer));
 const rowCount = (db: RelayDb.RelayDb["Service"], userId = "user") =>
@@ -57,26 +63,41 @@ const race = <A, E>(effects: ReadonlyArray<Effect.Effect<A, E>>) =>
   });
 
 describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", () => {
-  it.effect("20 concurrent distinct environments admit exactly three reservations", () =>
-    fixture(
-      Effect.gen(function* () {
-        const db = yield* RelayDb.RelayDb;
-        const limits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
-        const results = yield* race(
-          Array.from({ length: 20 }, (_, i) => limits.reserveAllocation(input(`env-${i}`))),
-        );
-        expect(results.filter(Result.isSuccess)).toHaveLength(3);
-        const errors = results.filter(Result.isFailure).map((result) => result.failure);
-        expect(errors).toHaveLength(17);
-        for (const error of errors)
-          expect(error).toMatchObject({
-            _tag: "ManagedTunnelLimitExceeded",
-            maxTunnels: 3,
-            activeTunnels: 3,
-          });
-        expect(yield* rowCount(db)).toBe(3);
-      }),
-    ),
+  it.effect.each([
+    { plan: null, cap: 3, denied: 17 },
+    { plan: "pro", cap: 10, denied: 10 },
+  ] as const)(
+    "20 concurrent environments with $plan admit exactly $cap reservations",
+    ({ plan, cap, denied }) =>
+      fixture(
+        Effect.gen(function* () {
+          const db = yield* RelayDb.RelayDb;
+          const limits =
+            plan === null
+              ? yield* ManagedTunnelLimits.ManagedTunnelLimits
+              : yield* ManagedTunnelLimits.make.pipe(
+                  Effect.provideService(T3ChatAccounts.T3ChatAccounts, {
+                    available: true,
+                    createLinkUrl: () => Effect.die("unused link request"),
+                    getLink: () => Effect.succeed({ email: "fixture@example.test", plan }),
+                    unlink: () => Effect.die("unused unlink"),
+                  }),
+                );
+          const results = yield* race(
+            Array.from({ length: 20 }, (_, i) => limits.reserveAllocation(input(`env-${i}`))),
+          );
+          expect(results.filter(Result.isSuccess)).toHaveLength(cap);
+          const errors = results.filter(Result.isFailure).map((result) => result.failure);
+          expect(errors).toHaveLength(denied);
+          for (const error of errors)
+            expect(error).toMatchObject({
+              _tag: "ManagedTunnelLimitExceeded",
+              maxTunnels: cap,
+              activeTunnels: cap,
+            });
+          expect(yield* rowCount(db)).toBe(cap);
+        }),
+      ),
   );
 
   it.effect("an exact per-user override admits twenty and denies the twenty-first", () =>
@@ -139,7 +160,25 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
     fixture(
       Effect.gen(function* () {
         const db = yield* RelayDb.RelayDb;
-        const limits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
+        const lookups: string[] = [];
+        const limits = yield* ManagedTunnelLimits.make.pipe(
+          Effect.provideService(T3ChatAccounts.T3ChatAccounts, {
+            available: true,
+            createLinkUrl: () => Effect.die("unused link request"),
+            getLink: ({ userId }) =>
+              Effect.sync(() => lookups.push(userId)).pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    new T3ChatAccounts.T3ChatRequestFailed({
+                      operation: "get-link",
+                      cause: new Error("fixture unavailable"),
+                    }),
+                  ),
+                ),
+              ),
+            unlink: () => Effect.die("unused unlink"),
+          }),
+        );
         const existing = yield* limits.reserveAllocation(input("existing"));
         yield* limits.reserveAllocation(input("two"));
         yield* limits.reserveAllocation(input("three"));
@@ -156,6 +195,7 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
           maxTunnels: 1,
           activeTunnels: 3,
         });
+        expect(lookups).toEqual([]);
       }),
     ),
   );

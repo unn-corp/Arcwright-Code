@@ -34,11 +34,15 @@ import {
   type ExpectedManagedLink,
 } from "./managedEndpointLifecycleContracts.ts";
 import { connectDatabase, fixtureFile, layerDb } from "./managedEndpointPostgresFixture.ts";
+import { t3ChatDisabledLayer } from "./managedEndpointProviderTestFixture.ts";
 
 const repositories = Layer.merge(Links.layer, Credentials.layer).pipe(
   Layer.provide(NodeCrypto.layer),
 );
-const services = Layer.merge(Lifecycle.layer, Limits.layer).pipe(Layer.provideMerge(repositories));
+const services = Layer.merge(Lifecycle.layer, Limits.layer).pipe(
+  Layer.provideMerge(repositories),
+  Layer.provide(t3ChatDisabledLayer),
+);
 const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(Layer.fresh(services.pipe(Layer.provideMerge(layerDb)))));
 const key = { userId: "publication-a", environmentId: "publication-env" };

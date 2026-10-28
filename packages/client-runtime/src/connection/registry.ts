@@ -15,6 +15,8 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import { EnvironmentNames } from "./environmentNames.ts";
 import {
+  BearerConnectionRegistration,
+  type BearerConnectionCredential,
   type ConnectionCatalogEntry,
   type ConnectionCredential,
   type ConnectionProfile,
@@ -102,11 +104,30 @@ export class EnvironmentRegistry extends Context.Service<
     readonly start: Effect.Effect<void>;
     /**
      * Succeeds with `false` and changes nothing when the environment is
-     * platform-managed, since the host owns that entry.
+     * platform-managed, since the host owns that entry. With `knownAddressOnly`, it fails like
+     * `assertKnownAddress`, checked under the environment's lease.
      */
     readonly register: (
       registration: ConnectionRegistration,
-    ) => Effect.Effect<boolean, Persistence.ConnectionPersistenceError>;
+      options?: { readonly knownAddressOnly?: boolean },
+    ) => Effect.Effect<boolean, Persistence.ConnectionPersistenceError | ConnectionBlockedError>;
+    /** Keeps the address decision, credential exchange, and registration under one lease. */
+    readonly registerBearer: <E, R>(
+      route: Pick<BearerConnectionRegistration, "target" | "profile">,
+      credential: Effect.Effect<BearerConnectionCredential, E, R>,
+      options?: { readonly knownAddressOnly?: boolean },
+    ) => Effect.Effect<
+      boolean,
+      E | Persistence.ConnectionPersistenceError | ConnectionBlockedError,
+      R
+    >;
+    /**
+     * Fails when the route would add a new address to a saved user environment. Pairing that does
+     * not target an environment checks this, because the server reports its own environment id.
+     */
+    readonly assertKnownAddress: (
+      route: ConnectionRoute,
+    ) => Effect.Effect<void, ConnectionBlockedError>;
     readonly reconcilePlatform: (
       registrations: ReadonlyArray<PlatformConnectionRegistration>,
     ) => Effect.Effect<void>;
@@ -538,8 +559,54 @@ export const make = Effect.gen(function* () {
     return { entry: rest, addressesChanged: true };
   };
 
+  const assertKnownAddress = Effect.fn("EnvironmentRegistry.assertKnownAddress")(function* (
+    route: ConnectionRoute,
+  ) {
+    const environmentId = route.target.environmentId;
+    if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) return;
+    const saved = (yield* SubscriptionRef.get(entries)).get(environmentId);
+    if (
+      saved !== undefined &&
+      findRouteToSameAddress(connectionRoutes(saved), route) === undefined
+    ) {
+      return yield* new ConnectionBlockedError({
+        reason: "configuration",
+        detail: `That address claims to be ${saved.target.label}, which is already saved. Add it as a route from that environment's settings instead.`,
+      });
+    }
+  });
+
+  const registerLocked = Effect.fn("EnvironmentRegistry.registerLocked")(function* (
+    registration: ConnectionRegistration,
+  ) {
+    const registered = connectionRegistrationCatalogEntry(registration);
+    const environmentId = registered.target.environmentId;
+    const route: ConnectionRoute = { target: registered.target, profile: registered.profile };
+    const previous = (yield* SubscriptionRef.get(entries)).get(environmentId);
+    let entry = registered;
+    if (previous !== undefined) {
+      const existing = connectionRoutes(previous);
+      const sameAddress = findRouteToSameAddress(existing, route);
+      const routes = existing.filter(
+        (existing) =>
+          existing !== sameAddress ||
+          connectionRouteId(existing.target) === connectionRouteId(route.target),
+      );
+      const next = withRoutes(previous, upsertRoute(routes, route));
+      if (next.addressesChanged) {
+        yield* forgetRoutingTrust(environmentId, "register-connection");
+      }
+      entry = next.entry;
+    }
+    yield* registrations.register(registration, persistedRoutes(entry));
+    yield* Ref.update(persistedEnvironmentIds, (current) => new Set(current).add(environmentId));
+    yield* installEntryLocked(entry);
+    return true;
+  });
+
   const register = Effect.fn("EnvironmentRegistry.register")(function* (
     registration: ConnectionRegistration,
+    options?: { readonly knownAddressOnly?: boolean },
   ) {
     const registered = connectionRegistrationCatalogEntry(registration);
     const environmentId = registered.target.environmentId;
@@ -549,29 +616,34 @@ export const make = Effect.gen(function* () {
         if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
           return false;
         }
-        const previous = (yield* SubscriptionRef.get(entries)).get(environmentId);
-        let entry = registered;
-        if (previous !== undefined) {
-          const route: ConnectionRoute = { target: registered.target, profile: registered.profile };
-          const existing = connectionRoutes(previous);
-          const sameAddress = findRouteToSameAddress(existing, route);
-          const routes = existing.filter(
-            (existing) =>
-              existing !== sameAddress ||
-              connectionRouteId(existing.target) === connectionRouteId(route.target),
-          );
-          const next = withRoutes(previous, upsertRoute(routes, route));
-          if (next.addressesChanged) {
-            yield* forgetRoutingTrust(environmentId, "register-connection");
-          }
-          entry = next.entry;
+        if (options?.knownAddressOnly === true) {
+          yield* assertKnownAddress(registered);
         }
-        yield* registrations.register(registration, persistedRoutes(entry));
-        yield* Ref.update(persistedEnvironmentIds, (current) =>
-          new Set(current).add(environmentId),
+        return yield* registerLocked(registration);
+      }),
+    );
+  });
+
+  const registerBearer: EnvironmentRegistry["Service"]["registerBearer"] = Effect.fn(
+    "EnvironmentRegistry.registerBearer",
+  )(function* <E, R>(
+    route: Pick<BearerConnectionRegistration, "target" | "profile">,
+    credential: Effect.Effect<BearerConnectionCredential, E, R>,
+    options?: { readonly knownAddressOnly?: boolean },
+  ) {
+    const environmentId = route.target.environmentId;
+    return yield* withLeaseLock(
+      environmentId,
+      Effect.gen(function* () {
+        if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
+          return false;
+        }
+        if (options?.knownAddressOnly === true) {
+          yield* assertKnownAddress({ ...route, profile: Option.some(route.profile) });
+        }
+        return yield* registerLocked(
+          new BearerConnectionRegistration({ ...route, credential: yield* credential }),
         );
-        yield* installEntryLocked(entry);
-        return true;
       }),
     );
   });
@@ -1139,6 +1211,8 @@ export const make = Effect.gen(function* () {
     networkStatus,
     start,
     register,
+    registerBearer,
+    assertKnownAddress,
     reconcilePlatform,
     remove,
     removeRoute,

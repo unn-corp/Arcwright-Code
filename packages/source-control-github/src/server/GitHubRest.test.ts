@@ -19,6 +19,13 @@ import type * as SourceControlHost from "@t3tools/source-control-core/server/Sou
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { makeWithForkApi } from "./driver.ts";
+import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
+
+const appSignedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
+  enabled: false,
+  token: () => Effect.succeedNone,
+  invalidate: () => Effect.void,
+});
 
 const NOW = Date.parse("2026-10-05T12:00:00.000Z");
 
@@ -40,6 +47,8 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
             fingerprint: `${host}:${tokens[0]}`,
           };
         }),
+      saved: () => Effect.succeedNone,
+      fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
       invalidate: () =>
         Effect.sync(() => {
           invalidations++;
@@ -55,7 +64,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
     }),
   );
   const layer = GitHubRest.layer.pipe(
-    Layer.provide(Layer.mergeAll(credentials, http)),
+    Layer.provide(Layer.mergeAll(credentials, http, appSignedOut)),
     Layer.provideMerge(GitHubQuota.layer),
     Layer.provideMerge(SourceControlRateLimit.layer),
   );
@@ -95,14 +104,16 @@ describe("environmentToken", () => {
 describe("GitHubRest", () => {
   it.effect("shares the fork API's quota reserve with the built driver", () => {
     const reset = Math.floor(NOW / 1000) + 600;
-    const { http, requests } = harness(() =>
+    const { http, requests } = harness((request) =>
       json(
-        { title: "A linked issue", body: "Details" },
+        request.url.includes("/user/installations")
+          ? { installations: [] }
+          : { title: "A linked issue", body: "Details" },
         {
           headers: {
             "x-ratelimit-resource": "core",
             "x-ratelimit-limit": "5000",
-            "x-ratelimit-remaining": "499",
+            "x-ratelimit-remaining": request.url.includes("/user/installations") ? "0" : "499",
             "x-ratelimit-reset": String(reset),
           },
         },
@@ -125,6 +136,31 @@ describe("GitHubRest", () => {
         retryAt: NOW + 600_000,
       });
       expect(requests).toHaveLength(1);
+
+      const settings = yield* TestSourceControlHost.TestSourceControlHostSettings;
+      yield* settings.update({
+        sourceControlHosts: {
+          github: {
+            signIns: {
+              "github.com": JSON.stringify({
+                accessToken: "fixture-app-token",
+                accessTokenExpiresAt: null,
+                refreshToken: null,
+                refreshTokenExpiresAt: null,
+              }),
+            },
+          },
+        },
+      });
+      expect(instance.signIn).toBeDefined();
+      expect(yield* instance.signIn!.access("github.com", "acme/web")).toBe("not-covered");
+      expect(requests).toHaveLength(2);
+      expect(
+        yield* Effect.flip(
+          api.rest({ host: "github.com", operation: "forkRead", path: "user", allowReserve: true }),
+        ),
+      ).toMatchObject({ _tag: "SourceControlRateLimitPausedError", retryAt: NOW + 600_000 });
+      expect(requests).toHaveLength(2);
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -136,9 +172,82 @@ describe("GitHubRest", () => {
           TestSourceControlHost.layer(),
         ),
       ),
-      Effect.provideService(HostProcess.Environment, { GH_TOKEN: "fixture-token" }),
+      Effect.provideService(HostProcess.Environment, {
+        GH_TOKEN: "fixture-token",
+        T3CODE_GITHUB_APP_CLIENT_ID: "fixture-client",
+      }),
     );
   });
+
+  it.effect.each(["NOT_FOUND", "FORBIDDEN"])(
+    "hands a fork GraphQL %s app refusal to a personal token while keeping project pins strict",
+    (type) => {
+      const answer = { data: { viewer: { login: "personal" } } };
+      const { http, requests } = harness((request) =>
+        json(
+          request.headers.authorization === "Bearer fixture-token"
+            ? answer
+            : { data: { viewer: null }, errors: [{ type, message: "Repository unavailable" }] },
+        ),
+      );
+      return Effect.gen(function* () {
+        const settings = yield* TestSourceControlHost.TestSourceControlHostSettings;
+        yield* settings.update({
+          sourceControlHosts: {
+            github: {
+              signIns: {
+                "github.com": JSON.stringify({
+                  accessToken: "fixture-app-token",
+                  accessTokenExpiresAt: null,
+                  refreshToken: null,
+                  refreshTokenExpiresAt: null,
+                }),
+              },
+            },
+          },
+        });
+        const { api } = yield* makeWithForkApi;
+        const request = {
+          host: "github.com",
+          operation: "forkRead",
+          query: "query { viewer { login } }",
+        };
+        expect(JSON.parse(yield* api.graphql(request))).toEqual(answer);
+        expect(requests.map((request) => request.headers.authorization)).toEqual([
+          "Bearer fixture-app-token",
+          "Bearer fixture-token",
+        ]);
+
+        const pinned = yield* Effect.flip(
+          api.graphql(request).pipe(
+            Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
+              host: "github.com",
+              token: Redacted.make("fixture-project-token"),
+              credentialFingerprint: "fixture-project",
+            }),
+          ),
+        );
+        expect(pinned._tag).toBe("GitHubApiResponseError");
+        expect(requests).toHaveLength(3);
+        expect(requests.at(-1)?.headers.authorization).toBe("Bearer fixture-project-token");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            http,
+            NodeCrypto.layer,
+            NodeFileSystem.layer,
+            SourceControlRateLimit.layer,
+            TestSourceControlHost.layer(),
+          ),
+        ),
+        Effect.provideService(HostProcess.Environment, {
+          GH_TOKEN: "fixture-token",
+          T3CODE_GITHUB_APP_CLIENT_ID: "fixture-client",
+        }),
+      );
+    },
+  );
 
   it.effect("traces the operation, path and quota, never the query string or the token", () => {
     const spans: Array<Tracer.NativeSpan> = [];
@@ -309,10 +418,14 @@ describe("GitHubRest", () => {
 });
 
 describe("GitHubCredentials", () => {
+  const unexpectedHttp = HttpClient.make((request) =>
+    Effect.die(`Unexpected request to ${request.url}`),
+  );
   const credentialsWith = (run: SourceControlHost.SourceControlHost["Service"]["process"]["run"]) =>
     GitHubCredentials.layer.pipe(
       Layer.provide(TestSourceControlHost.layer({ process: { run } })),
       Layer.provide(NodeCrypto.layer),
+      Layer.provide(Layer.succeed(HttpClient.HttpClient, unexpectedHttp)),
     );
 
   it.effect("does not cache a gh failure that is not about signing in", () => {

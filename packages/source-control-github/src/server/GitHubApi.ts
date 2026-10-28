@@ -116,6 +116,15 @@ export const make = Effect.gen(function* () {
                   } catch {
                     return { ...meta, _tag: "Failed" };
                   }
+                  const withheld =
+                    Array.isArray(errors) &&
+                    errors.some(
+                      (error: unknown) =>
+                        typeof error === "object" &&
+                        error !== null &&
+                        "type" in error &&
+                        (error.type === "NOT_FOUND" || error.type === "FORBIDDEN"),
+                    );
                   if (
                     Policy.isRateLimited({
                       ...meta,
@@ -131,7 +140,7 @@ export const make = Effect.gen(function* () {
                     response.status < 300 &&
                     (!Array.isArray(errors) ? errors === undefined : errors.length === 0)
                     ? { ...meta, _tag: "Ok", value: body.text }
-                    : { ...meta, _tag: "Failed" };
+                    : { ...meta, _tag: "Failed", withheld };
                 }),
               ),
             ),

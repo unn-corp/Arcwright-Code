@@ -4,13 +4,25 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ManagedAuthContext, type ManagedAuth } from "../../auth/managedAuthContext";
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "./T3ConnectSidebarSignIn";
 import { useT3ConnectAccountPage } from "./T3ConnectAccountPages";
+import type { CloudPublicConfig } from "../../cloud/publicConfig";
 
 vi.mock("@clerk/react", () => ({
   UserButton: () => {
     throw new Error("Native UI must not mount a web Clerk UserButton");
   },
 }));
-vi.mock("../../cloud/publicConfig", () => ({ hasCloudPublicConfig: () => true }));
+vi.mock("../../cloud/publicConfig", () => ({
+  hasCloudPublicConfig: () => true,
+  resolveRelayTracingConfig: () => null,
+  resolveCloudPublicConfig: (): CloudPublicConfig => ({
+    connectMode: "cloudless",
+    hostedAppUrl: null,
+    clerkPublishableKey: null,
+    clerkJwtTemplate: null,
+    relayUrl: null,
+    relayTracing: { tracesUrl: null, tracesDataset: null, tracesToken: null },
+  }),
+}));
 vi.mock("./T3ConnectUserProfilePage", () => ({
   T3ConnectUserProfilePage: () => <p>Existing Connect account content</p>,
 }));

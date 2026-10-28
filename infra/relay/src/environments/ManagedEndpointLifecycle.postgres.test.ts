@@ -26,11 +26,13 @@ import {
   type OperationKind,
 } from "./managedEndpointLifecycleContracts.ts";
 import { connectDatabase, fixtureFile, layerDb } from "./managedEndpointPostgresFixture.ts";
+import { t3ChatDisabledLayer } from "./managedEndpointProviderTestFixture.ts";
 
 const layer = Layer.merge(Lifecycle.layer, Limits.layer).pipe(
   Layer.provideMerge(Layer.merge(EnvironmentLinks.layer, EnvironmentCredentials.layer)),
   Layer.provide(NodeCrypto.layer),
   Layer.provideMerge(layerDb),
+  Layer.provide(t3ChatDisabledLayer),
 );
 const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(Layer.fresh(layer)));

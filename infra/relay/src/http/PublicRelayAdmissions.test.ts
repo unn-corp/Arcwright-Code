@@ -40,6 +40,9 @@ const accountOperations = [
   "listEnvironments",
   "listDevices",
   "listDevicesV2",
+  "getT3ChatLink",
+  "createT3ChatLinkRequest",
+  "unlinkT3Chat",
   "getWebPushConfig",
   "createEnvironmentLinkChallenge",
   "linkEnvironment",
@@ -71,6 +74,7 @@ const downstreamZero = (c: ReturnType<typeof counters>) => {
   expect(c.queues).toBe(0);
   expect(c.uuid).toBe(0);
   expect(c.signing).toBe(0);
+  expect(c.t3ChatUsers).toEqual([]);
 };
 const assertLimited = Effect.fnUntraced(function* (response: Response, mode: "deny" | "outage") {
   expect(response.status).toBe(mode === "deny" ? 429 : 503);
@@ -88,6 +92,40 @@ const assertLimited = Effect.fnUntraced(function* (response: Response, mode: "de
   }
 });
 describe("verified public relay admissions through production assembly", () => {
+  it.effect.each([
+    ["getT3ChatLink", { available: true, link: { email: "fixture@example.test", plan: "pro" } }],
+    ["createT3ChatLinkRequest", { url: "https://chat.example.test/link/t3code?token=fixture" }],
+    ["unlinkT3Chat", { ok: true }],
+  ] as const)("%s uses only the verified account identity", ([operation, body]) =>
+    Effect.gen(function* () {
+      const c = counters();
+      const endpoint = yield* fixture({ counts: c, admit: () => Effect.void });
+      const response = yield* send(endpoint, yield* requestForOperation(operation));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(yield* Effect.promise(() => response.json())).toEqual(body);
+      expect(c.t3ChatUsers).toEqual(["user_verified"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("unconfigured T3 Chat status does not contact an account service", () =>
+    Effect.gen(function* () {
+      const c = counters();
+      const endpoint = yield* fixture({
+        counts: c,
+        admit: () => Effect.void,
+        t3ChatAvailable: false,
+      });
+      const response = yield* send(endpoint, yield* requestForOperation("getT3ChatLink"));
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        available: false,
+        link: null,
+      });
+      downstreamZero(c);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect.each(["deny", "outage"] as const)(
     "%s before account business reads with real Clerk verification",
     (mode) =>

@@ -850,52 +850,91 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("gives a background subagent the rules of a mode changed while it runs", () =>
-    Effect.gen(function* () {
-      const { runtime, thread } = yield* resumed([
-        ...backgroundLaunch(CHILD),
-        event("session.execution.succeeded", { sessionID: SESSION }),
-        out("agent.list", "<any>"),
-        reply("agent.list", agentList),
-        out("session.update", { sessionID: SESSION, permissions: supervisedRules }),
-        reply("session.update", null),
-        out("session.update", {
-          sessionID: CHILD,
-          permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
-        }),
-        reply("session.update", null),
-        out("session.prompt", { sessionID: SESSION, text: "<any>" }),
-        promptAccepted,
-        event("session.execution.succeeded", { sessionID: SESSION }),
-      ]);
-      const firstEnded = yield* Deferred.make<void>();
-      const ended = yield* runtime.events.pipe(
-        Stream.filter(
-          (
-            event,
-          ): event is Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "turn.terminal" }> =>
-            event.type === "turn.terminal",
-        ),
-        Stream.tap(() => Deferred.succeed(firstEnded, undefined)),
-        Stream.take(2),
-        Stream.runCollect,
-        Effect.forkScoped,
-      );
-      yield* runtime.startTurn(withLineage(thread));
-      yield* Deferred.await(firstEnded);
-      yield* runtime.startTurn({
-        ...withLineage(thread),
-        runId: RunId.make("run:opencode2-adapter:2"),
-        runOrdinal: 2,
-        providerTurnOrdinal: 2,
-        attemptId: RunAttemptId.make("attempt:opencode2-adapter:2"),
-        runtimePolicy: policy("approval-required"),
-      });
-      assert.deepEqual(
-        [...(yield* Fiber.join(ended))].map((terminal) => terminal.status),
-        ["completed", "completed"],
-      );
-    }).pipe(Effect.scoped),
+  it.effect.each([
+    { via: "resume", childFailure: false },
+    { via: "turn", childFailure: false },
+    { via: "resume", childFailure: true },
+  ] as const)(
+    "updates background subagent rules on $via with child failure $childFailure",
+    ({ via, childFailure }) =>
+      Effect.gen(function* () {
+        const { runtime, thread } = yield* resumed([
+          ...backgroundLaunch(CHILD),
+          event("session.execution.succeeded", { sessionID: SESSION }),
+          ...(via === "resume"
+            ? [out("session.get", { sessionID: SESSION }), replyData("session.get", sessionInfo())]
+            : []),
+          out("agent.list", "<any>"),
+          reply("agent.list", agentList),
+          out("session.update", { sessionID: SESSION, permissions: supervisedRules }),
+          reply("session.update", null),
+          out("session.update", {
+            sessionID: CHILD,
+            permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
+          }),
+          reply(
+            "session.update",
+            childFailure
+              ? { status: 500, body: { _tag: "UnknownError", message: "child rules failed" } }
+              : null,
+          ),
+          ...(childFailure
+            ? [
+                out("session.get", { sessionID: SESSION }),
+                replyData("session.get", sessionInfo({ permissions: supervisedRules })),
+                out("session.update", {
+                  sessionID: CHILD,
+                  permissions: [...supervisedRules.slice(0, 3), ...mcpRules],
+                }),
+                reply("session.update", null),
+              ]
+            : []),
+          out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+          promptAccepted,
+          event("session.execution.succeeded", { sessionID: SESSION }),
+        ]);
+        const firstEnded = yield* Deferred.make<void>();
+        const ended = yield* runtime.events.pipe(
+          Stream.filter(
+            (
+              event,
+            ): event is Extract<
+              ProviderAdapter.ProviderAdapterV2Event,
+              { type: "turn.terminal" }
+            > => event.type === "turn.terminal",
+          ),
+          Stream.tap(() => Deferred.succeed(firstEnded, undefined)),
+          Stream.take(2),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* runtime.startTurn(withLineage(thread));
+        yield* Deferred.await(firstEnded);
+        if (via === "resume") {
+          const resume = runtime.resumeThread({
+            providerThread: thread,
+            threadId,
+            modelSelection: bigPickle,
+            runtimePolicy: policy("approval-required"),
+          });
+          if (childFailure) {
+            assert.equal((yield* Effect.flip(resume))._tag, "ProviderAdapterResumeThreadError");
+          }
+          yield* resume;
+        }
+        yield* runtime.startTurn({
+          ...withLineage(thread),
+          runId: RunId.make("run:opencode2-adapter:2"),
+          runOrdinal: 2,
+          providerTurnOrdinal: 2,
+          attemptId: RunAttemptId.make("attempt:opencode2-adapter:2"),
+          runtimePolicy: policy("approval-required"),
+        });
+        assert.deepEqual(
+          [...(yield* Fiber.join(ended))].map((terminal) => terminal.status),
+          ["completed", "completed"],
+        );
+      }).pipe(Effect.scoped),
   );
 
   it.effect("keeps a finished background subagent's queued report as pending work", () =>
@@ -4066,6 +4105,10 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
             status: 500,
             body: { _tag: "UnknownError", message: "interrupt failed" },
           }),
+          out("session.update", { sessionID: CHILD, permissions: t3Rules }),
+          reply("session.update", null),
+          out("session.update", { sessionID: CHILD_B, permissions: t3Rules }),
+          reply("session.update", null),
           out("session.prompt", { sessionID: SESSION, text: "<any>" }),
           promptAccepted,
           event("session.execution.started", { sessionID: SESSION }),

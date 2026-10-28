@@ -17,6 +17,8 @@ export const faultDatabaseLayer = (input: {
   readonly defectAt?: string;
   readonly emptyInsert?: boolean;
   readonly calls?: string[];
+  readonly activeTunnels?: number;
+  readonly maxTunnels?: number;
 }) =>
   Layer.effect(
     RelayDb.RelayDb,
@@ -59,7 +61,9 @@ export const faultDatabaseLayer = (input: {
                 null,
               ],
             ]);
-          if (query.includes("count(*)")) return Effect.succeed([[0]]);
+          if (query.includes("count(*)")) return Effect.succeed([[input.activeTunnels ?? 0]]);
+          if (query.includes('from "relay_managed_tunnel_limits"'))
+            return Effect.succeed(input.maxTunnels === undefined ? [] : [[input.maxTunnels]]);
           return Effect.succeed([]);
         });
       const connection = {

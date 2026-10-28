@@ -2787,6 +2787,16 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       state.policy = policy;
     });
 
+    const writeSessionRules = Effect.fnUntraced(function* (
+      state: ThreadState,
+      policy: RulesPolicy,
+    ) {
+      // A mode change must reach every loaded descendant before the parent can continue.
+      for (const target of sessionsOf(state)) {
+        yield* writeRules(target, policy).pipe(Effect.timeout(REQUEST_REPLY_TIMEOUT));
+      }
+    });
+
     const writeTitle = Effect.fnUntraced(function* (state: ThreadState, title: string) {
       const next = title.trim();
       // An empty title asks OpenCode to generate one.
@@ -3461,7 +3471,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           const loaded = threads.has(sessionId);
           const state = register(providerThread, native, cwd ?? native.location.directory);
           if (!loaded) yield* stopLeftoverRequests(state);
-          yield* writeRules(state, threadInput.runtimePolicy ?? state.policy);
+          yield* writeSessionRules(state, threadInput.runtimePolicy ?? state.policy);
           if (cwd != null && native.location.directory !== cwd) {
             yield* client.session.move({
               sessionID: Session.ID.make(sessionId),
@@ -3573,19 +3583,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
                 });
                 state.agent = agent;
               }
-              // Refresh stale mode rules; running subagent updates are best effort because they outlive this turn.
-              yield* writeRules(state, turnInput.runtimePolicy);
+              yield* writeSessionRules(state, turnInput.runtimePolicy);
               yield* writeTitle(state, turnInput.appThread.title).pipe(
                 Effect.timeout(REQUEST_REPLY_TIMEOUT),
                 Effect.ignore({ log: true }),
               );
-              for (const call of runningCalls(state)) {
-                if (call.child === undefined) continue;
-                yield* writeRules(call.child, turnInput.runtimePolicy).pipe(
-                  Effect.timeout(REQUEST_REPLY_TIMEOUT),
-                  Effect.ignore({ log: true }),
-                );
-              }
               if (!sameModel(model, state.model)) {
                 yield* client.session.switchModel({ sessionID: Session.ID.make(sessionId), model });
                 state.model = model;

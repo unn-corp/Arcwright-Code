@@ -51,6 +51,7 @@ describe("collapsed thread statuses", () => {
         [
           { ...failed("question"), hasPendingUserInput: true, hasPendingApprovals: true },
           makeThreadFixture({ id: ThreadId.make("approval"), hasPendingApprovals: true }),
+          makeThreadFixture({ id: ThreadId.make("guest-request"), pendingGuestMessageCount: 1 }),
           failed("failed"),
           {
             ...failed("limited"),
@@ -62,7 +63,7 @@ describe("collapsed thread statuses", () => {
         ],
         {},
       ),
-    ).toEqual({ input: 2, failed: 2, done: 1 });
+    ).toEqual({ input: 3, failed: 2, done: 1 });
   });
 
   it("keeps historical failures out of Snoozed and Settled summaries", () => {

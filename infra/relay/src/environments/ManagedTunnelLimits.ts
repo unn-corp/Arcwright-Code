@@ -4,9 +4,11 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { T3CHAT_PLAN_TUNNEL_LIMITS } from "@t3tools/contracts/relay";
 
 import * as RelayDb from "../db.ts";
 import { transactionActive } from "../runtimePostgres.ts";
+import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
 import {
   relayManagedEndpointAllocations,
   relayManagedTunnelLimits,
@@ -73,6 +75,22 @@ export class ManagedTunnelLimits extends Context.Service<
 
 export const make = Effect.gen(function* () {
   const db = yield* RelayDb.RelayDb;
+  const t3Chat = yield* T3ChatAccounts.T3ChatAccounts;
+
+  // Asked only at the cap, so most links never call T3 Chat. Any failure keeps the lower cap.
+  const t3ChatTunnelLimit = Effect.fn("relay.managed_tunnel_limits.t3chat_limit")(
+    (userId: string) =>
+      t3Chat.getLink({ userId }).pipe(
+        Effect.map((link) =>
+          link && link.plan !== "free" ? T3CHAT_PLAN_TUNNEL_LIMITS[link.plan] : 0,
+        ),
+        Effect.catch((error) =>
+          Effect.logWarning("T3 Chat plan check failed", { userId, error: error.message }).pipe(
+            Effect.as(0),
+          ),
+        ),
+      ),
+  );
 
   return ManagedTunnelLimits.of({
     reserveAllocation: Effect.fn("relay.managed_tunnel_limits.reserve_allocation")(
@@ -133,7 +151,7 @@ export const make = Effect.gen(function* () {
                   .where(eq(relayManagedTunnelLimits.userId, input.userId))
                   .limit(1),
               );
-              const maxTunnels = overrides[0]?.maxTunnels ?? DEFAULT_MANAGED_TUNNEL_LIMIT;
+              const baseMaxTunnels = overrides[0]?.maxTunnels ?? DEFAULT_MANAGED_TUNNEL_LIMIT;
               const counted = yield* persist(
                 "count-tunnels",
                 db
@@ -142,6 +160,11 @@ export const make = Effect.gen(function* () {
                   .where(eq(relayManagedEndpointAllocations.userId, input.userId)),
               );
               const activeTunnels = counted[0]?.activeTunnels ?? 0;
+              // Manual overrides remain exact; plan lookups only raise the default at capacity.
+              const maxTunnels =
+                activeTunnels >= baseMaxTunnels && t3Chat.available && overrides.length === 0
+                  ? Math.max(baseMaxTunnels, yield* t3ChatTunnelLimit(input.userId))
+                  : baseMaxTunnels;
               if (activeTunnels >= maxTunnels) {
                 return yield* new ManagedTunnelLimitExceeded({
                   userId: input.userId,

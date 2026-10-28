@@ -69,6 +69,7 @@ def main():
         print("[relay-postgres] Owned PostgreSQL fixture ready; TCP disabled.", flush=True)
         child = subprocess.Popen(command, env={
             **os.environ, "RELAY_ACCOUNT_DELETION_TEST_FIXTURE_FILE": str(receipt),
+            "RELAY_MANAGED_ENDPOINT_TEST_FIXTURE_FILE": str(receipt),
         }, start_new_session=True)
         result = child.wait()
     except KeyboardInterrupt:

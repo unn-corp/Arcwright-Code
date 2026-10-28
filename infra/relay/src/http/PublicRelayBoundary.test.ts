@@ -120,7 +120,10 @@ function fixtureRoutes(
             : handlers.handleRaw("createEnvironmentLinkChallenge", handle),
         )
         .handleRaw("unlinkEnvironment", handle)
-        .handleRaw("releaseEnvironmentTunnel", handle),
+        .handleRaw("releaseEnvironmentTunnel", handle)
+        .handleRaw("getT3ChatLink", handle)
+        .handleRaw("createT3ChatLinkRequest", handle)
+        .handleRaw("unlinkT3Chat", handle),
     ),
     HttpApiBuilder.group(RelayApi, "token", (handlers) =>
       handlers.handleRaw("exchangeDpopAccessToken", handle),

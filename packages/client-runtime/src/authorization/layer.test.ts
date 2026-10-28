@@ -1,4 +1,8 @@
-import { AuthStandardClientScopes, EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthStandardClientScopes,
+  EnvironmentId,
+  ORCHESTRATION_PROTOCOL_VERSION,
+} from "@t3tools/contracts";
 import {
   RelayRateLimitExceededError,
   type RelayEnvironmentConnectResponse,
@@ -13,7 +17,11 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as ConnectionDriver from "../connection/driver.ts";
-import { BearerConnectionProfile, type ConnectionCatalogEntry } from "../connection/catalog.ts";
+import {
+  BearerConnectionCredential,
+  BearerConnectionProfile,
+  type ConnectionCatalogEntry,
+} from "../connection/catalog.ts";
 import { BearerConnectionTarget } from "../connection/model.ts";
 import type * as RpcSession from "../rpc/session.ts";
 import * as TestClock from "effect/testing/TestClock";
@@ -23,6 +31,9 @@ import * as RpcHttp from "../rpc/http.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteEnvironmentAuthorization from "./service.ts";
 import * as TokenStore from "./tokenStore.ts";
+import * as ConnectionCredentialStore from "../connection/credentialStore.ts";
+import * as ConnectionProfileStore from "../connection/profileStore.ts";
+import * as ConnectionResolver from "../connection/resolver.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-1");
 const ENDPOINT = {
@@ -179,6 +190,9 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
     createEnvironmentLinkChallenge: unexpected,
     linkEnvironment: unexpected,
     unlinkEnvironment: unexpected,
+    getT3ChatLink: unexpected,
+    createT3ChatLinkRequest: unexpected,
+    unlinkT3Chat: unexpected,
     getEnvironmentStatus: unexpected,
     connectEnvironment: (request) =>
       Effect.gen(function* () {
@@ -194,7 +208,7 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
     resetTokenCache: Effect.void,
   });
   const layer = RemoteEnvironmentAuthorization.layer.pipe(
-    Layer.provide(
+    Layer.provideMerge(
       Layer.mergeAll(
         RpcHttp.layerRemoteHttpClient(fetch.fetchFn),
         Layer.succeed(ManagedRelay.ManagedRelayDpopSigner, signer),
@@ -233,13 +247,124 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
   };
 });
 
+const prepareDirectBearer = Effect.fn("TestRemoteAuthorization.prepareDirectBearer")(function* (
+  harness: Effect.Success<ReturnType<typeof makeHarness>>,
+  times: number,
+) {
+  const target = new BearerConnectionTarget({
+    environmentId: ENVIRONMENT_ID,
+    label: DESCRIPTOR.label,
+    connectionId: "direct-1",
+  });
+  const entry = {
+    target,
+    profile: Option.some(
+      new BearerConnectionProfile({
+        connectionId: target.connectionId,
+        environmentId: ENVIRONMENT_ID,
+        label: target.label,
+        httpBaseUrl: ENDPOINT.httpBaseUrl,
+        wsBaseUrl: ENDPOINT.wsBaseUrl,
+      }),
+    ),
+    enabled: true,
+  };
+  const unused = () => Effect.die("unused");
+  const layer = ConnectionResolver.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        harness.layer,
+        Layer.succeed(ConnectionProfileStore.ConnectionProfileStore, {
+          get: unused,
+          put: unused,
+          remove: unused,
+        }),
+        Layer.succeed(ConnectionCredentialStore.ConnectionCredentialStore, {
+          get: () => Effect.succeedSome(new BearerConnectionCredential({ token: "bearer-token" })),
+          put: unused,
+          remove: unused,
+        }),
+        Layer.succeed(ClientCapabilities.PrimaryEnvironmentAuth, {
+          bearerToken: Effect.succeedNone,
+        }),
+        Layer.succeed(ClientCapabilities.SshEnvironmentGateway, {
+          provision: unused,
+          prepare: unused,
+          disconnect: unused,
+        }),
+      ),
+    ),
+  );
+  const resolver = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layer));
+  return yield* Effect.forEach(Array.from({ length: times }), () =>
+    resolver.prepare(entry).pipe(Effect.result),
+  );
+});
+
 describe("RemoteEnvironmentAuthorization", () => {
-  it.effect("reuses a validated bearer descriptor while issuing fresh websocket tickets", () =>
+  it.effect("prepares a cold direct bearer connection with one descriptor request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        responses: [
+          Response.json({
+            ...DESCRIPTOR,
+            orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+          }),
+          websocketTicket("cold-ticket"),
+        ],
+      });
+
+      const [prepared] = yield* prepareDirectBearer(harness, 1);
+
+      expect(prepared).toMatchObject({
+        _tag: "Success",
+        success: { socketUrl: expect.stringContaining("wsTicket=cold-ticket") },
+      });
+      expect(harness.fetch.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+        "/.well-known/t3/environment",
+        "/api/auth/websocket-ticket/rpc",
+      ]);
+    }),
+  );
+
+  it.effect("blocks a warm direct bearer prepare when the environment changes identity", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        responses: [
+          Response.json({
+            ...DESCRIPTOR,
+            orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+          }),
+          websocketTicket("first-ticket"),
+          Response.json({
+            ...DESCRIPTOR,
+            environmentId: "another-environment",
+            orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+          }),
+        ],
+      });
+
+      const [first, second] = yield* prepareDirectBearer(harness, 2);
+
+      expect(first?._tag).toBe("Success");
+      expect(second).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "ConnectionBlockedError", reason: "configuration" },
+      });
+      expect(
+        harness.fetch.calls.filter(([url]) =>
+          String(url).endsWith("/api/auth/websocket-ticket/rpc"),
+        ),
+      ).toHaveLength(1);
+    }),
+  );
+  it.effect("validates a fresh bearer descriptor while issuing fresh websocket tickets", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         responses: [
           Response.json(DESCRIPTOR),
           websocketTicket("first-ticket"),
+          Response.json(DESCRIPTOR),
           websocketTicket("second-ticket"),
         ],
       });
@@ -261,7 +386,7 @@ describe("RemoteEnvironmentAuthorization", () => {
       expect(second.socketUrl).toContain("wsTicket=second-ticket");
       expect(
         harness.fetch.calls.filter(([url]) => String(url).endsWith("/.well-known/t3/environment")),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
       expect(
         harness.fetch.calls.filter(([url]) =>
           String(url).endsWith("/api/auth/websocket-ticket/rpc"),
@@ -1009,9 +1134,14 @@ it.effect(
           deny ? Effect.fail(rateLimitedBootstrap("relay-delay-trace")) : Effect.void,
         ),
         responses: [
+          // Every learned-direct attempt validates its address before using cached authorization.
+          Response.json(DESCRIPTOR),
+          Response.json(DESCRIPTOR),
           Response.json(DESCRIPTOR),
           websocketTicket("cached-direct"),
           Response.json(DESCRIPTOR),
+          Response.json(DESCRIPTOR),
+          // A fresh relay bootstrap validates its own endpoint before exchanging the token.
           Response.json(DESCRIPTOR),
           accessToken("fresh-access"),
           websocketTicket("fresh-direct"),
@@ -1046,6 +1176,22 @@ it.effect(
         const fresh = yield* connectLearnedDirect(remote);
         expect(fresh.prepared.httpAuthorization).toMatchObject({ accessToken: "fresh-access" });
         expect(yield* Ref.get(harness.bootstrapCalls)).toBe(2);
+        expect(
+          harness.fetch.calls.map(([url]) => {
+            const requested = new URL(String(url));
+            return `${requested.origin}${requested.pathname}`;
+          }),
+        ).toEqual([
+          "http://192.168.1.10:3773/.well-known/t3/environment",
+          "http://192.168.1.10:3773/.well-known/t3/environment",
+          "http://192.168.1.10:3773/.well-known/t3/environment",
+          "http://192.168.1.10:3773/api/auth/websocket-ticket/rpc",
+          "http://192.168.1.10:3773/.well-known/t3/environment",
+          "http://192.168.1.10:3773/.well-known/t3/environment",
+          "https://environment.example.test/.well-known/t3/environment",
+          "https://environment.example.test/oauth/token",
+          "http://192.168.1.10:3773/api/auth/websocket-ticket/rpc",
+        ]);
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.provide(TestClock.layer())),
 );

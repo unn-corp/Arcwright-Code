@@ -1313,7 +1313,17 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             },
           },
           sourceControlHosts: {
-            github: { tokens: { "github.com": "github-secret" } },
+            github: {
+              tokens: { "github.com": "github-secret" },
+              signIns: {
+                "github.com": JSON.stringify({
+                  accessToken: "app-access-secret",
+                  accessTokenExpiresAt: null,
+                  refreshToken: "app-refresh-secret",
+                  refreshTokenExpiresAt: null,
+                }),
+              },
+            },
             bitbucket: { email: "me@example.test", accessToken: "bitbucket-secret" },
             gitcafe: { token: "gitcafe-secret" },
           },
@@ -1341,6 +1351,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           "config-secret",
           "env-secret",
           "github-secret",
+          "app-access-secret",
+          "app-refresh-secret",
           "bitbucket-secret",
           "gitcafe-secret",
           "quota-secret",
@@ -1403,6 +1415,11 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             serverHost: "github.com",
           }),
           sourceControlHostSecretName({
+            kind: "github",
+            field: "signIns",
+            serverHost: "github.com",
+          }),
+          sourceControlHostSecretName({
             kind: "bitbucket",
             field: "accessToken",
             serverHost: null,
@@ -1416,7 +1433,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         yield* service.updateSettings({
           providerInstances: {},
           sourceControlHosts: {
-            github: { tokens: {} },
+            github: { tokens: {}, signIns: {} },
             bitbucket: { accessToken: "" },
             gitcafe: { token: "" },
           },

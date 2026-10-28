@@ -13,6 +13,11 @@ import { RelayEnvironmentLinkProofPayload } from "@t3tools/contracts/relay";
 import type { ProvisionPublication } from "./managedEndpointLifecycleContracts.ts";
 import * as Schema from "effect/Schema";
 import * as ManagedTunnelLimits from "./ManagedTunnelLimits.ts";
+import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
+
+export const t3ChatDisabledLayer = Layer.mock(T3ChatAccounts.T3ChatAccounts, {
+  available: false,
+});
 
 export const config = RelayConfiguration.RelayConfiguration.of({
   relayIssuer: "https://relay.example.test",
@@ -96,6 +101,7 @@ export const deniedProviderLayer = <E, R>(
     Layer.provide(Layer.merge(Links.layer, Credentials.layer)),
     Layer.provide(NodeServices.layer),
     Layer.provideMerge(ManagedTunnelLimits.layer),
+    Layer.provide(t3ChatDisabledLayer),
     Layer.provideMerge(database),
   );
 };

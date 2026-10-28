@@ -1,15 +1,6 @@
 /**
- * OpenCodeDriver — `ProviderDriver` for the OpenCode runtime.
- *
- * Mirrors the Codex / Claude drivers: a plain value whose `create()`
- * bundles `snapshot` / `adapter` / `textGeneration` closures over the
- * per-instance `OpenCodeSettings`.
- *
- * Two instances with different `serverUrl`s therefore talk to independent
- * OpenCode servers; when no `serverUrl` is set, the adapter + text-generation
- * shares spin up their own scoped child processes, and those child
- * processes are released when the registry scope closes.
- *
+ * Each instance uses its own server URL or scoped local adapter/text-generation processes.
+ * Local processes are released when the registry scope closes.
  * @module provider/Drivers/OpenCodeDriver
  */
 import { ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
