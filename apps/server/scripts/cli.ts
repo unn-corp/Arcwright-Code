@@ -147,7 +147,15 @@ const buildExeCmd = Command.make(
       if (specifiers.length > 0) {
         return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
       }
-      const executablePath = path.join(serverDir, "dist-exe", "t3");
+      const executableName = target ? `t3-${target}` : "t3";
+      const isWindows = target
+        ? target.startsWith("win-")
+        : (yield* HostProcess.Platform) === "win32";
+      const executablePath = path.join(
+        serverDir,
+        "dist-exe",
+        `${executableName}${isWindows ? ".exe" : ""}`,
+      );
       // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
       if (linuxArm64) {
         yield* injectLinuxArm64Sea({
