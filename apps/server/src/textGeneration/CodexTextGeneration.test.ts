@@ -352,28 +352,43 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
     ),
   );
 
-  it.effect("generates titles with the user's MCP servers and plugins off", () =>
-    withFakeCodexEnv(
-      {
-        output: JSON.stringify({ title: "Remove default shapes" }),
-        mcpServers: [
-          { name: "augmenter", enabled: true },
-          { name: "my.server", enabled: true },
-          { name: "already-off", enabled: false },
-        ],
-        requireArg:
-          '--config features.plugins=false --config features.apps=false --config mcp_servers={"augmenter"={enabled=false},"my.server"={enabled=false}}',
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const result = yield* textGeneration.generateThreadTitle({
-            cwd: process.cwd(),
-            message: "Augmenter task 1. Use the Augmenter MCP: link_thread when you start.",
-            modelSelection: DEFAULT_TEST_MODEL_SELECTION,
-          });
-          expect(result.title).toBe("Remove default shapes");
-        }),
-    ),
+  it.effect.each([
+    {
+      context: "instructions",
+      stdinMustContain: "Additional instructions:\nUse two to four words.",
+    },
+    { context: "fork title", stdinMustContain: "Reconnect investigation source" },
+    { context: "fork history", stdinMustContain: "Saved source history: relay reconnect trace." },
+  ])(
+    "generates titles with the user's MCP servers and plugins off ($context)",
+    ({ stdinMustContain }) =>
+      withFakeCodexEnv(
+        {
+          output: JSON.stringify({ title: "Remove default shapes" }),
+          mcpServers: [
+            { name: "augmenter", enabled: true },
+            { name: "my.server", enabled: true },
+            { name: "already-off", enabled: false },
+          ],
+          requireArg:
+            '--config features.plugins=false --config features.apps=false --config mcp_servers={"augmenter"={enabled=false},"my.server"={enabled=false}}',
+          stdinMustContain,
+        },
+        (textGeneration) =>
+          Effect.gen(function* () {
+            const result = yield* textGeneration.generateThreadTitle({
+              cwd: process.cwd(),
+              message: "Augmenter task 1. Use the Augmenter MCP: link_thread when you start.",
+              instructions: "Use two to four words.",
+              forkSource: {
+                title: "Reconnect investigation source",
+                history: "Saved source history: relay reconnect trace.",
+              },
+              modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+            });
+            expect(result.title).toBe("Remove default shapes");
+          }),
+      ),
   );
 
   it.effect("still generates when Codex cannot list its MCP servers", () =>

@@ -26,6 +26,14 @@ runs:
         echo "version=$(sed -nE 's/^  vite-plus: ([0-9][^ ]*)$/\1/p' pnpm-workspace.yaml)" >> "$GITHUB_OUTPUT"
         echo "node=$(jq -r '.engines.node' package.json)" >> "$GITHUB_OUTPUT"
         echo "pnpm=$(jq -r '.packageManager' package.json)" >> "$GITHUB_OUTPUT"
+        # The hardened pool links this directory into its disposable workspace.
+        # Cache the actual files, rather than only the home-directory symlink.
+        vite_home="$HOME/.vite-plus"
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          mkdir -p "$vite_home"
+          vite_home="$(cd "$vite_home" && pwd -P)"
+        fi
+        echo "home=$vite_home" >> "$GITHUB_OUTPUT"
 
     # Pinned because release-desktop.yml signs builds with this action in the job.
     - name: Cache Vite+
@@ -33,22 +41,28 @@ runs:
       if: steps.vp.outputs.version != ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
-        path: ~/.vite-plus
-        key: vite-plus-home-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vp.outputs.version }}-node${{ steps.vp.outputs.node }}-${{ steps.vp.outputs.pnpm }}
+        path: ${{ steps.vp.outputs.home }}
+        key: vite-plus-home-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.vp.outputs.version }}-node${{ steps.vp.outputs.node }}-${{ steps.vp.outputs.pnpm }}
 
     # setup-vp always runs the installer, which fetches vp from npm even when
     # this exact version is installed. A cache hit already has everything, so
     # skip setup-vp and do its remaining work here. This keeps npm outages from
     # failing jobs.
     - name: Use cached Vite+
+      id: cached_vp
       if: steps.vp_cache.outputs.cache-hit == 'true'
       shell: bash
       run: |
+        if [[ ! -x "$HOME/.vite-plus/bin/vp" ]]; then
+          echo "The restored cache has no Vite+ executable; use the pinned setup action."
+          exit 0
+        fi
         echo "$HOME/.vite-plus/bin" >> "$GITHUB_PATH"
         "$HOME/.vite-plus/bin/vp" env use "${{ steps.vp.outputs.node }}"
+        echo "ready=true" >> "$GITHUB_OUTPUT"
 
     - name: Setup Vite+
-      if: steps.vp_cache.outputs.cache-hit != 'true'
+      if: steps.cached_vp.outputs.ready != 'true'
       uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
       with:
         node-version-file: package.json

@@ -1804,5 +1804,3 @@ function AttemptFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "at
     </button>
   );
 }
-
-export { resolvePreviewAnnotationImage } from "./TimelineUserMessageRow.logic";

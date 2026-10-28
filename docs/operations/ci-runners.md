@@ -72,7 +72,12 @@ unchanged.
 Linux workers must set `TMPDIR` to an executable directory under their disposable workspace,
 such as `/_work/_temp`, and create it for the runner user before accepting work. The hardened
 pool's `/tmp` is mounted with `noexec`; compiler fixtures and native helper tests must use the
-executable per-job temporary directory instead. Keep its lifecycle tied to the worker.
+executable per-job temporary directory instead. CI tests and fork release build/validation jobs
+export TMPDIR from RUNNER_TEMP for subsequent steps, so shared pool defaults cannot send
+executable fixtures to /tmp. Keep its lifecycle tied to the job and disposable worker.
+The dependency action caches the resolved Linux Vite+ home because the pool links its home
+directory into the disposable workspace; a symlink-only cache is not an installed toolchain.
+A cache without an executable vp uses the same pinned setup action as an ordinary cache miss.
 
 Relay account-deletion and managed-endpoint SQL tests use a disposable PostgreSQL 16.14 cluster owned by the
 test job, with TCP disabled and a private Unix socket. `setup-test-postgres` caches only

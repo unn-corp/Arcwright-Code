@@ -311,11 +311,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
 
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
     Effect.fn("HermesTextGeneration.generateThreadTitle")(function* (input) {
-      const { prompt, outputSchema } = buildThreadTitlePrompt({
-        message: input.message,
-        previousTitle: input.previousTitle,
-        attachments: input.attachments,
-      });
+      const { prompt, outputSchema } = buildThreadTitlePrompt(input);
 
       const generated = yield* runHermesJson({
         operation: "generateThreadTitle",

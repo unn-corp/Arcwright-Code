@@ -111,16 +111,6 @@ export function isPreviewableComposerVideo(
   );
 }
 
-export function composerOtherFilesForPresentation(
-  files: ReadonlyArray<ComposerFileAttachment>,
-  environmentId: EnvironmentId,
-  inlineFileIds: ReadonlySet<string>,
-): ComposerFileAttachment[] {
-  return files.filter(
-    (file) => !isPreviewableComposerVideo(file, environmentId) && !inlineFileIds.has(file.id),
-  );
-}
-
 export function fileAttachmentStagingLimit(input: FileAttachmentCapabilityState): number | null {
   if (!input.attachmentUploadsCapabilityKnown) {
     return PROVIDER_SEND_TURN_MAX_FILE_BYTES;

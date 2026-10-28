@@ -77,7 +77,7 @@ export function BackgroundActivitySearchOpener({
   return null;
 }
 
-export const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
+const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
   balanced: "Balanced",
   performance: "Performance",
   "battery-saver": "Battery saver",
@@ -85,21 +85,18 @@ export const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfil
 
 export type BackgroundActivityProfileOption = BackgroundActivityProfile | "advanced";
 
-export const BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS: Record<
-  BackgroundActivityProfileOption,
-  string
-> = {
+const BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS: Record<BackgroundActivityProfileOption, string> = {
   ...BACKGROUND_ACTIVITY_PROFILE_LABELS,
   advanced: "Advanced",
 };
 
-export const BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS: Record<BackgroundActivityProfile, string> = {
+const BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS: Record<BackgroundActivityProfile, string> = {
   balanced: "Pauses probes for idle clients, locked hosts, or low power mode.",
   performance: "Allows scoped background probes while any subscribed client remains connected.",
   "battery-saver": "Also pauses background probes when the host or client is on battery.",
 };
 
-export const ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION = "Uses custom intervals.";
+const ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION = "Uses custom intervals.";
 
 const BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES: ReadonlyArray<{
   readonly key:
@@ -128,13 +125,13 @@ const BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES: ReadonlyArray<{
   { key: "pauseWhenOnBattery", label: "Pause on battery", targetId: "pause-when-on-battery" },
 ];
 
-export function resetBackgroundActivitySettings() {
+function resetBackgroundActivitySettings() {
   return {
     backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
   };
 }
 
-export function backgroundActivityProfileSettings(profile: BackgroundActivityProfile) {
+function backgroundActivityProfileSettings(profile: BackgroundActivityProfile) {
   return {
     backgroundActivity: {
       schemaVersion: 1 as const,

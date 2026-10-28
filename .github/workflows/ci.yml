@@ -66,6 +66,11 @@ jobs:
     runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -122,6 +127,11 @@ jobs:
     runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -198,6 +208,11 @@ jobs:
     runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -266,6 +281,11 @@ jobs:
     runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -335,6 +355,11 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       # Depth 2 brings the base commit the change is diffed against.
       - name: Checkout
         uses: actions/checkout@v6
@@ -445,6 +470,11 @@ jobs:
     runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -511,6 +541,11 @@ jobs:
     runs-on: ["self-hosted", "linux", "x64", "unn", "unn-isolated"]
     timeout-minutes: 10
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:

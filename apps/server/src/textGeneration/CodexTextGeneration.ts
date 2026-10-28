@@ -635,12 +635,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         "generateThreadTitle",
         input.attachments,
       );
-      const { prompt, outputSchema } = buildThreadTitlePrompt({
-        message: input.message,
-        previousTitle: input.previousTitle,
-        linkedContext: input.linkedContext,
-        attachments: input.attachments,
-      });
+      const { prompt, outputSchema } = buildThreadTitlePrompt(input);
 
       const generated = yield* runCodexJson({
         operation: "generateThreadTitle",

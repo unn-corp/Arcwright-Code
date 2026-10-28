@@ -1745,10 +1745,11 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
                 attachments: [],
               }
             : notification(`Wake ${run}`);
+        // Keep the 152-run probe below the fork's 502-row snapshot ceiling,
+        // so the run limit, rather than the row limit, determines this window.
         const rows = [
           itemRow(runId, command),
           itemRow(runId, start),
-          itemRow(runId, command),
           itemRow(runId, notification(`Steer ${run}`)),
         ];
         startIds.push(rows[1]!.turn_item_id);
@@ -1809,7 +1810,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           anchorItemId: TurnItemId.make(anchor.si),
           anchorThreadId: ThreadId.make(anchor.st),
         });
-        assert.isAtMost(snapshot.projection.turnItems.length, 152 * 4 + 1);
+        assert.isAtMost(snapshot.projection.turnItems.length, 152 * 3 + 1);
         const page = selectHistoryPageFromCursor({
           items: snapshot.projection.visibleTurnItems,
           cursor,

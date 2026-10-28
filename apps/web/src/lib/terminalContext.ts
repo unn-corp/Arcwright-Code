@@ -80,32 +80,3 @@ export function migrateLegacyTerminalContextPlaceholders(
     return context ? formatTerminalContextReference(context) : "";
   });
 }
-
-function countInlineTerminalContextPlaceholders(prompt: string): number {
-  let count = 0;
-  for (const char of prompt) {
-    if (char === INLINE_TERMINAL_CONTEXT_PLACEHOLDER) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-function isInlineTerminalContextBoundaryWhitespace(char: string | undefined): boolean {
-  return char === undefined || char === " " || char === "\n" || char === "\t" || char === "\r";
-}
-
-export function insertInlineTerminalContextPlaceholder(
-  prompt: string,
-  cursorInput: number,
-): { prompt: string; cursor: number; contextIndex: number } {
-  const cursor = Math.max(0, Math.min(prompt.length, Math.floor(cursorInput)));
-  const needsLeadingSpace = !isInlineTerminalContextBoundaryWhitespace(prompt[cursor - 1]);
-  const replacement = `${needsLeadingSpace ? " " : ""}${INLINE_TERMINAL_CONTEXT_PLACEHOLDER} `;
-  const rangeEnd = prompt[cursor] === " " ? cursor + 1 : cursor;
-  return {
-    prompt: `${prompt.slice(0, cursor)}${replacement}${prompt.slice(rangeEnd)}`,
-    cursor: cursor + replacement.length,
-    contextIndex: countInlineTerminalContextPlaceholders(prompt.slice(0, cursor)),
-  };
-}

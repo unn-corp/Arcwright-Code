@@ -452,22 +452,6 @@ function PrStatusTooltipContent({ status }: { status: PrStatusIndicator }) {
   );
 }
 
-export function resolveThreadPr(input: {
-  threadBranch: string | null;
-  gitStatus: VcsStatusResult | null;
-}): ThreadPr | null {
-  const { threadBranch, gitStatus } = input;
-  if (gitStatus === null) {
-    return null;
-  }
-
-  if (threadBranch === null || gitStatus.refName !== threadBranch) {
-    return null;
-  }
-
-  return gitStatus.pr ?? null;
-}
-
 /**
  * Parent-held PR snapshot for Sidebar V2. Rows remount when settlement
  * partitions move them, so terminal PR metadata must live above the row.
@@ -511,7 +495,7 @@ function linkedPullRequestsEqual(
   );
 }
 
-export function threadChangeRequestSnapshotsEqual(
+function threadChangeRequestSnapshotsEqual(
   left: ThreadChangeRequestSnapshot,
   right: ThreadChangeRequestSnapshot,
 ): boolean {

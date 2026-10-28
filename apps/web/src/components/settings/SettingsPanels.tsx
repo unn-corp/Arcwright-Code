@@ -580,8 +580,6 @@ export function CompatibilitySettingsSection() {
   );
 }
 
-export const LegacyFeaturesSection = CompatibilitySettingsSection;
-
 export function GeneralSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -1916,10 +1914,6 @@ export function AboutUpdatesSettingsPanel({ children }: { children?: ReactNode }
       {children}
     </SettingsPageContainer>
   );
-}
-
-export function AboutSettingsPanel() {
-  return <AboutUpdatesSettingsPanel />;
 }
 
 export { AppearanceSettingsPanel } from "./AppearanceSettingsPanel";

@@ -609,17 +609,28 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
       ),
   );
 
-  it.effect("sends thread title instructions to the provider prompt", () =>
+  it.effect.each([
+    {
+      context: "instructions",
+      stdinMustContain: "Additional instructions:\nUse two to four words.",
+    },
+    { context: "fork title", stdinMustContain: "Reconnect investigation source" },
+    { context: "fork history", stdinMustContain: "Saved source history: relay reconnect trace." },
+  ])("sends thread title instructions to the provider prompt ($context)", ({ stdinMustContain }) =>
     withFakeClaudeEnv(
       {
         output: JSON.stringify({ structured_output: { title: "Reconnect failures" } }),
-        stdinMustContain: "Additional instructions:\nUse two to four words.",
+        stdinMustContain,
       },
       (textGeneration) =>
         textGeneration.generateThreadTitle({
           cwd: process.cwd(),
           message: "Investigate reconnect failures",
           instructions: "Use two to four words.",
+          forkSource: {
+            title: "Reconnect investigation source",
+            history: "Saved source history: relay reconnect trace.",
+          },
           modelSelection: {
             instanceId: ProviderInstanceId.make("claudeAgent"),
             model: SYNTHETIC_CLAUDE_STANDARD_MODEL,

@@ -271,6 +271,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout pinned source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -421,6 +426,11 @@ jobs:
       SIGNER_SHA256: ${{ vars.FORK_ANDROID_SIGNER_SHA256 }}
       KEY_ALIAS: ${{ vars.FORK_ANDROID_KEY_ALIAS || 't3-pwa' }}
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       # Orchestration always runs from the commit that defines this workflow, never from the
       # (possibly older) commit being released.
       - name: Checkout release tooling
@@ -641,6 +651,11 @@ jobs:
       RECOVERY_ASSET: ${{ matrix.asset }}
       RECOVERY_INDEX: ${{ matrix.index }}
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout release tooling
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -776,6 +791,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       # Orchestration always runs from the commit that defines this workflow, never from the
       # (possibly older) commit being released.
       - name: Checkout release tooling
@@ -861,6 +881,11 @@ jobs:
     outputs:
       predecessor_digest: ${{ steps.predecessor.outputs.predecessor_digest }}
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       # Orchestration always runs from the commit that defines this workflow, never from the
       # (possibly older) commit being released.
       - name: Checkout release tooling
@@ -985,6 +1010,11 @@ jobs:
     env:
       PREDECESSOR_DIGEST: ${{ needs.assemble.outputs.predecessor_digest }}
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       # Orchestration always runs from the commit that defines this workflow, never from the
       # (possibly older) commit being released.
       - name: Checkout release tooling
@@ -1114,6 +1144,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Use executable job temp directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout release tooling
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
