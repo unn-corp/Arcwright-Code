@@ -822,6 +822,8 @@ describe("AgentAwarenessRelay", () => {
         const terminal = shell({ status });
         yield* Ref.set(currentShell, terminal);
         yield* relay.publishThread(THREAD_ID);
+        yield* TestClock.adjust("5 seconds");
+        yield* relay.drain;
         assert.equal(publications[1]?.state?.phase, status);
 
         const now = yield* DateTime.now;

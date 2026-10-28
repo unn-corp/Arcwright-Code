@@ -312,10 +312,12 @@ it.effect(
       ORDER BY sequence ASC
     `;
       assert.lengthOf(storedPrompts, 3);
+      assert.equal(storedPrompts[0]!.prompt, "Review prompt A. ".repeat(40));
       assert.equal(storedPrompts[0]!.prompt_sequence, null);
+      assert.equal(storedPrompts[1]!.prompt, "Review prompt B. ".repeat(40));
       assert.equal(storedPrompts[1]!.prompt_sequence, null);
-      assert.equal(storedPrompts[2]!.prompt, "");
-      assert.equal(storedPrompts[2]!.prompt_sequence, storedPrompts[1]!.sequence);
+      assert.equal(storedPrompts[2]!.prompt, "Review prompt B. ".repeat(40));
+      assert.equal(storedPrompts[2]!.prompt_sequence, null);
 
       const deletedCursor = writes.find(
         (stored) => stored.event.id === "event:turn-item-compaction:command:35",

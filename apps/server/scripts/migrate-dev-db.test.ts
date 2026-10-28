@@ -196,22 +196,36 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
               AS count`;
           const [sequence] = yield* sql<{ seq: number }>`
             SELECT seq FROM sqlite_sequence WHERE name = 'orchestration_events'`;
-          const search = yield* sql<{ text: string }>`
-            SELECT text FROM orchestration_v2_message_search ORDER BY rowid`;
+          const search = yield* sql<{ message_id: string | null; payload_json: string | null }>`
+            SELECT message.message_id, message.payload_json
+            FROM orchestration_v2_message_search search
+            LEFT JOIN orchestration_v2_projection_messages message ON message.rowid = search.rowid
+            ORDER BY message.message_id`;
           const found = yield* sql<{ message_id: string }>`
             SELECT message.message_id FROM orchestration_v2_projection_messages message
             JOIN orchestration_v2_message_search search ON search.rowid = message.rowid
             WHERE orchestration_v2_message_search MATCH '"kept"'`;
-          return { archivedRows: archivedRows?.count, sequence: sequence?.seq, search, found };
+          const settled = yield* sql<{ message_id: string }>`
+            SELECT message.message_id FROM orchestration_v2_projection_messages message
+            JOIN orchestration_v2_message_search search ON search.rowid = message.rowid
+            WHERE orchestration_v2_message_search MATCH '"settled"'`;
+          return {
+            archivedRows: archivedRows?.count,
+            sequence: sequence?.seq,
+            search,
+            found,
+            settled,
+          };
         }),
       );
       assert.equal(copied.archivedRows, 0);
       assert.equal(copied.sequence, sourceSequence?.seq);
       assert.deepStrictEqual(copied.search, [
-        { text: "private settled history" },
-        { text: "searchable kept history" },
+        { message_id: "kept-message", payload_json: '{"text":"Searchable kept history"}' },
+        { message_id: "settled-message", payload_json: '{"text":"Private settled history"}' },
       ]);
       assert.deepStrictEqual(copied.found, [{ message_id: "kept-message" }]);
+      assert.deepStrictEqual(copied.settled, [{ message_id: "settled-message" }]);
     }),
   );
 

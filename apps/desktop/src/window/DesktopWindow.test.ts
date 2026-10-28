@@ -72,6 +72,7 @@ import * as DesktopSnapShot from "../snapShot/DesktopSnapShot.ts";
 import * as DesktopShellEnvironment from "../shell/DesktopShellEnvironment.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
+import { createInitialDesktopUpdateState } from "../updates/updateMachine.ts";
 import * as DesktopApplicationMenu from "./DesktopApplicationMenu.ts";
 import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 
@@ -614,9 +615,17 @@ describe("DesktopWindow", () => {
         }),
         Layer.mock(DesktopUpdates.DesktopUpdates)({
           configure: Effect.void,
-          subscribe: Effect.never,
+          subscribe: Effect.succeed({
+            latest: createInitialDesktopUpdateState(
+              environmentInput.appVersion,
+              { hostArch: "arm64", appArch: "arm64", runningUnderArm64Translation: false },
+              "latest",
+            ),
+            changes: Stream.never,
+          }),
         }),
         Layer.mock(DesktopTelemetryPublisher.DesktopTelemetryPublisher)({
+          publishUpdateReport: () => Effect.void,
           updateRequests: Stream.empty,
           updateCancellations: Stream.empty,
           updateCommits: Stream.empty,

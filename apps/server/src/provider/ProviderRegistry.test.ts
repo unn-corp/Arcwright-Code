@@ -2307,6 +2307,7 @@ it.layer(
             ),
           );
           let cursorSpawned = false;
+          let fxSpawned = false;
           const scope = yield* Scope.make();
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const layerProviderRegistry = ProviderRegistry.layer.pipe(
@@ -2340,6 +2341,9 @@ it.layer(
               layerMockCommandSpawner((command, args) => {
                 if (command === "cursor-agent") {
                   cursorSpawned = true;
+                }
+                if (command === "fx") {
+                  fxSpawned = true;
                 }
                 const joined = args.join(" ");
                 if (joined === "--version") {
@@ -2379,6 +2383,7 @@ it.layer(
               "claudeAgent",
               "codex",
               "cursor",
+              "fx",
               "grok",
               "hermes",
               "muse",
@@ -2395,6 +2400,10 @@ it.layer(
             assert.strictEqual(museProvider?.enabled, false);
             assert.strictEqual(museProvider?.status, "disabled");
             assert.strictEqual(cursorSpawned, false);
+            const fxProvider = providers.find((provider) => provider.driver === "fx");
+            assert.strictEqual(fxProvider?.enabled, false);
+            assert.strictEqual(fxProvider?.status, "disabled");
+            assert.strictEqual(fxSpawned, false);
           }).pipe(Effect.provide(runtimeServices));
         }),
     );

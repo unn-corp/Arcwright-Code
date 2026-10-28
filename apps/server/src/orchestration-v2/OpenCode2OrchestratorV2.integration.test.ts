@@ -789,6 +789,11 @@ describe("OpenCode 2 through the orchestrator", () => {
               ],
               cursor: {},
             }),
+            out("session.update", {
+              sessionID: BACKGROUND_CHILD,
+              permissions: t3Rules("opencode2-background-lost"),
+            }),
+            reply("session.update", null),
             out("session.prompt", { sessionID: parent, id: "<any>", text: "<any>" }),
             reply("session.prompt", {
               data: {

@@ -91,7 +91,7 @@ it.effect("replays receipts only on their original thread without changing eithe
     } as const;
     const original = yield* orchestrator.dispatch(create);
     const before = yield* orchestrator.getThreadProjection(create.threadId);
-    assert.deepEqual(yield* orchestrator.dispatch(create), original);
+    assert.deepEqual(yield* orchestrator.dispatch(create), { ...original, replayed: true });
     const foreignThreadId = ThreadId.make("migration-receipt-foreign");
     const failure = yield* orchestrator
       .dispatch({ ...create, threadId: foreignThreadId })
@@ -199,7 +199,7 @@ it.effect(
         (candidate) => candidate.id === providerThreadId,
       )!;
       assert.deepEqual(provider.handoffIds, [firstRun.contextHandoffId, reissuedId]);
-      assert.deepEqual(yield* orchestrator.dispatch(secondCommand), result);
+      assert.deepEqual(yield* orchestrator.dispatch(secondCommand), { ...result, replayed: true });
       const replayed = yield* orchestrator.getThreadProjection(threadId);
       assert.deepEqual(
         replayed.providerThreads.find((candidate) => candidate.id === providerThreadId)!.handoffIds,
