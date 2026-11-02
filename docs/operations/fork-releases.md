@@ -610,6 +610,9 @@ installation. Never remove leases or registry records just to make an update pro
 Linux process probes treat a validated `/proc/<pid>/stat` state `Z` as exited: zombies retain
 their PID and start ticks until reaped but cannot run commands. Active states, reused-PID identity
 checks, unreadable observations, the idle window, and Windows admission remain enforced.
+The owned relay connector registers its exact PID and creation identity for its process scope.
+Its child processes, unregistered connectors, reused PIDs and unreadable identities still block;
+the exemption does not match executable names or remove descendants from the census.
 Using a newer `maintenance check` or `maintenance install` CLI still delegates to the running
 controller. For an older Cloud runtime blocked only by verified zombies:
 

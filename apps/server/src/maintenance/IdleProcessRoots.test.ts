@@ -8,21 +8,24 @@ import {
 } from "./IdleProcessRoots.ts";
 
 describe("idle process roots", () => {
-  it("exempts only the exact live root identity and keeps its children blocking", () => {
-    const result = classifyProcessActivity(
-      "participant",
-      [
-        { pid: 41, label: "provider", result: { kind: "present", identity: "boot:1" } },
-        { pid: 42, label: "worker", result: { kind: "present", identity: "boot:2" } },
-      ],
-      [{ pid: 41, started: "boot:1", kind: "provider" }],
-    );
+  it.each(["provider", "connector"] as const)(
+    "exempts only the exact live %s root identity and keeps its children blocking",
+    (kind) => {
+      const result = classifyProcessActivity(
+        "participant",
+        [
+          { pid: 41, label: "provider", result: { kind: "present", identity: "boot:1" } },
+          { pid: 42, label: "worker", result: { kind: "present", identity: "boot:2" } },
+        ],
+        [{ pid: 41, started: "boot:1", kind }],
+      );
 
-    expect(result.descendants.map(({ pid }) => pid)).toEqual([41, 42]);
-    expect(result.blockers).toEqual([
-      expect.objectContaining({ participantId: "participant", reason: "background-work" }),
-    ]);
-  });
+      expect(result.descendants.map(({ pid }) => pid)).toEqual([41, 42]);
+      expect(result.blockers).toEqual([
+        expect.objectContaining({ participantId: "participant", reason: "background-work" }),
+      ]);
+    },
+  );
 
   it("keeps an idle terminal shell blocked because same-process command state is unknown", () => {
     const result = classifyProcessActivity(
@@ -40,24 +43,27 @@ describe("idle process roots", () => {
     ]);
   });
 
-  it("treats PID reuse and unreadable identity as blocking, while dropping a confirmed exit", () => {
-    const result = classifyProcessActivity(
-      "participant",
-      [
-        { pid: 41, label: "reused", result: { kind: "present", identity: "boot:2" } },
-        { pid: 42, label: "unknown", result: { kind: "unreadable" } },
-        { pid: 43, label: "finished sampler", result: { kind: "absent" } },
-      ],
-      [{ pid: 41, started: "boot:1", kind: "provider" }],
-    );
+  it.each(["provider", "connector"] as const)(
+    "keeps %s PID reuse and unreadable identity blocking, while dropping a confirmed exit",
+    (kind) => {
+      const result = classifyProcessActivity(
+        "participant",
+        [
+          { pid: 41, label: "reused", result: { kind: "present", identity: "boot:2" } },
+          { pid: 42, label: "unknown", result: { kind: "unreadable" } },
+          { pid: 43, label: "finished sampler", result: { kind: "absent" } },
+        ],
+        [{ pid: 41, started: "boot:1", kind }],
+      );
 
-    expect(result.descendants.map(({ pid }) => pid)).toEqual([41, 42]);
-    expect(result.descendants[1]?.started).toBe("unknown-process-identity");
-    expect(result.blockers.map(({ reason }) => reason)).toEqual([
-      "background-work",
-      "unknown-participant",
-    ]);
-  });
+      expect(result.descendants.map(({ pid }) => pid)).toEqual([41, 42]);
+      expect(result.descendants[1]?.started).toBe("unknown-process-identity");
+      expect(result.blockers.map(({ reason }) => reason)).toEqual([
+        "background-work",
+        "unknown-participant",
+      ]);
+    },
+  );
 
   it.effect("does not exempt a spawn whose handle is already stopped", () =>
     Effect.gen(function* () {

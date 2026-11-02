@@ -192,6 +192,7 @@ approval waits, provider background tasks, tools, commands, and cancellation
 still awaiting termination. A quiet conversation or completed parent is not
 proof that work stopped. Unknown participants block installation. An open terminal shell
 also blocks because commands can run without child processes; close it after its work finishes.
+An Arcwright Connect tunnel can stay connected while an otherwise idle server updates.
 An older registered runtime can also block because it lacks the current process
 activity checks. Let its work finish before upgrading it manually. Standalone and
 development servers require that manual step; confirming the installation review
