@@ -20,6 +20,7 @@ import * as RelayClient from "@t3tools/shared/relayClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ManagedEndpointRuntime from "./ManagedEndpointRuntime.ts";
+import * as IdleProcessRoots from "../maintenance/IdleProcessRoots.ts";
 
 const layerRelayClientAvailable = Layer.succeed(
   RelayClient.RelayClient,
@@ -579,15 +580,14 @@ describe("CloudManagedEndpointRuntime", () => {
     Effect.gen(function* () {
       const spawned: Array<ChildProcess.StandardCommand> = [];
       const killed: Array<number> = [];
-      let nextPid = 100;
+      const identities = [process.pid, process.ppid];
       const spawner = ChildProcessSpawner.make((command) =>
         Effect.gen(function* () {
           if (!ChildProcess.isStandardCommand(command)) {
             throw new Error("Expected standard command.");
           }
           spawned.push(command);
-          const pid = nextPid;
-          nextPid += 1;
+          const pid = identities[spawned.length - 1]!;
           const handle = makeHandle({
             pid,
             onKill: () => {
@@ -599,6 +599,8 @@ describe("CloudManagedEndpointRuntime", () => {
         }),
       );
       const runtime = yield* buildCloudManagedEndpointRuntime(spawner);
+      const roots = yield* IdleProcessRoots.IdleProcessRoots;
+      expect(yield* roots.snapshot).toEqual([]);
 
       yield* runtime.applyConfig({
         providerKind: "cloudflare_tunnel",
@@ -606,19 +608,27 @@ describe("CloudManagedEndpointRuntime", () => {
         tunnelId: "tunnel-1",
         tunnelName: "t3-code-env-1",
       });
+      expect(yield* roots.snapshot).toEqual([
+        { pid: process.pid, started: expect.any(String), kind: "connector" },
+      ]);
       yield* runtime.applyConfig({
         providerKind: "cloudflare_tunnel",
         connectorToken: "token-1",
         tunnelId: "tunnel-1",
         tunnelName: "t3-code-env-1",
       });
+      expect(yield* roots.snapshot).toHaveLength(1);
       yield* runtime.applyConfig({
         providerKind: "cloudflare_tunnel",
         connectorToken: "token-2",
         tunnelId: "tunnel-1",
         tunnelName: "t3-code-env-1",
       });
+      expect(yield* roots.snapshot).toEqual([
+        { pid: process.ppid, started: expect.any(String), kind: "connector" },
+      ]);
       const stopped = yield* runtime.applyConfig(null);
+      expect(yield* roots.snapshot).toEqual([]);
 
       expect(spawned.map((command) => command.command)).toEqual(["cloudflared", "cloudflared"]);
       expect(spawned.map((command) => command.args)).toEqual([
@@ -653,9 +663,9 @@ describe("CloudManagedEndpointRuntime", () => {
       expect(spawned.map((command) => command.options.stderr)).toEqual(["pipe", "pipe"]);
       expect(spawned.map((command) => command.options.detached)).toEqual([false, false]);
       expect(spawned.map((command) => command.options.shell)).toEqual([false, false]);
-      expect(killed).toEqual([100, 101]);
+      expect(killed).toEqual(identities);
       expect(stopped).toEqual({ status: "disabled" });
-    }),
+    }).pipe(Effect.provide(IdleProcessRoots.layer)),
   );
 
   it.effect("supervises the active connector and restarts it after process exit", () =>

@@ -10,7 +10,7 @@ import {
   type ProcessIdentityResult,
 } from "@t3tools/shared/forkMaintenanceStore";
 
-export type IdleProcessRootKind = "provider" | "terminal";
+export type IdleProcessRootKind = "provider" | "terminal" | "connector";
 
 export interface IdleProcessRoot {
   readonly pid: number;
@@ -110,7 +110,7 @@ export interface ProcessIdentityObservation {
     | { readonly kind: "unreadable" };
 }
 
-/** Only an exact provider service root is idle infrastructure; every terminal shell is unverified work. */
+/** Exact provider/connector roots are infrastructure; their children and terminal shells remain work. */
 export const classifyProcessActivity = (
   participantId: string,
   observations: ReadonlyArray<ProcessIdentityObservation>,
@@ -145,7 +145,7 @@ export const classifyProcessActivity = (
       label: observation.label.slice(0, 120),
     });
     const root = rootsByKey.get(`${observation.pid}:${identity}`);
-    if (root?.kind === "provider") continue;
+    if (root?.kind === "provider" || root?.kind === "connector") continue;
     if (root?.kind === "terminal") {
       blockers.push({
         participantId,

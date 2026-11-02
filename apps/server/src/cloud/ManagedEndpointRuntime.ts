@@ -20,6 +20,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as IdleProcessRoots from "../maintenance/IdleProcessRoots.ts";
 import {
   readPersistedRelayAuthorityStatus,
   CLOUD_ENDPOINT_RUNTIME_CONFIG,
@@ -707,6 +708,12 @@ export const make = Effect.gen(function* () {
     }
 
     if (!("status" in child)) {
+      const releaseRoot = yield* IdleProcessRoots.registerIdleProcessRoot(
+        Number(child.pid),
+        "connector",
+        child.isRunning.pipe(Effect.orElseSucceed(() => false)),
+      );
+      yield* Scope.addFinalizer(connectorScope, releaseRoot);
       const connector = {
         child,
         executable,
