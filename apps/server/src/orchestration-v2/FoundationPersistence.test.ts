@@ -148,6 +148,92 @@ function threadCreatedEvent(input: {
   };
 }
 
+it.effect("refuses to rebuild a projection from previously pruned history", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    const before = yield* sql`SELECT * FROM orchestration_v2_projection_threads ORDER BY thread_id`;
+    yield* sql`INSERT INTO orchestration_v2_projection_metadata
+      (projection_name, schema_version, last_sequence, updated_at)
+      VALUES ('event-log-pruned-through', 1, 10, '2026-01-01T00:00:00.000Z')`;
+    assert.isFalse((yield* maintenance.verify).valid);
+    const result = yield* Effect.exit(maintenance.rebuild);
+    assert.equal(result._tag, "Failure");
+    assert.deepEqual(
+      yield* sql`SELECT * FROM orchestration_v2_projection_threads ORDER BY thread_id`,
+      before,
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect.each(["equivalent", "lossy"] as const)(
+  "proves markerless %s history before rebuilding",
+  (kind) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const sink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make(`thread:proof:${kind}`);
+      const thread = makeThread(threadId, now);
+      const middle: OrchestrationV2DomainEvent =
+        kind === "equivalent"
+          ? {
+              id: EventId.make("event:proof:middle"),
+              type: "thread.metadata-updated",
+              threadId,
+              occurredAt: now,
+              payload: { ...thread, title: "intermediate" },
+            }
+          : {
+              id: EventId.make("event:proof:middle"),
+              type: "message.updated",
+              threadId,
+              occurredAt: now,
+              payload: {
+                id: MessageId.make("message:proof"),
+                threadId,
+                runId: null,
+                nodeId: null,
+                createdBy: "user",
+                creationSource: "web",
+                role: "user",
+                text: "retain me",
+                attachments: [],
+                streaming: false,
+                createdAt: now,
+                updatedAt: now,
+              },
+            };
+      yield* sink.write({
+        events: [
+          threadCreatedEvent({ id: "event:proof:create", thread, now }),
+          middle,
+          {
+            id: EventId.make("event:proof:latest"),
+            type: "thread.metadata-updated",
+            threadId,
+            occurredAt: now,
+            payload: { ...thread, title: "latest" },
+          },
+        ],
+      });
+      const before = yield* projections.getThreadProjection(threadId);
+      if (kind === "equivalent") {
+        assert.isAbove((yield* maintenance.compactEventStore()).deletedEventCount, 0);
+        yield* sql`DELETE FROM orchestration_v2_projection_metadata WHERE projection_name IN ('event-log-pruned-through', 'fork-reconstructable-through')`;
+      } else {
+        yield* sql`DELETE FROM orchestration_events WHERE event_id = 'event:proof:middle'`;
+      }
+      assert.isFalse((yield* maintenance.verify).valid);
+      const result = yield* Effect.exit(maintenance.rebuild);
+      assert.equal(result._tag, kind === "equivalent" ? "Success" : "Failure");
+      assert.deepEqual(yield* projections.getThreadProjection(threadId), before);
+      if (kind === "equivalent") assert.isTrue((yield* maintenance.verify).valid);
+    }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("rebuilds event history one bounded page at a time", () =>
   Effect.gen(function* () {
     const eventStore = yield* EventStore.EventStoreV2;
@@ -246,6 +332,23 @@ const seedCompaction = Effect.fnUntraced(function* () {
     rowid, command_id, aggregate_kind, aggregate_id, accepted_at, result_sequence, status, command_type
   ) SELECT n * 2, 'command-' || n, 'thread', 'imported', '2026-10-17', 0, 'accepted', 'legacy' FROM history`;
 });
+
+it.effect("rolls back the replay boundary if a compaction delete fails", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* seedCompaction();
+    yield* sql.unsafe(
+      `CREATE TRIGGER fail_compaction BEFORE DELETE ON orchestration_events BEGIN SELECT RAISE(ABORT, 'fixture failure'); END`,
+    );
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    assert.equal((yield* Effect.exit(maintenance.compactEventStore()))._tag, "Failure");
+    const rows = yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM orchestration_events`;
+    const marker =
+      yield* sql`SELECT last_sequence FROM orchestration_v2_projection_metadata WHERE projection_name = 'event-log-pruned-through'`;
+    assert.equal(rows[0]?.count, 151);
+    assert.deepEqual(marker, []);
+  }).pipe(Effect.provide(layerTest)),
+);
 
 it.effect("discovers on the reader worker and deletes on the writer", () =>
   Effect.gen(function* () {
@@ -1306,6 +1409,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       const emptyCommandId = CommandId.make("command:paged-command-replay:empty");
       const threadId = "thread:paged-command-replay";
 
+      let threadStreamVersion = 0;
       const eventRow = (
         ordinal: number,
         input: {
@@ -1318,7 +1422,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
         event_id: `event:paged-command-replay:${ordinal}`,
         aggregate_kind: input.aggregateKind ?? "thread",
         stream_id: input.streamId ?? threadId,
-        stream_version: ordinal,
+        stream_version: input.aggregateKind === "project" ? 0 : threadStreamVersion++,
         event_type: "provider-session.detached",
         occurred_at: occurredAt,
         command_id: input.commandId ?? null,

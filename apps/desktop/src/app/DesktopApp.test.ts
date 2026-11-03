@@ -89,9 +89,9 @@ it.effect(
         });
       const runApp = DesktopApp.program
         .pipe(
-          Effect.provide(NodeCrypto.layer),
           Effect.provide(
             Layer.mergeAll(
+              NodeCrypto.layer,
               Layer.mock(DesktopForkMaintenance.DesktopForkMaintenance)({
                 prepareStartup: Effect.succeed({ kind: "idle" }),
               }),
@@ -109,7 +109,7 @@ it.effect(
             whenReady: record("ready"),
           } as unknown as ElectronApp.ElectronApp["Service"]),
           Effect.provideService(ElectronDialog.ElectronDialog, {
-            showErrorBox: (_title, detail) => Effect.die(new Error(detail)),
+            showErrorBox: (_title: string, detail: string) => Effect.die(new Error(detail)),
           } as unknown as ElectronDialog.ElectronDialog["Service"]),
           Effect.provideService(DesktopEnvironment.DesktopEnvironment, {
             platform: "linux",

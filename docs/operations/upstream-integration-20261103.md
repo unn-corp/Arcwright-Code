@@ -1,6 +1,6 @@
 # Upstream integration, 2026-11-03
 
-The included T3 Code base is `15707a84b03e27bb257d60e027812ebf94bbda25` (version 0.1.6), recorded in `fork-upstream.json`. The fork baseline before the integration was `5be6ec6bd9c7d47483a217c11966ad6ea6385f36`, followed by local commit `4006afecc27e15a6b41e4727ca723f3123fa71f9`, which raised the default managed tunnel limit from three to eight. The integration retains that change. This record describes source integration; it does not claim a build, release, or installation.
+The included T3 Code base is `260297b55fc97c5b10ff55511967f6d20c622e54` (version 0.1.6), recorded in `fork-upstream.json`. The first integration checkpoint included `15707a84b03e27bb257d60e027812ebf94bbda25`; the subsequent ten upstream commits advance that base to the final pin. The fork baseline before the integration was `5be6ec6bd9c7d47483a217c11966ad6ea6385f36`, followed by local commit `4006afecc27e15a6b41e4727ca723f3123fa71f9`, which raised the default managed tunnel limit from three to eight. The integration retains that change. This record describes source integration; it does not claim a build, release, or installation.
 
 ## Server ownership and compatibility
 
@@ -21,7 +21,7 @@ All local runs used a single worker and low scheduling priority. The scoped serv
 - WebSocket, maintenance operator, boot service, preview broker, device handlers, and text generation: 7 files, 167 tests.
 - Maintenance and self-update suites: 12 files, 113 tests. Earlier focused managed-runtime and self-update runs passed 32 and 14 tests respectively.
 
-Independent server/admission/recovery review and final whole-integration checks remain required before publication. These tests use isolated fixtures; they do not establish packaged desktop, Android, Windows/WSL hardware, or live-device update and recovery behavior. No application was installed or running service restarted during this integration.
+Independent server/admission/recovery and UI/Android reviews found no concrete regression in their reviewed pre-tail paths. A separate tail persistence review found a missing production pruning boundary; its fix and fresh re-review are recorded below. These tests use isolated fixtures; they do not establish packaged desktop, Android, Windows/WSL hardware, or live-device update and recovery behavior. No application was installed or running service restarted during this integration.
 
 ## Client reconciliation and local verification
 
@@ -41,3 +41,42 @@ typechecks pass, apart from reported non-failing Effect suggestions/warnings.
 Standalone Android native sources and bridge behavior remain retained. Physical APK
 installation/recovery, real notification delivery and real-device responsive behavior
 were not exercised locally. CI owns the complete build/update/recovery release gates.
+
+## Subsequent upstream changes
+
+The tail adds replay-boundary checks for databases whose upstream history was pruned, updated Codex release metadata, and provider usage and Git status fixes. The fork retains its existing lossless history policy, projection verification and rebuild, and conservative compaction. Upstream's automatic one-day event pruning is intentionally uncommissioned because it deletes history the fork retains; it is not an equivalent replacement for those guarantees. If a database already records an upstream prune boundary, reconnects resynchronize through snapshots and projection rebuilding refuses before changing any projection rows. Compressed historical payloads and prompt anchors continue to use the fork's compatibility readers.
+
+Fork compaction still removes superseded event states. Each deletion page atomically records a conservative reconnect boundary, while a separate receipt identifies compaction performed on a reconstructable history. For older markerless stream gaps, reconnects use snapshots and further compaction waits. An explicit rebuild can certify retained history by replaying into projections in a transaction and comparing every affected table in both directions; a mismatch rolls back, leaving projections intact. A damaged projection or legacy storage encoding that prevents exact comparison cannot be certified this way and requires a suitable recovery asset. Global SQLite sequence gaps alone do not trigger this check.
+
+The new managed Codex pin is available through the existing explicit installation flow. An older supported managed runtime is not downloaded or activated automatically on server startup: upstream's startup activation does not perform the fork's activity and maintenance admission. The runtime already in use remains available until an explicit update.
+
+The tail server check passed TypeScript and 274 focused tests across 11 files, including
+projection verification and rebuild, retained storage compatibility, reconnect replay,
+managed Codex installation, Grok, and Git status. The shared usage-limits suite passed
+64 tests, including a merged account with both a default and a chosen provider name.
+
+## Final local checks and review
+
+All 40 recursive typecheck tasks pass. Documentation links and examples pass the fork
+checker, and source conflict-marker and whitespace checks pass (upstream patch payloads
+retain their required whitespace). Settings DOM and logic checks pass 25 and 68 cases;
+post-tail sidebar/citation/track-switch checks pass 103 cases after correcting the
+track-switch comparison to use exact release versions rather than client provenance.
+SSH and Grok ACP fixture checks pass 13 and 10 cases; desktop startup/window fixtures
+pass 36 cases. The VCS/CLI selected run has passing evidence for all 433 cases across
+the full run and the corrected fixture rerun.
+
+The persistence re-review found the original boundary guard was not reached by real
+compaction. Event deletion and replay-boundary recording now share a transaction.
+State-preserving fork compaction records a reconstructability receipt. Legacy
+markerless gaps can be certified only by replaying inside a transaction and comparing
+all 18 affected projection/position tables against temporary snapshots in both
+directions. A mismatch rolls back without rewriting stored projections; explicitly
+lossy upstream histories remain refused. Compaction cannot obscure an existing
+unproved gap. Actual-compactor thread/shell reconnect, rollback and replay-equivalence
+checks pass, including 187 final impacted cases. A fresh independent Luna review
+closed the finding with no remaining scoped issue; it did not run tests or inspect
+live data.
+
+No nightly has been published or installed by this source integration. Publication
+still requires the exact-source release pipeline gates and repository write access.

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
@@ -30,7 +32,7 @@ it.effect.each([
   Effect.gen(function* () {
     const spawned: Array<ReadonlyArray<string>> = [];
     const spawner = ChildProcessSpawner.make((command) => {
-      if (ChildProcess.isStandardCommand(command)) spawned.push(command.args);
+      if (ChildProcess.isStandardCommand(command)) spawned.push(command.args.map(String));
       return Effect.fail(
         PlatformError.systemError({
           _tag: "NotFound",
@@ -40,13 +42,14 @@ it.effect.each([
       );
     });
     yield* makeGrokAcpRuntime({
+      linuxCgroupController: null,
       grokSettings: { binaryPath: "grok" },
       cwd: "/tmp/project",
       clientInfo: { name: "grok-runtime-fixture", version: "1" },
       ...(interactive ? { trustProject: true, alwaysApprove: true } : {}),
     }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner), Effect.exit);
     expect(spawned).toEqual([args]);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 describe("applyGrokAcpModelSelection", () => {

@@ -142,12 +142,11 @@ For failures after signing in to Arcwright Connect, see
 
 ## Reclaim database space
 
-Arcwright Code removes superseded internal history on its own while it runs; your
-conversations are kept. Databases created before this shrank automatically
-still hold the freed space on disk until a one-time offline repair returns it
-and turns on automatic shrinking. Settings > Maintenance (web and desktop) or
-Settings > Maintenance (mobile) suggests the repair when at least 1 GiB can be
-reclaimed.
+Arcwright Code retains canonical conversation and event history. The upstream automatic
+one-day history pruning is disabled in this fork. Space freed by explicit maintenance
+can remain allocated in SQLite until an offline repair returns it to the filesystem.
+See the [storage runbook](../operations/database-storage.md) for retained history,
+plain JSON restoration, exact-artifact admission and recovery boundaries.
 
 Run `t3 doctor` on the machine that hosts the environment. It reports the
 database size and the space it can reclaim, then asks which repairs to run;

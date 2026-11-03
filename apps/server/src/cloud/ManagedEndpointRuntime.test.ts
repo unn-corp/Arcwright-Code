@@ -193,10 +193,7 @@ describe("CloudManagedEndpointRuntime", () => {
       if (admission === "missing-credential") values.delete("cloud-relay-environment-credential");
       let spawns = 0;
       const runtime = yield* ManagedEndpointRuntime.make.pipe(
-        Effect.provide(ManagedPolicy.layerTest()),
-        Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-authority-test-" })),
         Effect.provideService(HttpClient.HttpClient, unusedHttpClient),
-        Effect.provide(layerRelayClientAvailable),
         Effect.provideService(
           ChildProcessSpawner.ChildProcessSpawner,
           ChildProcessSpawner.make(() =>
@@ -216,7 +213,13 @@ describe("CloudManagedEndpointRuntime", () => {
             getOrCreateRandom: () => Effect.die("unused"),
           }),
         ),
-        Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Effect.provide(
+          Layer.mergeAll(
+            ManagedPolicy.layerTest(),
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-authority-test-" }),
+            layerRelayClientAvailable,
+          ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+        ),
       );
       const status = yield* runtime.applyConfig(config);
       expect(status.status).toBe(admission === "compatible" ? "running" : "failed");

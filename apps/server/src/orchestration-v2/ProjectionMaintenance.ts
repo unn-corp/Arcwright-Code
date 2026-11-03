@@ -9,6 +9,8 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EventStore from "./EventStore.ts";
+import { historicalEventGapBoundary } from "../persistence/eventHistoryBoundary.ts";
+import { EVENT_LOG_PRUNED_THROUGH } from "../persistence/OrchestrationEventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
 export interface ProjectionVerificationV2 {
@@ -46,6 +48,8 @@ export class ProjectionMaintenanceV2 extends Context.Service<
   ProjectionMaintenanceV2,
   ProjectionMaintenanceV2Shape
 >()("t3/orchestration-v2/ProjectionMaintenance/ProjectionMaintenanceV2") {}
+
+const RECONSTRUCTABLE_THROUGH = "fork-reconstructable-through";
 
 type ProjectionMetadataRow = {
   readonly schema_version: number;
@@ -94,11 +98,24 @@ export const layer: Layer.Layer<
         WHERE projection_name = 'thread-projections'
         LIMIT 1
       `;
+      const pruned = yield* sql<{ readonly last_sequence: number }>`
+        SELECT last_sequence FROM orchestration_v2_projection_metadata
+        WHERE projection_name = ${EVENT_LOG_PRUNED_THROUGH}
+      `;
+      const safe = yield* sql<{ readonly last_sequence: number }>`
+        SELECT last_sequence FROM orchestration_v2_projection_metadata
+        WHERE projection_name = ${RECONSTRUCTABLE_THROUGH}
+      `;
+      const historicalBoundary = yield* historicalEventGapBoundary().pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      );
       const expectedSequence = yield* eventStore.latestSequence();
       const schemaVersion = metadata[0]?.schema_version ?? 0;
       const projectionSequence = metadata[0]?.last_sequence ?? 0;
       return {
         valid:
+          (pruned[0]?.last_sequence ?? 0) <= (safe[0]?.last_sequence ?? 0) &&
+          historicalBoundary <= (safe[0]?.last_sequence ?? 0) &&
           schemaVersion === ProjectionStore.ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION &&
           projectionSequence === expectedSequence &&
           missingThreadIds.length === 0 &&
@@ -116,6 +133,49 @@ export const layer: Layer.Layer<
     const rebuild = Effect.gen(function* () {
       yield* sql.withTransaction(
         Effect.gen(function* () {
+          const pruned = yield* sql<{ readonly last_sequence: number }>`
+            SELECT last_sequence FROM orchestration_v2_projection_metadata
+            WHERE projection_name = ${EVENT_LOG_PRUNED_THROUGH}
+          `;
+          const safe = yield* sql<{ readonly last_sequence: number }>`
+            SELECT last_sequence FROM orchestration_v2_projection_metadata
+            WHERE projection_name = ${RECONSTRUCTABLE_THROUGH}
+          `;
+          const historicalBoundary = yield* historicalEventGapBoundary().pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+          );
+          if ((pruned[0]?.last_sequence ?? 0) > (safe[0]?.last_sequence ?? 0)) {
+            return yield* new ProjectionMaintenanceError({
+              operation: "rebuild",
+              cause: new Error("Cannot rebuild projections from a pruned event history."),
+            });
+          }
+          const needsProof = historicalBoundary > (safe[0]?.last_sequence ?? 0);
+          const tables = [
+            "orchestration_v2_projection_context_transfers",
+            "orchestration_v2_projection_context_handoffs",
+            "orchestration_v2_projection_checkpoints",
+            "orchestration_v2_projection_checkpoint_scopes",
+            "orchestration_v2_projection_turn_items",
+            "orchestration_v2_projection_plans",
+            "orchestration_v2_projection_messages",
+            "orchestration_v2_projection_runtime_requests",
+            "orchestration_v2_projection_provider_turns",
+            "orchestration_v2_projection_provider_threads",
+            "orchestration_v2_projection_provider_session_bindings",
+            "orchestration_v2_projection_provider_sessions",
+            "orchestration_v2_projection_subagents",
+            "orchestration_v2_projection_nodes",
+            "orchestration_v2_projection_run_attempts",
+            "orchestration_v2_projection_runs",
+            "orchestration_v2_projection_threads",
+            "orchestration_v2_turn_item_positions",
+          ];
+          if (needsProof) {
+            for (const table of tables) {
+              yield* sql.unsafe(`CREATE TEMP TABLE proof_${table} AS SELECT * FROM ${table}`);
+            }
+          }
           const throughSequence = yield* eventStore.latestSequence();
           yield* sql`DELETE FROM orchestration_v2_projection_context_transfers`;
           yield* sql`DELETE FROM orchestration_v2_projection_context_handoffs`;
@@ -166,6 +226,26 @@ export const layer: Layer.Layer<
             yield* Effect.yieldNow;
           }
           const now = DateTime.formatIso(yield* DateTime.now);
+          if (needsProof) {
+            for (const table of tables) {
+              const mismatch = yield* sql.unsafe<{ count: number }>(
+                `SELECT (SELECT COUNT(*) FROM (SELECT * FROM ${table} EXCEPT SELECT * FROM proof_${table})) + (SELECT COUNT(*) FROM (SELECT * FROM proof_${table} EXCEPT SELECT * FROM ${table})) AS count`,
+              );
+              if ((mismatch[0]?.count ?? 0) !== 0) {
+                return yield* new ProjectionMaintenanceError({
+                  operation: "rebuild",
+                  cause: new Error(
+                    `Cannot prove replay equivalence for ${table}; projections were preserved.`,
+                  ),
+                });
+              }
+              yield* sql.unsafe(`DROP TABLE proof_${table}`);
+            }
+            yield* sql`INSERT INTO orchestration_v2_projection_metadata
+              (projection_name, schema_version, last_sequence, updated_at)
+              VALUES (${RECONSTRUCTABLE_THROUGH}, ${ProjectionStore.ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION}, ${throughSequence}, ${now})
+              ON CONFLICT(projection_name) DO UPDATE SET last_sequence = excluded.last_sequence, updated_at = excluded.updated_at`;
+          }
           yield* sql`
             INSERT INTO orchestration_v2_projection_metadata (
               projection_name,
@@ -241,7 +321,29 @@ export const layer: Layer.Layer<
           COALESCE((SELECT MAX(sequence) FROM orchestration_events), 0) AS event_sequence,
           COALESCE((SELECT MAX(rowid) FROM orchestration_command_receipts), 0) AS receipt_row_id
       `.pipe(NodeSqliteClient.readOnly);
-      let throughSequence = bounds[0]?.event_sequence ?? 0;
+      const scanHead = bounds[0]?.event_sequence ?? 0;
+      const prior = yield* sql<{
+        readonly projection_name: string;
+        readonly last_sequence: number;
+      }>`
+        SELECT projection_name, last_sequence FROM orchestration_v2_projection_metadata
+        WHERE projection_name IN (${EVENT_LOG_PRUNED_THROUGH}, ${RECONSTRUCTABLE_THROUGH})
+      `.pipe(NodeSqliteClient.readOnly);
+      const safeThrough =
+        prior.find((row) => row.projection_name === RECONSTRUCTABLE_THROUGH)?.last_sequence ?? 0;
+      const priorBoundary =
+        prior.find((row) => row.projection_name === EVENT_LOG_PRUNED_THROUGH)?.last_sequence ?? 0;
+      const existingGap = yield* historicalEventGapBoundary().pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      );
+      const historyReconstructable = priorBoundary <= safeThrough && existingGap <= safeThrough;
+      if (!historyReconstructable) {
+        return yield* new ProjectionMaintenanceError({
+          operation: "compact event store",
+          cause: new Error("Event history must be verified before further compaction."),
+        });
+      }
+      let throughSequence = scanHead;
       let throughReceiptRowId = bounds[0]?.receipt_row_id ?? 0;
       const retainedThreadIds = new Set<string>();
       const retainedReadStateThreadIds = new Set<string>();
@@ -351,7 +453,27 @@ export const layer: Layer.Layer<
         // Never hold a transaction or the reader lock across a yield or a rest.
         yield* Effect.yieldNow;
         if (obsolete.length > 0) {
-          yield* sql`DELETE FROM orchestration_events WHERE sequence IN ${sql.in(obsolete)}`;
+          // Publish the boundary and delete as one commit: a reconnect can never observe
+          // missing rows without also observing the conservative snapshot boundary.
+          yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const boundary = Math.max(...obsolete);
+              yield* sql`INSERT INTO orchestration_v2_projection_metadata
+              (projection_name, schema_version, last_sequence, updated_at)
+              VALUES (${EVENT_LOG_PRUNED_THROUGH}, ${ProjectionStore.ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION}, ${boundary}, ${DateTime.formatIso(yield* DateTime.now)})
+              ON CONFLICT(projection_name) DO UPDATE SET
+                last_sequence = MAX(last_sequence, excluded.last_sequence),
+                updated_at = excluded.updated_at`;
+              if (historyReconstructable) {
+                yield* sql`INSERT INTO orchestration_v2_projection_metadata
+                (projection_name, schema_version, last_sequence, updated_at)
+                VALUES (${RECONSTRUCTABLE_THROUGH}, ${ProjectionStore.ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION}, ${scanHead}, ${DateTime.formatIso(yield* DateTime.now)})
+                ON CONFLICT(projection_name) DO UPDATE SET
+                  last_sequence = MAX(last_sequence, excluded.last_sequence), updated_at = excluded.updated_at`;
+              }
+              yield* sql`DELETE FROM orchestration_events WHERE sequence IN ${sql.in(obsolete)}`;
+            }),
+          );
           deletedEventCount += obsolete.length;
           yield* Effect.yieldNow;
         }

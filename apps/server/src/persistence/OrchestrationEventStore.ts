@@ -1,3 +1,4 @@
+import { historicalEventGapBoundary } from "./eventHistoryBoundary.ts";
 import {
   ApplicationEventMetadata,
   ApplicationProjectEvent,
@@ -32,6 +33,9 @@ import {
   toPersistenceSqlError,
   type OrchestrationEventStoreError,
 } from "./Errors.ts";
+
+/** Projection metadata rows: events at or below the pruned-through sequence may be gone. */
+export const EVENT_LOG_PRUNED_THROUGH = "event-log-pruned-through";
 
 export type UnsequencedProjectEvent = ApplicationProjectEvent extends infer Event
   ? Event extends ApplicationProjectEvent
@@ -92,6 +96,9 @@ export class OrchestrationEventStore extends Context.Service<
     ) => Effect.Effect<number, OrchestrationEventStoreError>;
 
     readonly latestApplicationSequence: Effect.Effect<number, OrchestrationEventStoreError>;
+
+    /** Replay from a cursor below this misses pruned events; resync from a snapshot instead. */
+    readonly prunedThroughSequence: Effect.Effect<number, OrchestrationEventStoreError>;
 
     /** Unknown event types fail unless skipUnknownEventTypes logs and drops them; only client replay may opt in. */
     readonly readApplicationEvents: (input: {
@@ -640,6 +647,22 @@ const makeEventStore = Effect.gen(function* () {
     ),
   );
 
+  const historicalBoundary = yield* Effect.cached(
+    historicalEventGapBoundary().pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+  );
+  const prunedThroughSequence = sql<{ readonly last_sequence: number }>`
+    SELECT last_sequence FROM orchestration_v2_projection_metadata
+    WHERE projection_name = ${EVENT_LOG_PRUNED_THROUGH}
+  `.pipe(
+    NodeSqliteClient.readOnly,
+    Effect.flatMap((rows) =>
+      historicalBoundary.pipe(
+        Effect.map((legacy) => Math.max(legacy, rows[0]?.last_sequence ?? 0)),
+      ),
+    ),
+    Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.prunedThroughSequence:query")),
+  );
+
   // Advance over raw rows so even a full page of unknown types cannot end replay early.
   const catchUpApplicationEvents = (input: {
     readonly afterSequence: number;
@@ -716,6 +739,7 @@ const makeEventStore = Effect.gen(function* () {
     getReplayStats,
     latestAgentSequence,
     latestApplicationSequence,
+    prunedThroughSequence,
     readApplicationEvents: catchUpApplicationEvents,
     publishCommitted: (events) => PubSub.publishAll(committedEvents, events).pipe(Effect.asVoid),
     streamApplicationEvents,

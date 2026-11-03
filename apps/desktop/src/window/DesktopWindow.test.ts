@@ -545,7 +545,9 @@ describe("DesktopWindow", () => {
       } satisfies DesktopBackendPool.DesktopBackendInstance;
       const startupLayer = Layer.mergeAll(
         NodeCrypto.layer,
-        Layer.mock(DesktopManagedPolicy.DesktopManagedPolicy)({ read: Effect.succeed(null) }),
+        Layer.mock(DesktopManagedPolicy.DesktopManagedPolicy)({
+          read: Effect.sync(() => undefined),
+        }),
         // IPC registration captures these services but startup does not invoke their handlers.
         Layer.mock(DesktopForkMaintenance.DesktopForkMaintenance)({
           prepareStartup: Effect.succeed({ kind: "idle" }),

@@ -254,7 +254,7 @@ export function collectChannelSwitchTargets(
     if (
       config !== null &&
       sameTrack &&
-      resolveVersionMismatch(serverVersion, release.version) === null
+      compareSemverVersions(serverVersion, release.version) >= 0
     ) {
       const move = trackSwitchMove(config, true);
       if (
