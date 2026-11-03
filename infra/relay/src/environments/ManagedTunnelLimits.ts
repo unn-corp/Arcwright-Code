@@ -17,7 +17,7 @@ import type { ManagedEndpointAllocation } from "./ManagedEndpointAllocations.ts"
 import { allocationSelection } from "./managedEndpointAllocationSelection.ts";
 
 /** All held reservations count, including incomplete and released allocations. */
-export const DEFAULT_MANAGED_TUNNEL_LIMIT = 3;
+export const DEFAULT_MANAGED_TUNNEL_LIMIT = 8;
 
 export class ManagedTunnelLimitPersistenceError extends Schema.TaggedError<ManagedTunnelLimitPersistenceError>()(
   "ManagedTunnelLimitPersistenceError",

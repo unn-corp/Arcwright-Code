@@ -64,7 +64,7 @@ const race = <A, E>(effects: ReadonlyArray<Effect.Effect<A, E>>) =>
 
 describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", () => {
   it.effect.each([
-    { plan: null, cap: 3, denied: 17 },
+    { plan: null, cap: 8, denied: 12 },
     { plan: "pro", cap: 10, denied: 10 },
   ] as const)(
     "20 concurrent environments with $plan admit exactly $cap reservations",
@@ -132,9 +132,9 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
             ),
           ),
         );
-        expect(results.filter(Result.isSuccess)).toHaveLength(6);
-        expect(yield* rowCount(db, "user-A")).toBe(3);
-        expect(yield* rowCount(db, "user-B")).toBe(3);
+        expect(results.filter(Result.isSuccess)).toHaveLength(16);
+        expect(yield* rowCount(db, "user-A")).toBe(8);
+        expect(yield* rowCount(db, "user-B")).toBe(8);
       }),
     ),
   );
@@ -182,6 +182,7 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
         const existing = yield* limits.reserveAllocation(input("existing"));
         yield* limits.reserveAllocation(input("two"));
         yield* limits.reserveAllocation(input("three"));
+        for (let i = 4; i <= 8; i++) yield* limits.reserveAllocation(input(`env-${i}`));
         const requested = {
           ...input("existing"),
           hostname: "different.fixture.test",
@@ -193,7 +194,7 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
         expect(yield* Effect.flip(limits.reserveAllocation(input("four")))).toMatchObject({
           _tag: "ManagedTunnelLimitExceeded",
           maxTunnels: 1,
-          activeTunnels: 3,
+          activeTunnels: 8,
         });
         expect(lookups).toEqual([]);
       }),
@@ -232,8 +233,11 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
         for (const state of states) {
           const userId = state.name;
           yield* db.insert(relayManagedEndpointAllocations).values([
-            { ...input("one", userId), createdAt: "now", updatedAt: "now" },
-            { ...input("two", userId), createdAt: "now", updatedAt: "now" },
+            ...Array.from({ length: 7 }, (_, i) => ({
+              ...input(`env-${i}`, userId),
+              createdAt: "now",
+              updatedAt: "now",
+            })),
             {
               ...input("state", userId),
               tunnelId: state.tunnelId,
@@ -264,9 +268,9 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
             });
           }
           expect(yield* Effect.flip(limits.reserveAllocation(input("four", userId)))).toMatchObject(
-            { _tag: "ManagedTunnelLimitExceeded", activeTunnels: 3 },
+            { _tag: "ManagedTunnelLimitExceeded", activeTunnels: 8 },
           );
-          expect(yield* rowCount(db, userId)).toBe(3);
+          expect(yield* rowCount(db, userId)).toBe(8);
         }
       }),
     ),
@@ -304,7 +308,8 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
     return Effect.gen(function* () {
       const limits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
       const provider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
-      for (const env of ["one", "two", "three"]) yield* limits.reserveAllocation(input(env));
+      for (const env of Array.from({ length: 8 }, (_, i) => `env-${i}`))
+        yield* limits.reserveAllocation(input(env));
       const error = yield* Effect.flip(
         provider.provision({
           userId: "user",
@@ -313,7 +318,7 @@ describe.skipIf(!fixtureFile)("ManagedTunnelLimits owned PostgreSQL admission", 
           publication: publicationFor("four"),
         }),
       );
-      expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", activeTunnels: 3 });
+      expect(error).toMatchObject({ _tag: "ManagedTunnelLimitExceeded", activeTunnels: 8 });
       expect(calls).toEqual([]);
     }).pipe(Effect.provide(deniedProviderLayer(layerDb, calls)));
   });

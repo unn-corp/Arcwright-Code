@@ -643,10 +643,9 @@ describe.skipIf(!fixtureFile)("ManagedEndpointLifecycle owned PostgreSQL protoco
           const lifecycle = yield* Lifecycle.ManagedEndpointLifecycle;
           const limits = yield* Limits.ManagedTunnelLimits;
           const owner = yield* acquire(yield* fresh(), "deprovision");
-          yield* fresh("second");
-          yield* fresh("third");
+          for (let i = 2; i <= 8; i++) yield* fresh(`env-${i}`);
           expect(yield* Effect.flip(limits.reserveAllocation(reservation("fourth")))).toMatchObject(
-            { activeTunnels: 3 },
+            { activeTunnels: 8 },
           );
           expect(yield* lifecycle.removeClaimed(owner.claim)).toEqual({ status: "Stale" });
           yield* neverCreated(owner.claim);

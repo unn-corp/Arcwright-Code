@@ -74,7 +74,7 @@ describe("ManagedTunnelLimits account entitlements", () => {
   it.effect("skips account lookups below capacity and enforces exact manual overrides", () =>
     Effect.gen(function* () {
       const lookups: string[] = [];
-      expect(yield* reserveWithPlan({ activeTunnels: 2, plan: "premier", lookups })).toMatchObject({
+      expect(yield* reserveWithPlan({ activeTunnels: 7, plan: "premier", lookups })).toMatchObject({
         userId: "user",
         environmentId: "env",
         lifecycleState: "idle",
@@ -118,11 +118,15 @@ describe("ManagedTunnelLimits account entitlements", () => {
     (plan) =>
       Effect.gen(function* () {
         const lookups: string[] = [];
-        const error = yield* Effect.flip(reserveWithPlan({ activeTunnels: 3, plan, lookups }));
+        expect(yield* reserveWithPlan({ activeTunnels: 7, plan, lookups })).toMatchObject({
+          userId: "user",
+          environmentId: "env",
+        });
+        const error = yield* Effect.flip(reserveWithPlan({ activeTunnels: 8, plan, lookups }));
         expect(error).toMatchObject({
           _tag: "ManagedTunnelLimitExceeded",
-          maxTunnels: 3,
-          activeTunnels: 3,
+          maxTunnels: 8,
+          activeTunnels: 8,
         });
         expect(lookups).toEqual(plan === "unconfigured" ? [] : ["user"]);
       }),

@@ -500,7 +500,15 @@ describe.skipIf(!fixtureFile)("Managed endpoint mutation failures PostgreSQL", (
           const options: { failAttempt: Options["failAttempt"] } = { failAttempt: undefined };
           const runtime = yield* makeRuntime(options);
           yield* ready(runtime);
-          for (const environmentId of ["quota-two", "quota-three"])
+          for (const environmentId of [
+            "quota-two",
+            "quota-three",
+            "quota-five",
+            "quota-six",
+            "quota-seven",
+            "quota-eight",
+            "quota-nine",
+          ])
             yield* runtime.provider.provision({
               userId: key.userId,
               environmentId,
