@@ -114,8 +114,10 @@ function resolveAppVariant(value: string | undefined): AppVariant {
     case "preview":
     case "production":
       return value;
-    default:
+    case undefined:
       return "production";
+    default:
+      throw new Error("APP_VARIANT must be development, preview, or production.");
   }
 }
 
@@ -233,7 +235,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: repoEnv.T3CODE_MOBILE_VERSION ?? "2.1.0",
+  version: repoEnv.T3CODE_MOBILE_VERSION ?? "2.2.0",
   runtimeVersion: {
     // Skip costly fingerprinting on dev launches; preview and production OTAs require matching native projects.
     policy: runtimeVersionPolicy,

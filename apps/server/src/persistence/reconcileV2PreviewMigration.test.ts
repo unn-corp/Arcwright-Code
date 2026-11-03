@@ -467,16 +467,16 @@ it.effect(
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect(
-  "adopts an upstream 69 database with its indexed messages and migration receipt intact",
-  () =>
+it.effect.each([69, 78])(
+  "adopts an upstream %s database with its indexed messages and migration receipt intact",
+  (latestId) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* Migrator.make({})({
         loader: Migrator.fromRecord(
           Object.fromEntries(
             upstreamMigrationEntries
-              .filter(([id]) => id <= 69)
+              .filter(([id]) => id <= latestId)
               .map(([id, , name, migration]) => [
                 `${id}_${name}`,
                 id === 63

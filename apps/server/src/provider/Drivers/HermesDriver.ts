@@ -1,7 +1,7 @@
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { HermesSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -53,7 +53,7 @@ export type HermesDriverEnv =
   | HermesAdapterV2DriverEnv
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
-  | Crypto.Crypto
+  | Crypto.SecureRandom
   | FileSystem.FileSystem
   | HttpClient.HttpClient
   | Path.Path
@@ -93,7 +93,7 @@ export const HermesDriver: ProviderDriver<HermesSettings, HermesDriverEnv> = {
     enabled,
     config,
   }) {
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* Crypto.SecureRandom;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const httpClient = yield* HttpClient.HttpClient;
     yield* ServerSettingsService;
@@ -136,7 +136,7 @@ export const HermesDriver: ProviderDriver<HermesSettings, HermesDriverEnv> = {
 
     const checkProvider = checkHermesProviderStatus(effectiveConfig, processEnv).pipe(
       Effect.map(stampIdentity),
-      Effect.provideService(Crypto.Crypto, crypto),
+      Effect.provideService(Crypto.SecureRandom, crypto),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
 

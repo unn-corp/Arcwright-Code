@@ -1,9 +1,11 @@
-import { shouldUseRestingComposerLayout } from "./composerFooterLayout";
+import {
+  resolveComposerTimelineInset,
+  shouldUseRestingComposerLayout,
+} from "./composerFooterLayout";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveContextStripLabelsCompact } from "./BranchToolbar.logic";
 import {
-  resolveComposerTimelineInset,
   resolveRestingComposerControlsLayout,
   resolveRestingComposerControlsNaturalWidth,
 } from "./composerFooterLayout";

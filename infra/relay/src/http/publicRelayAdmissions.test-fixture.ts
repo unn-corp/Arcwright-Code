@@ -5,9 +5,9 @@ import {
   RELAY_ACTIVITY_PUBLISH_TYP,
   RELAY_MANAGED_TUNNEL_RECOVERY_TYP,
 } from "@t3tools/shared/relayJwt";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -43,6 +43,7 @@ import * as Credentials from "../environments/EnvironmentCredentials.ts";
 import * as Allocations from "../environments/ManagedEndpointAllocations.ts";
 import * as Lifecycle from "../environments/ManagedEndpointLifecycle.ts";
 import * as Provider from "../environments/ManagedEndpointProvider.ts";
+import * as TunnelLimits from "../environments/ManagedTunnelLimits.ts";
 import * as Mobile from "../agentActivity/MobileRegistrations.ts";
 import * as Devices from "../agentActivity/Devices.ts";
 import * as Subscriptions from "../agentActivity/WebPushSubscriptions.ts";
@@ -211,22 +212,27 @@ export const fixture = Effect.fn("fixture")(function (input: {
       }),
     }),
   } as unknown as Db.RelayDb["Service"];
-  const layerCrypto = Layer.effect(
-    Crypto.Crypto,
-    Crypto.Crypto.pipe(
-      Effect.map((base) => ({
-        ...base,
-        digest: (...args: Parameters<typeof base.digest>) =>
-          base.digest(...args).pipe(Effect.tap(() => Effect.sync(() => counts.crypto++))),
-        randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
-          base
-            .randomUUIDv4(options)
-            .pipe(
-              Effect.tap(() => Effect.sync(() => counts.uuid++)),
-            )) as Crypto.Crypto["randomUUIDv4"],
-      })),
-    ),
-  ).pipe(Layer.provide(NodeCrypto.layer));
+  const layerCrypto = Layer.mergeAll(
+    Layer.effect(
+      Digest.Digest,
+      Digest.Digest.pipe(
+        Effect.map((base) => ({
+          ...base,
+          digest: (...args: Parameters<typeof base.digest>) =>
+            base.digest(...args).pipe(Effect.tap(() => Effect.sync(() => counts.crypto++))),
+        })),
+      ),
+    ).pipe(Layer.provide(Digest.layerWebCrypto)),
+    Layer.effect(
+      SecureRandom.SecureRandom,
+      SecureRandom.SecureRandom.pipe(
+        Effect.map((base) => ({
+          ...base,
+          uuidV4: () => base.uuidV4().pipe(Effect.tap(() => Effect.sync(() => counts.uuid++))),
+        })),
+      ),
+    ).pipe(Layer.provide(SecureRandom.layerWebCrypto)),
+  );
   const layerTokens = Layer.effect(
     Tokens.RelayTokens,
     Effect.gen(function* () {
@@ -315,6 +321,7 @@ export const fixture = Effect.fn("fixture")(function (input: {
           }),
       });
   const lower = Layer.mergeAll(
+    Layer.mock(TunnelLimits.ManagedTunnelLimits, { getOverride: () => Effect.succeed(null) }),
     layerCrypto,
     Configuration.layer(settings),
     layerTokens,

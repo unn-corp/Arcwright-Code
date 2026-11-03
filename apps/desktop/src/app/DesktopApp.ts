@@ -6,7 +6,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as NetService from "@t3tools/shared/Net";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
@@ -43,8 +43,8 @@ const DEFAULT_DESKTOP_BACKEND_PORT = 3773;
 const MAX_TCP_PORT = 65_535;
 const DESKTOP_BACKEND_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::"] as const;
 
-const makeDesktopRunId = Crypto.Crypto.pipe(
-  Effect.flatMap((crypto) => crypto.randomUUIDv4()),
+const makeDesktopRunId = SecureRandom.SecureRandom.pipe(
+  Effect.flatMap((random) => random.uuidV4()),
   Effect.map((value) => value.replaceAll("-", "").slice(0, 12)),
 );
 
@@ -275,6 +275,16 @@ const bootstrap = Effect.gen(function* () {
     // This process is the trial runtime of a device update: its backends hold the transaction's capability,
     // and the controller commits once every home reports healthy.
     if (maintenancePlan.kind === "trial") yield* maintenance.resumeInBackground;
+    // WSL-only fallback can change the primary endpoint before readiness.
+    const config = yield* primaryBackend.currentConfig;
+    if (
+      !environment.isDevelopment &&
+      !settings.wslOnly &&
+      Option.isSome(config) &&
+      Option.isNone(config.value.preflightFailure)
+    ) {
+      yield* desktopWindow.ensureMain;
+    }
     yield* appActivation.start.pipe(
       Effect.tap(() => logBootstrapInfo("desktop app control socket ready")),
       Effect.catch((error) => logStartupError("desktop app control socket unavailable", { error })),
@@ -358,7 +368,8 @@ const startup = Effect.gen(function* () {
   // Legacy maintenance remains available for startup recovery; upstream owns new app updates.
   yield* DesktopRemoteUpdates.listen;
   yield* DesktopStartupRecovery.listen;
-  yield* linuxUrlHandler.register;
+  // Portal identity is prepared pre-ready; MIME helpers must not gate the backend or window.
+  yield* linuxUrlHandler.register.pipe(Effect.forkScoped);
   yield* bootstrap.pipe(Effect.catchCause((cause) => fatalStartupCause("bootstrap", cause)));
 }).pipe(Effect.withSpan("desktop.startup"));
 

@@ -4,7 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { T3CHAT_PLAN_TUNNEL_LIMITS } from "@t3tools/contracts/relay";
+import { DEFAULT_MANAGED_TUNNEL_LIMIT, T3CHAT_PLAN_TUNNEL_LIMITS } from "@t3tools/contracts/relay";
 
 import * as RelayDb from "../db.ts";
 import { transactionActive } from "../runtimePostgres.ts";
@@ -17,7 +17,7 @@ import type { ManagedEndpointAllocation } from "./ManagedEndpointAllocations.ts"
 import { allocationSelection } from "./managedEndpointAllocationSelection.ts";
 
 /** All held reservations count, including incomplete and released allocations. */
-export const DEFAULT_MANAGED_TUNNEL_LIMIT = 8;
+export { DEFAULT_MANAGED_TUNNEL_LIMIT };
 
 export class ManagedTunnelLimitPersistenceError extends Schema.TaggedError<ManagedTunnelLimitPersistenceError>()(
   "ManagedTunnelLimitPersistenceError",
@@ -61,6 +61,9 @@ const isPersistenceError = Schema.is(ManagedTunnelLimitPersistenceError);
 export class ManagedTunnelLimits extends Context.Service<
   ManagedTunnelLimits,
   {
+    readonly getOverride: (input: {
+      readonly userId: string;
+    }) => Effect.Effect<number | null, ManagedTunnelLimitPersistenceError>;
     readonly reserveAllocation: (input: {
       readonly userId: string;
       readonly environmentId: string;
@@ -93,6 +96,33 @@ export const make = Effect.gen(function* () {
   );
 
   return ManagedTunnelLimits.of({
+    getOverride: Effect.fn("relay.managed_tunnel_limits.get_override")(function* (input) {
+      return yield* db
+        .select({ maxTunnels: relayManagedTunnelLimits.maxTunnels })
+        .from(relayManagedTunnelLimits)
+        .where(eq(relayManagedTunnelLimits.userId, input.userId))
+        .limit(1)
+        .pipe(
+          Effect.map((rows) => rows[0]?.maxTunnels ?? null),
+          Effect.mapError(
+            (cause) =>
+              new ManagedTunnelLimitPersistenceError({
+                operation: "load-limit",
+                userId: input.userId,
+                cause,
+              }),
+          ),
+          Effect.catchDefect((cause) =>
+            Effect.fail(
+              new ManagedTunnelLimitPersistenceError({
+                operation: "load-limit",
+                userId: input.userId,
+                cause,
+              }),
+            ),
+          ),
+        );
+    }),
     reserveAllocation: Effect.fn("relay.managed_tunnel_limits.reserve_allocation")(
       function* (input) {
         const persistenceError = (

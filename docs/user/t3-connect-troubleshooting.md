@@ -99,7 +99,8 @@ Fix:
 
 ## Sign-in, account, or link problems
 
-Arcwright Connect does not have an active link between your account and the host.
+This device's Arcwright Connect sign-in is not ready yet, or Arcwright Connect does not have
+an active link between your account and the host.
 
 - **The host is linked to a different account.** Sign in to the same Arcwright Connect
   account on this device and on the host. On the host, run `t3 connect logout`,
@@ -107,10 +108,12 @@ Arcwright Connect does not have an active link between your account and the host
 - **Arcwright Connect is off on the host, or the host only publishes agent activity.**
   On the host, open **Settings > Sharing & access** and turn **Arcwright Connect** on, or
   run `t3 connect`.
-- **The host was linked, but the server did not apply the link yet.** Run
-  `t3 service restart` on the host, or restart `t3 serve`.
+- **The host was linked, but the server did not apply the link yet.** Restart
+  the server on the host: quit and reopen the Arcwright Code desktop app, run
+  `t3 service restart`, or stop `t3 serve` and run it again.
 - **This device's sign-in expired, or the host no longer accepts this
   device.** Sign out of Arcwright Connect and sign in again.
+- **This device is still loading its Arcwright Connect sign-in.** Wait a moment; the client retries automatically. If it keeps waiting, reload or restart it.
 - **Your account reached its tunnel limit.** Remove an environment you do not
   use from your T3 account's Arcwright Connect page, then restart Arcwright Code on the host.
 
@@ -149,3 +152,7 @@ If none of this helps, open an issue on
 - The text from **Copy diagnostics** in the environment's **Details**.
 - The output of `t3 connect status` on the host.
 - The trace ID, if one is shown.
+- If the tunnel dropped earlier, the host's tunnel log, `relay-client.ndjson`
+  in the logs folder (`~/.t3/userdata/logs` by default). It records when the
+  tunnel connected, warned, exited, and restarted, with the tunnel token
+  removed.

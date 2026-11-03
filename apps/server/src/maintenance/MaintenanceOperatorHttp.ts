@@ -1,3 +1,4 @@
+import * as ManagedLimits from "../policy/managedLimits.ts";
 import {
   ForkMaintenanceActionInput,
   ForkMaintenanceError,
@@ -45,7 +46,9 @@ export const makeOperatorRoute = (
     input: typeof LocalPairingInput.Type,
   ) => Effect.Effect<
     EnvironmentAuth.IssuedPairingLink,
-    EnvironmentAuth.ServerAuthInternalError | MaintenanceWorkHeld
+    | EnvironmentAuth.ServerAuthInternalError
+    | MaintenanceWorkHeld
+    | ManagedLimits.ManagedPolicyRefusedError
   >,
 ) =>
   HttpRouter.add(

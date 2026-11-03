@@ -50,7 +50,7 @@ import {
 } from "@t3tools/shared/relayJwt";
 import { isSecureRelayUrl, normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -122,6 +122,8 @@ import {
   classifyRelayAuthority,
   selectedConnectAuthority,
 } from "./connectAuthority.ts";
+import * as ManagedLimits from "../policy/managedLimits.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import { relayUrlConfig } from "./publicConfig.ts";
 import {
   filterRelayResponse,
@@ -485,7 +487,8 @@ export class CloudLink extends Context.Service<
       | CloudLinkAuthorityUnavailableError
       | CloudLinkOriginInvalidError
       | CloudLinkInternalError
-      | EnvironmentAuth.ServerAuthInternalError,
+      | EnvironmentAuth.ServerAuthInternalError
+      | ManagedLimits.ManagedPolicyRefusedError,
       EnvironmentAuthenticatedPrincipal
     >;
     readonly applyRelayConfig: (
@@ -500,6 +503,7 @@ export class CloudLink extends Context.Service<
       | CloudLinkRelayConfigInvalidError
       | CloudLinkTunnelSupersededError
       | EnvironmentAuth.ServerAuthInternalError
+      | ManagedLimits.ManagedPolicyRefusedError
       | RelayRequestError
     >;
     readonly linkState: () => Effect.Effect<
@@ -521,7 +525,10 @@ export class CloudLink extends Context.Service<
       input: EnvironmentCloudPreferencesRequest,
     ) => Effect.Effect<
       EnvironmentCloudLinkStateResult,
-      CloudLinkAuthorityUnavailableError | CloudLinkNotLinkedError | CloudLinkInternalError
+      | CloudLinkAuthorityUnavailableError
+      | CloudLinkNotLinkedError
+      | CloudLinkInternalError
+      | ManagedLimits.ManagedPolicyRefusedError
     >;
     readonly answerHealthRequest: (
       request: RelayCloudEnvironmentHealthRequest,
@@ -532,6 +539,7 @@ export class CloudLink extends Context.Service<
       | CloudLinkProofReplayedError
       | CloudLinkInternalError
       | EnvironmentAuth.ServerAuthInternalError
+      | ManagedLimits.ManagedPolicyRefusedError
     >;
     readonly mintCredential: (
       request: RelayCloudMintCredentialRequest,
@@ -542,6 +550,7 @@ export class CloudLink extends Context.Service<
       | CloudLinkProofReplayedError
       | CloudLinkInternalError
       | EnvironmentAuth.ServerAuthInternalError
+      | ManagedLimits.ManagedPolicyRefusedError
     >;
     readonly reconcileDesiredLink: (
       localOrigin: string,
@@ -605,10 +614,11 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const httpServer = yield* HttpServer.HttpServer;
   const awarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
 
   const hasPersistedLink = readPersistedCloudLinkPresent(secrets);
   const persistedAuthorityStatus = readPersistedRelayAuthorityStatus(secrets, authority);
@@ -700,7 +710,7 @@ const make = Effect.gen(function* () {
       iss: `t3-env:${descriptor.environmentId}`,
       aud: normalizeRelayIssuer(request.relayIssuer),
       sub: descriptor.environmentId,
-      jti: yield* crypto.randomUUIDv4(),
+      jti: yield* random.uuidV4(),
       iat: nowSeconds,
       exp: Math.floor(expiresAt.epochMilliseconds / 1_000),
       challenge: request.challenge,
@@ -740,7 +750,6 @@ const make = Effect.gen(function* () {
       );
     },
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("generate-link-proof")),
-    Effect.catchTags({ PlatformError: internalError("generate-link-proof") }),
   );
 
   const activateManagedTunnel = Effect.fn("environment.cloud.activateManagedTunnel")(
@@ -1056,7 +1065,7 @@ const make = Effect.gen(function* () {
         Option.isSome(configuredIssuer) ? bytesToString(configuredIssuer.value) : input.relayUrl,
       ),
       sub: input.environmentId,
-      jti: yield* crypto.randomUUIDv4(),
+      jti: yield* random.uuidV4(),
       iat: issuedAt,
       exp: issuedAt + 60,
       environmentId: input.environmentId,
@@ -1347,7 +1356,6 @@ const make = Effect.gen(function* () {
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("persist-relay-config")),
     Effect.catchTags({
       SchemaError: internalError("persist-relay-config"),
-      PlatformError: internalError("register-endpoint-origin"),
     }),
   );
 
@@ -1440,6 +1448,13 @@ const make = Effect.gen(function* () {
       authority.mode === "owned" && !(yield* hasPersistedLink)
         ? "active"
         : yield* persistedAuthorityStatus;
+    // A not-linked check predates the stored tunnel config; the next check replaces it.
+    const currentReachability = Option.filter(
+      latestReachability,
+      (result) =>
+        Option.isNone(endpointRuntimeConfig) ||
+        !(result.status === "unreachable" && result.cause === "not_linked"),
+    );
     return {
       persistedLinkPresent: yield* hasPersistedLink,
       remoteCleanupPending: yield* readPendingRemoteCleanup.pipe(
@@ -1471,7 +1486,7 @@ const make = Effect.gen(function* () {
         status === "active" &&
         Option.isSome(holdWebhooks) &&
         bytesToString(holdWebhooks.value) === "true",
-      ...(Option.isSome(latestReachability) ? { reachability: latestReachability.value } : {}),
+      ...(Option.isSome(currentReachability) ? { reachability: currentReachability.value } : {}),
     } satisfies EnvironmentCloudLinkStateResult;
   });
 
@@ -1725,7 +1740,7 @@ const make = Effect.gen(function* () {
         iss: `t3-env:${environmentId}`,
         aud: normalizeRelayIssuer(relayIssuer),
         sub: environmentId,
-        jti: yield* crypto.randomUUIDv4(),
+        jti: yield* random.uuidV4(),
         iat: nowSeconds,
         exp: Math.floor(responseExpiresAt.epochMilliseconds / 1_000),
         environmentId,
@@ -1755,7 +1770,6 @@ const make = Effect.gen(function* () {
       } satisfies RelayEnvironmentHealthResponse;
     },
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("answer-health")),
-    Effect.catchTags({ PlatformError: internalError("answer-health") }),
   );
 
   const mintCredential = Effect.fn("environment.cloud.mintCredential")(
@@ -1839,7 +1853,7 @@ const make = Effect.gen(function* () {
         iss: `t3-env:${environmentId}`,
         aud: normalizeRelayIssuer(relayIssuer),
         sub: environmentId,
-        jti: yield* crypto.randomUUIDv4(),
+        jti: yield* random.uuidV4(),
         iat: nowSeconds,
         exp: Math.floor(issued.expiresAt.epochMilliseconds / 1_000),
         environmentId,
@@ -1866,8 +1880,43 @@ const make = Effect.gen(function* () {
       } satisfies RelayEnvironmentMintResponse;
     },
     Effect.catchIf(ServerSecretStore.isSecretStoreError, internalError("issue-credential")),
-    Effect.catchTags({ PlatformError: internalError("issue-credential") }),
   );
+
+  if (!ManagedLimits.allowsConnect(managedPolicy)) {
+    // Reading state and unlinking stay available so clients can show and leave the old link.
+    yield* unlink().pipe(
+      Effect.tap(() => Effect.logInfo("T3 Connect is off by managed policy; unlinked.")),
+      Effect.catch((cause) =>
+        Effect.logWarning("Failed to unlink T3 Connect turned off by managed policy", { cause }),
+      ),
+    );
+    const refused = Effect.fn("CloudLink.refusedByPolicy")(function* () {
+      return yield* ManagedLimits.refuseConnect(managedPolicy);
+    });
+    const notLinked = Effect.fn("CloudLink.notLinkedByPolicy")(() =>
+      Effect.succeed({ status: "not_linked" as const }),
+    );
+    const notDesired = Effect.fn("CloudLink.notDesiredByPolicy")(() => Effect.succeed(null));
+    const notStarted = Effect.fn("CloudLink.notStartedByPolicy")(() => Effect.succeed(false));
+    return CloudLink.of({
+      confirmRemoteCleanup,
+      reconcileDesiredLink: Effect.fn("CloudLink.reconcileDesiredLinkDisabled")(() =>
+        Effect.fail(new CloudLinkAuthorityUnavailableError({ status: "locally-disabled" })),
+      ),
+      linkProof: refused,
+      applyRelayConfig: refused,
+      linkState,
+      unlink,
+      updatePreferences: refused,
+      answerHealthRequest: refused,
+      mintCredential: refused,
+      reconcileDesiredLinkIfStillDesired: notDesired,
+      registerManagedTunnelRecovery: notLinked,
+      recoverManagedTunnel: notStarted,
+      startManagedTunnelIfOriginConfirmed: notStarted,
+      releaseManagedTunnelOnShutdown,
+    });
+  }
 
   return CloudLink.of({
     confirmRemoteCleanup,

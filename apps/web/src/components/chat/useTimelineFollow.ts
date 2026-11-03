@@ -17,8 +17,8 @@ import {
   observeTimelineRun,
   type TimelineRunObservation,
 } from "./timelineScrollAnchoring";
-import { type ChatComposerHandle } from "./ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./pageScrollController";
+import type { ChatComposerHandle } from "./ChatComposer";
 import {
   FOLLOWING,
   initialTimelineFollow,
@@ -148,7 +148,7 @@ function sameRunObservation(
 
 interface TimelineFollowInput {
   readonly legendListRef: RefObject<LegendListRef | null>;
-  readonly composerRef: RefObject<ChatComposerHandle | null>;
+  readonly composerRef?: RefObject<ChatComposerHandle | null>;
   readonly composerTimelineInset: number;
   readonly routeThreadKey: string;
   readonly activeThreadKey: string | null;
@@ -223,7 +223,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       (current.mode === "following" || current.atEnd)
     );
   };
-  const isTimelineAtLogicalEndStable = useStableCallback(isTimelineAtLogicalEnd);
   const visitScrollRef = useRef<VisitScrollState | null>(null);
   /** Only from handlers: the bookkeeping of the visit they run in. */
   const visitScroll = () => {
@@ -311,7 +310,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   );
   const handlePageScrollStart = useStableCallback((key: PageScrollKey) => {
     visitScroll().intent = key === "PageUp" ? "away-from-end" : "toward-end";
-    composerRef.current?.collapseForTimelineScrollKey(key);
+    composerRef?.current?.collapseForTimelineScrollKey(key);
     if ((key === "PageUp" && timelineRealContentOverflowsViewport()) || !isTimelineAtLogicalEnd()) {
       // Through the viewport, so a running position restore stops too.
       viewportRef.current?.navigate({ releasesFollow: true });
@@ -332,6 +331,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   const scrollToEnd = (animated: boolean = false) => {
     // Stops a running position restore; follow itself is re-armed below.
     viewportRef.current?.navigate({ releasesFollow: false });
+    const releaseScrollHold = viewportRef.current?.holdProgrammaticScroll() ?? (() => {});
     followStore.dispatch(visit, { type: "followEnd" });
     visitScroll().showScrollDebouncer.cancel();
     setShowScrollToBottom(false);
@@ -340,18 +340,23 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     // list lands short of the real end.
     requestAnimationFrame(() => {
       const list = legendListRef.current;
-      if (!list) return;
+      if (!list) {
+        releaseScrollHold();
+        return;
+      }
       void Promise.resolve(
         list.scrollToEnd?.({
           animated: animated && !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
         }),
-      ).then(() =>
-        settleListScroll(
-          list,
-          measuredEndOffset,
-          () => readCurrentFollow().mode !== "following" || legendListRef.current !== list,
-        ),
-      );
+      )
+        .then(() =>
+          settleListScroll(
+            list,
+            measuredEndOffset,
+            () => readCurrentFollow().mode !== "following" || legendListRef.current !== list,
+          ),
+        )
+        .finally(releaseScrollHold);
     });
   };
   const scrollToEndStable = useStableCallback(scrollToEnd);
@@ -366,7 +371,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   }, [composerTimelineInset, readCurrentFollow, scrollToEndStable]);
 
   const handleNavigation = (navigation: TimelineNavigation) => {
-    const composer = composerRef.current;
+    const composer = composerRef?.current;
     const awayFromEnd = () => resolveTimelineIsAtEnd(legendListRef.current?.getState()) === false;
     const releases = navigationReleasesFollow(navigation, {
       contentScrollsUp: timelineRealContentOverflowsViewport,
@@ -375,9 +380,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     if (navigation.source === "wheel") {
       visitScroll().intent = navigation.direction === "down" ? "toward-end" : "away-from-end";
       const current = readFollow();
-      if (navigation.direction === "down" && (current.mode === "following" || current.atEnd)) {
+      if (navigation.direction === "down" && (current.mode === "following" || current.atEnd))
         composer?.restoreAfterTimelineReachedEnd();
-      }
     }
     if (navigation.source === "key") {
       visitScroll().intent = navigation.direction === "down" ? "toward-end" : "away-from-end";
@@ -505,11 +509,10 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     });
   };
   const onTimelineAnchorSizeChangedStable = useStableCallback(onTimelineAnchorSizeChanged);
+  const onToolOutputCollapsedAtEndStable = useStableCallback(() => {
+    composerRef?.current?.restoreAfterTimelineReachedEnd();
+  });
 
-  const onToolOutputCollapsedAtEnd = () => {
-    composerRef.current?.restoreAfterTimelineReachedEnd();
-  };
-  const onToolOutputCollapsedAtEndStable = useStableCallback(onToolOutputCollapsedAtEnd);
   // The list ignores footer layout, so a new queued turn or status line there would land
   // under the composer. Follow it when the reader was following the end.
   const onTimelineFooterGrow = () => {
@@ -529,9 +532,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     });
     if (after === before) return;
     if (after.mode === "following") {
-      if (scroll.intent === "toward-end") {
-        composerRef.current?.restoreAfterTimelineReachedEnd();
-      }
+      if (scroll.intent === "toward-end") composerRef?.current?.restoreAfterTimelineReachedEnd();
       setTimelineAnchor(releaseChatTimelineAnchor);
       scroll.showScrollDebouncer.cancel();
       setShowScrollToBottom(false);
@@ -586,7 +587,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   return {
     showScrollToBottom,
     timelineLiveFollowEnabled,
-    isTimelineAtLogicalEndStable,
+    isTimelineAtLogicalEndStable: useStableCallback(isTimelineAtLogicalEnd),
     onComposerPageScrollKeyDownStable,
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,

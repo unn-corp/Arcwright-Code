@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -44,7 +45,6 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
   contextWindowMeterEnabled: false,
-  composerCollapseOnScroll: true,
   diffFilesCollapsed: true,
   diffIgnoreWhitespace: true,
   diffLayout: "stacked",
@@ -77,6 +77,9 @@ const clientSettings: ClientSettings = {
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",
   boringSidebarEnabled: false,
+  boringSidebarMultilineRows: false,
+  threadDetailsUsageEnabled: false,
+  threadDetailsItems: {},
   legacySidebarEnabled: false,
   sidebarWorkingShelfEnabled: false,
   loadBalancingEnabled: false,
@@ -100,13 +103,17 @@ function layer(baseDir: string) {
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        DesktopConfig.layerTest({ T3CODE_HOME: baseDir }),
+      ),
     ),
   );
 
   return DesktopClientSettings.layer.pipe(
     Layer.provideMerge(layerEnvironment),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 }
 
@@ -119,7 +126,7 @@ const withClientSettings = <A, E, R>(
       prefix: "t3-desktop-client-settings-test-",
     });
     return yield* effect.pipe(Effect.provide(layer(baseDir)));
-  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)), Effect.scoped);
 
 describe("DesktopClientSettings", () => {
   it.effect("saves through a symlinked client settings file without replacing the link", () =>

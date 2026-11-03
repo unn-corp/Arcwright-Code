@@ -7,6 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
+import { workspaceRelativeFilePath } from "@t3tools/shared/path";
 import { toSortableTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 export { deriveLocalBranchNameFromRemoteRef, sanitizeNewRefName } from "@t3tools/shared/git";
 
@@ -70,12 +71,12 @@ export function shouldShowComposerContextStrip(input: {
   hostsRestingComposerControls: boolean;
   serverUpdateAvailable?: boolean;
 }): boolean {
+  // A new thread always shows the strip, since it names the permissions the first send uses.
   return (
     input.hasActiveProject &&
     (input.isDraftHeroState ||
-      input.persistInActiveThreads ||
-      input.serverUpdateAvailable === true) &&
-    (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)
+      ((input.persistInActiveThreads || input.serverUpdateAvailable === true) &&
+        (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)))
   );
 }
 
@@ -251,6 +252,7 @@ export function resolveLocalCheckoutBranchMismatch(input: {
 
 export function resolveBranchSelectionTarget(input: {
   activeProjectCwd: string;
+  activeProjectCheckoutRoot?: string | undefined;
   activeWorktreePath: string | null;
   refName: Pick<VcsRef, "isDefault" | "worktreePath">;
 }): {
@@ -261,9 +263,14 @@ export function resolveBranchSelectionTarget(input: {
   const { activeProjectCwd, activeWorktreePath, refName } = input;
 
   if (refName.worktreePath) {
+    // Until the project's checkout root loads, a checkout containing the project counts as its own.
+    const isProjectCheckout =
+      input.activeProjectCheckoutRoot === undefined
+        ? workspaceRelativeFilePath(activeProjectCwd, refName.worktreePath) !== null
+        : workspaceRelativeFilePath(input.activeProjectCheckoutRoot, refName.worktreePath) === ".";
     return {
       checkoutCwd: refName.worktreePath,
-      nextWorktreePath: refName.worktreePath === activeProjectCwd ? null : refName.worktreePath,
+      nextWorktreePath: isProjectCheckout ? null : refName.worktreePath,
       reuseExistingWorktree: true,
     };
   }

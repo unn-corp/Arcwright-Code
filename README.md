@@ -17,7 +17,7 @@ Start with the [fork Android guide](./docs/user/android-fork.md) for installatio
 [Android build and development runbook](./docs/operations/android-pwa.md) to build, edit, and understand
 its backend connections. Web and Electron clients are also available.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, Arcwright Code can control them.
+Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, and fx. If they're set up on your computer, Arcwright Code can control them.
 
 ## "Wait, what are you selling me?"
 
@@ -35,7 +35,7 @@ Android APK with the [Android runbook](./docs/operations/android-pwa.md); upstre
 Expo/store mobile distribution is separate.
 
 > [!WARNING]
-> Arcwright Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
+> Arcwright Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, Antigravity, and fx. Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
 > - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
@@ -43,6 +43,7 @@ Expo/store mobile distribution is separate.
 > - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
 > - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
 > - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+> - fx: install [fx](https://fx.sh) and run `fx login` on the machine running the T3 Code server ([setup guide](./docs/user/providers-fx.md))
 
 ### Command line
 
@@ -73,6 +74,16 @@ never uninstall or clear storage to update saved connections.
 
 Upstream winget, Homebrew, AUR, `t3.codes` installers, and `npx t3` install upstream
 T3 Code. They do not deliver this fork's updater or Android app.
+
+#### Upstream Nix (nixpkgs)
+
+```bash
+nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
+```
+
+This installs upstream T3 Code. The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
+and includes the desktop app (`t3code-desktop`) and the `t3` command.
+See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
 
 ## Some notes
 

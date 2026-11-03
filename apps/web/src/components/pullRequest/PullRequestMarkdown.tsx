@@ -1,9 +1,6 @@
 import { ExternalLinkIcon, PaperclipIcon } from "lucide-react";
 import { markdownImageSourceFragment } from "@t3tools/client-runtime/markdown-images";
-import {
-  sourceControlClients,
-  type ReferenceAutolink,
-} from "@t3tools/client-runtime/source-control-clients";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import {
   SOURCE_CONTROL_MEDIA_ASSET,
   type AssetResource,
@@ -12,7 +9,7 @@ import {
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import { createContext, useContext } from "react";
-import type { Options as ReactMarkdownOptions } from "react-markdown";
+import type { PluggableList } from "unified";
 
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { cn } from "~/lib/utils";
@@ -22,19 +19,15 @@ import { PULL_REQUESTS_PANEL_REF } from "~/rightPanelStore";
 
 import ChatMarkdown from "../ChatMarkdown";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
-import { remarkPullRequestAutolinks, splitPullRequestBody } from "./pullRequestMarkdown.logic";
+import { splitPullRequestBody } from "./pullRequestMarkdown.logic";
 
-export interface PullRequestMarkdownContextValue {
-  readonly autolinks: ((text: string) => ReadonlyArray<ReferenceAutolink>) | null;
-  readonly githubAccountId: GitHubAccountId | null;
-  readonly threadRef: ScopedThreadRef | null;
-}
-
-export const PullRequestMarkdownContext = createContext<PullRequestMarkdownContextValue>({
-  autolinks: null,
-  githubAccountId: null,
-  threadRef: null,
-});
+export const PullRequestMarkdownContext = createContext<{
+  /** Stable per repository, so comments share one renderer and its parse cache. */
+  remarkPlugins: PluggableList;
+  lineBreaks: boolean;
+  threadRef: ScopedThreadRef | null;
+  githubAccountId?: GitHubAccountId | null;
+} | null>(null);
 
 function PullRequestHostVideo({
   environmentId,
@@ -69,22 +62,20 @@ export function PullRequestMarkdown({
   cwd,
   environmentId,
   threadRef,
+  lineBreaks,
   className,
 }: {
   text: string;
   cwd: string;
   environmentId: EnvironmentId;
   threadRef?: ScopedThreadRef | null;
+  lineBreaks?: boolean;
   className?: string;
 }) {
   const segments = splitPullRequestBody(text);
   const context = useContext(PullRequestMarkdownContext);
-  const autolinks = context?.autolinks;
   const githubAccountId = context?.githubAccountId;
   const resolvedThreadRef = threadRef ?? context?.threadRef ?? undefined;
-  const extraRemarkPlugins: NonNullable<ReactMarkdownOptions["remarkPlugins"]> = autolinks
-    ? [[remarkPullRequestAutolinks, { autolinks }]]
-    : [];
   return (
     <div
       className={cn(
@@ -103,7 +94,8 @@ export function PullRequestMarkdown({
               threadRef={resolvedThreadRef}
               pullRequestPanelRef={resolvedThreadRef ?? PULL_REQUESTS_PANEL_REF}
               environmentId={environmentId}
-              extraRemarkPlugins={extraRemarkPlugins}
+              {...(context ? { extraRemarkPlugins: context.remarkPlugins } : {})}
+              lineBreaks={lineBreaks ?? context?.lineBreaks ?? false}
               sourceControlMedia
             />
           );

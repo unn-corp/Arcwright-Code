@@ -19,3 +19,6 @@ export function isInstalledPwa(): boolean {
     (window.navigator as { standalone?: boolean } | undefined)?.standalone === true;
   return standalone || iosStandalone;
 }
+export const isSecretsFeatureEnabled = ["1", "true"].includes(
+  import.meta.env.T3CODE_FEATURE_SECRETS?.trim().toLowerCase() ?? "",
+);

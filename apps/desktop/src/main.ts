@@ -7,6 +7,7 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 // @effect-diagnostics-next-line nodeBuiltinImport:off - Version output must flush before Electron exits, without acquiring the runtime.
 import * as NodeFS from "node:fs";
@@ -51,6 +52,7 @@ import * as DesktopBackendPool from "./backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "./backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopNetworkInterfaces from "./backend/DesktopNetworkInterfaces.ts";
 import * as DesktopEnvironment from "./app/DesktopEnvironment.ts";
+import * as DesktopManagedPolicy from "./app/DesktopManagedPolicy.ts";
 import * as DesktopLifecycle from "./app/DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./app/DesktopLinuxUrlHandler.ts";
 import * as DesktopShutdown from "./app/DesktopShutdown.ts";
@@ -71,6 +73,7 @@ import * as DesktopLegacyLocalStorage from "./app/DesktopLegacyLocalStorage.ts";
 import * as DesktopTelemetryPublisher from "./telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopForkMaintenance from "./maintenance/DesktopForkMaintenance.ts";
 import * as DesktopRendererHistory from "./telemetry/DesktopRendererHistory.ts";
+import * as DesktopUpdatePolicy from "./updates/DesktopUpdatePolicy.ts";
 import * as DesktopUpdates from "./updates/DesktopUpdates.ts";
 import * as BrowserImport from "./preview/BrowserImport/BrowserImport.ts";
 import * as LinuxBrowserSecret from "./preview/BrowserImport/LinuxBrowserSecret.ts";
@@ -142,6 +145,7 @@ const layerElectron = Layer.mergeAll(
 
 const layerDesktopFoundationBase = Layer.mergeAll(
   MacPermissions.layer,
+  DesktopManagedPolicy.layer,
   DesktopState.layer,
   DesktopShutdown.layer,
   DesktopLegacyLocalStorage.layer,
@@ -196,10 +200,10 @@ const layerDesktopAppActivation = DesktopAppActivation.layer.pipe(
 const layerDesktopBackend = DesktopBackendPool.layer.pipe(
   Layer.provideMerge(DesktopAppIdentity.layer),
   Layer.provideMerge(DesktopBackendConfiguration.layer),
-  Layer.provideMerge(DesktopShellEnvironment.layer),
   Layer.provideMerge(DesktopWslEnvironment.layer),
   Layer.provideMerge(DesktopWslServerTree.layer),
   Layer.provideMerge(DesktopTelemetryPublisher.layer),
+  Layer.provideMerge(DesktopShellEnvironment.layer),
   Layer.provideMerge(layerDesktopWindow),
 );
 
@@ -221,7 +225,13 @@ const layerDesktopApplication = Layer.mergeAll(
   layerDesktopSsh,
 ).pipe(
   Layer.provideMerge(layerDesktopSnapShot),
-  Layer.provideMerge(DesktopUpdates.layer.pipe(Layer.provide(ElectronUpdater.layer))),
+  Layer.provideMerge(
+    DesktopUpdates.layer.pipe(
+      Layer.provide(ElectronUpdater.layer),
+      Layer.provide(DesktopUpdatePolicy.layer),
+      Layer.provide(DesktopManagedPolicy.layer),
+    ),
+  ),
   // The one update controller: it sits above the backend pool it stops and starts, and below every entry point.
   Layer.provideMerge(DesktopForkMaintenance.layer),
   Layer.provideMerge(layerDesktopWslBackend),
@@ -233,12 +243,12 @@ const layerDesktopClerk = DesktopClerk.layer.pipe(
   Layer.provide(DesktopPreReadyFileSystem.layer),
   Layer.provideMerge(ElectronShell.layer),
   Layer.provideMerge(layerDesktopEnvironment),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   Layer.provideMerge(ElectronApp.layer),
 );
 
 const layerDesktopApplicationRuntime = layerDesktopApplication.pipe(
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   Layer.provideMerge(NodeHttpClient.layerUndici),
   Layer.provideMerge(NetService.layer),
   Layer.provideMerge(layerElectron),

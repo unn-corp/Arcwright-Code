@@ -9,11 +9,13 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import type * as Electron from "electron";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
+import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopState from "./DesktopState.ts";
@@ -226,16 +228,19 @@ export const make = Effect.gen(function* () {
           yield* electronApp.exit(75);
           return;
         }
+        const appLinkPrefix = `${ElectronProtocol.getDesktopScheme(environment.isDevelopment)}:`;
+        const args = yield* HostProcess.Arguments;
+        const executablePath = yield* HostProcess.ExecutablePath;
         yield* electronApp.relaunch({
           execPath:
             environment.platform === "linux" && Option.isSome(environment.appImagePath)
               ? Option.getOrElse(environment.urlHandlerExecTarget, () =>
                   Option.getOrElse(environment.desktopLauncherPath, () =>
-                    Option.getOrElse(environment.appImagePath, () => process.execPath),
+                    Option.getOrElse(environment.appImagePath, () => executablePath),
                   ),
                 )
-              : process.execPath,
-          args: process.argv.slice(1),
+              : executablePath,
+          args: args.slice(1).filter((arg) => !arg.toLowerCase().startsWith(appLinkPrefix)),
         });
         yield* electronApp.exit(0);
       }).pipe(

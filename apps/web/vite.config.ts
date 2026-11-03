@@ -79,6 +79,7 @@ const configuredDesktopUpdateRepository =
   process.env.T3CODE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
   process.env.GITHUB_REPOSITORY?.trim() ||
   "";
+const configuredFeatureSecrets = process.env.T3CODE_FEATURE_SECRETS?.trim() || "";
 const sourcemapEnv = process.env.T3CODE_WEB_SOURCEMAP?.trim().toLowerCase();
 
 // `vp run dev --share --built` rebuilds on every change. The license manifest
@@ -358,6 +359,7 @@ export default defineConfig(() => {
       "import.meta.env.T3CODE_DESKTOP_UPDATE_REPOSITORY": JSON.stringify(
         configuredDesktopUpdateRepository,
       ),
+      "import.meta.env.T3CODE_FEATURE_SECRETS": JSON.stringify(configuredFeatureSecrets),
       "import.meta.env.VITE_RELEASE_CHANNEL": JSON.stringify(configuredReleaseChannel),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
       "import.meta.env.APP_BUILD_IDENTITY": JSON.stringify(buildIdentity(configuredAppVersion)),

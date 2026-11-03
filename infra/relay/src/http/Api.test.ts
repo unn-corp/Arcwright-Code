@@ -77,6 +77,7 @@ import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
 import * as ManagedEndpointLifecycle from "../environments/ManagedEndpointLifecycle.ts";
 import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvider.ts";
+import * as ManagedTunnelLimits from "../environments/ManagedTunnelLimits.ts";
 import * as AgentActivityPublisher from "../agentActivity/AgentActivityPublisher.ts";
 import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublishSignatures.ts";
 import * as T3ChatAccounts from "../t3chat/T3ChatAccounts.ts";
@@ -122,6 +123,7 @@ describe("managed endpoint provisioning errors", () => {
   it.effect("returns the failed stage without exposing provider secrets through HTTP", () => {
     let traceId = "";
     const handlers = RelayHttpApi.layerClientApi.pipe(
+      Layer.provide(Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {})),
       HttpRouter.provideRequest(
         Layer.mergeAll(
           Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),
@@ -157,6 +159,7 @@ describe("managed endpoint provisioning errors", () => {
           Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
           Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {}),
           Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false }),
+          Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {}),
         ),
       ),
       Layer.provideMerge(
@@ -275,6 +278,7 @@ describe("device listing compatibility", () => {
             },
           }),
           Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false }),
+          Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {}),
         ),
       ),
       Layer.provideMerge(
@@ -326,6 +330,7 @@ describe("T3 Chat unlink response privacy", () => {
   ])("sets credential response headers when unlink returns $status", ({ failed, status }) => {
     const users: string[] = [];
     const handlers = RelayHttpApi.layerClientApi.pipe(
+      Layer.provide(Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {})),
       HttpRouter.provideRequest(
         Layer.mergeAll(
           Layer.mock(EnvironmentCredentials.EnvironmentCredentials, {}),
@@ -447,6 +452,7 @@ describe("Cloudflare rate-limit retry hint", () => {
           Layer.mock(WebPushSubscriptions.WebPushSubscriptions, {}),
           Layer.mock(WebPushDeliveryQueue.WebPushDeliveryQueue, {}),
           Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false }),
+          Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {}),
         ),
       ),
       Layer.provideMerge(
@@ -1964,6 +1970,7 @@ describe("test Web Push authority and queue acceptance through exported handlers
           }),
       });
       const clientHandlers = RelayHttpApi.layerClientApi.pipe(
+        Layer.provide(Layer.mock(ManagedTunnelLimits.ManagedTunnelLimits, {})),
         Layer.provide(layerTestLimiter),
         Layer.provide(Layer.mock(T3ChatAccounts.T3ChatAccounts, { available: false })),
         HttpRouter.provideRequest(

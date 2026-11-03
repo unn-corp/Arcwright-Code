@@ -76,6 +76,13 @@ import Migration0117 from "./Migrations/070_PeerLinks.ts";
 import Migration0118 from "./Migrations/071_PeerLinkFence.ts";
 import Migration0119 from "./Migrations/072_WaitingLinkRequestIndex.ts";
 
+import Migration0120 from "./Migrations/120_ActiveTurnItemIndexes.ts";
+import Migration0121 from "./Migrations/121_ExcludeAttachmentPlaceholdersFromSearch.ts";
+import Migration0122 from "./Migrations/122_SubagentDeliveryState.ts";
+import Migration0123 from "./Migrations/123_ProjectionProjectsPinArchive.ts";
+import Migration0124 from "./Migrations/124_RepairBooleanSettledOverride.ts";
+import Migration0125 from "./Migrations/125_DropOrchestrationEventCorrelationIndex.ts";
+
 export const upstreamMigrationEntries = [
   [1, 1, "OrchestrationEvents", Migration0001],
   [2, 2, "OrchestrationCommandReceipts", Migration0002],
@@ -149,4 +156,10 @@ export const upstreamMigrationEntries = [
   [70, 117, "PeerLinks", Migration0117],
   [71, 118, "PeerLinkFence", Migration0118],
   [72, 119, "WaitingLinkRequestIndex", Migration0119],
+  [73, 120, "ActiveTurnItemIndexes", Migration0120],
+  [74, 121, "ExcludeAttachmentPlaceholdersFromSearch", Migration0121],
+  [75, 122, "SubagentDeliveryState", Migration0122],
+  [76, 123, "ProjectionProjectsPinArchive", Migration0123],
+  [77, 124, "RepairBooleanSettledOverride", Migration0124],
+  [78, 125, "DropOrchestrationEventCorrelationIndex", Migration0125],
 ] as const;

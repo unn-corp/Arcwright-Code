@@ -1,3 +1,4 @@
+import * as ServerSettings from "../serverSettings.ts";
 // @effect-diagnostics nodeBuiltinImport:off - Disposable fixtures use Node UUIDs to create unique isolated database and filesystem data.
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -76,6 +77,7 @@ describe("TextGeneration.make", () => {
       };
       const registry = makeStubRegistry([makeStubInstance(instanceId, makeStubTextGeneration({}))]);
       const tg = yield* TextGeneration.make.pipe(
+        Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, registry),
         Effect.provide(
           Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
@@ -92,6 +94,7 @@ describe("TextGeneration.make", () => {
         },
       ]);
       const disabledService = yield* TextGeneration.make.pipe(
+        Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, disabledRegistry),
         Effect.provide(
           Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
@@ -109,6 +112,7 @@ describe("TextGeneration.make", () => {
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("codex");
       const tg = yield* TextGeneration.make.pipe(
+        Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(
           ProviderInstanceRegistry.ProviderInstanceRegistry,
           makeStubRegistry([makeStubInstance(instanceId, makeStubTextGeneration({}))]),
@@ -147,6 +151,7 @@ describe("TextGeneration.make", () => {
         enabled: false,
       };
       const tg = yield* TextGeneration.make.pipe(
+        Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(
           ProviderInstanceRegistry.ProviderInstanceRegistry,
           makeStubRegistry([instance]),

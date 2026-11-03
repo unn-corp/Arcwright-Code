@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - The recovery fixtures use Chromium OSCrypt ciphertext.
 import * as NodeCrypto from "node:crypto";
 
+import * as PlatformNodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
@@ -34,10 +35,10 @@ const { getBetaPassword, getArcwrightPassword } = vi.hoisted(() => ({
 }));
 
 vi.mock("@napi-rs/keyring", () => ({
-  Entry: class {
+  AsyncEntry: class {
     readonly getPassword;
     constructor(service: string, account: string) {
-      this.getPassword = () =>
+      this.getPassword = async () =>
         service === "T3 Code (Beta) Safe Storage" && account === "T3 Code (Beta)"
           ? getBetaPassword()
           : service === "Arcwright Code Beta Safe Storage" && account === "Arcwright Code Beta"
@@ -211,6 +212,7 @@ function layerFor(
       ),
     ),
     NodeServices.layer,
+    PlatformNodeCrypto.layer,
     fileSystemLayer,
   );
   const layerSavedEnvironments = DesktopSavedEnvironments.layer.pipe(

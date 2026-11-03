@@ -1,10 +1,10 @@
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Workers from "@alchemy.run/cloudflare/Workers";
 import { Request } from "@alchemy.run/cloudflare/Workers";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schema from "effect/Schema";
-import { RuntimeContext } from "alchemy/RuntimeContext";
 import { makeWithTransaction } from "effect/sql/SqlClient";
 import { canaryProbeResponse } from "../src/ownedConnectDriverCanary.ts";
 
@@ -22,17 +22,14 @@ class DeadlineFixtureRollback extends Schema.TaggedError<DeadlineFixtureRollback
 class DeadlineFixture extends Workers.Worker<
   DeadlineFixture,
   {
-    fetch: Effect.Effect<
-      HttpServerResponse.HttpServerResponse,
-      never,
-      Request | Workers.WorkerExecutionContext | RuntimeContext
-    >;
+    fetch: Effect.Effect<HttpServerResponse.HttpServerResponse, never, Request>;
   }
 >()("OwnedConnectDriverDeadlineFixture") {}
 
 export default DeadlineFixture.make(
   deadlineFixtureProps,
-  Effect.sync(() => {
+  Effect.gen(function* () {
+    const host = yield* Workers.Worker;
     const completed: string[] = [];
     const finalized: string[] = [];
     const phases = ["begin", "commit", "rollback", "scope-finalizer"] as const;
@@ -56,7 +53,7 @@ export default DeadlineFixture.make(
             `deadline-workerd-${phase}`,
           ),
           spanAttributes: [],
-          acquireConnection: Effect.succeed([undefined, { fixture: true }]),
+          acquireConnection: () => Effect.succeed({ fixture: true } as const),
           begin: () => (phase === "begin" ? stall : Effect.void),
           commit: () => (phase === "commit" ? stall : Effect.void),
           rollback: () => (phase === "rollback" ? stall : Effect.void),
@@ -89,7 +86,7 @@ export default DeadlineFixture.make(
             return yield* probe;
           }),
         );
-      }),
+      }).pipe(Effect.provideService(RuntimeContext, host)),
     };
   }),
 );

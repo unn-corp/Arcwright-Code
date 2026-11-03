@@ -1,6 +1,6 @@
 import * as Context from "effect/Context";
 import * as Cause from "effect/Cause";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -480,7 +480,7 @@ export const resolveContinuousImprovementRecovery = (input: {
 };
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
   const settings = yield* ServerSettings.ServerSettingsService;
   const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -701,7 +701,7 @@ const make = Effect.gen(function* () {
             );
             yield* store
               .appendExternalAction({
-                id: `action:continuous-improvement-stale:${yield* crypto.randomUUIDv4()}`,
+                id: `action:continuous-improvement-stale:${yield* crypto.uuidV4()}`,
                 kind: "other",
                 status: "succeeded",
                 actor: "continuous-improvement",
@@ -825,7 +825,7 @@ const make = Effect.gen(function* () {
           );
           yield* store
             .appendExternalAction({
-              id: `action:continuous-improvement-pr:${yield* crypto.randomUUIDv4()}`,
+              id: `action:continuous-improvement-pr:${yield* crypto.uuidV4()}`,
               kind: "other",
               status: "succeeded",
               actor: "continuous-improvement",
@@ -1086,7 +1086,7 @@ const make = Effect.gen(function* () {
     }) {
       const createdAt = yield* nowIso;
       const queued = createContinuousImprovementRun({
-        id: `implementation:${yield* crypto.randomUUIDv4()}`,
+        id: `implementation:${yield* crypto.uuidV4()}`,
         finding: input.finding,
         model: modelLabel(input.automationSettings.modelSelection),
         createdAt,

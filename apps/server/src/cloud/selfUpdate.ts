@@ -19,15 +19,22 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/http";
 
-import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import {
+  CLI_RELEASE_BASE_URL_ENV,
+  cliReleaseChannelOf,
+  crossesReleaseTrack,
+} from "@t3tools/shared/cliRelease";
 import type { CoordinatorStore } from "@t3tools/shared/forkMaintenanceStore";
 
 import * as ServerConfig from "../config.ts";
 import { acquireMaintenanceHost } from "../maintenance/MaintenanceHost.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { managedUpdateMirror, managedUpdateRefusal } from "../policy/managedUpdates.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   ensurePinnedRuntimeInstalled,
+  isUnpublishedRelease,
   pinnedRuntimeCommand,
   PinnedRuntimeInstallError,
   pinnedRuntimePaths,
@@ -41,7 +48,8 @@ import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProto
 
 import packageJson from "../../package.json" with { type: "json" };
 
-const PREFLIGHT_TIMEOUT = Duration.seconds(30);
+// A staged runtime's cold start can take over a minute on a loaded, swapping host.
+const PREFLIGHT_TIMEOUT = Duration.minutes(3);
 
 export function resolveServerSelfUpdateCapability(input: {
   readonly desktopManaged: boolean;
@@ -128,8 +136,29 @@ export const pruneRuntimesOnStart = Effect.fn("cloud.server_self_update.prune_on
   },
 );
 
+/** The client checks this when planning; the host checks again because its database may have
+ * moved on since (another client updated it). Stable and Nightly each build their own commits,
+ * so crossing tracks needs the target release to know every migration this database holds. */
+export function trackSwitchBlockReason(input: {
+  readonly serverVersion: string;
+  readonly targetVersion: string;
+  readonly targetDatabaseMigration: number | undefined;
+  /** Read only for a crossing; undefined when the database cannot be read. */
+  readonly databaseMigration: () => number | undefined;
+}): string | null {
+  if (!crossesReleaseTrack(input.serverVersion, input.targetVersion)) return null;
+  const databaseMigration = input.databaseMigration();
+  if (input.targetDatabaseMigration === undefined || databaseMigration === undefined) {
+    return `Cannot confirm this database works with t3@${input.targetVersion}. Switch tracks from Settings → About → Update track, which checks it first.`;
+  }
+  return input.targetDatabaseMigration < databaseMigration
+    ? `This database has changes t3@${input.targetVersion} does not support yet; it stays on this release.`
+    : null;
+}
+
 export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
+  const policy = yield* ManagedPolicy.ManagedPolicy;
   const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
   const runner = yield* ProcessRunner.ProcessRunner;
   const fs = yield* FileSystem.FileSystem;
@@ -139,9 +168,10 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   // Kept so existing compositions still construct; desktop-managed servers no longer drive it.
   const desktopAppUpdate = yield* DesktopAppUpdate.DesktopAppUpdate;
   const httpClient = yield* HttpClient.HttpClient;
-  const releaseBaseUrl = Option.getOrUndefined(
-    yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option),
-  );
+  const mirror = managedUpdateMirror(policy.document);
+  const releaseBaseUrl =
+    mirror?.feedUrl ??
+    Option.getOrUndefined(yield* Config.String(CLI_RELEASE_BASE_URL_ENV).pipe(Config.option));
 
   yield* Effect.gen(function* () {
     const host = yield* acquireMaintenanceHost(serverConfig);
@@ -169,6 +199,11 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       if (capability !== "boot-service")
         return yield* failWith("Only a background service stages its own runtime.");
       const targetVersion = input.targetVersion.trim();
+      const policyRefusal = managedUpdateRefusal(
+        policy.document,
+        cliReleaseChannelOf(targetVersion),
+      );
+      if (policyRefusal !== undefined) return yield* failWith(policyRefusal);
       if (!isExactServiceVersion(targetVersion)) {
         return yield* failWith(`'${targetVersion}' is not an exact t3 version.`);
       }
@@ -183,6 +218,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         arch,
         releaseBaseUrl,
         expectedArchiveSha256: input.expectedArchiveSha256,
+        requirePublishedRelease: mirror !== undefined,
         validate: (runtime) =>
           runner
             .run({
@@ -256,7 +292,12 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         Effect.mapError((error) =>
           error._tag === "PinnedRuntimePreflightBlockedError"
             ? failWith(error.reason, error)
-            : failWith(`Could not prepare t3@${targetVersion}.`, error),
+            : mirror !== undefined && isUnpublishedRelease(error)
+              ? failWith(
+                  `${mirror.organization}'s update mirror has no t3@${targetVersion} for this machine.`,
+                  error,
+                )
+              : failWith(`Could not prepare t3@${targetVersion}.`, error),
         ),
       );
     },
@@ -266,9 +307,14 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     capability,
     stage,
     update: Effect.fn("ServerSelfUpdate.update")(function (
-      _input,
+      input,
       reportProgress = () => Effect.void,
     ) {
+      const policyRefusal = managedUpdateRefusal(
+        policy.document,
+        cliReleaseChannelOf(input.targetVersion.trim()),
+      );
+      if (policyRefusal !== undefined) return Effect.fail(failWith(policyRefusal));
       return capability === "desktop-managed" && desktopAppUpdate.available
         ? desktopAppUpdate.run(reportProgress)
         : Effect.fail(failWith(RETIRED_REASON));

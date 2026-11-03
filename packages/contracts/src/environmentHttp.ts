@@ -347,6 +347,8 @@ const EnvironmentScopedOperationErrors = [
 ] as const;
 const EnvironmentPairingCredentialErrors = [
   EnvironmentRequestInvalidError,
+  // The managed policy does not allow remote clients.
+  EnvironmentHttpForbiddenError,
   ...EnvironmentScopedOperationErrors,
 ] as const;
 const EnvironmentSessionRevokeErrors = [
@@ -678,6 +680,7 @@ const EnvironmentOrchestrationShellSnapshotQuery = Schema.Struct({
 });
 
 const EnvironmentOrchestrationThreadBoundedSnapshotQuery = Schema.Struct({
+  deferWork: Schema.optionalKey(Schema.String),
   compactTurnItems: Schema.optionalKey(Schema.String),
   dedupeBodies: Schema.optionalKey(Schema.String),
   compactIds: Schema.optionalKey(Schema.String),
@@ -686,7 +689,8 @@ const EnvironmentOrchestrationThreadBoundedSnapshotQuery = Schema.Struct({
 const EnvironmentOrchestrationThreadHistoryQuery = Schema.Struct({
   cursor: TrimmedNonEmptyString,
   throughEntryId: Schema.optional(TrimmedNonEmptyString),
-  view: Schema.optional(Schema.Literals(["conversation", "activity"])),
+  view: Schema.optional(Schema.Literals(["conversation", "activity", "work"])),
+  deferWork: Schema.optionalKey(Schema.String),
   compactIds: Schema.optionalKey(Schema.String),
 });
 

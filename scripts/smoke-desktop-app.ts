@@ -148,11 +148,14 @@ try {
   step = "waiting for the application window";
   const page = await Effect.runPromise(waitForApplicationWindow(app));
   step = `finding "${THREAD_TITLE}" in the sidebar`;
-  const thread = page.locator("li[data-thread-item]", { hasText: THREAD_TITLE });
-  await thread.waitFor({ state: "attached", timeout: STEP_TIMEOUT_MS });
   const sidebarToggle = page.getByRole("button", { name: "Toggle main sidebar", exact: true });
   await sidebarToggle.waitFor({ timeout: STEP_TIMEOUT_MS });
-  if (!(await thread.isVisible())) await sidebarToggle.click();
+  const thread = page.locator("li[data-thread-item]", { hasText: THREAD_TITLE });
+  const settledShelf = page.getByTestId("sidebar-settled-shelf-toggle");
+  await settledShelf.waitFor({ state: "attached", timeout: STEP_TIMEOUT_MS });
+  if (!(await settledShelf.isVisible())) await sidebarToggle.click();
+  await settledShelf.waitFor({ timeout: STEP_TIMEOUT_MS });
+  if ((await settledShelf.getAttribute("aria-expanded")) === "false") await settledShelf.click();
   await thread.waitFor({ timeout: STEP_TIMEOUT_MS });
   step = "opening the thread";
   await thread.click();

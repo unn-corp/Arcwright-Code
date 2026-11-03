@@ -147,7 +147,7 @@ export function historicalMessage(
       text = item.message;
       break;
     case "file_change":
-      text = `File change: ${item.fileName}`;
+      text = `File change: ${item.changes?.map((change) => change.path).join(", ") ?? item.fileName}`;
       break;
     case "proposed_plan":
       text = item.markdown;
@@ -197,25 +197,16 @@ export function renderHistory(
   return [context, ...messages.map(renderHistoricalMessage)].join("\n\n");
 }
 
+const jsonByteLength = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+
 export function historyCost(
   messages: ReadonlyArray<OrchestrationV2HistoricalMessage>,
   context: string,
 ): number {
-  const rendered = messages.map(renderHistoricalMessage);
-  const responseItems = [
-    { type: "message", role: "user", content: [{ type: "input_text", text: context }] },
-    ...messages.map((message, index) => ({
-      type: "message",
-      role: message.role,
-      content: [
-        { type: message.role === "user" ? "input_text" : "output_text", text: rendered[index]! },
-      ],
-    })),
-  ];
   return (
     Math.max(
-      Buffer.byteLength(JSON.stringify(responseItems)),
-      Buffer.byteLength(JSON.stringify([context, ...rendered].join("\n\n"))),
+      jsonByteLength(historyResponseItems(messages, context)),
+      jsonByteLength(renderHistory(messages, context)),
     ) + 256
   );
 }

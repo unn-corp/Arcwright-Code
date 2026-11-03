@@ -1,3 +1,5 @@
+import * as Layer from "effect/Layer";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
@@ -44,7 +46,7 @@ function withFakeHermes<A, E, R>(
   }).pipe(Effect.scoped);
 }
 
-it.layer(NodeServices.layer)("HermesTextGeneration", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("HermesTextGeneration", (it) => {
   it.effect("sends thread title instructions to the provider prompt", () =>
     Effect.gen(function* () {
       const directory = NodeFS.mkdtempSync(

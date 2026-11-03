@@ -105,7 +105,7 @@ export class MigrateDevDbSlotCollisionError extends Schema.TaggedError<MigrateDe
 export class MigrateDevDbPhaseError extends Schema.TaggedError<MigrateDevDbPhaseError>()(
   "MigrateDevDbPhaseError",
   {
-    phase: Schema.Literals(["snapshot", "prune", "compact", "migrate", "verify"]),
+    phase: Schema.Literals(["snapshot", "prune", "compact", "migrate"]),
     databasePath: Schema.String,
     cause: Schema.Defect(),
   },
@@ -211,6 +211,7 @@ const CLEARED_TABLES: ReadonlyArray<string> = [
   "provider_session_runtime",
   "auth_sessions",
   "auth_pairing_links",
+  "peer_environment_links",
 ];
 
 const PROVIDER_SESSIONS_TABLE = "orchestration_v2_projection_provider_sessions";
@@ -522,17 +523,6 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
     }).pipe(
       Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
       wrapPhase("migrate", snapshotPath),
-    );
-
-    // Detect migration slot collisions before replacing the worktree database.
-    yield* verifyMigrationSlots().pipe(
-      Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
-      Effect.catchTags({
-        SqlError: (cause) =>
-          Effect.fail(
-            new MigrateDevDbPhaseError({ phase: "verify", databasePath: snapshotPath, cause }),
-          ),
-      }),
     );
 
     yield* Console.log(

@@ -4,7 +4,8 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Config from "effect/Config";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -75,18 +76,7 @@ import * as HookInbox from "./hooks/HookInbox.ts";
 import * as HookInboxObject from "./hooks/HookInboxObject.ts";
 import * as MobileTelemetry from "./mobileTelemetry/MobileTelemetry.ts";
 
-const layerWebcrypto = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
-    digest: (algorithm, data) =>
-      Effect.promise(async () => {
-        const input = new Uint8Array(data.length);
-        input.set(data);
-        return new Uint8Array(await globalThis.crypto.subtle.digest(algorithm, input.buffer));
-      }),
-  }),
-);
+const layerWebcrypto = Layer.mergeAll(SecureRandom.layerWebCrypto, Digest.layerWebCrypto);
 
 const layerRelayApi = Layer.mergeAll(
   RelayHttpApi.layerHealthApi,

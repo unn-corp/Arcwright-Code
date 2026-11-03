@@ -11,7 +11,7 @@ import { memo, use, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
-import { SubagentAvatar, SubagentElapsed, V2LifecycleRow } from "./V2LifecycleRow";
+import { EnvironmentSubagentAvatar, SubagentElapsed, V2LifecycleRow } from "./V2LifecycleRow";
 import { LinkRequestCard } from "./LinkRequestCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { TimelineRowCtx, type TimelineRow } from "./timelineRowContext";
@@ -109,7 +109,9 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
         >
           <span className="flex shrink-0 items-center -space-x-1.5">
             {agents.slice(0, 3).map(({ item, status, model }) => (
-              <SubagentAvatar
+              <EnvironmentSubagentAvatar
+                environmentId={ctx.activeThreadEnvironmentId}
+                providerInstanceId={item.providerInstanceId}
                 enhancedIdentity={ctx.enhancedFeed}
                 key={item.id}
                 instanceId={agentInstanceId(
@@ -119,6 +121,7 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
                 name={item.title ?? "Agent"}
                 model={model}
                 driver={item.driver}
+                remote={item.remoteChild}
                 status={agents.length === 1 ? status : undefined}
               />
             ))}

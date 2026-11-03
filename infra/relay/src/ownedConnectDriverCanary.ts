@@ -1,3 +1,4 @@
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Worker from "@alchemy.run/cloudflare/Workers";
 import { Request } from "@alchemy.run/cloudflare/Workers";
 import * as Drizzle from "@alchemy.run/drizzle/Postgres";
@@ -18,7 +19,6 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
-import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
@@ -271,11 +271,7 @@ export const makeCanaryHandler = Effect.fnUntraced(function* (secret: Redacted.R
 export class OwnedConnectDriverCanary extends Worker.Worker<
   OwnedConnectDriverCanary,
   {
-    fetch: Effect.Effect<
-      HttpServerResponse.HttpServerResponse,
-      never,
-      Request | Worker.WorkerExecutionContext | RuntimeContext
-    >;
+    fetch: Effect.Effect<HttpServerResponse.HttpServerResponse, never, Request>;
   }
 >()("OwnedConnectDriverCanary") {}
 
@@ -290,6 +286,7 @@ export default OwnedConnectDriverCanary.make(
         ],
       });
     const secret = yield* Config.Redacted("ARCWRIGHT_CONNECT_DRIVER_CANARY_SECRET");
-    return { fetch: yield* makeCanaryHandler(secret).pipe(Effect.orDie) };
+    const fetch = yield* makeCanaryHandler(secret).pipe(Effect.orDie);
+    return { fetch: fetch.pipe(Effect.provideService(RuntimeContext, host)) };
   }),
 );

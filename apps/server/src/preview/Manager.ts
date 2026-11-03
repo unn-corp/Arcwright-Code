@@ -26,8 +26,8 @@ import {
   newPreviewTabId,
   normalizePreviewUrl,
 } from "@t3tools/shared/preview";
-import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -244,8 +244,8 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   });
   const releaseShare = (threadId: string, tabId: string) =>
     Option.isSome(publisher) ? publisher.value.release(compositeKey(threadId, tabId)) : Effect.void;
-  const crypto = yield* Crypto.Crypto;
-  const serverEpoch = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+  const random = yield* SecureRandom.SecureRandom;
+  const serverEpoch = yield* random.uuidV4();
   const stateRef = yield* SynchronizedRef.make<ManagerState>(initialState);
   const eventsPubSub = yield* PubSub.unbounded<PreviewEvent>();
   const events: Stream.Stream<PreviewEvent> = Stream.fromPubSub(eventsPubSub);
@@ -760,7 +760,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           ...session.snapshot,
           reveal: true,
           revealRequest: {
-            id: yield* crypto.randomUUIDv4().pipe(Effect.orDie),
+            id: yield* random.uuidV4(),
             force: input.force,
           },
           updatedAt: yield* currentIsoTimestamp,

@@ -39,13 +39,6 @@ export function ProjectFavicon(input: {
   fallbackIcon?: ComponentType<{ className?: string }>;
 }) {
   const { project } = input;
-  const src = useAtomValue(
-    projectFaviconUrlAtom({
-      environmentId: project.environmentId,
-      cwd: project.workspaceRoot,
-      faviconPath: project.faviconPath,
-    }),
-  );
   if (project.projectIcon?.kind === "photo") {
     return input.showPhoto === false ? (
       <ProjectFaviconFallback
@@ -97,6 +90,18 @@ export function ProjectFavicon(input: {
       </span>
     );
   }
+  return <AutomaticProjectFavicon {...input} />;
+}
+
+function AutomaticProjectFavicon(input: Parameters<typeof ProjectFavicon>[0]) {
+  const { project } = input;
+  const src = useAtomValue(
+    projectFaviconUrlAtom({
+      environmentId: project.environmentId,
+      cwd: project.workspaceRoot,
+      faviconPath: project.faviconPath,
+    }),
+  );
   const FallbackIcon = input.fallbackIcon ?? FolderCodeIcon;
 
   if (input.showPhoto === false || !src || isProjectFaviconFallbackUrl(src)) {

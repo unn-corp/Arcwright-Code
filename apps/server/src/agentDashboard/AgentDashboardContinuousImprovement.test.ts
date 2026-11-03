@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off - Tests use local filesystem fixtures.
 // @effect-diagnostics preferSchemaOverJson:off - These tests persist a small fixture document.
 import * as NodeChildProcess from "node:child_process";
@@ -140,7 +141,7 @@ const makeContinuousImprovementTestLayer = (input: {
     Layer.provide(Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({})),
     Layer.provide(Layer.succeed(ServerSettings.ServerSettingsService, input.settings)),
     Layer.provide(ServerConfig.layerTest(process.cwd(), input.baseDir)),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
 it("finds the pull request after an implementation agent renames its branch", () => {

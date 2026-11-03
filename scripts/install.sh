@@ -20,6 +20,14 @@ set -eu
 repo="unn-corp/Arcwright-Code"
 base_url="${T3CODE_RELEASE_BASE_URL:-https://github.com/${repo}/releases/download}"
 t3_home="${T3CODE_HOME:-$HOME/.t3}"
+case "$t3_home" in
+  /*) ;;
+  *)
+    # Preserve cwd's trailing newlines; trim only pwd's newline and the sentinel.
+    t3_cwd="$(pwd -P && printf .)"
+    t3_home="${t3_cwd%??}/$t3_home"
+    ;;
+esac
 bin_dir="${T3CODE_INSTALL_BIN_DIR:-$HOME/.local/bin}"
 
 fail() {
@@ -133,12 +141,15 @@ case "$(uname -m)" in
   x86_64 | amd64) arch="x64" ;;
   *) fail "unsupported architecture $(uname -m)" ;;
 esac
+if [ "${platform}-${arch}" = darwin-x64 ]; then
+  fail "there is no t3 CLI for Intel Macs. Install the desktop app from https://t3.codes/download, or run a server from source: https://github.com/${repo}/blob/main/docs/user/install.md#intel-macs"
+fi
 command -v tar >/dev/null 2>&1 || fail "tar is required"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required to validate fork release metadata"
 if command -v sha256sum >/dev/null 2>&1; then
-  checksum() { sha256sum "$1" | cut -d' ' -f1; }
+  checksum() { sha256sum < "$1" | cut -d' ' -f1; }
 elif command -v shasum >/dev/null 2>&1; then
-  checksum() { shasum -a 256 "$1" | cut -d' ' -f1; }
+  checksum() { shasum -a 256 < "$1" | cut -d' ' -f1; }
 else
   fail "sha256sum or shasum is required"
 fi
@@ -261,10 +272,10 @@ for line in (folder / "SHA256SUMS").read_text().splitlines():
 assert checks.get(archive) == selected[0]["sha256"]
 PYVERIFY
   download "${base_url}/fork-v${version}/${archive}" "${staging}/${archive}"
-
-  step "Verifying the download..."
   expected="$(grep " \*\{0,1\}${archive}\$" "${staging}/SHA256SUMS" | cut -d' ' -f1)"
   [ -n "$expected" ] || fail "${archive} is not listed in SHA256SUMS"
+
+  step "Verifying the download..."
   actual="$(checksum "${staging}/${archive}")"
   [ "$actual" = "$expected" ] || fail "checksum mismatch for ${archive}"
 
@@ -290,6 +301,6 @@ grep -qxF "$launcher" "$launchers" 2>/dev/null || printf '%s\n' "$launcher" >> "
 if "$interactive"; then printf '\r\033[2K' >&2; fi
 printf '  %sInstalled Arcwright Code %s%s\n\n' "$green" "$version" "$reset" >&2
 case ":${PATH}:" in
-  *":${bin_dir}:"*) printf '  Run %st3%s to get started.\n\n' "$bold" "$reset" ;;
+  *":${bin_dir}:"*) printf '  Run %st3%s to use Arcwright Code here, or %st3 up%s to use it from your other devices.\n\n' "$bold" "$reset" "$bold" "$reset" ;;
   *) printf '  Add %s to your PATH, then run %st3%s.\n\n' "$bin_dir" "$bold" "$reset" ;;
 esac

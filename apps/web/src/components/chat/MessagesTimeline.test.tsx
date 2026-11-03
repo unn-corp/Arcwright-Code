@@ -225,7 +225,7 @@ vi.mock("@legendapp/list/react", async () => {
     );
   };
 
-  return { LegendList };
+  return { LegendList, useSyncLayout: () => () => {} };
 });
 
 function MockFileDiff(props: {

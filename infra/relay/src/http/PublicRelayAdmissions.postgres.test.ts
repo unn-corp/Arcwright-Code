@@ -1,12 +1,12 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { EffectLogger } from "drizzle-orm/effect-core";
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { RelayManagedEndpointRecoveryRequest } from "@t3tools/contracts/relay";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { eq } from "drizzle-orm";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -69,20 +69,18 @@ const makeSubscriptions = (
   Subscriptions.make.pipe(
     Effect.provideService(Configuration.RelayConfiguration, settings),
     Effect.provide(
-      Layer.effect(
-        Crypto.Crypto,
-        Crypto.Crypto.pipe(
-          Effect.map((base) => ({
-            ...base,
-            randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
-              base
-                .randomUUIDv4(options)
-                .pipe(
-                  Effect.tap(() => Effect.sync(() => c.uuid++)),
-                )) as Crypto.Crypto["randomUUIDv4"],
-          })),
-        ),
-      ).pipe(Layer.provide(NodeCrypto.layer)),
+      Layer.mergeAll(
+        Digest.layerWebCrypto,
+        Layer.effect(
+          SecureRandom.SecureRandom,
+          SecureRandom.SecureRandom.pipe(
+            Effect.map((base) => ({
+              ...base,
+              uuidV4: () => base.uuidV4().pipe(Effect.tap(() => Effect.sync(() => c.uuid++))),
+            })),
+          ),
+        ).pipe(Layer.provide(SecureRandom.layerWebCrypto)),
+      ),
     ),
   );
 const currentRequest = Effect.fnUntraced(function* (
@@ -575,7 +573,8 @@ describe.runIf(fixtureFile !== undefined)("public first-create admission race", 
       withPg(
         Effect.gen(function* () {
           const db = yield* Db.RelayDb;
-          const crypto = yield* Crypto.Crypto;
+          const digest = yield* Digest.Digest;
+          const random = yield* SecureRandom.SecureRandom;
           const entered = yield* Deferred.make<void>();
           const resume = yield* Deferred.make<void>();
           type Phase = "preflight" | "winner" | "delayed" | "retry";
@@ -618,21 +617,24 @@ describe.runIf(fixtureFile !== undefined)("public first-create admission race", 
           const service = yield* Subscriptions.make.pipe(
             Effect.provideService(Db.RelayDb, loggedDb),
             Effect.provideService(Configuration.RelayConfiguration, legacyConfig),
-            Effect.provideService(Crypto.Crypto, {
-              ...crypto,
+            Effect.provideService(Digest.Digest, {
+              ...digest,
               digest: (...args) =>
-                crypto
+                digest
                   .digest(...args)
                   .pipe(Effect.tap(() => Effect.sync(() => queries[phase].hash++))),
-              randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
+            }),
+            Effect.provideService(SecureRandom.SecureRandom, {
+              ...random,
+              uuidV4: () =>
                 Effect.gen(function* () {
                   queries[phase].uuid++;
                   if (++uuidCalls === 1) {
                     yield* Deferred.succeed(entered, undefined);
                     yield* Deferred.await(resume);
                   }
-                  return yield* crypto.randomUUIDv4(options);
-                })) as Crypto.Crypto["randomUUIDv4"],
+                  return yield* random.uuidV4();
+                }),
             }),
           );
           const ownershipFailures: unknown[] = [];
@@ -744,7 +746,10 @@ describe.runIf(fixtureFile !== undefined)("public first-create admission race", 
           expect(yield* db.select().from(relayWebPushSubscriptions)).toEqual(beforeRows);
           expect(yield* db.select().from(relayWebPushSubscriptionStates)).toEqual(beforeStates);
         }),
-      ).pipe(Effect.provide(NodeCrypto.layer), Effect.scoped),
+      ).pipe(
+        Effect.provide(Layer.mergeAll(Digest.layerWebCrypto, SecureRandom.layerWebCrypto)),
+        Effect.scoped,
+      ),
   );
   it.effect(
     "public first-create, admitted renewal and endpoint transfer retain their normal ownership behavior",

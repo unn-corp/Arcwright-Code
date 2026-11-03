@@ -1,5 +1,5 @@
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -49,7 +49,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
   hermesSettings: HermesSettings,
   environment: NodeJS.ProcessEnv = process.env,
 ) {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
 
@@ -108,7 +108,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
           }
           return notification;
         },
-      }).pipe(Effect.provideService(Crypto.Crypto, crypto));
+      }).pipe(Effect.provideService(Crypto.SecureRandom, crypto));
 
       if (operation === "generateOrganizationArchitectTurn") {
         yield* denyArchitectAcpTools(runtime);

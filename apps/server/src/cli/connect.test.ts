@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId, AuthSessionId, AuthRelayWriteScope } from "@t3tools/contracts";
@@ -201,6 +202,7 @@ it.effect.each([
       Effect.provide(
         Layer.mergeAll(
           NodeServices.layer,
+          NodeCrypto.layer,
           NetService.layer,
           Layer.mock(ChildProcessSpawner.ChildProcessSpawner)({
             spawn: () => forbidden("spawn"),

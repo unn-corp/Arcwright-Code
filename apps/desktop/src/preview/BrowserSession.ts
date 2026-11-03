@@ -1,7 +1,7 @@
 import type { Session, WebContents } from "electron";
 import { BrowserWindow, session } from "electron";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
@@ -27,6 +27,9 @@ const ALLOWED_PREVIEW_PERMISSIONS: ReadonlySet<string> = new Set([
   "geolocation",
   // DesktopWindow confines HTML fullscreen to the guest's webview.
   "fullscreen",
+  "pointerLock",
+  // Loopback requests already succeed in Electron 44; permission-aware sign-in widgets query first.
+  "loopback-network",
   // Deny local-fonts to untrusted previews: it exposes installed-font fingerprints and file bytes.
   // Deny notifications: pages could impersonate Arcwright Code; app notifications use the default session.
 ]);
@@ -186,7 +189,7 @@ const previewHostWindow = (guest: WebContents | null): BrowserWindow | undefined
 
 /** @public */
 export const make = Effect.gen(function* BrowserSessionMake() {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const permissionContext = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ElectronDialog.ElectronDialog
   >();
@@ -268,13 +271,22 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     persistent = true,
     namespace?: BrowserSessionPartitionNamespace,
   ) {
-    const digest = yield* crypto.digest("SHA-256", encodeScopeForDigest(scope)).pipe(
-      Effect.mapError(
-        (cause) =>
+    const digest = yield* crypto.digest(Digest.sha256, encodeScopeForDigest(scope)).pipe(
+      Effect.catchDefect((cause) =>
+        Effect.fail(
           new BrowserSessionPartitionDerivationError({
             scope,
-            cause,
+            cause:
+              cause instanceof PlatformError.PlatformError
+                ? cause
+                : PlatformError.systemError({
+                    _tag: "Unknown",
+                    module: "Crypto",
+                    method: "digest",
+                    cause,
+                  }),
           }),
+        ),
       ),
     );
     const prefix = persistent ? PREVIEW_PARTITION_PREFIX : PREVIEW_EPHEMERAL_PARTITION_PREFIX;
@@ -373,7 +385,13 @@ export const make = Effect.gen(function* BrowserSessionMake() {
             yield* Effect.tryPromise({
               try: () =>
                 browserSession.clearStorageData({
-                  storages: ["cookies", "localstorage", "indexdb", "serviceworkers"],
+                  storages: [
+                    "cookies",
+                    "localstorage",
+                    "indexdb",
+                    "serviceworkers",
+                    "cachestorage",
+                  ],
                 }),
               catch: (cause) =>
                 new BrowserSessionStorageClearError({

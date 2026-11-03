@@ -1,7 +1,7 @@
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
@@ -89,27 +89,27 @@ function guardedRuntime(
       },
     },
   ) as RelayDb.RelayDb["Service"];
-  const crypto = Layer.effect(
-    Crypto.Crypto,
-    Effect.gen(function* () {
-      const original = yield* Crypto.Crypto;
-      return Crypto.Crypto.of({
-        ...original,
-        randomUUIDv4: ((options?: Parameters<Crypto.Crypto["randomUUIDv4"]>[0]) =>
-          original.randomUUIDv4(options).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                calls.crypto++;
-              }),
-            ),
-          )) as Crypto.Crypto["randomUUIDv4"],
-        digest: (...args) => {
-          calls.crypto++;
-          return original.digest(...args);
-        },
-      });
-    }),
-  ).pipe(Layer.provide(NodeCrypto.layer));
+  const crypto = Layer.mergeAll(
+    Layer.effect(
+      Digest.Digest,
+      Digest.Digest.pipe(
+        Effect.map((base) => ({
+          ...base,
+          digest: (...args: Parameters<typeof base.digest>) =>
+            base.digest(...args).pipe(Effect.tap(() => Effect.sync(() => calls.crypto++))),
+        })),
+      ),
+    ).pipe(Layer.provide(Digest.layerWebCrypto)),
+    Layer.effect(
+      SecureRandom.SecureRandom,
+      SecureRandom.SecureRandom.pipe(
+        Effect.map((base) => ({
+          ...base,
+          uuidV4: () => base.uuidV4().pipe(Effect.tap(() => Effect.sync(() => calls.crypto++))),
+        })),
+      ),
+    ).pipe(Layer.provide(SecureRandom.layerWebCrypto)),
+  );
   const attempts = Layer.succeed(DeliveryAttempts.DeliveryAttempts, {
     record: () => Effect.void,
     pruneExpired: Effect.succeed(0),

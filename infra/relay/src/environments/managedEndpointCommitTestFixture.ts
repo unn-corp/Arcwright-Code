@@ -1,8 +1,6 @@
 import { vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 import * as SqlClient from "effect/sql/SqlClient";
 import { SqlError, UnknownError } from "effect/sql/SqlError";
 
@@ -22,12 +20,7 @@ export const installCommitBarrier = (
   const withTransaction = SqlClient.makeWithTransaction({
     transactionService: client.transactionService,
     spanAttributes: [],
-    acquireConnection: Effect.flatMap(Scope.make(), (scope) =>
-      Scope.provide(client.reserve, scope).pipe(
-        Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
-        Effect.map((connection) => [scope, connection] as const),
-      ),
-    ),
+    acquireConnection: (restore) => restore(client.reserve),
     begin: (connection) => connection.executeUnprepared("BEGIN", [], undefined).pipe(Effect.asVoid),
     savepoint: (connection, id) =>
       connection.executeUnprepared(`SAVEPOINT effect_sql_${id}`, [], undefined).pipe(Effect.asVoid),

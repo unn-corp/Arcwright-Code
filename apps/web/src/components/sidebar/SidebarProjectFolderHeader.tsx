@@ -10,6 +10,7 @@ import { resolveSidebarFolderDot, resolveThreadLastVisitedAt } from "../Sidebar.
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Button } from "../ui/button";
 import { CollapsedThreadStatusIndicators } from "./CollapsedThreadStatusIndicators";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** The folder's sidebar tree row; its thread rows name it as their parent. */
 export function sidebarFolderRowId(projectKey: string) {
@@ -62,8 +63,6 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
     >
       <button
         type="button"
-        role="treeitem"
-        tabIndex={-1}
         data-sidebar-row={rowId}
         aria-expanded={!collapsed}
         onClick={() => props.onToggle(group)}
@@ -97,15 +96,22 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
         />
       </button>
       <span className="flex shrink-0 items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
-        <Button
-          data-sidebar-action-for={rowId}
-          size="icon-xs"
-          variant="ghost-muted"
-          aria-label={`New thread in ${group.displayName}`}
-          onClick={() => props.onNewThread(group)}
-        >
-          <SquarePenIcon aria-hidden />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                data-sidebar-action-for={rowId}
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={`New thread in ${group.displayName}`}
+                onClick={() => props.onNewThread(group)}
+              />
+            }
+          >
+            <SquarePenIcon aria-hidden />
+          </TooltipTrigger>
+          <TooltipPopup>New thread in {group.displayName}</TooltipPopup>
+        </Tooltip>
       </span>
       <button
         type="button"

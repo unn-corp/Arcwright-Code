@@ -22,8 +22,8 @@ import {
 import { startThreadTurn } from "@t3tools/client-runtime/operations";
 import type { RpcSession, WsRpcProtocolClient } from "@t3tools/client-runtime/rpc";
 import { createModelSelection } from "@t3tools/shared/model";
-import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import { Atom } from "effect/reactivity";
@@ -308,11 +308,8 @@ function dispatch(
     return commands;
   }).pipe(
     Effect.provideService(
-      Crypto.Crypto,
-      Crypto.make({
-        randomBytes: (size) => new Uint8Array(size),
-        digest: (_algorithm, data) => Effect.succeed(data),
-      }),
+      SecureRandom.SecureRandom,
+      SecureRandom.make((size) => new Uint8Array(size)),
     ),
   );
 }

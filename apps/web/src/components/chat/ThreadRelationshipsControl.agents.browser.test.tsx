@@ -236,6 +236,8 @@ it("keeps active supervisor status, progress, and task timing after its child tu
       <ThreadRelationshipsPanel
         environmentId={EnvironmentId.make("test")}
         threadId={ThreadId.make("parent")}
+        showLineage
+        showSideChats
       />,
     );
 

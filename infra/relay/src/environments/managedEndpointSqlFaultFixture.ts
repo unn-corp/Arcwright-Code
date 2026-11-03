@@ -75,6 +75,7 @@ export const faultDatabaseLayer = (input: {
         executeStream: () => Stream.die(new Error("unused stream")),
       } satisfies Connection;
       const sql = yield* SqlClient.make({
+        driver: "fixture",
         acquirer: Effect.succeed(connection),
         compiler: PgClient.makeCompiler(),
         spanAttributes: [],
@@ -83,12 +84,13 @@ export const faultDatabaseLayer = (input: {
         Object.assign(sql, {
           [PgClient.TypeId]: PgClient.TypeId,
           config: { prepare: false },
+          poolStats: Effect.succeed({ idle: 0, used: 0, pending: 0, min: 0, max: 1 }),
           json: () => sql.literal("null"),
           listen: () => Effect.die(new Error("unused listen")),
           notify: () => Effect.void,
         } satisfies Pick<
           PgClient.PgClient,
-          typeof PgClient.TypeId | "config" | "json" | "listen" | "notify"
+          typeof PgClient.TypeId | "config" | "json" | "listen" | "notify" | "poolStats"
         >),
       );
       return yield* PgDrizzle.makeWithDefaults().pipe(

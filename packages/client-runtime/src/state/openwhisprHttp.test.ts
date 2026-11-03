@@ -151,6 +151,7 @@ it.effect("refreshes relay credentials and signs the audio request on retry", ()
     const remoteAuthorization = RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization.of({
       authorizeBearer: () => Effect.die("Unexpected bearer authorization"),
       authorizeDpop: () => Effect.die("Unexpected socket preparation"),
+      renewDpopBeforeExpiry: () => Effect.die("Unexpected socket renewal"),
       authorizeDpopHttp: (input) =>
         Effect.succeed({
           environmentId: target.environmentId,

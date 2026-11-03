@@ -1,3 +1,5 @@
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect } from "@effect/vitest";
 import { DuplicateTunnelName, TunnelNotFound } from "@distilled.cloud/cloudflare/zero-trust";
@@ -27,7 +29,9 @@ import {
 import { layerDb } from "./managedEndpointPostgresFixture.ts";
 
 const repositories = Layer.merge(Links.layer, Credentials.layer).pipe(
-  Layer.provide(NodeServices.layer),
+  Layer.provide(
+    Layer.mergeAll(NodeServices.layer, Digest.layerWebCrypto, SecureRandom.layerWebCrypto),
+  ),
 );
 const services = Layer.merge(Lifecycle.layer, Limits.layer).pipe(
   Layer.provideMerge(repositories),
@@ -37,7 +41,12 @@ export const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.provide(
       Layer.fresh(
-        services.pipe(Layer.provideMerge(layerDb), Layer.provideMerge(NodeServices.layer)),
+        services.pipe(
+          Layer.provideMerge(layerDb),
+          Layer.provideMerge(
+            Layer.mergeAll(NodeServices.layer, Digest.layerWebCrypto, SecureRandom.layerWebCrypto),
+          ),
+        ),
       ),
     ),
   );

@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - verifies native required-reflink copies on real fixture files.
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -26,11 +27,13 @@ const decodeManifest = Schema.decodeSync(
 );
 
 const configLayer = ServerConfig.layerTest(process.cwd(), { prefix: "t3-worktree-storage-test-" });
-const configWithServicesLayer = configLayer.pipe(Layer.provideMerge(NodeServices.layer));
+const configWithServicesLayer = configLayer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const testLayer = GitVcsDriver.layer.pipe(
   Layer.provide(ServerSettings.layerTest({ spaceEfficientWorktrees: true })),
   Layer.provideMerge(configLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 describe("copy-on-write worktree storage", () => {

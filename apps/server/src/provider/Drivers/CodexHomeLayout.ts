@@ -67,7 +67,11 @@ export const resolveCodexHomeLayout = Effect.fn("resolveCodexHomeLayout")(functi
   // Only this instance's declared override may select another account home.
   // An inherited CODEX_HOME can belong to the agent that launched the server.
   const declaredHome = environment.find((variable) => variable.name === "CODEX_HOME")?.value;
-  const sharedHomePath = resolveHomePath(path, home, config.homePath.trim() || declaredHome);
+  const sharedHomePath = resolveHomePath(
+    path,
+    home,
+    config.homePath.trim() || (typeof declaredHome === "string" ? declaredHome : undefined),
+  );
   const shadowHomePath = config.shadowHomePath.trim();
   if (shadowHomePath.length === 0) {
     return {

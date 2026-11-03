@@ -25,6 +25,7 @@ const fixture = (statements: string[], closed: () => void) => {
   return Effect.gen(function* () {
     yield* Effect.addFinalizer(() => Effect.sync(closed));
     const client = yield* SqlClient.make({
+      driver: "fixture",
       acquirer: Effect.succeed(connection),
       compiler: PgClient.makeCompiler(),
       spanAttributes: [],

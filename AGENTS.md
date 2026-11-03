@@ -1,6 +1,6 @@
 # Arcwright Code
 
-Arcwright Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, Hermes, OpenCode) and serves web, desktop, and mobile clients.
+Arcwright Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, Hermes, OpenCode, Antigravity, Kiro) and serves web, desktop, and mobile clients.
 
 You can think of Arcwright Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
@@ -231,7 +231,7 @@ The most common defect in this repo is a change that works on the path you teste
 
 - **Entry points.** A behavior reachable from the chat view is usually also reachable from Settings, the command palette, and a keybinding. Fixing one is not fixing the feature.
 - **Clients.** Web, desktop (wraps web, adds Electron shell/IPC), upstream mobile (React Native, separate navigation), and this fork's Android APK (bundles web, adds native bridges). Android-specific web code lives in `apps/web/src/android`; shared connection logic lives in `packages/client-runtime`. Changes in `apps/mobile` do not change the fork APK.
-- **Providers.** Codex, Claude, Cursor, Grok, Hermes, OpenCode, and Antigravity each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
+- **Providers.** Codex, Claude, Cursor, Grok, Hermes, OpenCode, Antigravity, and Kiro each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
 - **Agents.** A capability a user can trigger is usually one an agent should reach through MCP tools, and scheduled tasks run the same paths. That only works when it is a service method, not handler code.
 - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
 - **Reverse states.** If you added a way in, add the way out and the way to see it. Snooze needs unsnooze. Close needs reopen. A one-way door is a bug.
@@ -271,7 +271,7 @@ existing task before replacing it; never reinitialize a working VM to reconnect.
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
 
 - The first `vp run dev` in a worktree seeds its missing database automatically when the source is at most 500 MiB. Larger sources warn and dev starts with an empty database. `--no-seed` or `T3CODE_DEV_SEED=0` skips seeding. Manual migration still accepts larger sources and may use substantial disk space before pruning.
-- Run `vp run migrate-dev-db` with your dev server stopped to refresh. It rebuilds `<worktree>/.t3/userdata/statev2.sqlite` from a read-only snapshot of `~/.t3/userdata/statev2.sqlite`, the developer's real data. It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, and auth sessions. Raise `--projects` and `--threads-per-project` for more data.
+- Run `vp run migrate-dev-db` with your dev server stopped to refresh. It rebuilds `<worktree>/.t3/userdata/statev2.sqlite` from a read-only snapshot of `~/.t3/userdata/statev2.sqlite`, the developer's real data. It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, auth sessions, and links to other environments. Raise `--projects` and `--threads-per-project` for more data.
 - Before starting a fixture, disable repository review, continuous improvement, and product opportunity discovery in its own `userdata/settings.json`; database pruning does not disable these settings-driven schedulers. See [fixture automation](docs/operations/development.md#fixture-automation). Do not copy live automation preferences into a test home.
 - Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when `statev2.sqlite` is missing.
 - Bring `secrets` and `settings.json` only if the flow under test needs them.
@@ -279,7 +279,7 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 
 ## Verifying
 
-- Before you push, run `vp run check:changed`. It runs CI's fast checks for changed files: format, lint, knip, typecheck of affected packages and dependents, and tests beside changes. CI still runs the full test suites.
+- Before you push, run `vp run check:changed`. It runs CI's fast checks for changed files: format, lint, knip, typecheck of affected packages and dependents, tests beside changes, and the cross-file checks those miss. CI still runs the full test suites.
 - While you iterate, run `vp test run <files>`. For big files, add `-t "<name>"`.
 - Use `vp run typecheck`, not `npx tsc`; it caches per package. Both run tsc-rs (`typescript` is the `@tsc-rs/typescript` drop-in).
 - Run `node -e` snippets from `apps/server` or the owning package. `effect` does not resolve from the repo root.
@@ -316,11 +316,11 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
   });
   ```
 
-- Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
+- User-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
 
 - Real agent turns cost money. To watch a turn stream through the pipeline and UI, use the free `Replay (dev)` provider that `vp run dev` registers; [test-t3-app](.agents/skills/test-t3-app/SKILL.md) shows how to start one. Use a real provider only when the change depends on that provider's behavior, and then pick its cheapest model, such as Haiku for Claude or Luna for Codex.
 
-For authorized mobile verification, a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
+For mobile verification, a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
 
 ## Evals
 
@@ -394,5 +394,4 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 ## Additional tips
 
-- Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.

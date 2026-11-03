@@ -1,6 +1,6 @@
 // @effect-diagnostics globalDate:off - review command timestamps are persisted as ISO strings.
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -349,7 +349,7 @@ const stableProjects = Effect.fn("AgentDashboardReviewRunner.stableProjects")(fu
 });
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
   const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -357,7 +357,7 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const dashboardStore = AgentDashboardStore.getStore(config.stateDir);
 
-  const randomUuid = crypto.randomUUIDv4().pipe(
+  const randomUuid = crypto.uuidV4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardReviewRunnerError({

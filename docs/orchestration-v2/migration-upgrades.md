@@ -71,3 +71,5 @@ Migration 005 now matches upstream exactly; fork migration 47 still introduces t
 GitHub-account field. The project-event migration accepts upstream projects without that field
 and preserves it when present. This compatibility patch preserves the final project schema and
 historical migration identities.
+
+Upstream migrations 73–78 map to fork IDs 120–125. They add active turn indexes, update search triggers, track subagent delivery, add project pin/archive fields, repair boolean settlement overrides, and remove an unused correlation index. Existing fork migration identities remain unchanged.

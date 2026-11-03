@@ -238,7 +238,11 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             ) : (
               <p className="text-secondary-label text-xs">
                 {props.isLoading
-                  ? "Searching workspace files..."
+                  ? props.triggerKind === "slash-command"
+                    ? "Searching workspace skills..."
+                    : props.triggerKind === "pull-request"
+                      ? "Finding pull request..."
+                      : "Searching workspace files..."
                   : (props.emptyStateText ??
                     (props.triggerKind === "path"
                       ? "No matching files or folders."

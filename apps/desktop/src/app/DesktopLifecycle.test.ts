@@ -395,6 +395,48 @@ describe("DesktopLifecycle", () => {
     }),
   );
 
+  it.effect("relaunches without the app link that launched it", () =>
+    Effect.gen(function* () {
+      const relaunched = yield* Deferred.make<Electron.RelaunchOptions>();
+      const layerEnvironment = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+        platform: "linux",
+        isDevelopment: false,
+        appImagePath: Option.none(),
+      } as DesktopEnvironment.DesktopEnvironment["Service"]);
+      const layer = DesktopLifecycle.layer.pipe(
+        Layer.provideMerge(
+          layerElectronApp(new Map(), Effect.void, {
+            relaunch: (options) => Deferred.succeed(relaunched, options).pipe(Effect.asVoid),
+          }),
+        ),
+        Layer.provideMerge(layerElectronTheme),
+        Layer.provideMerge(layerElectronWindow()),
+        Layer.provideMerge(layerDesktopWindow()),
+        Layer.provideMerge(layerEnvironment),
+        Layer.provideMerge(DesktopShutdown.layer),
+        Layer.provideMerge(DesktopState.layer),
+      );
+
+      const options = yield* Effect.gen(function* () {
+        const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+        yield* (yield* DesktopShutdown.DesktopShutdown).markComplete;
+        yield* lifecycle.relaunch("network access changed");
+        return yield* Deferred.await(relaunched);
+      }).pipe(
+        Effect.provide(layer),
+        Effect.provideService(HostProcess.ExecutablePath, "/opt/T3 Code/t3code"),
+        Effect.provideService(HostProcess.Arguments, [
+          "/opt/T3 Code/t3code",
+          "--no-sandbox",
+          "T3CODE://pair?token=spent",
+          "t3code://new?prompt=hello",
+        ]),
+      );
+
+      assert.deepEqual(options, { execPath: "/opt/T3 Code/t3code", args: ["--no-sandbox"] });
+    }),
+  );
+
   it.effect("exits on a repeated quit only once shutdown has stalled", () =>
     Effect.gen(function* () {
       const appListeners = new Map<string, (...args: readonly unknown[]) => void>();

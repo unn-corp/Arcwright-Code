@@ -33,8 +33,8 @@
       "upstreamPath": "apps/server/src/persistence/Migrations/069_ThreadMessageSearch.ts",
       "localPath": "apps/server/src/persistence/Migrations/069_ThreadMessageSearch.ts",
       "reason": "Replace only the derived fork-109 FTS index and triggers with upstream message-search schema at immutable fork ID 116; preserve messages and deployed ledger identities during fork and upstream reconciliation.",
-      "upstreamSha256": "29458e7622e55b2ced26438386ba1fc8262ae7e0b89347b5fc2a41af49bed283",
-      "forkSha256": "644fa506cc1b16bc4b4f8a3c0db82d555154e8552eb94ec2a161814ea3956598"
+      "upstreamSha256": "f3c9548ab75419bd7e2335296773e8fff5f535899407c972b222ef00fde11ca3",
+      "forkSha256": "9ada22323a8d67c1adc1dc2db7b82f57a4d55c857b76eaaf5ab6319a910534cb"
     }
   ]
 }

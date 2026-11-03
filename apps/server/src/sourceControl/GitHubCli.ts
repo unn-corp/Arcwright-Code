@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
@@ -23,11 +23,11 @@ import { decodeGitHubProjectPullRequestListJson } from "./gitHubProjectPullReque
 const textEncoder = new TextEncoder();
 
 const projectCredentialFingerprint = (
-  crypto: Crypto.Crypto,
+  crypto: Crypto.Digest["Service"],
   host: string,
   token: string,
 ): Effect.Effect<string> =>
-  crypto.digest("SHA-256", textEncoder.encode(token)).pipe(
+  crypto.digest(Crypto.sha256, textEncoder.encode(token)).pipe(
     Effect.map((digest) => `${host.toLowerCase()}:${Hex.encode(digest)}`),
     Effect.orDie,
   );
@@ -119,7 +119,7 @@ export const make = Effect.gen(function* () {
   const git = yield* GitVcsDriver.GitVcsDriver;
   const settings = yield* ServerSettings.ServerSettingsService;
   const environment = yield* HostProcess.Environment;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.Digest;
 
   const resolveLocator = Effect.fn("GitHubCli.resolveLocator")(function* (
     cwd: string,

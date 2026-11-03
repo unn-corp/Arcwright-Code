@@ -113,7 +113,7 @@ it.effect(
             `canary-control-${phase}`,
           ),
           spanAttributes: [],
-          acquireConnection: Effect.succeed([undefined, { fixture: true }]),
+          acquireConnection: () => Effect.succeed({ fixture: true } as const),
           begin: () => (phase === "begin" ? stall : Effect.void),
           commit: () => (phase === "commit" ? stall : Effect.void),
           rollback: () => (phase === "rollback" ? stall : Effect.void),

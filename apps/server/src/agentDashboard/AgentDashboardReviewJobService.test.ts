@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics globalDate:off - tests pin ISO timestamps and TestClock.
 // @effect-diagnostics nodeBuiltinImport:off - temp fixture directories use Node fs/path at the test boundary.
 import { describe, expect, it } from "@effect/vitest";
@@ -468,7 +469,7 @@ const jobServiceLayer = (input: {
     Layer.provide(ServerSettings.layerTest()),
     Layer.provide(ServerConfig.layerTest(process.cwd(), input.baseDir)),
     Layer.provideMerge(TestClock.layer()),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   return input.workAdmission
     ? layer.pipe(Layer.provide(Layer.succeed(WorkAdmission, input.workAdmission)))
@@ -1064,7 +1065,7 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
         }),
       };
       const configLayer = ServerConfig.layerTest(process.cwd(), baseDir).pipe(
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
 
       const interrupted: AgentDashboardAutomationRun = {

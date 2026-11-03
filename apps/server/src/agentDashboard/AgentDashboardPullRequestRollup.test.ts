@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics globalDate:off globalDateInEffect:off nodeBuiltinImport:off preferSchemaOverJson:off - fixed schedule fixtures use a temp state directory.
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -241,7 +242,7 @@ describe("pull request rollup schedule", () => {
             } as never),
           ),
           Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
-          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
           Layer.provide(Layer.succeed(WorkAdmission, workAdmission)),
         );
 

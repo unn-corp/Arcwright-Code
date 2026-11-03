@@ -557,7 +557,7 @@ describe.skipIf(!fixtureFile)("Managed endpoint mutation failures PostgreSQL", (
           );
           expect((yield* runtime.provider.provision(fourth)).kind).toBe("linked");
           const db = yield* RelayDb.RelayDb;
-          expect(yield* db.select().from(table)).toHaveLength(3);
+          expect(yield* db.select().from(table)).toHaveLength(8);
         }),
       ),
   );

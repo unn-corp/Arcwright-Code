@@ -34,6 +34,7 @@ type SessionValue = Atom.Type<
   ReturnType<(typeof import("~/state/session"))["environmentSession"]["sessionStateAtom"]>
 >;
 const state = vi.hoisted(() => ({
+  serverVersions: new Map<string, string>(),
   action: vi.fn(),
   bulk: vi.fn(),
   toast: vi.fn(),
@@ -51,6 +52,16 @@ vi.mock(import("~/state/session"), async (original) => {
     environmentSession: { ...actual.environmentSession, sessionStateAtom: () => state.sessionAtom },
   };
 });
+vi.mock(import("~/state/entities"), async (original) => ({
+  ...(await original()),
+  useServerConfigs: (() =>
+    new Map(
+      [...state.serverVersions].map(([id, serverVersion]) => [
+        id,
+        { environment: { serverVersion } },
+      ]),
+    )) as never,
+}));
 vi.mock(import("./ui/toast"), async (original) => {
   const actual = await original();
   return { ...actual, toastManager: { ...actual.toastManager, add: state.toast } };
@@ -108,6 +119,7 @@ function updateButton(root: Screen) {
 async function setup() {
   resetConfirmDialogForTests();
   state.action.mockReset().mockResolvedValue(waiting);
+  state.serverVersions.clear();
   state.bulk.mockReset();
   state.toast.mockReset();
   state.session = AsyncResult.success(session);
@@ -343,5 +355,21 @@ describe("server updates from the environment selector", () => {
     expect(readConfirmDialogState().status).toBe("idle");
     expect(state.action).not.toHaveBeenCalled();
     expect(state.action).not.toHaveBeenCalled();
+  });
+
+  it("skips a machine whose update would cross Stable and Nightly", async () => {
+    await using fixture = await setup();
+    const nightly = {
+      ...target,
+      environmentId: "batch-a" as EnvironmentId,
+      serverLabel: "Nightly",
+    };
+    const stable = { ...target, environmentId: "batch-b" as EnvironmentId, serverLabel: "Office" };
+    state.serverVersions.set("batch-a", "1.0.0-nightly.20261001.1");
+    state.serverVersions.set("batch-b", "1.0.0");
+    state.bulk.mockResolvedValue([]);
+    await render(fixture.root, <ServerUpdatesAction targets={[nightly, stable]} />);
+    await act(async () => updateButton(fixture.root).click());
+    expect(state.bulk).toHaveBeenCalledExactlyOnceWith([stable]);
   });
 });

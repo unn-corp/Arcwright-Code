@@ -1,17 +1,24 @@
+import type { ComponentProps } from "react";
 import type { ResizableWidthHandlers } from "~/hooks/useResizableWidth";
 import { cn } from "~/lib/utils";
 
-interface Props {
+interface Props extends Pick<
+  ComponentProps<"div">,
+  "tabIndex" | "onKeyDown" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax"
+> {
   handlers: ResizableWidthHandlers;
   className?: string;
+  label?: string;
 }
 
 /* Widen the panel-edge grab target for touch without thickening its visible line. Keep touch-action:none so dragging does not become a browser pan that cancels the pointer sequence. */
-export function RightPanelResizeHandle({ handlers, className }: Props) {
+export function RightPanelResizeHandle({ handlers, className, label, ...separatorProps }: Props) {
   return (
     <div
       role="separator"
+      aria-label={label}
       aria-orientation="vertical"
+      {...separatorProps}
       className={cn(
         "group absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize touch-none select-none",
         "pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:absolute pointer-coarse:before:inset-y-0 pointer-coarse:before:left-1/2 pointer-coarse:before:w-11",
@@ -21,7 +28,7 @@ export function RightPanelResizeHandle({ handlers, className }: Props) {
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-active:bg-primary/60"
+        className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-focus-visible:bg-primary/60 group-active:bg-primary/60"
       />
     </div>
   );

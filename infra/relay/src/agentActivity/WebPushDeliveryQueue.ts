@@ -1,7 +1,7 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -52,7 +52,7 @@ export const make = Effect.gen(function* () {
   const anonymousAllowed = yield* anonymousPwaAllowed;
   const sender = yield* WebPushDeliveryQueueSender;
   const webCrypto = yield* WebCrypto.WebCrypto;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const config = yield* RelayConfiguration.RelayConfiguration;
   return WebPushDeliveryQueue.of({
     enqueue: Effect.fn("relay.web_push_delivery_queue.enqueue")(function* (input) {
@@ -69,9 +69,7 @@ export const make = Effect.gen(function* () {
         };
       }
       const now = yield* DateTime.now;
-      const jobId = yield* crypto
-        .randomUUIDv4()
-        .pipe(Effect.mapError((cause) => new WebPushDeliveryQueueError({ cause })));
+      const jobId = yield* random.uuidV4();
       const payload = {
         version: 2 as const,
         jobId,

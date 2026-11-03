@@ -1,8 +1,4 @@
-import {
-  AuthPreviewOperateScope,
-  type GitHubAccountId,
-  type ScopedThreadRef,
-} from "@t3tools/contracts";
+import { type GitHubAccountId, type ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -11,7 +7,6 @@ import { openExternalWithGitHubAccount } from "~/lib/openPullRequestLink";
 import { recordVisitForThread } from "~/browserHistoryStore";
 import { readLocalApi } from "~/localApi";
 import { previewEnvironment } from "~/state/preview";
-import { readEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import {
@@ -44,10 +39,7 @@ export function useOpenLink(threadRef: ScopedThreadRef | null | undefined): (
       url,
       event: options.event ?? NO_MODIFIER,
       preference: await resolveBrowserLinkTargetPreference(),
-      canOpenInApp:
-        targetThreadRef != null &&
-        readEnvironmentScope(targetThreadRef.environmentId, AuthPreviewOperateScope) &&
-        canOpenLinksInApp(targetThreadRef),
+      canOpenInApp: canOpenLinksInApp(targetThreadRef),
     });
     if (target === "app" && targetThreadRef) {
       const result = await openUrlInPreview({ threadRef: targetThreadRef, url, openPreview });

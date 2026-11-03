@@ -219,8 +219,12 @@ describe.runIf(fixtureFile !== undefined)(
             for (const publicRow of [listed[0], lookedUp, managed[0]]) {
               expect(publicRow?.linkedAt).toBe(second.linkedAt);
               expect(publicRow).not.toHaveProperty("incarnationId");
-              expect(publicRow).not.toHaveProperty("linkIncarnationId");
             }
+            // Recovery and webhook admission need the internal link identity;
+            // the client-facing list must not expose it.
+            expect(listed[0]).not.toHaveProperty("linkIncarnationId");
+            expect(lookedUp?.linkIncarnationId).toBe(second.incarnationId);
+            expect(managed[0]?.linkIncarnationId).toBe(second.incarnationId);
             expect(
               yield* links.listDeliveryUsersForEnvironment({
                 environmentId,
@@ -541,17 +545,37 @@ describe.runIf(fixtureFile !== undefined)(
                   ),
                 ),
               reverse ? convert : replace,
-              reverse ? replace : convert,
+              (reverse ? replace : convert).pipe(
+                Effect.match({
+                  onFailure: (error) => ({ ok: false as const, error }),
+                  onSuccess: (value) => ({ ok: true as const, value }),
+                }),
+              ),
             );
             expect(first.incarnationId).not.toBe(original.incarnationId);
-            expect(second.incarnationId).not.toBe(first.incarnationId);
-            expect((yield* readSubscription(db)).incarnationId).toBe(second.incarnationId);
-            if (reverse) expect(second.installationId).toBe(installation.installationId);
-            else {
-              expect(second.userId).toBe("account-A");
-              expect(
-                yield* subscriptions.removePwa({ ...installation, subscriptionId: second.id }),
-              ).toBe(false);
+            if (!second.ok) {
+              // A registration that observed the old anonymous owner must not
+              // overwrite the account conversion that won the lock.
+              expect(reverse).toBe(true);
+              expect(second.error).toMatchObject({
+                _tag: "WebPushSubscriptionPersistenceError",
+                cause: { cause: "installation_ownership_changed" },
+              });
+              expect((yield* readSubscription(db)).incarnationId).toBe(first.incarnationId);
+              expect(first.userId).toBe("account-A");
+            } else {
+              expect(second.value.incarnationId).not.toBe(first.incarnationId);
+              expect((yield* readSubscription(db)).incarnationId).toBe(second.value.incarnationId);
+              if (reverse) expect(second.value.installationId).toBe(installation.installationId);
+              else {
+                expect(second.value.userId).toBe("account-A");
+                expect(
+                  yield* subscriptions.removePwa({
+                    ...installation,
+                    subscriptionId: second.value.id,
+                  }),
+                ).toBe(false);
+              }
             }
           }),
         ),

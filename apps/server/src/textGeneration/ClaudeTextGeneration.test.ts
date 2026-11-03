@@ -112,6 +112,7 @@ function withFakeClaudeEnv<A, E, R>(
   input: {
     output: string;
     outputRepeat?: number;
+    rejectsNoSessionPersistence?: boolean;
     lifecyclePort?: number;
     exitCode?: number;
     stderr?: string;
@@ -133,6 +134,8 @@ function withFakeClaudeEnv<A, E, R>(
     const binDir = yield* makeFakeClaudeBinary(tempDir, input.lifecyclePort);
     const pathDelimiter = (yield* HostProcess.isWindows) ? ";" : ":";
     const previousPath = process.env.PATH;
+    const previousRejectsNoSessionPersistence =
+      process.env.T3_FAKE_CLAUDE_REJECTS_NO_SESSION_PERSISTENCE;
     const previousOutput = process.env.T3_FAKE_CLAUDE_OUTPUT;
     const previousOutputRepeat = process.env.T3_FAKE_CLAUDE_OUTPUT_REPEAT;
     const previousExitCode = process.env.T3_FAKE_CLAUDE_EXIT_CODE;
@@ -154,6 +157,12 @@ function withFakeClaudeEnv<A, E, R>(
           process.env.T3_FAKE_CLAUDE_OUTPUT_REPEAT = String(input.outputRepeat);
         } else {
           delete process.env.T3_FAKE_CLAUDE_OUTPUT_REPEAT;
+        }
+
+        if (input.rejectsNoSessionPersistence) {
+          process.env.T3_FAKE_CLAUDE_REJECTS_NO_SESSION_PERSISTENCE = "1";
+        } else {
+          delete process.env.T3_FAKE_CLAUDE_REJECTS_NO_SESSION_PERSISTENCE;
         }
 
         if (input.exitCode !== undefined) {
@@ -201,6 +210,13 @@ function withFakeClaudeEnv<A, E, R>(
       () =>
         Effect.sync(() => {
           process.env.PATH = previousPath;
+
+          if (previousRejectsNoSessionPersistence === undefined) {
+            delete process.env.T3_FAKE_CLAUDE_REJECTS_NO_SESSION_PERSISTENCE;
+          } else {
+            process.env.T3_FAKE_CLAUDE_REJECTS_NO_SESSION_PERSISTENCE =
+              previousRejectsNoSessionPersistence;
+          }
 
           if (previousOutput === undefined) {
             delete process.env.T3_FAKE_CLAUDE_OUTPUT;
@@ -670,6 +686,28 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
     }),
   );
 
+  it.effect("retries without --no-session-persistence when the Claude CLI rejects it", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({ structured_output: { title: "Reconnect failures" } }),
+        rejectsNoSessionPersistence: true,
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Investigate reconnect failures",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+          });
+
+          expect(generated.title).toBe("Reconnect failures");
+        }),
+    ),
+  );
+
   it.effect.each([
     { verbose: false, label: "normal" },
     { verbose: true, label: "verbose" },
@@ -786,6 +824,14 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
       apiError,
     ],
     ["stderr when stdout has no error", "not json", wrapperNotice],
+    [
+      "a stdout error naming --no-session-persistence without retrying",
+      JSON.stringify({
+        is_error: true,
+        result: "error: unknown option '--no-session-persistence'",
+      }),
+      "error: unknown option '--no-session-persistence'",
+    ],
   ] as const)("reports %s when the Claude CLI fails", ([, output, expected]) =>
     withFakeClaudeEnv({ output, stderr: wrapperNotice, exitCode: 1 }, (textGeneration) =>
       Effect.gen(function* () {

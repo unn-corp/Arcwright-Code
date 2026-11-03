@@ -2,7 +2,7 @@
 // @effect-diagnostics globalDate:off
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -489,7 +489,7 @@ const githubRepositoryForProject = (project: OrchestrationProjectShell): string 
 };
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
   const settings = yield* ServerSettings.ServerSettingsService;
   const runner = yield* AgentDashboardReviewRunner;
@@ -521,7 +521,7 @@ const make = Effect.gen(function* () {
   );
   yield* coverageWorker.pipe(Effect.forkIn(scope), Effect.asVoid);
 
-  const randomId = crypto.randomUUIDv4().pipe(
+  const randomId = crypto.uuidV4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardReviewJobServiceError({

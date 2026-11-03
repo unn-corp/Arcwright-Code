@@ -1,3 +1,5 @@
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Digest from "effect/crypto/Digest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -93,13 +95,17 @@ export const deniedProviderLayer = <E, R>(
     ),
   });
   return ManagedEndpointProvider.layer.pipe(
-    Layer.provide(NodeServices.layer),
+    Layer.provide(
+      Layer.mergeAll(NodeServices.layer, SecureRandom.layerWebCrypto, Digest.layerWebCrypto),
+    ),
     Layer.provide(RelayConfiguration.layer(config)),
     Layer.provide(ManagedEndpointProvider.layerTunnelClient(tunnels)),
     Layer.provide(ManagedEndpointProvider.layerDnsClient(dns)),
     Layer.provide(Lifecycle.layer),
     Layer.provide(Layer.merge(Links.layer, Credentials.layer)),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(
+      Layer.mergeAll(NodeServices.layer, SecureRandom.layerWebCrypto, Digest.layerWebCrypto),
+    ),
     Layer.provideMerge(ManagedTunnelLimits.layer),
     Layer.provide(t3ChatDisabledLayer),
     Layer.provideMerge(database),

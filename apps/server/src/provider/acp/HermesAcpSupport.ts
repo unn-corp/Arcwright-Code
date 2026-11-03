@@ -1,5 +1,5 @@
 import { type HermesSettings } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
@@ -40,7 +40,7 @@ export const makeHermesAcpRuntime = Effect.fn("HermesAcpSupport.makeHermesAcpRun
 ): Effect.fn.Return<
   AcpSessionRuntime.AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
-  Crypto.Crypto | Scope.Scope
+  Crypto.SecureRandom | Scope.Scope
 > {
   const acpContext = yield* Layer.build(
     AcpSessionRuntime.layer({

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off - This integration fixture creates an isolated stable Git checkout.
 import * as NodeChildProcess from "node:child_process";
 import * as NodePath from "node:path";
@@ -355,7 +356,7 @@ it.effect("starts the provider turn before snoozing the internal review thread",
             }),
           ),
           Layer.provide(ServerConfig.layerTest(process.cwd(), stateDir)),
-          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
     );

@@ -40,6 +40,7 @@ import {
   usePanelNavigationSuppression,
 } from "../panelAnimations";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
+import { HistorySwipeNavigation } from "./HistorySwipeNavigation";
 import ThreadSidebar from "./Sidebar";
 import { GlanceRail } from "./GlanceRail";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
@@ -487,7 +488,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         mobileBreakpoint={sidebarMinimumWidth + THREAD_MAIN_CONTENT_MIN_WIDTH}
         style={sidebarProviderStyle}
       >
-        <SidebarBrandWidthProbe onWidthChange={setBrandWidth} />
+        <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
         <ProjectProjectionRetention />
         <GlanceRail />
         <Sidebar
@@ -515,6 +516,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <BackgroundThreadAnnouncer />
         <SidebarControl />
         <MobileBackOpensThreadList />
+        {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

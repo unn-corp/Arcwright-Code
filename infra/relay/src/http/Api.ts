@@ -2,7 +2,8 @@ import { anonymousPwaAllowed } from "../agentActivity/anonymousPwaPolicy.ts";
 import { sql as drizzleSql } from "drizzle-orm";
 import * as Base64Url from "effect/encoding/Base64Url";
 import type { PublicRelayOperation } from "./publicRelayPolicy.ts";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -92,6 +93,7 @@ import * as EnvironmentConnector from "../environments/EnvironmentConnector.ts";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
 import * as ManagedEndpointLifecycle from "../environments/ManagedEndpointLifecycle.ts";
 import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvider.ts";
+import * as ManagedTunnelLimits from "../environments/ManagedTunnelLimits.ts";
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
 import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublishSignatures.ts";
 import * as MobileRegistrations from "../agentActivity/MobileRegistrations.ts";
@@ -864,7 +866,7 @@ export const layerClientApi = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const config = yield* RelayConfiguration.RelayConfiguration;
-    const crypto = yield* Crypto.Crypto;
+    const random = yield* SecureRandom.SecureRandom;
     const relayTokens = yield* RelayTokens.RelayTokens;
     const linker = yield* EnvironmentLinker.EnvironmentLinker;
     const links = yield* EnvironmentLinks.EnvironmentLinks;
@@ -873,6 +875,7 @@ export const layerClientApi = HttpApiBuilder.group(
     const webPushSubscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
     const webPushDeliveryQueue = yield* WebPushDeliveryQueue.WebPushDeliveryQueue;
     const t3Chat = yield* T3ChatAccounts.T3ChatAccounts;
+    const tunnelLimits = yield* ManagedTunnelLimits.ManagedTunnelLimits;
     return handlers
       .handle(
         "listEnvironments",
@@ -1060,9 +1063,7 @@ export const layerClientApi = HttpApiBuilder.group(
           yield* limiter.admit("createEnvironmentLinkChallenge", { kind: "user", userId });
           const now = yield* DateTime.now;
           const expiresAt = DateTime.add(now, { minutes: 5 });
-          const jti = yield* crypto
-            .randomUUIDv4()
-            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+          const jti = yield* random.uuidV4();
           const challenge = yield* relayTokens
             .issueLinkChallenge({
               userId,
@@ -1116,11 +1117,19 @@ export const layerClientApi = HttpApiBuilder.group(
           yield* appendRelayCredentialResponseHeaders;
           const { userId } = yield* RelayClientPrincipal;
           yield* limiter.admit("getT3ChatLink", { kind: "user", userId });
-          if (!t3Chat.available) return { available: false, link: null };
-          const link = yield* t3Chat
-            .getLink({ userId })
-            .pipe(Effect.catch(() => relayInternalErrorResponse("upstream_unavailable")));
-          return { available: true, link };
+          const link = t3Chat.available
+            ? yield* t3Chat
+                .getLink({ userId })
+                .pipe(Effect.catch(() => relayInternalErrorResponse("upstream_unavailable")))
+            : null;
+          const maxTunnelsOverride = yield* tunnelLimits
+            .getOverride({ userId })
+            .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+          return {
+            available: t3Chat.available,
+            link,
+            ...(maxTunnelsOverride === null ? {} : { maxTunnelsOverride }),
+          };
         }, mapRelayCommonApiErrors("not_authorized")),
       )
       .handle(
@@ -1159,7 +1168,7 @@ export const layerTokenApi = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const config = yield* RelayConfiguration.RelayConfiguration;
-    const crypto = yield* Crypto.Crypto;
+    const random = yield* SecureRandom.SecureRandom;
     const dpopProofs = yield* DpopProofs.DpopProofReplay;
     const relayTokens = yield* RelayTokens.RelayTokens;
     return handlers.handle(
@@ -1200,9 +1209,7 @@ export const layerTokenApi = HttpApiBuilder.group(
         );
         const now = yield* DateTime.now;
         const expiresAt = DateTime.addDuration(now, RelayTokens.RELAY_DPOP_ACCESS_TOKEN_TTL);
-        const jti = yield* crypto
-          .randomUUIDv4()
-          .pipe(Effect.catch(() => relayInternalErrorResponse("internal_error")));
+        const jti = yield* random.uuidV4();
         return {
           access_token: yield* relayTokens
             .issueDpopAccessToken({
@@ -1349,7 +1356,7 @@ export const layerServerApi = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
     const links = yield* EnvironmentLinks.EnvironmentLinks;
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* Digest.Digest;
     const admitEnvironment = (
       operation: PublicRelayOperation,
       environmentId: string,
@@ -1727,7 +1734,7 @@ export const pwaApi = HttpApiBuilder.group(
   "pwa",
   Effect.fnUntraced(function* (handlers) {
     const limiter = yield* PublicRelayRateLimits.PublicRelayRateLimits;
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* Digest.Digest;
     const anonymousAllowed = yield* anonymousPwaAllowed;
     const config = yield* RelayConfiguration.RelayConfiguration;
     const subscriptions = yield* WebPushSubscriptions.WebPushSubscriptions;
@@ -1967,17 +1974,16 @@ function relayUnavailableResponse() {
 }
 
 function environmentAdmissionSubject(
-  crypto: Crypto.Crypto,
+  crypto: Digest.Digest["Service"],
   environmentId: string,
   environmentPublicKey: string,
 ) {
-  return crypto.digest("SHA-256", new TextEncoder().encode(environmentPublicKey)).pipe(
+  return crypto.digest(Digest.sha256, new TextEncoder().encode(environmentPublicKey)).pipe(
     Effect.map((digest): PublicRelayRateLimits.PublicRelaySubject => ({
       kind: "environment",
       environmentId,
       keyDigest: Base64Url.encode(digest),
     })),
-    Effect.catch(() => relayInternalErrorResponse("internal_error")),
   );
 }
 

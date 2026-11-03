@@ -34,7 +34,6 @@ const mocks = vi.hoisted(() => ({
   renderAnnotationScreenshot: vi.fn(),
   addPreviewAnnotation: vi.fn(),
   addImage: vi.fn(),
-  toast: vi.fn(),
   pictureInPicture: false,
   showEmptyState: false,
   loading: false,
@@ -143,10 +142,6 @@ vi.mock(import("~/browser/browserRecording"), async (original) => ({
   findActiveBrowserRecordingRuntimeTabId: () => mocks.recordingRuntimeTabId,
   useActiveBrowserRecordingTabIds: () => mocks.recordingTabIds,
 }));
-vi.mock(import("~/components/ui/toast"), async (original) => {
-  const actual = await original();
-  return { ...actual, toastManager: { ...actual.toastManager, add: mocks.toast } };
-});
 vi.mock(import("./useDiscoveredLocalServers"), async (original) => ({
   ...(await original()),
   useDiscoveredLocalServers: () => mocks.servers,
@@ -615,6 +610,50 @@ describe("PreviewView", () => {
         expect.objectContaining({ type: "image" }),
       ),
     );
+  });
+
+  it("focuses and selects the address from forwarded desktop actions only while visible", async () => {
+    await using fixture = await setup();
+    using stack = new DisposableStack();
+    const previousBridge = window.desktopBridge;
+    stack.defer(() => {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else delete window.desktopBridge;
+    });
+    const listeners = new Set<(action: string) => void>();
+    window.desktopBridge = {
+      getWindowZoomFactor: () => 1,
+      onMenuAction: (listener: (action: string) => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    } as NonNullable<typeof window.desktopBridge>;
+    await render(fixture.root, view());
+    const address = page.getByRole("textbox");
+    const input = address.element() as HTMLInputElement;
+    const forward = () =>
+      act(() => {
+        listeners.forEach((listener) => listener("preview.focusUrl"));
+      });
+
+    await forward();
+    await expect.element(address).toHaveFocus();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    await act(() => input.blur());
+    await forward();
+    await expect.element(address).toHaveFocus();
+
+    await act(() => input.blur());
+    await render(
+      fixture.root,
+      <PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible={false} />,
+    );
+    await forward();
+    await expect.element(address).not.toHaveFocus();
+    expect(listeners.size).toBe(0);
   });
 
   it("focuses the address bar each time the focus-url shortcut fires", async () => {

@@ -5,15 +5,14 @@ import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
 import {
   isAtomCommandInterrupted,
-  mapAtomCommandResult,
-  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
+  mapAtomCommandResult,
+  settlePromise,
 } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
 import { AsyncResult } from "effect/reactivity";
-
 import {
   DEFAULT_RUNTIME_MODE,
   type AgentDashboardAutomationKind,
@@ -22,20 +21,23 @@ import {
   type ProjectIconOverride,
   type ProviderDriverKind,
   type EnvironmentId,
+  type SidebarProjectGroupingMode,
   type PullRequestMergeMethod,
   type ThreadEnvMode,
 } from "@t3tools/contracts";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import { createModelSelection } from "@t3tools/shared/model";
-
 import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import { MessageCircleQuestionIcon, InfoIcon, Trash2Icon } from "lucide-react";
 import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
-
 import * as Equal from "effect/Equal";
+import {
+  reportProjectFailure,
+  useProjectGroupUpdate,
+  type ProjectGroupUpdate,
+} from "../../hooks/useProjectGroupUpdate";
 import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
-
 import { useComposerDraftStore } from "../../composerDraftStore";
 import {
   useClientSettings,
@@ -43,11 +45,9 @@ import {
   updateClientSettings,
   usePrimarySettings,
 } from "../../hooks/useSettings";
-
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { newMessageId, newThreadId } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
-
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -55,7 +55,11 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import { persistClientSettingsUpdate } from "../../hooks/useSettings";
+import { derivePhysicalProjectKey } from "@t3tools/client-runtime/state/project-grouping";
 import {
+  PROJECT_GROUPING_MODE_LABELS,
+  withProjectGroupingOverride,
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
@@ -101,7 +105,6 @@ import {
   PROJECT_AUTOMATION_KINDS,
   projectGroupTitleNeedsUpdate,
 } from "./ProjectSettingsPanel.logic";
-
 const PROJECT_AUTOMATION_SETTINGS = [
   {
     kind: "repository-review",
@@ -142,25 +145,93 @@ const PROJECT_AUTOMATION_SETTINGS = [
   description: string;
 }>;
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
+import {
+  defaultProjectIcon,
+  hasDefaultProjectIcon,
+  SCRATCH_PROJECT_TITLE,
+} from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
-
 const ProjectIconPickerDialog = lazy(() =>
   import("./ProjectIconPickerDialog").then((module) => ({
     default: module.ProjectIconPickerDialog,
   })),
 );
+function isGroupingSelection(value: unknown): value is SidebarProjectGroupingMode | "inherit" {
+  return (
+    value === "inherit" ||
+    value === "repository" ||
+    value === "repository_path" ||
+    value === "separate"
+  );
+}
 
+// Grouping overrides are client settings, so they stay editable without project write access.
+function CheckoutGroupingSelect({ member }: { member: SidebarProjectGroupMember }) {
+  const overrideKey = derivePhysicalProjectKey(member);
+  const globalMode = useClientSettings((settings) => settings.sidebarProjectGroupingMode);
+  const selection = useClientSettings(
+    (settings) => settings.sidebarProjectGroupingOverrides?.[overrideKey] ?? "inherit",
+  );
+  return (
+    <Select
+      value={selection}
+      onValueChange={(value) => {
+        if (!isGroupingSelection(value)) return;
+        persistClientSettingsUpdate((current) => ({
+          ...current,
+          sidebarProjectGroupingOverrides: withProjectGroupingOverride(
+            current.sidebarProjectGroupingOverrides,
+            overrideKey,
+            value,
+          ),
+        })).catch((error) => {
+          console.error("Failed to save checkout grouping rule", error);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not save grouping rule",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        });
+      }}
+    >
+      <SelectTrigger
+        size="sm"
+        aria-label={`Grouping rule for ${member.workspaceRoot} on ${member.environmentLabel ? `${member.environmentLabel} (${member.environmentId})` : member.environmentId}`}
+      >
+        <SelectValue>
+          {selection === "inherit"
+            ? `Default (${PROJECT_GROUPING_MODE_LABELS[globalMode]})`
+            : PROJECT_GROUPING_MODE_LABELS[selection]}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="end" alignItemWithTrigger={false}>
+        <SelectItem hideIndicator value="inherit">
+          Use global default
+        </SelectItem>
+        <SelectItem hideIndicator value="repository">
+          {PROJECT_GROUPING_MODE_LABELS.repository}
+        </SelectItem>
+        <SelectItem hideIndicator value="repository_path">
+          {PROJECT_GROUPING_MODE_LABELS.repository_path}
+        </SelectItem>
+        <SelectItem hideIndicator value="separate">
+          {PROJECT_GROUPING_MODE_LABELS.separate}
+        </SelectItem>
+      </SelectPopup>
+    </Select>
+  );
+}
 export type ProjectSettingsCategory = "general" | "source-control" | "project";
-
 interface ProjectSelection {
   readonly key: string;
   readonly environmentId: EnvironmentId | null;
   readonly checkoutKey: string | null;
   readonly memberKeys: ReadonlyArray<string>;
 }
-
 function sameProjectSelection(a: ProjectSelection | null, b: ProjectSelection): boolean {
   return (
     a !== null &&
@@ -171,7 +242,6 @@ function sameProjectSelection(a: ProjectSelection | null, b: ProjectSelection): 
     a.memberKeys.every((key, index) => key === b.memberKeys[index])
   );
 }
-
 export function ProjectSettingsPanel({
   projectKey,
   environmentId = null,
@@ -184,8 +254,9 @@ export function ProjectSettingsPanel({
   unavailable?: ReactNode;
 }) {
   const groups = useSettingsProjectGroups();
-  const pathname = useLocation({ select: (location) => location.pathname });
-
+  const pathname = useLocation({
+    select: (location) => location.pathname,
+  });
   const selected = groups.find((group) => group.projectKey === projectKey) ?? null;
   const members =
     selected?.memberProjects.filter(
@@ -205,7 +276,6 @@ export function ProjectSettingsPanel({
     };
     if (!sameProjectSelection(lastSelection, current)) setLastSelection(current);
   }
-
   const successor =
     members.length === 0 &&
     lastSelection?.key === projectKey &&
@@ -231,9 +301,7 @@ export function ProjectSettingsPanel({
       />
     );
   }
-
   if ((!selected || members.length === 0) && unavailable != null) return unavailable;
-
   if (!selected) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
@@ -259,26 +327,31 @@ export function ProjectSettingsPanel({
     <ProjectDetail
       key={`${selected.projectKey}:${environmentId ?? "all"}:${checkoutKey ?? "all"}`}
       group={scopedGroup}
+      allMembers={selected.memberProjects}
       hasOtherMembers={members.length < selected.memberProjects.length}
     />
   );
 }
-
 function ProjectDetail({
   group,
+  allMembers,
   hasOtherMembers,
 }: {
   group: SidebarProjectSnapshot;
+  /** Pin and archive belong to the whole project, even when one machine is picked. */
+  allMembers: ReadonlyArray<SidebarProjectGroupMember>;
   hasOtherMembers: boolean;
 }) {
-  const navigate = useNavigate({ from: "/settings" });
+  const navigate = useNavigate({
+    from: "/settings",
+  });
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { environments } = useEnvironments();
   const providersByEnvironment = useEnvironmentProviders();
   const environmentById = new Map(
     environments.map((environment) => [environment.environmentId, environment]),
   );
-  const editableIds = useEnvironmentsWithScope(group.memberProjects, AuthOrchestrationOperateScope);
+  const editableIds = useEnvironmentsWithScope(allMembers, AuthOrchestrationOperateScope);
   const canEditGroup = group.memberProjects.every((member) =>
     editableIds.has(member.environmentId),
   );
@@ -301,7 +374,9 @@ function ProjectDetail({
   const updateAutomationPolicy = useAtomCommand(agentDashboardEnvironment.updateRepositoryPolicy, {
     reportFailure: false,
   });
-  const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, {
+    reportFailure: false,
+  });
   const updateServerSettings = useAtomCommand(serverEnvironment.updateSettings, "project setting");
   const [savingBrowserAccess, setSavingBrowserAccess] = useState(false);
   const savingBrowserAccessRef = useRef(false);
@@ -342,7 +417,9 @@ function ProjectDetail({
       }
       if (key === "projectAutoPullOverrides" && enabled === undefined) {
         const result = await updateAllMembers(
-          { autoPull: false },
+          {
+            autoPull: false,
+          },
           "Failed to reset automatic pull",
         );
         if (result._tag === "Failure") return;
@@ -355,7 +432,11 @@ function ProjectDetail({
         );
         const result = await updateServerSettings({
           environmentId,
-          input: { patch: { [key]: overrides } },
+          input: {
+            patch: {
+              [key]: overrides,
+            },
+          },
         });
         if (result._tag === "Failure") {
           reportFailure(
@@ -381,12 +462,15 @@ function ProjectDetail({
   );
   const projectMergeMethod = mergeMethodOverrides[group.projectKey];
   const setProjectMergeMethod = (method: PullRequestMergeMethod | null) => {
-    const nextOverrides = { ...mergeMethodOverrides };
+    const nextOverrides = {
+      ...mergeMethodOverrides,
+    };
     if (method === null) delete nextOverrides[group.projectKey];
     else nextOverrides[group.projectKey] = method;
-    updateClientSettings({ pullRequestMergeMethodOverrides: nextOverrides });
+    updateClientSettings({
+      pullRequestMergeMethodOverrides: nextOverrides,
+    });
   };
-
   const automationSnapshot = useEnvironmentQuery(
     agentDashboardEnvironment.snapshot({
       environmentId: representative.environmentId,
@@ -410,7 +494,6 @@ function ProjectDetail({
     )
       ? window.desktopBridge?.pickProjectFavicon
       : undefined;
-
   const reportFailure = (title: string, result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
@@ -422,7 +505,6 @@ function ProjectDetail({
       }),
     );
   };
-
   const [isSavingAutomations, setIsSavingAutomations] = useState(false);
   const savingAutomationsRef = useRef(false);
   const setAutomationTypeEnabled = async (
@@ -451,7 +533,9 @@ function ProjectDetail({
           await updateAutomationPolicy({
             environmentId: member.environmentId,
             input: {
-              repository: { projectId: member.id },
+              repository: {
+                projectId: member.id,
+              },
               enabled: enabledAutomations.length > 0,
               enabledAutomations,
               disabledAutomations,
@@ -476,7 +560,6 @@ function ProjectDetail({
       setIsSavingAutomations(false);
     });
   };
-
   const [isSavingProductContext, setIsSavingProductContext] = useState(false);
   const savingProductContextRef = useRef(false);
   const [isStartingProductDiscovery, setIsStartingProductDiscovery] = useState(false);
@@ -494,7 +577,9 @@ function ProjectDetail({
           await updateAutomationPolicy({
             environmentId: member.environmentId,
             input: {
-              repository: { projectId: member.id },
+              repository: {
+                projectId: member.id,
+              },
               ...input,
               updatedAt,
             },
@@ -512,7 +597,6 @@ function ProjectDetail({
       setIsSavingProductContext(false);
     });
   };
-
   const checkProjectAccess = (
     members: ReadonlyArray<SidebarProjectGroupMember>,
     failureTitle: string,
@@ -531,17 +615,17 @@ function ProjectDetail({
     reportFailure(failureTitle, result);
     return result;
   };
-
+  type MemberUpdate = Partial<{
+    title: string;
+    defaultModelSelection: ModelSelection | null;
+    defaultThreadEnvMode: ThreadEnvMode | null;
+    autoPull: boolean;
+    githubAccountId: GitHubAccountId | null;
+    faviconPath: string | null;
+    projectIcon: ProjectIconOverride | null;
+  }>;
   const updateAllMembers = async (
-    input: Partial<{
-      title: string;
-      defaultModelSelection: ModelSelection | null;
-      defaultThreadEnvMode: ThreadEnvMode | null;
-      autoPull: boolean;
-      githubAccountId: GitHubAccountId | null;
-      faviconPath: string | null;
-      projectIcon: ProjectIconOverride | null;
-    }>,
+    input: MemberUpdate | ((member: SidebarProjectGroupMember) => MemberUpdate),
     failureTitle: string,
   ): Promise<AtomCommandResult<void, unknown>> => {
     const denied = checkProjectAccess(group.memberProjects, failureTitle);
@@ -564,7 +648,10 @@ function ProjectDetail({
       const result = mapAtomCommandResult(
         await updateProject({
           environmentId: member.environmentId,
-          input: { projectId: member.id, ...input },
+          input: {
+            projectId: member.id,
+            ...(typeof input === "function" ? input(member) : input),
+          },
         }),
         () => undefined,
       );
@@ -580,11 +667,27 @@ function ProjectDetail({
     }
     return AsyncResult.success(undefined);
   };
-
+  const { updateProjectGroup, canOrganizeProjectGroup } = useProjectGroupUpdate();
+  const canOrganize =
+    allMembers.every((member) => editableIds.has(member.environmentId)) &&
+    canOrganizeProjectGroup(allMembers);
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  const organize = async (input: ProjectGroupUpdate, failureTitle: string) => {
+    if (isOrganizing) return;
+    setIsOrganizing(true);
+    try {
+      await updateProjectGroup(allMembers, input, failureTitle);
+    } finally {
+      setIsOrganizing(false);
+    }
+  };
   const renameGroup = async (nextTitle: string, wasEdited: boolean) => {
     const title = nextTitle.trim();
     if (!title) {
-      toastManager.add({ type: "warning", title: "Project title cannot be empty" });
+      toastManager.add({
+        type: "warning",
+        title: "Project title cannot be empty",
+      });
       return;
     }
     if (
@@ -596,9 +699,13 @@ function ProjectDetail({
     ) {
       return;
     }
-    await updateAllMembers({ title }, "Failed to rename project");
+    await updateAllMembers(
+      {
+        title,
+      },
+      "Failed to rename project",
+    );
   };
-
   const storedSelection = representative.defaultModelSelection;
   const resolvedSelection = resolveDefaultProviderModelSelection(
     serverProviders,
@@ -692,7 +799,10 @@ function ProjectDetail({
       }
       await navigate({
         to: "/$environmentId/$threadId",
-        params: { environmentId: representative.environmentId, threadId },
+        params: {
+          environmentId: representative.environmentId,
+          threadId,
+        },
       });
     })().finally(() => {
       setIsStartingProductDiscovery(false);
@@ -739,9 +849,13 @@ function ProjectDetail({
         }
       }
     }
-    void updateAllMembers({ defaultModelSelection: selection }, "Failed to update default model");
+    void updateAllMembers(
+      {
+        defaultModelSelection: selection,
+      },
+      "Failed to update default model",
+    );
   };
-
   const storedEnvMode = representative.defaultThreadEnvMode ?? null;
   const inheritedEnvMode = projectSettings.defaultThreadEnvMode ?? "local";
   const inheritedEnvModeSource = "environment";
@@ -749,8 +863,12 @@ function ProjectDetail({
     (member) => member.defaultThreadEnvMode !== storedEnvMode,
   );
   const setDefaultThreadEnvMode = (mode: ThreadEnvMode | null) =>
-    void updateAllMembers({ defaultThreadEnvMode: mode }, "Failed to update new-thread workspace");
-
+    void updateAllMembers(
+      {
+        defaultThreadEnvMode: mode,
+      },
+      "Failed to update new-thread workspace",
+    );
   const autoPull = resolveProjectAutoPull(
     projectSettings,
     representative.id,
@@ -769,20 +887,20 @@ function ProjectDetail({
   });
   const setAutoPull = (enabled: boolean | undefined) =>
     setBooleanOverride("projectAutoPullOverrides", enabled);
-
   const storedGitHubAccountId = representative.githubAccountId ?? null;
   const setGitHubAccountId = (accountId: GitHubAccountId | null) =>
-    void updateAllMembers({ githubAccountId: accountId }, "Failed to update GitHub account");
-
+    void updateAllMembers(
+      {
+        githubAccountId: accountId,
+      },
+      "Failed to update GitHub account",
+    );
   const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditGroup);
   const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditGroup);
   const [isSavingFavicon, setIsSavingFavicon] = useState(false);
   const savingFaviconRef = useRef(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const setProjectIcon = async (input: {
-    faviconPath: string | null;
-    projectIcon: ProjectIconOverride | null;
-  }) => {
+  const setProjectIcon = async (input: Parameters<typeof updateAllMembers>[0]) => {
     if (savingFaviconRef.current) return;
     savingFaviconRef.current = true;
     setIsSavingFavicon(true);
@@ -796,7 +914,13 @@ function ProjectDetail({
   const uploadProjectPhoto = async (file: File) => {
     try {
       const dataUrl = await projectPhotoFromFile(file);
-      await setProjectIcon({ faviconPath: null, projectIcon: { kind: "photo", dataUrl } });
+      await setProjectIcon({
+        faviconPath: null,
+        projectIcon: {
+          kind: "photo",
+          dataUrl,
+        },
+      });
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -805,14 +929,14 @@ function ProjectDetail({
       });
     }
   };
-
   const hasMultipleCheckouts = group.memberProjects.length > 1;
-
+  const canResetScratchTitle =
+    group.memberProjects.every((member) => member.isScratch) &&
+    group.memberProjects.some((member) => member.title !== SCRATCH_PROJECT_TITLE);
   const removeMembers = async (members: ReadonlyArray<SidebarProjectGroupMember>) => {
     if (checkProjectAccess(members, "Failed to remove project")) return;
     const api = readLocalApi();
     if (!api) return;
-
     const { projectThreads, isWholeGroup, confirmationMessage } = planProjectRemoval({
       members,
       groupMemberCount: group.memberProjects.length,
@@ -822,11 +946,12 @@ function ProjectDetail({
       unloadedThreadCount: readUnloadedThreadCount(members, threads),
     });
     const confirmed = await settlePromise(() =>
-      api.dialogs.confirm(confirmationMessage, { variant: "destructive" }),
+      api.dialogs.confirm(confirmationMessage, {
+        variant: "destructive",
+      }),
     );
     if (confirmed._tag === "Failure" || !confirmed.value) return;
     if (checkProjectAccess(members, "Failed to remove project")) return;
-
     const draftStore = useComposerDraftStore.getState();
     for (const member of members) {
       if (checkProjectAccess([member], "Failed to remove project")) return;
@@ -844,7 +969,7 @@ function ProjectDetail({
         () => undefined,
       );
       if (result._tag === "Failure") {
-        reportFailure(`Failed to remove "${member.title}"`, result);
+        reportProjectFailure(`Failed to remove "${member.title}"`, result);
         return;
       }
       const projectRef = scopeProjectRef(member.environmentId, member.id);
@@ -859,35 +984,50 @@ function ProjectDetail({
       }
       draftStore.clearProjectDraftThreadId(projectRef);
     }
-
     if (isWholeGroup && !hasOtherMembers) {
       void navigate({
         to: "/settings/projects",
-        search: ({ machine }) => ({ project: undefined, machine, checkout: undefined }),
+        search: ({ machine }) => ({
+          project: undefined,
+          machine,
+          checkout: undefined,
+        }),
         replace: true,
       });
     }
   };
-
   const checkoutsByEnvironment = new Map<EnvironmentId, SidebarProjectGroupMember[]>();
   for (const member of group.memberProjects) {
     const members = checkoutsByEnvironment.get(member.environmentId);
     if (members) members.push(member);
     else checkoutsByEnvironment.set(member.environmentId, [member]);
   }
-  const checkoutRemoveButton = (member: SidebarProjectGroupMember) => (
-    <Button
-      size="sm"
-      variant="outline"
-      disabled={!editableIds.has(member.environmentId)}
-      onClick={() => void removeMembers([member])}
-      aria-label={`Remove checkout ${member.workspaceRoot}`}
-    >
-      Remove
-    </Button>
+  // A lone checkout is removed from the Danger section, but it still needs its grouping
+  // rule here so "Keep separate" can be undone.
+  const checkoutControls = (member: SidebarProjectGroupMember) => (
+    <div className="flex w-full min-w-0 items-center gap-2 @min-[32rem]/settings-row:w-auto">
+      <div className="min-w-0 flex-1 @min-[32rem]/settings-row:w-72 @min-[32rem]/settings-row:flex-none">
+        <CheckoutGroupingSelect member={member} />
+      </div>
+      {hasMultipleCheckouts ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!editableIds.has(member.environmentId)}
+          onClick={() => void removeMembers([member])}
+          aria-label={`Remove checkout ${member.workspaceRoot}`}
+        >
+          Remove
+        </Button>
+      ) : null}
+    </div>
   );
   const checkoutChoices = (
     <SettingsSection title="Checkouts">
+      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
+        Grouping rule decides how each checkout joins project groups in the sidebar. Changing it can
+        move a checkout to a different project.
+      </p>
       {Array.from(checkoutsByEnvironment, ([environmentId, members]) => {
         if (checkoutsByEnvironment.size === 1) {
           return members.map((member) => (
@@ -895,7 +1035,7 @@ function ProjectDetail({
               key={member.physicalProjectKey}
               title={member.environmentLabel ?? "Environment"}
               description={member.workspaceRoot}
-              control={checkoutRemoveButton(member)}
+              control={checkoutControls(member)}
             />
           ));
         }
@@ -904,7 +1044,10 @@ function ProjectDetail({
         const environment = environmentById.get(environmentId);
         const labels = environment
           ? settingsScopeEnvironmentLabels(environment, environments)
-          : { primary: firstMember.environmentLabel ?? "Environment", secondary: environmentId };
+          : {
+              primary: firstMember.environmentLabel ?? "Environment",
+              secondary: environmentId,
+            };
         return (
           <SettingsRow
             key={environmentId}
@@ -924,26 +1067,26 @@ function ProjectDetail({
                 ) : null}
               </>
             }
-            control={hasMultiple ? undefined : checkoutRemoveButton(firstMember)}
+            control={hasMultiple ? undefined : checkoutControls(firstMember)}
           >
             {hasMultiple ? (
               <div className="space-y-3 pb-2 pt-1">
                 {members.map((member) => (
                   <div
                     key={member.physicalProjectKey}
-                    className="flex min-w-0 items-center justify-between gap-3"
+                    className="flex min-w-0 flex-col gap-1.5 @min-[36rem]/settings-row:flex-row @min-[36rem]/settings-row:items-center @min-[36rem]/settings-row:justify-between @min-[36rem]/settings-row:gap-3"
                   >
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <span className="min-w-0 truncate text-xs text-muted-foreground/80" />
+                          <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground/80" />
                         }
                       >
                         {member.workspaceRoot}
                       </TooltipTrigger>
                       <TooltipPopup>{member.workspaceRoot}</TooltipPopup>
                     </Tooltip>
-                    <div className="shrink-0">{checkoutRemoveButton(member)}</div>
+                    <div className="shrink-0">{checkoutControls(member)}</div>
                   </div>
                 ))}
               </div>
@@ -953,7 +1096,6 @@ function ProjectDetail({
       })}
     </SettingsSection>
   );
-
   return (
     <>
       <SettingsPageContainer className="gap-6">
@@ -974,6 +1116,22 @@ function ProjectDetail({
           <SettingsRow
             title="Name"
             description="The shared name for this project group in the sidebar and thread lists."
+            resetAction={
+              canResetScratchTitle ? (
+                <SettingResetButton
+                  label="project name"
+                  disabled={!canEditGroup}
+                  onClick={() =>
+                    void updateAllMembers(
+                      {
+                        title: SCRATCH_PROJECT_TITLE,
+                      },
+                      "Failed to rename project",
+                    )
+                  }
+                />
+              ) : null
+            }
             control={
               <Input
                 key={`${group.projectKey}:${group.displayName}`}
@@ -991,6 +1149,7 @@ function ProjectDetail({
                   void renameGroup(event.currentTarget.value, wasEdited);
                 }}
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
               />
@@ -1010,13 +1169,11 @@ function ProjectDetail({
                       : (faviconPath ?? "Automatic")
             }
             resetAction={
-              group.memberProjects.some(
-                (member) => member.faviconPath != null || member.projectIcon != null,
-              ) ? (
+              group.memberProjects.some((member) => !hasDefaultProjectIcon(member)) ? (
                 <SettingResetButton
                   label="project icon"
                   disabled={isSavingFavicon || !canEditGroup}
-                  onClick={() => void setProjectIcon({ faviconPath: null, projectIcon: null })}
+                  onClick={() => void setProjectIcon(defaultProjectIcon)}
                 />
               ) : null
             }
@@ -1067,6 +1224,56 @@ function ProjectDetail({
               </div>
             }
           />
+          {canOrganize ? (
+            <>
+              <SettingsRow
+                title="Pin"
+                description="Pinned projects come first in project pickers."
+                control={
+                  <Switch
+                    checked={group.pinned}
+                    disabled={isOrganizing}
+                    onCheckedChange={(checked) =>
+                      void organize(
+                        {
+                          pinned: Boolean(checked),
+                        },
+                        checked ? "Failed to pin project" : "Failed to unpin project",
+                      )
+                    }
+                    aria-label="Pin project"
+                  />
+                }
+              />
+              <SettingsRow
+                title="Archive"
+                description={
+                  group.archived
+                    ? "Hidden from project pickers. Threads and files are kept."
+                    : "Hides the project from project pickers. Threads and files are kept."
+                }
+                control={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isOrganizing}
+                    onClick={() =>
+                      void organize(
+                        {
+                          archived: !group.archived,
+                        },
+                        group.archived
+                          ? "Failed to unarchive project"
+                          : "Failed to archive project",
+                      )
+                    }
+                  >
+                    {group.archived ? "Unarchive" : "Archive"}
+                  </Button>
+                }
+              />
+            </>
+          ) : null}
         </SettingsSection>
 
         <SettingsSection title="Product context">
@@ -1233,7 +1440,10 @@ function ProjectDetail({
                     onOpenProviderSetup={(instanceId) => {
                       void navigate({
                         to: "/settings/providers",
-                        search: { environmentId: representative.environmentId, instanceId },
+                        search: {
+                          environmentId: representative.environmentId,
+                          instanceId,
+                        },
                       });
                     }}
                     onInstanceModelChange={(instanceId, model) => {
@@ -1438,7 +1648,7 @@ function ProjectDetail({
           />
         </SettingsSection>
         <ProjectActionsSettings />
-        {hasMultipleCheckouts ? checkoutChoices : null}
+        {checkoutChoices}
         <SettingsSection title="Danger">
           <SettingsRow
             title={
@@ -1480,9 +1690,16 @@ function ProjectDetail({
         environmentId={representative.environmentId}
         onOpenChange={setFaviconPickerOpen}
         {...(pickProjectFavicon
-          ? { onPickExternal: () => pickProjectFavicon(representative.workspaceRoot) }
+          ? {
+              onPickExternal: () => pickProjectFavicon(representative.workspaceRoot),
+            }
           : {})}
-        onSelect={(path) => void setProjectIcon({ faviconPath: path, projectIcon: null })}
+        onSelect={(path) =>
+          void setProjectIcon({
+            faviconPath: path,
+            projectIcon: null,
+          })
+        }
         open={faviconPickerOpen && canEditGroup}
         projectName={group.displayName}
       />
@@ -1493,7 +1710,12 @@ function ProjectDetail({
             projectName={representative.title}
             open
             onOpenChange={setIconPickerOpen}
-            onSelect={(icon) => void setProjectIcon({ faviconPath: null, projectIcon: icon })}
+            onSelect={(icon) =>
+              void setProjectIcon({
+                faviconPath: null,
+                projectIcon: icon,
+              })
+            }
           />
         </Suspense>
       ) : null}

@@ -30,7 +30,7 @@ import {
 } from "@t3tools/contracts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -61,6 +61,8 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly faviconPath?: string | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly pinned?: boolean;
+  readonly archived?: boolean;
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -85,6 +87,7 @@ export interface ThreadCommandInput extends CommandMetadata {
 
 export interface DeleteThreadInput extends ThreadCommandInput {
   readonly archivedOnly?: boolean;
+  readonly onlyIfUnused?: boolean;
 }
 
 export class ThreadArchiveOnlyDeleteUnsupportedError extends Schema.TaggedError<ThreadArchiveOnlyDeleteUnsupportedError>()(
@@ -237,6 +240,12 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
+export interface ForkSideChatInput extends CommandMetadata {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  readonly title?: string;
+}
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
@@ -278,8 +287,8 @@ const allocateCommandId = Effect.fn("EnvironmentCommands.allocateCommandId")(fun
   input: CommandMetadata,
 ) {
   if (input.commandId !== undefined) return input.commandId;
-  const crypto = yield* Crypto.Crypto;
-  return CommandId.make(yield* crypto.randomUUIDv4().pipe(Effect.orDie));
+  const random = yield* SecureRandom.SecureRandom;
+  return CommandId.make(yield* random.uuidV4());
 });
 
 const dispatch = (command: OrchestrationV2Command) =>
@@ -385,6 +394,8 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
+    ...(input.archived === undefined ? {} : { archived: input.archived }),
   });
 });
 
@@ -420,7 +431,6 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
 
 function simpleThreadCommand(
   type:
-    | "thread.delete"
     | "thread.archive"
     | "thread.unarchive"
     | "thread.settle"
@@ -449,6 +459,7 @@ export const deleteThread = Effect.fn("EnvironmentCommands.deleteThread")(functi
     commandId,
     threadId: input.threadId,
     ...(input.archivedOnly === undefined ? {} : { archivedOnly: input.archivedOnly }),
+    ...(input.onlyIfUnused === undefined ? {} : { onlyIfUnused: input.onlyIfUnused }),
   });
 });
 
@@ -1013,6 +1024,23 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
+    ...(input.title === undefined ? {} : { title: input.title }),
+  });
+});
+
+/** Forks the thread's latest stable point into a hidden side chat; works while it runs. */
+export const forkSideChat = Effect.fn("EnvironmentCommands.forkSideChat")(function* (
+  input: ForkSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.fork",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    sourceThreadId: input.sourceThreadId,
+    targetThreadId: input.targetThreadId,
+    sourcePoint: { type: "latest_stable" },
+    sideChat: true,
     ...(input.title === undefined ? {} : { title: input.title }),
   });
 });

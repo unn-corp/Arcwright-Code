@@ -1,6 +1,6 @@
 // @effect-diagnostics globalDate:off - persisted automation records use ISO timestamps.
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -171,7 +171,7 @@ export class AgentDashboardDecisionFollowUp extends Context.Service<
 >()("t3/agentDashboard/AgentDashboardDecisionFollowUp") {}
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const store = yield* AgentDashboardStore.AgentDashboardStore;
   const history = yield* AgentDashboardRunHistory.AgentDashboardRunHistory;
   const projection = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
@@ -180,7 +180,7 @@ const make = Effect.gen(function* () {
   const orchestration = yield* OrchestrationEngine.OrchestrationEngineService;
   const lastScanAt = yield* Ref.make<number | null>(null);
 
-  const randomUuid = crypto.randomUUIDv4().pipe(
+  const randomUuid = crypto.uuidV4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardDecisionFollowUpError({

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalDate:off - persisted scheduler timestamps and PR update times are ISO strings.
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -307,7 +307,7 @@ const createRun = (input: {
 
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const dashboardStore = yield* AgentDashboardStore.AgentDashboardStore;
   const git = yield* GitWorkflowService.GitWorkflowService;
   const history = yield* AgentDashboardRunHistory.AgentDashboardRunHistory;
@@ -355,7 +355,7 @@ const make = Effect.gen(function* () {
     });
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-  const randomId = crypto.randomUUIDv4().pipe(
+  const randomId = crypto.uuidV4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardPullRequestRollupError({

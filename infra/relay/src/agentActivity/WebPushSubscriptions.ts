@@ -4,7 +4,8 @@ import type {
   RelayWebPushSubscriptionRegistrationRequest,
 } from "@t3tools/contracts/relay";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
@@ -162,16 +163,17 @@ export class WebPushSubscriptions extends Context.Service<
 >()("t3code-relay/agentActivity/WebPushSubscriptions") {}
 
 const hashInstallationSecret = Effect.fn("WebPushSubscriptions.hashInstallationSecret")(function* (
-  crypto: Crypto.Crypto,
+  crypto: Digest.Digest["Service"],
   secret: string,
 ) {
-  const digest = yield* crypto.digest("SHA-256", new TextEncoder().encode(secret));
+  const digest = yield* crypto.digest(Digest.sha256, new TextEncoder().encode(secret));
   return Base64Url.encode(digest);
 });
 
 export const make = Effect.gen(function* () {
   const db = yield* RelayDb.RelayDb;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
+  const random = yield* SecureRandom.SecureRandom;
   const anonymousAllowed = yield* anonymousPwaAllowed;
   const getPwaForCleanup: WebPushSubscriptions["Service"]["getPwaForCleanup"] = Effect.fn(
     "WebPushSubscriptions.getPwaForCleanup",
@@ -257,7 +259,7 @@ export const make = Effect.gen(function* () {
       }
       yield* admitRenewal(observed);
     }
-    const id = yield* crypto.randomUUIDv4();
+    const id = yield* random.uuidV4();
     const values = {
       id,
       userId: `pwa:${installation.installationId}`,
@@ -424,7 +426,7 @@ export const make = Effect.gen(function* () {
     }),
     register: Effect.fn("relay.web_push_subscriptions.register")(function* (input) {
       const now = DateTime.formatIso(yield* DateTime.now);
-      const id = yield* crypto.randomUUIDv4();
+      const id = yield* random.uuidV4();
       const values = {
         id,
         userId: input.userId,

@@ -7,11 +7,7 @@ import {
   type ScopedThreadRef,
   type ServerProvider,
 } from "@t3tools/contracts";
-import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
-  sortProviderInstanceEntries,
-} from "../../providerInstances";
+import { providerInstanceEntriesFor } from "../../providerInstances";
 import { type UnifiedSettings } from "@t3tools/contracts/settings";
 import { getComposerPromptInjectionState, getComposerProviderState } from "./composerProviderState";
 import { useThreadComposerSelection } from "../ChatView.logic";
@@ -47,12 +43,10 @@ export function useComposerProviderModel(input: {
     promptInjectionState,
     lockedProvider,
   } = input;
-  const providerInstanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providerStatuses),
-      settings,
-      activeProjectId,
-    ),
+  const providerInstanceEntries = providerInstanceEntriesFor(
+    providerStatuses,
+    settings,
+    activeProjectId,
   );
   const selection = useThreadComposerSelection({
     threadRef,

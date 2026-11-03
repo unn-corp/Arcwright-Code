@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
@@ -56,6 +57,7 @@ it.effect("allows only the current provider to select a direct reply and namespa
       Layer.mock(RemoteDelegation.RemoteDelegation)({}),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
       NodeServices.layer,
+      NodeCrypto.layer,
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(shell),
         getThreadRecords: () => Effect.succeed({ ...projection, runs: live ? [run] : [] }),

@@ -1,6 +1,8 @@
 import { backupCommand } from "./cli/backup.ts";
 import { doctorCommand } from "./cli/doctor.ts";
+import { policyCommand } from "./cli/policy.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -14,7 +16,6 @@ import { authCommand } from "./cli/auth.ts";
 import { environmentCommand } from "./cli/environment.ts";
 import { appCommand } from "./cli/app.ts";
 import { browserCommand } from "./cli/browser.ts";
-import { connectCommand } from "./cli/connect.ts";
 import { maintenanceCommand } from "./cli/maintenance.ts";
 import { pairCommand } from "./cli/pair.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
@@ -34,8 +35,10 @@ import { servicePreflightCommand } from "./cli/servicePreflight.ts";
 import { themeCommand } from "./cli/theme.ts";
 import { traceCommand } from "./cli/trace.ts";
 import { triageCommand } from "./cli/triage.ts";
+import { statusCommand, upCommand } from "./cli/up.ts";
+import { connectCommand } from "./cli/connect.ts";
 
-const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
+const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer);
 
 const connectPublicConfigMissingMessage =
   "Arcwright Connect commands are unavailable: this build is missing Arcwright Connect public configuration.";
@@ -65,7 +68,9 @@ const connectUnavailableCommand = Command.make("connect", {
 
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
-    Command.withDescription("Run the Arcwright Code server."),
+    Command.withDescription(
+      "Run Arcwright Code in this terminal and open it in your browser. To use it from your other devices, run `t3 up`.",
+    ),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([
       backupCommand,
@@ -86,6 +91,8 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       browserCommand,
       projectCommand,
       threadCommand,
+      upCommand,
+      statusCommand,
       serviceCommand,
       updateCommand,
       maintenanceCommand,
@@ -99,6 +106,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       themeCommand,
       traceCommand,
       doctorCommand,
+      policyCommand,
       triageCommand,
       cloudEnabled ? connectCommand : connectUnavailableCommand,
     ]),

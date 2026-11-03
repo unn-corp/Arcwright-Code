@@ -144,9 +144,22 @@ five idle minutes, and a 15-second countdown. A new turn, tool, background task,
 approval wait, open terminal, or unknown activity blocks installation and resets
 the countdown. Pins and unresolved installation/recovery blockers still apply.
 
+### macOS app does not reopen after an Alpha update
+
+Updating an older **Arcwright Code (Alpha)** installation can replace it with
+**Arcwright Code (Beta)** without reopening the app. Open **Arcwright Code (Beta)** from
+Applications, or run:
+
+```sh
+open "/Applications/Arcwright Code (Beta).app"
+```
+
+If an old Dock shortcut no longer opens the app, remove it and add the Beta app
+from Applications again.
+
 ## If the desktop app does not start
 
-If the desktop app's server keeps failing at startup, T3 Code shows a "T3 Code
+If the desktop app's server keeps failing at startup, Arcwright Code shows a "Arcwright Code
 could not start" window instead of the app. If a newer version is available,
 choose **Update** to install it. If not, the window links to the last version
 that started on your computer. Download and install it to go back. Use **Copy
@@ -351,4 +364,4 @@ A failed operation keeps the normal maintenance recovery safeguards. Older compr
 restore points remain readable. If a managed server requires a newer launcher, refresh it during
 an authorized maintenance window first. See the [storage runbook](../operations/database-storage.md#requesting-plain-json-restoration)
 for requirements and recovery. This preserves Arcwright's database schema and features; it does
-not turn the database into a stock T3 Code database.
+not turn the database into a stock Arcwright Code database.

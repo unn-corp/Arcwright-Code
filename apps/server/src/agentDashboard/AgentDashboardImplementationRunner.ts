@@ -1,6 +1,6 @@
 // @effect-diagnostics globalDate:off - persisted orchestration timestamps are ISO strings.
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -201,7 +201,7 @@ export const buildCompletedImplementationCleanupAudit = (input: {
 };
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Crypto.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
   const orchestration = yield* OrchestrationEngine.OrchestrationEngineService;
   const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -209,7 +209,7 @@ const make = Effect.gen(function* () {
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const store = AgentDashboardStore.getStore(config.stateDir);
 
-  const randomUuid = crypto.randomUUIDv4().pipe(
+  const randomUuid = crypto.uuidV4().pipe(
     Effect.mapError(
       (cause) =>
         new AgentDashboardImplementationRunnerError({

@@ -30,11 +30,13 @@ export const T3_CONNECT_ACCOUNT_PAGES = [
   },
 ] as const;
 
+export type T3ConnectAccountPageUrl = (typeof T3_CONNECT_ACCOUNT_PAGES)[number]["url"];
+
 type PortalTargets = Readonly<Record<string, HTMLDivElement | undefined>>;
 
 /** Keep portals rendered while the modal can open; Clerk owns the custom-page DOM nodes. */
 export function useT3ConnectAccountPage(): {
-  readonly open: (() => void) | null;
+  readonly open: ((page?: T3ConnectAccountPageUrl) => void) | null;
   readonly portals: ReactNode;
 } {
   const { isSignedIn, surface, openAccountPages } = useManagedAuth();
@@ -42,9 +44,9 @@ export function useT3ConnectAccountPage(): {
   const [nativePage, setNativePage] = useState<string>("t3-connect");
   const [targets, setTargets] = useState<PortalTargets>({});
 
-  const open = () => {
+  const open = (page: T3ConnectAccountPageUrl = "t3-connect") => {
     if (surface === "android") {
-      setNativePage("t3-connect");
+      setNativePage(page);
       setNativeOpen(true);
       return;
     }
@@ -59,7 +61,7 @@ export function useT3ConnectAccountPage(): {
         mountIcon: (element: HTMLDivElement) => setTarget(`icon:${page.url}`, element),
         unmountIcon: () => setTarget(`icon:${page.url}`, undefined),
       })),
-      "/t3-connect",
+      `/${page}`,
     );
   };
 

@@ -39,16 +39,11 @@ Arcwright Connect makes an environment available to your other devices without s
 up router forwarding. In the desktop app on the host, open **Settings →
 Connections**, sign in, and enable **Arcwright Connect** for that environment.
 
-For a command-line host, run:
-
-```bash
-t3 connect
-```
-
-Follow the sign-in instructions. Setup offers a
-[background service](./background-service.md); if you decline it, start the
-server with `t3 serve`. Saving your sign-in alone does not make the machine
-reachable.
+For a command-line host, run `t3 connect` and follow the sign-in instructions.
+On Linux and macOS, setup can offer a [background service](./background-service.md).
+The upstream `t3 up` setup command is unavailable in this fork until its lifecycle
+changes use maintenance admission. `t3 status` remains available for inspection.
+On Windows, keep the desktop app or a terminal server running to remain reachable.
 
 On your other device, sign in to the same Arcwright Connect account and choose the
 environment. On the app.t3.codes home page with no computer added yet, signing
@@ -125,12 +120,7 @@ On a desktop host, open **Settings → Sharing & access**, enable **Network acce
 then create a pairing link using an address the other device can reach. Changing
 network access restarts the desktop app. You can turn it off in the same place.
 
-For a command-line host, replace `<private-ip>` with the host's LAN or tailnet
-address:
-
-```bash
-t3 serve --host <private-ip>
-```
+For a command-line host, configure a reachable host address before starting the server.
 
 If a server is already running, generate a fresh link without restarting it. The CLI requests the link from that running server over its authenticated local API; SSH pairing uses the same path:
 
@@ -174,8 +164,9 @@ machine's current LAN and Tailscale addresses and adds them as routes, so
 pairing once through Arcwright Connect is enough to use the LAN at home. When the
 machine's LAN address changes, for example after it joins another Wi-Fi network,
 the learned route follows it. The machine must allow network access for its LAN
-address to be learned. The [background service](./background-service.md#local-network-access)
-allows it on private networks by default. You can reorder a learned route, but not remove it; it
+address to be learned: **Network access** in the desktop app, or the
+[local network configuration](./background-service.md#local-network-access).
+You can reorder a learned route, but not remove it; it
 goes away with the route it was learned through, or when the machine stops
 reporting that address.
 
@@ -238,7 +229,7 @@ The mapping created by `pair --tailscale` persists across restarts. Remove its
 default-port mapping with:
 
 ```bash
-tailscale serve --https=443 off
+tailscale serve --https=443 --set-path=/ off
 ```
 
 If that port is already in use, choose another with
@@ -312,6 +303,19 @@ On a phone, tap the floating preview's corner dot to show its controls, then
 **Pop into separate window** to keep watching in picture-in-picture over other
 apps.
 
+### Local servers
+
+The browser lists ports held by processes your terminals and agents started.
+Arcwright Code reads which process holds each port and never connects to it, so a
+listed port opens as `http://localhost:<port>` and might not be a web page. For
+an HTTPS server or a specific path, set the **Preview URL** on the project
+script that starts it; Arcwright Code checks that address and opens it as written.
+
+To stop listing ports, set `T3CODE_PORT_DISCOVERY=0` in the environment that
+starts the Arcwright Code server, such as
+[`service.env`](./background-service.md#configure-the-service-environment) for
+the background service, and restart it. Script preview URLs still appear.
+
 ### Browser host setup
 
 macOS, Windows, and Linux desktops run the browser as is. Some Linux hosts need
@@ -332,8 +336,22 @@ any missing libraries and system fonts with apt; pages that load without text
 can mean the host has no fonts. It is safe to run again. Without `sudo`, it only
 reports what it would change.
 
-The browser always runs in Chrome's sandbox. Where you cannot change the host,
-set `T3CODE_SERVER_BROWSER_SANDBOX=0` for the environment to run without it.
+The browser runs in Chrome's sandbox by default. Chrome cannot start that sandbox
+as root. If your T3 server runs as root, run it as a nonroot user to keep
+sandboxing enabled. `t3 browser setup` does not fix this root restriction.
+
+If you need to run as root, or cannot enable the sandbox on your host, set
+`T3CODE_SERVER_BROWSER_SANDBOX=0` in the **T3 server's environment** and restart
+the server. This disables Chrome's sandbox. For a manual launch:
+
+```sh
+T3CODE_SERVER_BROWSER_SANDBOX=0 t3 serve
+```
+
+For a systemd service, add `Environment=T3CODE_SERVER_BROWSER_SANDBOX=0` under
+`[Service]` in its configuration, run `sudo systemctl daemon-reload`, then restart
+your T3 service. Setting the variable in an agent's terminal does not change the
+environment of an already running T3 server.
 
 ## Connect an outside agent
 
@@ -353,12 +371,12 @@ off on either machine, agents start nothing over a link between them. A task
 already running on the other machine still finishes, and if that machine has it
 off, its result arrives once it is back on.
 
-On the machine you will work from, open **Settings → Connections → Linked environments**,
+On the machine you will work from, open **Settings → Environments → Linked environments**,
 choose **Link**, and pick the other machine or enter its address. The list
-holds the machines this app knows and those on your T3 Connect account. If this
+holds the machines this app knows and those on your Arcwright Connect account. If this
 app is connected to that machine with a session that manages access there, it
 makes the pairing code itself; otherwise paste one from that machine's
-**Settings → Connections**. From a terminal, use
+**Settings → Sharing & access**. From a terminal, use
 `t3 environment link <address> --pairing-code <code> --access <mode>`.
 
 You can also ask an agent to link a machine by name, such as "delegate this to
@@ -372,7 +390,7 @@ and the access, then approve.
   access, the link's agents can change only threads it started, not that
   machine's own threads, projects or settings, and they skip its project setup
   scripts.
-- The link shows up in that machine's **Settings → Connections** like any
+- The link shows up in that machine's **Settings → Sharing & access** like any
   outside agent. Revoke it there to end it. **Forget** on this machine only
   removes it here.
 - Links last 30 days. Link again with a new pairing code to renew one.
@@ -471,7 +489,8 @@ shows that it was removed from Arcwright Connect. To link it again, turn on
 command-line host that released its tunnel when it last stopped may link itself
 again on its next start; run `t3 connect unlink` on that host to keep it off.
 Removing an environment from a device's connection settings only forgets it on
-that device; it stays registered to your account.
+that device and doesn't change your Arcwright Connect account. A device keeps a saved
+environment after it's deregistered until you remove it from that device.
 
 When idle tunnel cleanup is enabled, Arcwright Connect removes a linked environment's
 tunnel after it stays offline for several minutes. The environment stays linked

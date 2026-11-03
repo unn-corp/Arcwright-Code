@@ -11,16 +11,24 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as NodeURL from "node:url";
 import type { SqlError } from "effect/sql/SqlError";
 
 import * as RelayDb from "../db.ts";
 import * as EnvironmentLinks from "../environments/EnvironmentLinks.ts";
 import * as WebPushSubscriptions from "./WebPushSubscriptions.ts";
+import {
+  verifiedNativeConnection,
+  verifiedNativeClient,
+} from "../ownedNativePostgres.test-fixture.ts";
 
 // Only this explicitly owned disposable fixture is admissible. No ambient DB
 // variable is consulted, and both schemas below belong exclusively to this suite.
-export const fixtureFile = process.env.RELAY_PWA_TEST_FIXTURE_FILE;
-export const migrationDirectory = "infra/relay/migrations/postgres";
+const nativeFixtureFile = process.env.RELAY_INCARNATION_TEST_FIXTURE_FILE;
+export const fixtureFile = nativeFixtureFile || process.env.RELAY_PWA_TEST_FIXTURE_FILE;
+export const migrationDirectory = NodeURL.fileURLToPath(
+  new URL("../../migrations/postgres", import.meta.url),
+);
 export const incarnationMigration = "20261013030258_delivery_incarnations";
 const containerId = "dbc30b134c2b29164e8b69094e4038f3541b24158ac5a60cccbba50f1ef35390";
 const networkId = "873a155e6310965ce514f0ff2cf5b47c4caf384e497b65a9d0eb8424c38dbdd7";
@@ -78,15 +86,39 @@ const databaseLayer = (legacy: boolean) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       if (!fixtureFile) return yield* new FixtureConfigurationRejected();
-      const connection = yield* decodeConnection(yield* fs.readFileString(fixtureFile)).pipe(
-        Effect.mapError(() => new FixtureConfigurationRejected()),
-      );
-      yield* decodeReceipt(
-        yield* fs.readFileString(
-          `${fixtureFile.slice(0, fixtureFile.lastIndexOf("/"))}/owned-resources.json`,
-        ),
-      ).pipe(Effect.mapError(() => new FixtureConfigurationRejected()));
+      const connection = nativeFixtureFile
+        ? yield* verifiedNativeConnection(nativeFixtureFile).pipe(
+            Effect.catchCause(() => Effect.fail(new FixtureConfigurationRejected())),
+          )
+        : yield* Effect.gen(function* () {
+            const connection = yield* decodeConnection(yield* fs.readFileString(fixtureFile)).pipe(
+              Effect.mapError(() => new FixtureConfigurationRejected()),
+            );
+            yield* decodeReceipt(
+              yield* fs.readFileString(
+                `${fixtureFile.slice(0, fixtureFile.lastIndexOf("/"))}/owned-resources.json`,
+              ),
+            ).pipe(Effect.mapError(() => new FixtureConfigurationRejected()));
+            return connection;
+          });
       const schema = legacy ? "task4c_incarnation_migration" : "task4c_incarnations";
+      const pool = PgClient.layer({
+        host: connection.host,
+        port: connection.port,
+        database: connection.database,
+        username: connection.username,
+        password: Redacted.make(connection.password),
+        ssl: false,
+        prepare: false,
+        startupParameters: { search_path: `${schema},public` },
+        maxConnections: 16,
+      });
+      const checkedPool =
+        "dataDirectory" in connection
+          ? Layer.effect(PgClient.PgClient, verifiedNativeClient(connection)).pipe(
+              Layer.provide(pool),
+            )
+          : pool;
       return Layer.effect(
         RelayDb.RelayDb,
         Effect.gen(function* () {
@@ -112,21 +144,7 @@ const databaseLayer = (legacy: boolean) =>
           });
           return db;
         }),
-      ).pipe(
-        Layer.provide(
-          PgClient.layer({
-            host: connection.host,
-            port: connection.port,
-            database: connection.database,
-            username: connection.username,
-            password: Redacted.make(connection.password),
-            ssl: false,
-            prepare: false,
-            startupParameters: { search_path: `${schema},public` },
-            maxConnections: 16,
-          }),
-        ),
-      );
+      ).pipe(Layer.provide(checkedPool));
     }),
   ).pipe(Layer.provide(NodeFileSystem.layer));
 

@@ -1,3 +1,5 @@
+import * as Layer from "effect/Layer";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { readConnectAuthorizeRequest } from "@t3tools/shared/connectAuth";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -62,7 +64,7 @@ function memoryStore(initial: ReadonlyArray<readonly [string, string]> = []) {
 const provideEnv = (env: Readonly<Record<string, string>>) =>
   Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env })));
 
-it.layer(NodeServices.layer)("persisted CLI authority", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("persisted CLI authority", (it) => {
   const cases = (["owned", "cloudless", "legacy"] as const).flatMap((mode) =>
     (["unbound", "foreign", "compatible"] as const).flatMap((credential) =>
       [false, true].map((expired) => ({ mode, credential, expired })),
@@ -87,6 +89,7 @@ it.layer(NodeServices.layer)("persisted CLI authority", (it) => {
         const requests: string[] = [];
         const inputs = yield* Queue.make<Terminal.UserInput>();
         const terminal = Terminal.make({
+          size: Effect.map(Queue.unbounded<Terminal.Size>(), Queue.asDequeue),
           columns: Effect.succeed(80),
           rows: Effect.succeed(24),
           readInput: Effect.succeed(Queue.asDequeue(inputs)),
@@ -154,93 +157,97 @@ it.layer(NodeServices.layer)("persisted CLI authority", (it) => {
   );
 });
 
-it.layer(NodeServices.layer)("deliberate selected authorization", (it) => {
-  it.effect.each([true, false])(
-    "stamps code exchange and replaces old state only on %s",
-    (success) =>
-      Effect.gen(function* () {
-        const loopbackClient = yield* HttpClient.HttpClient.pipe(
-          Effect.provide(FetchHttpClient.layer),
-        );
-        const encoded = JSON.stringify(fixtureToken);
-        const { store, values } = memoryStore([["cloud-cli-oauth-token", encoded]]);
-        const queue = yield* Queue.make<Terminal.UserInput>();
-        yield* Queue.offer(queue, {
-          input: Option.some("enter"),
-          key: { name: "enter", ctrl: false, meta: false, shift: false },
-        });
-        const manager = yield* CliTokenManager.make.pipe(
-          Effect.provideService(ServerSecretStore.ServerSecretStore, store),
-          Effect.provideService(
-            Terminal.Terminal,
-            Terminal.make({
-              columns: Effect.succeed(80),
-              rows: Effect.succeed(24),
-              readInput: Effect.succeed(Queue.asDequeue(queue)),
-              readLine: Effect.never,
-              display: () => Effect.void,
-            }),
-          ),
-          Effect.provideService(
-            ExternalLauncher.ExternalLauncher,
-            ExternalLauncher.ExternalLauncher.of({
-              resolveAvailableEditors: () => Effect.succeed([]),
-              resolveFileManagerRevealKind: () => Effect.sync(() => undefined),
-              launchEditor: () => Effect.die("unused"),
-              launchBrowser: (url) =>
-                Effect.gen(function* () {
-                  const authorization = readConnectAuthorizeRequest(new URL(url));
-                  assert.isNotNull(authorization);
-                  const response = yield* loopbackClient.get(
-                    `http://127.0.0.1:${authorization!.loopbackPort}/callback?state=${encodeURIComponent(authorization!.state)}&code=selected-code`,
-                  );
-                  assert.equal(response.status, 200);
-                }).pipe(Effect.orDie),
-            }),
-          ),
-          Effect.provideService(
-            HttpClient.HttpClient,
-            HttpClient.make((request) =>
-              Effect.sync(() => {
-                assert.equal(request.url, "https://clerk.example.test/oauth/token");
-                assert.equal(request.body._tag, "Uint8Array");
-                const params = new URLSearchParams(
-                  new TextDecoder().decode(
-                    request.body._tag === "Uint8Array" ? request.body.body : undefined,
-                  ),
-                );
-                assert.equal(params.get("grant_type"), "authorization_code");
-                assert.equal(params.get("code"), "selected-code");
-                return HttpClientResponse.fromWeb(
-                  request,
-                  Response.json(
-                    success
-                      ? {
-                          access_token: "new-code-token",
-                          refresh_token: "new-code-refresh",
-                          expires_in: 3600,
-                          token_type: "bearer",
-                        }
-                      : { error: "invalid_grant" },
-                    { status: success ? 200 : 400 },
-                  ),
-                );
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
+  "deliberate selected authorization",
+  (it) => {
+    it.effect.each([true, false])(
+      "stamps code exchange and replaces old state only on %s",
+      (success) =>
+        Effect.gen(function* () {
+          const loopbackClient = yield* HttpClient.HttpClient.pipe(
+            Effect.provide(FetchHttpClient.layer),
+          );
+          const encoded = JSON.stringify(fixtureToken);
+          const { store, values } = memoryStore([["cloud-cli-oauth-token", encoded]]);
+          const queue = yield* Queue.make<Terminal.UserInput>();
+          yield* Queue.offer(queue, {
+            input: Option.some("enter"),
+            key: { name: "enter", ctrl: false, meta: false, shift: false },
+          });
+          const manager = yield* CliTokenManager.make.pipe(
+            Effect.provideService(ServerSecretStore.ServerSecretStore, store),
+            Effect.provideService(
+              Terminal.Terminal,
+              Terminal.make({
+                size: Effect.map(Queue.unbounded<Terminal.Size>(), Queue.asDequeue),
+                columns: Effect.succeed(80),
+                rows: Effect.succeed(24),
+                readInput: Effect.succeed(Queue.asDequeue(queue)),
+                readLine: Effect.never,
+                display: () => Effect.void,
               }),
             ),
-          ),
-        );
-        if (success) {
-          const result = yield* manager.get;
-          assert.equal(result._tag, "Authorized");
-          if (result._tag === "Authorized") assert.deepEqual(result.token.publicAuthority, stamp);
-          assert.equal(yield* manager.hasCredential, true);
-        } else {
-          yield* Effect.flip(manager.get);
-          assert.equal(new TextDecoder().decode(values.get("cloud-cli-oauth-token")), encoded);
-        }
-      }).pipe(Effect.scoped, provideEnv(ownedEnv)),
-  );
-});
+            Effect.provideService(
+              ExternalLauncher.ExternalLauncher,
+              ExternalLauncher.ExternalLauncher.of({
+                resolveAvailableEditors: () => Effect.succeed([]),
+                resolveFileManagerRevealKind: () => Effect.sync(() => undefined),
+                launchEditor: () => Effect.die("unused"),
+                launchBrowser: (url) =>
+                  Effect.gen(function* () {
+                    const authorization = readConnectAuthorizeRequest(new URL(url));
+                    assert.isNotNull(authorization);
+                    const response = yield* loopbackClient.get(
+                      `http://127.0.0.1:${authorization!.loopbackPort}/callback?state=${encodeURIComponent(authorization!.state)}&code=selected-code`,
+                    );
+                    assert.equal(response.status, 200);
+                  }).pipe(Effect.orDie),
+              }),
+            ),
+            Effect.provideService(
+              HttpClient.HttpClient,
+              HttpClient.make((request) =>
+                Effect.sync(() => {
+                  assert.equal(request.url, "https://clerk.example.test/oauth/token");
+                  assert.equal(request.body._tag, "Uint8Array");
+                  const params = new URLSearchParams(
+                    new TextDecoder().decode(
+                      request.body._tag === "Uint8Array" ? request.body.body : undefined,
+                    ),
+                  );
+                  assert.equal(params.get("grant_type"), "authorization_code");
+                  assert.equal(params.get("code"), "selected-code");
+                  return HttpClientResponse.fromWeb(
+                    request,
+                    Response.json(
+                      success
+                        ? {
+                            access_token: "new-code-token",
+                            refresh_token: "new-code-refresh",
+                            expires_in: 3600,
+                            token_type: "bearer",
+                          }
+                        : { error: "invalid_grant" },
+                      { status: success ? 200 : 400 },
+                    ),
+                  );
+                }),
+              ),
+            ),
+          );
+          if (success) {
+            const result = yield* manager.get;
+            assert.equal(result._tag, "Authorized");
+            if (result._tag === "Authorized") assert.deepEqual(result.token.publicAuthority, stamp);
+            assert.equal(yield* manager.hasCredential, true);
+          } else {
+            yield* Effect.flip(manager.get);
+            assert.equal(new TextDecoder().decode(values.get("cloud-cli-oauth-token")), encoded);
+          }
+        }).pipe(Effect.scoped, provideEnv(ownedEnv)),
+    );
+  },
+);
 
 it.effect(
   "relay admission normalizes origins and rejects a foreign issuer on the selected URL",

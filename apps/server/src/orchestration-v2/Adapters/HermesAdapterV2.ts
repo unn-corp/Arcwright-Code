@@ -10,7 +10,7 @@ import {
   ProviderDriverKind,
   type OrchestrationV2ProviderCapabilities,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Crypto from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -84,7 +84,7 @@ export interface HermesAdapterV2Options {
   readonly environment: NodeJS.ProcessEnv;
   readonly hostPlatform: NodeJS.Platform;
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
-  readonly crypto: Crypto.Crypto;
+  readonly crypto: Crypto.SecureRandom["Service"];
   readonly selfInvocation: SelfInvocation;
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
@@ -97,7 +97,7 @@ export interface HermesAdapterV2Options {
   ) => Effect.Effect<
     AcpSessionRuntime.AcpSessionRuntime["Service"],
     EffectAcpErrors.AcpError,
-    Crypto.Crypto | Scope.Scope
+    Crypto.SecureRandom | Scope.Scope
   >;
   readonly assertComplete?: Effect.Effect<void, EffectAcpErrors.AcpError>;
 }
@@ -147,7 +147,7 @@ export type HermesAdapterV2DriverEnv =
   | McpProviderSessions.McpProviderSessions
   | ProviderHost.ProviderHost
   | ChildProcessSpawner.ChildProcessSpawner
-  | Crypto.Crypto
+  | Crypto.SecureRandom
   | FileSystem.FileSystem
   | IdAllocator.IdAllocatorV2
   | Path.Path
@@ -167,7 +167,7 @@ export const HermesAdapterV2Driver: ProviderAdapterDriver<
       const hostPlatform = yield* HostProcessPlatform;
       const selfInvocation = yield* resolveSelfInvocation();
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const crypto = yield* Crypto.Crypto;
+      const crypto = yield* Crypto.SecureRandom;
       const fileSystem = yield* FileSystem.FileSystem;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;

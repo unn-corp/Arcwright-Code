@@ -1,5 +1,5 @@
 import { ParticipantProfiles, AgentColorOverrides } from "./participants.ts";
-import { EasDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
+import { EasDeviceHostConfigs, SimlockDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
 import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
@@ -21,6 +21,8 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
+import { UsageModelFilter } from "./usage.ts";
+import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -332,6 +334,10 @@ export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
 
+/** How the composer shows reasoning effort: the level's name, or rising bars. */
+export const EffortDisplay = Schema.Literals(["label", "bars"]);
+export type EffortDisplay = typeof EffortDisplay.Type;
+
 export const ModelFavorite = Schema.Struct({
   provider: ProviderInstanceId,
   model: TrimmedNonEmptyString,
@@ -370,6 +376,7 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   assistantMessageBubbles: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
+  effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   appearanceContrast: AppearanceContrast.pipe(
@@ -495,6 +502,16 @@ export const ClientSettingsSchema = Schema.Struct({
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   boringSidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  boringSidebarMultilineRows: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  // Retired Labs toggle. Still read as the default for the Usage item in threadDetailsItems.
+  threadDetailsUsageEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Sparse show/hide overrides for thread details card items. Missing ids use the client's
+  // default, so new items appear for everyone and unknown ids survive a downgrade.
+  threadDetailsItems: Schema.Record(Schema.String, Schema.Boolean).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   // Opt-in for the removed legacy sidebar. Still read so those users land in
   // the boring sidebar; the boring sidebar toggle clears it.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -596,6 +613,8 @@ declare module "effect/Schema" {
     interface Annotations {
       /** Store this credential separately and expose only whether it is configured to clients. */
       readonly settingsSecret?: boolean | undefined;
+      /** Set by `SettingsSecretValue`: the credential may name a secret provider reference. */
+      readonly settingsSecretReference?: boolean | undefined;
       readonly providerSettingsForm?: ProviderSettingsFormAnnotation | undefined;
       readonly providerSettingsFormSchema?: ProviderSettingsFormSchemaAnnotation | undefined;
     }
@@ -1114,6 +1133,26 @@ export const UsageLimitSourceConfig = Schema.Struct({
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
 
+export const SecretProviderKind = SecretProviderSlug.pipe(Schema.brand("SecretProviderKind"));
+export type SecretProviderKind = typeof SecretProviderKind.Type;
+
+export const SecretProviderLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(64));
+
+/** Kinds decode their own config; unknown-kind envelopes round-trip verbatim across versions. */
+export const SecretProviderConfig = Schema.Struct({
+  kind: SecretProviderKind,
+  label: TrimmedNonEmptyString,
+  config: Schema.optionalKey(Schema.Unknown),
+});
+export type SecretProviderConfig = typeof SecretProviderConfig.Type;
+
+// Limits that may change later are enforced on writes only, never on the stored envelope. The
+// server also checks the kind and its config against the secret providers it has loaded.
+const SecretProviderConfigWrite = Schema.Struct({
+  ...SecretProviderConfig.fields,
+  label: SecretProviderLabel,
+});
+
 export const SourceControlHostSettings = Schema.Record(Schema.String, Schema.Unknown);
 export type SourceControlHostSettings = typeof SourceControlHostSettings.Type;
 
@@ -1601,6 +1640,16 @@ export const ProjectSettingsOverrides = Schema.Struct({
 } satisfies Record<ProjectScopedServerSettingKey | "providerInstances", unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
+// Whole-entry writers must round-trip unknown keys; keep the type closed to catch misspellings.
+export const keepUnknownOverrideKeys = <Entry extends Schema.Struct<Schema.Struct.Fields>>(
+  entry: Entry,
+): Schema.Codec<
+  Entry["Type"],
+  Entry["Encoded"],
+  Entry["DecodingServices"],
+  Entry["EncodingServices"]
+> => Schema.StructWithRest(entry, [Schema.Record(Schema.String, Schema.Unknown)]);
+
 /** True if null stores an override; otherwise null removes it. */
 export function isNullableProjectSettingsOverride(key: ProjectScopedServerSettingKey): boolean {
   return NULLABLE_PROJECT_SETTINGS_OVERRIDES.has(key);
@@ -1753,13 +1802,17 @@ export const ServerSettings = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  fallbackModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   defaultRuntimeMode: RuntimeMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE)),
   ),
 
-  projectSettingsOverrides: Schema.Record(ProjectId, ProjectSettingsOverrides).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
+  projectSettingsOverrides: Schema.Record(
+    ProjectId,
+    keepUnknownOverrideKeys(ProjectSettingsOverrides),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   /** Fold once so restarts cannot undo later UI resets. */
   projectSettingsFolded: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 
@@ -1769,6 +1822,9 @@ export const ServerSettings = Schema.Struct({
   deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   deviceHosts: SshDeviceHostConfigs.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   easDeviceHosts: EasDeviceHostConfigs.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  simlockDeviceHosts: SimlockDeviceHostConfigs.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  /** Alpha: Simlock device hosts. Off, the server ignores `simlockDeviceHosts`. */
+  simlockDeviceHostsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
   ),
@@ -1781,6 +1837,18 @@ export const ServerSettings = Schema.Struct({
   snoozePresets: SnoozePresetSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNOOZE_PRESETS)),
   ),
+  /** Clients hide threads with these tags while `hideTaggedThreads` is on. Bad entries drop alone, so a hand edit cannot reset settings. */
+  hiddenThreadTags: Schema.Array(Schema.Unknown).pipe(
+    Schema.decodeTo(
+      Schema.Array(Schema.String),
+      SchemaTransformation.transform<ReadonlyArray<string>, ReadonlyArray<unknown>>({
+        decode: (values) => values.filter((value) => typeof value === "string"),
+        encode: (values) => values,
+      }),
+    ),
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  hideTaggedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /** Beta: guest links for this machine's threads. Off refuses new links and pauses existing ones. */
   guestSharingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
@@ -1900,6 +1968,9 @@ export const ServerSettings = Schema.Struct({
   productOpportunityDiscovery: ProductOpportunityDiscoverySettings,
   decisionFollowUp: DecisionFollowUpSettings,
   /** Allows this server to read the Cursor CLI's macOS Keychain login for account usage. */
+  secretProviders: Schema.Record(SecretProviderId, SecretProviderConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   cursorKeychainUsageEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1911,6 +1982,9 @@ export const ServerSettings = Schema.Struct({
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+
+  /** Sent by the Usage tab with each summary request to this environment; edit in settings.json. Invalid values are ignored. */
+  usageModelFilter: ForwardCompatibleOptional(UsageModelFilter),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1926,7 +2000,7 @@ export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | un
 
 // Must match each driver's enabled decoding default.
 const DEFAULT_DISABLED_PROVIDER_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
-  ["cursor", "grok", "fx", "muse", "pi", "opencode", "antigravity"].map((driver) =>
+  ["cursor", "grok", "fx", "kiro", "muse", "pi", "opencode", "antigravity"].map((driver) =>
     ProviderDriverKind.make(driver),
   ),
 );
@@ -2029,6 +2103,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "remove-secret",
   "remove-stale-secret",
   "write-secret",
+  "write-secret-provider",
   "write-file",
   "prepare-directory",
   "read-github-account-token",
@@ -2037,8 +2112,14 @@ export const ServerSettingsOperation = Schema.Literals([
   "remove-stale-github-account-token",
   "read-project-github-account",
   "storage-cleanup-held",
+  "write-managed-setting",
+  "use-disallowed-provider",
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
+
+/** Why a provider the administrator's policy leaves out cannot be used. */
+export const disallowedProviderMessage = (organization: string | undefined, label: string) =>
+  `${organization === undefined ? "Your organization" : `${organization}'s`} policy does not allow the ${label} provider.`;
 
 export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>()(
   "ServerSettingsError",
@@ -2047,10 +2128,24 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
     operation: ServerSettingsOperation,
     providerInstanceId: Schema.optional(Schema.String),
     environmentVariable: Schema.optional(Schema.String),
+    /** For `write-managed-setting`: the locked dot path and who manages it. */
+    managedSetting: Schema.optional(Schema.String),
+    managedBy: Schema.optional(Schema.String),
+    /** For `use-disallowed-provider`: the provider's name as users know it. */
+    providerLabel: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
+    if (this.operation === "write-managed-setting") {
+      return `${this.managedSetting ?? "This setting"} is managed by ${this.managedBy ?? "your organization"} and cannot be changed.`;
+    }
+    if (this.operation === "use-disallowed-provider") {
+      return disallowedProviderMessage(
+        this.managedBy,
+        this.providerLabel ?? this.providerInstanceId ?? "this",
+      );
+    }
     const provider =
       this.providerInstanceId === undefined ? "" : ` for provider ${this.providerInstanceId}`;
     const variable =
@@ -2213,15 +2308,18 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
+  fallbackModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   /** Replaces each project's override set; null removes it. Omitted providerInstances retains its stored value. */
   projectSettingsOverrides: Schema.optionalKey(
     Schema.Record(
       ProjectId,
       Schema.NullOr(
-        Schema.Struct({
-          ...ProjectSettingsOverrides.fields,
-          sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
-        }),
+        keepUnknownOverrideKeys(
+          Schema.Struct({
+            ...ProjectSettingsOverrides.fields,
+            sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
+          }),
+        ),
       ),
     ),
   ),
@@ -2230,6 +2328,8 @@ export const ServerSettingsPatch = Schema.Struct({
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),
   easDeviceHosts: Schema.optionalKey(EasDeviceHostConfigs),
+  simlockDeviceHosts: Schema.optionalKey(SimlockDeviceHostConfigs),
+  simlockDeviceHostsEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   compactIdleThreads: Schema.optionalKey(LegacyCompactIdleThreads),
   idleCompaction: Schema.optionalKey(IdleCompactionMode),
@@ -2238,6 +2338,8 @@ export const ServerSettingsPatch = Schema.Struct({
   autoResumeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   snoozeLimitedThreads: Schema.optionalKey(Schema.Boolean),
   snoozePresets: Schema.optionalKey(SnoozePresetSettings),
+  hiddenThreadTags: Schema.optionalKey(Schema.Array(Schema.String)),
+  hideTaggedThreads: Schema.optionalKey(Schema.Boolean),
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   backgroundActivity: Schema.optionalKey(
@@ -2370,6 +2472,7 @@ export const ServerSettingsPatch = Schema.Struct({
       antigravity: Schema.optionalKey(AntigravitySettingsPatch),
     }),
   ),
+  /** Merges per host, replacing patched fields whole; redaction markers retain secrets, empty secrets remove them. A non-empty token map keeps the saved tokens of hosts it omits; an empty map clears them all. */
   sourceControlHosts: Schema.optionalKey(Schema.Record(Schema.String, SourceControlHostSettings)),
   // Replace whole maps to avoid half-merged driver configs.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
@@ -2379,6 +2482,9 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   /** Whole-map replacement; account tokens are consumed by the server and never merged into settings. */
   githubAccounts: Schema.optionalKey(Schema.Record(GitHubAccountId, GitHubAccountPatch)),
+  secretProviders: Schema.optionalKey(
+    Schema.Record(SecretProviderId, Schema.NullOr(SecretProviderConfigWrite)),
+  ),
   cursorKeychainUsageEnabled: Schema.optionalKey(Schema.Boolean),
 
   usagePriceOverrides: Schema.optionalKey(
@@ -2398,7 +2504,12 @@ export function requiredScopesForServerSettingsPatch(
   let changesSettings = false;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    if (key === "providers" || key === "providerInstances" || key === "usageLimitSources") {
+    if (
+      key === "providers" ||
+      key === "providerInstances" ||
+      key === "usageLimitSources" ||
+      key === "secretProviders"
+    ) {
       changesProviders = true;
     } else {
       changesSettings = true;
@@ -2436,6 +2547,7 @@ export const ClientSettingsPatch = Schema.Struct({
   standardThreadFeed: Schema.optionalKey(Schema.Literals(["arcwright", "upstream"])),
   assistantMessageBubbles: Schema.optionalKey(Schema.Boolean),
   chatWidth: Schema.optionalKey(ChatWidth),
+  effortDisplay: Schema.optionalKey(EffortDisplay),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
@@ -2490,6 +2602,9 @@ export const ClientSettingsPatch = Schema.Struct({
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   boringSidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  boringSidebarMultilineRows: Schema.optionalKey(Schema.Boolean),
+  threadDetailsUsageEnabled: Schema.optionalKey(Schema.Boolean),
+  threadDetailsItems: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),

@@ -10,7 +10,7 @@ import * as Exit from "effect/Exit";
 import { TunnelNotFound, DuplicateTunnelName } from "@distilled.cloud/cloudflare/zero-trust";
 import { RecordNotFound, DnsRecordAlreadyExists } from "@distilled.cloud/cloudflare/dns";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
@@ -691,7 +691,7 @@ const decodeRuntimeOrigin = Schema.decodeUnknownEffect(originSchema);
 
 export const make = Effect.gen(function* () {
   const config = yield* RelayConfiguration.RelayConfiguration;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const db = yield* RelayDb.RelayDb;
   const tunnels = yield* ManagedEndpointTunnelClient;
   const dns = yield* ManagedEndpointDnsClient;
@@ -918,7 +918,7 @@ export const make = Effect.gen(function* () {
       const settings = yield* requireCloudflareSettings(config, input);
       const digest = yield* crypto
         .digest(
-          "SHA-256",
+          Digest.sha256,
           new TextEncoder().encode(
             managedEndpointDigestInput(settings.namespace, input.userId, input.environmentId),
           ),

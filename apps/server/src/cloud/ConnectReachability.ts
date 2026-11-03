@@ -68,9 +68,10 @@ export function classifyReachability(
   const restart = "Restart Arcwright Code. If it stays, run `t3 connect` again.";
 
   if (!facts.managedTunnelConfigured) {
+    // A running server reads the link `t3 connect` stores only at startup.
     return fail(
       "not_linked",
-      "The server has not set up a Arcwright Connect tunnel.",
+      "The server has not set up an Arcwright Connect tunnel.",
       "Run `t3 connect`, then restart the server (`t3 service restart`) so it applies the link.",
     );
   }

@@ -1,3 +1,5 @@
+import * as Layer from "effect/Layer";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -36,75 +38,78 @@ describe("buildInitialHermesProviderSnapshot", () => {
   );
 });
 
-it.layer(NodeServices.layer)("checkHermesProviderStatus", (it) => {
-  it.effect("reports the binary as missing when the binary path does not resolve", () =>
-    Effect.gen(function* () {
-      const snapshot = yield* checkHermesProviderStatus(
-        decodeHermesSettings({
-          enabled: true,
-          binaryPath: "/definitely/not/installed/hermes-binary",
-        }),
-      );
-      expect(snapshot.enabled).toBe(true);
-      expect(snapshot.installed).toBe(false);
-      expect(snapshot.status).toBe("error");
-      expect(snapshot.message).toMatch(/not installed|not on PATH|Failed to execute/);
-    }),
-  );
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
+  "checkHermesProviderStatus",
+  (it) => {
+    it.effect("reports the binary as missing when the binary path does not resolve", () =>
+      Effect.gen(function* () {
+        const snapshot = yield* checkHermesProviderStatus(
+          decodeHermesSettings({
+            enabled: true,
+            binaryPath: "/definitely/not/installed/hermes-binary",
+          }),
+        );
+        expect(snapshot.enabled).toBe(true);
+        expect(snapshot.installed).toBe(false);
+        expect(snapshot.status).toBe("error");
+        expect(snapshot.message).toMatch(/not installed|not on PATH|Failed to execute/);
+      }),
+    );
 
-  it.effect("reports an installed CLI as unhealthy when --version exits non-zero", () =>
-    Effect.gen(function* () {
-      const secretStderr = "broken hermes install: secret-token-value";
-      const snapshot = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-hermes-version-" });
-          const hermesPath = path.join(dir, "hermes");
-          yield* fs.writeFileString(
-            hermesPath,
-            ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
-          );
-          yield* fs.chmod(hermesPath, 0o755);
+    it.effect("reports an installed CLI as unhealthy when --version exits non-zero", () =>
+      Effect.gen(function* () {
+        const secretStderr = "broken hermes install: secret-token-value";
+        const snapshot = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const path = yield* Path.Path;
+            const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-hermes-version-" });
+            const hermesPath = path.join(dir, "hermes");
+            yield* fs.writeFileString(
+              hermesPath,
+              ["#!/bin/sh", `printf "%s\\n" "${secretStderr}" >&2`, "exit 2", ""].join("\n"),
+            );
+            yield* fs.chmod(hermesPath, 0o755);
 
-          return yield* checkHermesProviderStatus(
-            decodeHermesSettings({ enabled: true, binaryPath: hermesPath }),
-          );
-        }),
-      );
+            return yield* checkHermesProviderStatus(
+              decodeHermesSettings({ enabled: true, binaryPath: hermesPath }),
+            );
+          }),
+        );
 
-      expect(snapshot.enabled).toBe(true);
-      expect(snapshot.installed).toBe(true);
-      expect(snapshot.status).toBe("error");
-      expect(snapshot.message).toBe("Hermes CLI is installed but failed to run.");
-      expect(snapshot.message).not.toContain(secretStderr);
-    }),
-  );
+        expect(snapshot.enabled).toBe(true);
+        expect(snapshot.installed).toBe(true);
+        expect(snapshot.status).toBe("error");
+        expect(snapshot.message).toBe("Hermes CLI is installed but failed to run.");
+        expect(snapshot.message).not.toContain(secretStderr);
+      }),
+    );
 
-  it.effect("reports an error when ACP model discovery is unavailable", () =>
-    Effect.gen(function* () {
-      const snapshot = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-hermes-success-" });
-          const hermesPath = path.join(dir, "hermes");
-          yield* fs.writeFileString(
-            hermesPath,
-            ["#!/bin/sh", 'printf "hermes-cli 0.0.99\\n"', "exit 0", ""].join("\n"),
-          );
-          yield* fs.chmod(hermesPath, 0o755);
+    it.effect("reports an error when ACP model discovery is unavailable", () =>
+      Effect.gen(function* () {
+        const snapshot = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const path = yield* Path.Path;
+            const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-hermes-success-" });
+            const hermesPath = path.join(dir, "hermes");
+            yield* fs.writeFileString(
+              hermesPath,
+              ["#!/bin/sh", 'printf "hermes-cli 0.0.99\\n"', "exit 0", ""].join("\n"),
+            );
+            yield* fs.chmod(hermesPath, 0o755);
 
-          return yield* checkHermesProviderStatus(
-            decodeHermesSettings({ enabled: true, binaryPath: hermesPath }),
-          );
-        }),
-      );
+            return yield* checkHermesProviderStatus(
+              decodeHermesSettings({ enabled: true, binaryPath: hermesPath }),
+            );
+          }),
+        );
 
-      expect(snapshot.status).toBe("error");
-      expect(snapshot.installed).toBe(true);
-      expect(snapshot.models).toEqual([]);
-      expect(snapshot.message).toContain("hermes acp --setup");
-    }),
-  );
-});
+        expect(snapshot.status).toBe("error");
+        expect(snapshot.installed).toBe(true);
+        expect(snapshot.models).toEqual([]);
+        expect(snapshot.message).toContain("hermes acp --setup");
+      }),
+    );
+  },
+);

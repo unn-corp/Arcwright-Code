@@ -1,3 +1,4 @@
+import { DeviceHostDiagnostics } from "../device/DeviceSetup";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { DeviceHostAvailability } from "../device/DeviceHostAvailability";
 import { useAtomValue } from "@effect/atom-react";
@@ -41,7 +42,6 @@ import { DeviceHostEditor } from "./DeviceHostEditor";
 import { useHostConnectionChecks } from "./useHostConnectionChecks";
 import { deviceHostConnectionKey } from "./deviceHostConnectionChecks";
 import { settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
-import { DeviceHostDiagnostics } from "../device/DeviceSetup";
 
 export function DeviceHostsSettings(props: { environmentId: EnvironmentId | null }) {
   const { scope, environments, connectedEnvironments } = useSettingsScope();

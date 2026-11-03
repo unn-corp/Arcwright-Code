@@ -129,7 +129,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
     { initialValue: [] as ReadonlyArray<StoredPullRequestRoutingPermission> },
   );
   const pullRequestRoutingPermissionsValueAtom = Atom.make((get) =>
-    Option.getOrElse(AsyncResult.value(get(pullRequestRoutingPermissionsAtom)), () => []),
+    AsyncResult.getOrElse(get(pullRequestRoutingPermissionsAtom), () => []),
   ).pipe(Atom.withLabel("environment-pull-request-routing-permissions"));
   const setPullRequestRoutingPermission = createRuntimeCommand(runtime, {
     label: "environment-catalog:pull-request-routing-permission",
@@ -160,7 +160,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
   );
 
   const networkStatusValueAtom = Atom.make((get) =>
-    Option.getOrElse(AsyncResult.value(get(networkStatusAtom)), () => "unknown" as const),
+    AsyncResult.getOrElse(get(networkStatusAtom), () => "unknown" as const),
   ).pipe(Atom.withLabel("environment-network-status-value"));
 
   const stateAtom = Atom.family((environmentId: EnvironmentIdType) =>
