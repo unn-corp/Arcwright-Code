@@ -741,7 +741,9 @@ jobs:
       - name: Install patchelf
         if: inputs.cli_archive && inputs.platform == 'linux'
         shell: bash
-        run: command -v patchelf || { sudo apt-get update && sudo apt-get install -y patchelf; }
+        run: |
+          bash .github/scripts/build-patchelf.sh
+          echo "$RUNNER_TEMP/patchelf/bin" >> "$GITHUB_PATH"
 
       - name: Build CLI archive
         if: inputs.cli_archive

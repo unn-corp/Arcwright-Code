@@ -80,3 +80,7 @@ live data.
 
 No nightly has been published or installed by this source integration. Publication
 still requires the exact-source release pipeline gates and repository write access.
+
+### Nightly release worker correction
+
+Run 41720364281 failed on Linux because the isolated worker has neither patchelf nor sudo; Windows then lacked the Linux CLI archive. The optional dependency verification artifact was absent, so dependency installation ran its checks normally. The release workflow now builds patchelf 0.18.0 from its SHA-256 pinned upstream release in runner temporary storage without privileges. A local native build reported `patchelf 0.18.0`; runner and release workflow policy suites passed (51 tests). Publication and device validation remain separate.
