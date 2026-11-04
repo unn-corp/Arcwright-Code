@@ -88,3 +88,5 @@ Run 41720364281 failed on Linux because the isolated worker has neither patchelf
 ### Cross-platform test fixtures
 
 Release run 41731728442 passed desktop, Android and candidate assembly but failed host suites. Migration expectations now use the registered 120–125 slots. Windows fixtures avoid unsupported filename characters and trailing spaces. SSH classification tests invoke a quoted, normalized fixture through `sh`, disable SSH variant probing, and assert the diagnostic reached Git. The shallow-clone fixture uses a real empty file and restricts its clone to the local file protocol; command failures include stderr. The failed Windows log omitted the original Git stderr, so the exact failing null-device operation remains unconfirmed until the retry. These changes do not alter production classification.
+
+Run 41750727434 reached the Windows host suite and exposed a worktree-list assertion comparing Git forward slashes with native backslashes. The assertion now normalizes the expected path to Git notation. The focused long-branch worktree test passed locally (one test); actual Windows verification remains with the next release run.
