@@ -84,3 +84,7 @@ still requires the exact-source release pipeline gates and repository write acce
 ### Nightly release worker correction
 
 Run 41720364281 failed on Linux because the isolated worker has neither patchelf nor sudo; Windows then lacked the Linux CLI archive. The optional dependency verification artifact was absent, so dependency installation ran its checks normally. The release workflow now builds patchelf 0.18.0 from its SHA-256 pinned upstream release in runner temporary storage without privileges. A local native build reported `patchelf 0.18.0`; runner and release workflow policy suites passed (51 tests). Publication and device validation remain separate.
+
+### Cross-platform test fixtures
+
+Release run 41731728442 passed desktop, Android and candidate assembly but failed host suites. Migration expectations now use the registered 120–125 slots. Windows fixtures avoid unsupported filename characters and trailing spaces. SSH classification tests invoke a quoted, normalized fixture through `sh`, disable SSH variant probing, and assert the diagnostic reached Git. The shallow-clone fixture uses a real empty file and restricts its clone to the local file protocol; command failures include stderr. The failed Windows log omitted the original Git stderr, so the exact failing null-device operation remains unconfirmed until the retry. These changes do not alter production classification.

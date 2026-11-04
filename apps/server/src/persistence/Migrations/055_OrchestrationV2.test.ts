@@ -15,7 +15,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 119 }, (_, index) => index + 1),
+        Array.from({ length: 125 }, (_, index) => index + 1),
       );
     }),
   );
@@ -72,6 +72,12 @@ layer("055_OrchestrationV2", (it) => {
         [117, "PeerLinks"],
         [118, "PeerLinkFence"],
         [119, "WaitingLinkRequestIndex"],
+        [120, "ActiveTurnItemIndexes"],
+        [121, "ExcludeAttachmentPlaceholdersFromSearch"],
+        [122, "SubagentDeliveryState"],
+        [123, "ProjectionProjectsPinArchive"],
+        [124, "RepairBooleanSettledOverride"],
+        [125, "DropOrchestrationEventCorrelationIndex"],
       ]);
       assert.deepStrictEqual(
         yield* sql`SELECT migration_id, name, created_at FROM effect_sql_migrations WHERE migration_id <= 103 ORDER BY migration_id`,
@@ -114,6 +120,12 @@ layer("055_OrchestrationV2", (it) => {
         [117, "PeerLinks"],
         [118, "PeerLinkFence"],
         [119, "WaitingLinkRequestIndex"],
+        [120, "ActiveTurnItemIndexes"],
+        [121, "ExcludeAttachmentPlaceholdersFromSearch"],
+        [122, "SubagentDeliveryState"],
+        [123, "ProjectionProjectsPinArchive"],
+        [124, "RepairBooleanSettledOverride"],
+        [125, "DropOrchestrationEventCorrelationIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -153,6 +165,12 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 117, name: "PeerLinks" },
         { migration_id: 118, name: "PeerLinkFence" },
         { migration_id: 119, name: "WaitingLinkRequestIndex" },
+        { migration_id: 120, name: "ActiveTurnItemIndexes" },
+        { migration_id: 121, name: "ExcludeAttachmentPlaceholdersFromSearch" },
+        { migration_id: 122, name: "SubagentDeliveryState" },
+        { migration_id: 123, name: "ProjectionProjectsPinArchive" },
+        { migration_id: 124, name: "RepairBooleanSettledOverride" },
+        { migration_id: 125, name: "DropOrchestrationEventCorrelationIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

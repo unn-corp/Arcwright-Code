@@ -19,7 +19,6 @@ it.effect.each([1, 56, 99, 100, 101])(
         [
           { name: "idx_orch_command_receipts_aggregate" },
           { name: "idx_orch_command_receipts_sequence" },
-          { name: "idx_orch_events_correlation_id" },
         ],
       );
       assert.deepEqual(yield* sql`SELECT state FROM arcwright_storage_migrations WHERE version=1`, [

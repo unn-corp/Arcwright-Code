@@ -9,7 +9,6 @@ import * as VcsProcess from "./VcsProcess.ts";
 import * as ProcessRunner from "../processRunner.ts";
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
 import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
 import * as NodeURL from "node:url";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -2550,6 +2549,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             `#!/bin/sh\necho "${sshMessage}" >&2\nexit 255\n`,
           );
           yield* fileSystem.chmod(fakeSsh, 0o755);
+          const stderr: string[] = [];
           const error = yield* driver
             .execute({
               operation: "GitVcsDriver.test.sshRefusal",
@@ -2557,10 +2557,13 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
               args: ["fetch", "origin"],
               env: {
                 LC_ALL: "C",
-                GIT_SSH_COMMAND: fakeSsh,
+                GIT_SSH_COMMAND: `sh '${fakeSsh.replaceAll("\\", "/").replaceAll("'", "'\\''")}'`,
+                GIT_SSH_VARIANT: "ssh",
               },
+              progress: { onStderrLine: (line) => Effect.sync(() => void stderr.push(line)) },
             })
             .pipe(Effect.flip);
+          assert.include(stderr.join("\n"), sshMessage);
           assert.deepInclude(error, {
             reason: expectedReason,
           });
@@ -2584,6 +2587,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           '#!/bin/sh\necho "fatal: cannot open backup file: Permission denied (os error 13)" >&2\nexit 255\n',
         );
         yield* fileSystem.chmod(fakeSsh, 0o755);
+        const stderr: string[] = [];
         const error = yield* driver
           .execute({
             operation: "GitVcsDriver.test.osPermission",
@@ -2591,10 +2595,16 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             args: ["fetch", "origin"],
             env: {
               LC_ALL: "C",
-              GIT_SSH_COMMAND: fakeSsh,
+              GIT_SSH_COMMAND: `sh '${fakeSsh.replaceAll("\\", "/").replaceAll("'", "'\\''")}'`,
+              GIT_SSH_VARIANT: "ssh",
             },
+            progress: { onStderrLine: (line) => Effect.sync(() => void stderr.push(line)) },
           })
           .pipe(Effect.flip);
+        assert.include(
+          stderr.join("\n"),
+          "cannot open backup file: Permission denied (os error 13)",
+        );
         assert.notInclude(error.message, "(authentication_failed)");
       }),
     );
@@ -2710,7 +2720,18 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const upstream = yield* makeTmpDir();
         yield* initRepoWithCommit(upstream);
         const driver = yield* GitVcsDriver.GitVcsDriver;
-        const emptyTree = yield* git(upstream, ["hash-object", "-t", "tree", NodeOS.devNull]);
+        const fixtureDir = yield* makeTmpDir();
+        const pathService = yield* Path.Path;
+        const emptyFile = pathService.join(fixtureDir, "empty");
+        yield* writeTextFile(fixtureDir, "empty", "");
+        const hash = yield* driver.execute({
+          operation: "GitVcsDriver.test.emptyTree",
+          cwd: upstream,
+          args: ["hash-object", "-t", "tree", emptyFile],
+          allowNonZeroExit: true,
+        });
+        assert.equal(hash.exitCode, 0, hash.stderr);
+        const emptyTree = hash.stdout.trim();
         const root = yield* git(upstream, ["rev-parse", "HEAD"]);
         const rootSource = (yield* driver.getReviewDiffPreview({
           cwd: upstream,
@@ -2722,10 +2743,18 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* git(upstream, ["commit", "-am", "boundary"]);
         const sha = yield* git(upstream, ["rev-parse", "HEAD"]);
         const cwd = yield* makeTmpDir();
-        yield* git(upstream, ["clone", "--depth=1", NodeURL.pathToFileURL(upstream).href, cwd], {
-          GIT_CONFIG_GLOBAL: NodeOS.devNull,
-          GIT_CONFIG_NOSYSTEM: "1",
+        const clone = yield* driver.execute({
+          operation: "GitVcsDriver.test.shallowClone",
+          cwd: upstream,
+          args: ["clone", "--depth=1", NodeURL.pathToFileURL(upstream).href, cwd],
+          env: {
+            GIT_CONFIG_GLOBAL: emptyFile,
+            GIT_ALLOW_PROTOCOL: "file",
+            GIT_CONFIG_NOSYSTEM: "1",
+          },
+          allowNonZeroExit: true,
         });
+        assert.equal(clone.exitCode, 0, clone.stderr);
         assert.equal(yield* git(cwd, ["rev-parse", "--is-shallow-repository"]), "true");
         for (const request of [
           driver.getReviewDiffPreview({
@@ -3030,12 +3059,14 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.include(branchRange, "diff --git a/README.md b/README.md");
       }),
     );
-    it.effect("keeps untracked filenames with pathspec magic in the review", () =>
+    it.effect("keeps unusual untracked filenames in the review", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
-        yield* writeTextFile(cwd, ":(exclude)after.ts", "literal pathspec contents\n");
+        const specialPath =
+          (yield* HostProcess.Platform) === "win32" ? "-after.ts" : ":(exclude)after.ts";
+        yield* writeTextFile(cwd, specialPath, "literal pathspec contents\n");
         yield* writeTextFile(cwd, "ordinary.ts", "ordinary contents\n");
         const indexBefore = yield* git(cwd, ["ls-files", "--stage"]);
         const preview = yield* driver.getReviewDiffPreview({
@@ -3048,7 +3079,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const scoped = yield* driver.getReviewDiffPreview({
           cwd,
           file: {
-            path: ":(exclude)after.ts",
+            path: specialPath,
             previousPath: null,
             sourceKind: "working-tree",
           },
@@ -3056,7 +3087,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const scopedSource = scoped.sources.find((source) => source.kind === "working-tree")!;
         assert.deepStrictEqual(scopedSource.files, [
           {
-            path: ":(exclude)after.ts",
+            path: specialPath,
             previousPath: null,
             additions: 1,
             deletions: 0,
@@ -4625,8 +4656,11 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
     it.effect("commits selected files from a nested project directory", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
-        // A root basename ending in whitespace catches a root lookup that trims Git's output.
-        const cwd = path.join(yield* makeTmpDir(), "repo ");
+        // Windows does not support a directory basename ending in whitespace.
+        const cwd = path.join(
+          yield* makeTmpDir(),
+          (yield* HostProcess.Platform) === "win32" ? "repo" : "repo ",
+        );
         yield* (yield* FileSystem.FileSystem).makeDirectory(cwd);
         yield* initRepoWithCommit(cwd);
         yield* writeTextFile(cwd, "nested/tracked.txt", "one\n");
@@ -4655,8 +4689,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             deletions: 0,
           },
         ]);
-        // The root is what the paths above are relative to, not the nested cwd, and it keeps
-        // the trailing space so the resolved editor target is the file that exists.
+        // The root is what the paths above are relative to, not the nested cwd.
         assert.equal(status.workingTree.rootPath, NodeFS.realpathSync.native(cwd));
         assert.equal(
           NodeFS.existsSync(path.join(status.workingTree.rootPath!, "nested", "new.txt")),

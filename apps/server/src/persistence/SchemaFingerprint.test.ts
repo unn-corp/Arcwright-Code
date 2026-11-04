@@ -95,12 +95,16 @@ it.effect(
 );
 
 it.effect(
-  "preserves the fingerprint when maintenance removes only the three intentionally retired indexes",
+  "preserves the fingerprint when maintenance removes the remaining intentionally retired indexes",
   () =>
     Effect.gen(function* () {
       yield* runMigrations();
       const sql = yield* SqlClient.SqlClient;
-      yield* sql`DROP INDEX idx_orch_events_correlation_id`;
+      // Migration 125 has already retired the event correlation index.
+      assert.deepEqual(
+        yield* sql`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_orch_events_correlation_id'`,
+        [],
+      );
       yield* sql`DROP INDEX idx_orch_command_receipts_aggregate`;
       yield* sql`DROP INDEX idx_orch_command_receipts_sequence`;
       assert.isTrue(yield* hasCurrentSchemaFingerprint(migrationManifest));
