@@ -771,43 +771,49 @@ it.effect.each([
     }),
   ).pipe(Effect.provide(layerTest)),
 );
-it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-  "preserves embedded newlines in repository paths after worktree creation",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const path = yield* Path.Path;
-        const fs = yield* FileSystem.FileSystem;
-        const cwd = path.join(yield* makeTmpDir(), "repo\nwith-newline");
-        yield* fs.makeDirectory(cwd);
-        const { initialBranch } = yield* initRepoWithCommit(cwd);
-        const driver = yield* GitVcsDriver.GitVcsDriver;
-        const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "newline");
-        yield* driver.createWorktree({
-          cwd,
-          path: worktreePath,
-          refName: initialBranch,
-          newRefName: "feature/newline",
-        });
-        const status = yield* driver.statusDetailsLocal(cwd);
-        assert.equal(status.branch, initialBranch);
-        const refs = yield* driver.listRefs({
-          cwd,
-        });
-        assert.isTrue(refs.refs.find((ref) => ref.name === initialBranch)?.current);
-        assert.isTrue(refs.refs.some((ref) => ref.name === "feature/newline"));
-      }),
-    ).pipe(Effect.provide(layerTest)),
+it.effect("preserves special characters in repository paths after worktree creation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const fs = yield* FileSystem.FileSystem;
+      const cwd = path.join(
+        yield* makeTmpDir(),
+        HostProcess.Platform.defaultValue() === "win32"
+          ? "repo [雪] with space"
+          : "repo\nwith-newline",
+      );
+      yield* fs.makeDirectory(cwd);
+      const { initialBranch } = yield* initRepoWithCommit(cwd);
+      const driver = yield* GitVcsDriver.GitVcsDriver;
+      const worktreePath = path.join(yield* makeTmpDir("git-worktrees-"), "newline");
+      yield* driver.createWorktree({
+        cwd,
+        path: worktreePath,
+        refName: initialBranch,
+        newRefName: "feature/newline",
+      });
+      const status = yield* driver.statusDetailsLocal(cwd);
+      assert.equal(status.branch, initialBranch);
+      const refs = yield* driver.listRefs({
+        cwd,
+      });
+      assert.isTrue(refs.refs.find((ref) => ref.name === initialBranch)?.current);
+      assert.isTrue(refs.refs.some((ref) => ref.name === "feature/newline"));
+    }),
+  ).pipe(Effect.provide(layerTest)),
 );
-it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-  "preserves a trailing carriage return in the repository root after creation through an alias",
+it.effect(
+  "preserves special characters in the repository root after creation through an alias",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
         const path = yield* Path.Path;
         const fs = yield* FileSystem.FileSystem;
         const sandbox = yield* makeTmpDir();
-        const repository = path.join(sandbox, "repo\r");
+        const repository = path.join(
+          sandbox,
+          HostProcess.Platform.defaultValue() === "win32" ? "repo [雪] space" : "repo\r",
+        );
         const cwd = path.join(sandbox, "alias");
         yield* fs.makeDirectory(repository);
         const { initialBranch } = yield* initRepoWithCommit(repository);
@@ -5804,33 +5810,35 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       assert.strictEqual(parseGitCheckoutProgressLine("Preparing worktree (new branch 'x')"), null);
     });
 
-    // NTFS rejects a newline in a file name, so there is nothing to preserve there.
-    it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-      "preserves newline characters in worktree paths when listing refs",
-      () =>
-        Effect.gen(function* () {
-          const cwd = yield* makeTmpDir();
-          yield* initRepoWithCommit(cwd);
-          const worktreesRoot = yield* makeTmpDir("git-vcs-driver-worktrees-");
-          const pathService = yield* Path.Path;
-          const worktreePath = pathService.join(worktreesRoot, "linked\nworktree");
-          const driver = yield* GitVcsDriver.GitVcsDriver;
-          yield* git(cwd, ["worktree", "add", "-b", "feature/newline-path", worktreePath]);
-          const refs = yield* driver.listRefs({
-            cwd,
-            refresh: true,
-          });
-          const listedPath = refs.refs.find(
-            (ref) => ref.name === "feature/newline-path",
-          )?.worktreePath;
-          if (typeof listedPath !== "string") {
-            return assert.fail("expected the linked branch to include its worktree path");
-          }
-          assert.equal(
-            NodeFS.realpathSync.native(listedPath),
-            NodeFS.realpathSync.native(worktreePath),
-          );
-        }),
+    it.effect("preserves special characters in worktree paths when listing refs", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const worktreesRoot = yield* makeTmpDir("git-vcs-driver-worktrees-");
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(
+          worktreesRoot,
+          HostProcess.Platform.defaultValue() === "win32"
+            ? "linked [雪] worktree"
+            : "linked\nworktree",
+        );
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["worktree", "add", "-b", "feature/newline-path", worktreePath]);
+        const refs = yield* driver.listRefs({
+          cwd,
+          refresh: true,
+        });
+        const listedPath = refs.refs.find(
+          (ref) => ref.name === "feature/newline-path",
+        )?.worktreePath;
+        if (typeof listedPath !== "string") {
+          return assert.fail("expected the linked branch to include its worktree path");
+        }
+        assert.equal(
+          NodeFS.realpathSync.native(listedPath),
+          NodeFS.realpathSync.native(worktreePath),
+        );
+      }),
     );
     it.effect.each([
       ["recursive", false],
