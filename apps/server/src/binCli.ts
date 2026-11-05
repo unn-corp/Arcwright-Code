@@ -1,3 +1,4 @@
+import { hairlineCommand } from "./cli/hairline.ts";
 import { backupCommand } from "./cli/backup.ts";
 import { doctorCommand } from "./cli/doctor.ts";
 import { policyCommand } from "./cli/policy.ts";
@@ -73,6 +74,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
     ),
     Command.withHandler(runDefaultServerCommand),
     Command.withSubcommands([
+      hairlineCommand,
       backupCommand,
       Command.make("help").pipe(
         Command.withDescription("Show command help."),

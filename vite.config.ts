@@ -167,6 +167,8 @@ export default defineConfig({
   },
   fmt: {
     ignorePatterns: [
+      "apps/server/src/skills/hairline/bundle/**",
+      "apps/server/src/skills/hairline/payload.json",
       ".repos/**",
       "infra/task-cache/vendor/**",
       // Macroscope requires one glob per line; Markdown formatting corrupts it.
@@ -201,6 +203,7 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: [
+      "apps/server/src/skills/hairline/bundle/**",
       ".repos",
       ".repos/**",
       "infra/task-cache/vendor/**",
