@@ -7,6 +7,7 @@
  */
 import { ForkReleaseManifest } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import * as Data from "effect/Data";
 import {
   FORK_MANIFEST_ASSET,
   FORK_RELEASES_API,
@@ -29,8 +30,12 @@ export type FetchLike = (
   readonly text: () => Promise<string>;
 }>;
 
-export class ForkFeedError extends Error {
+export class ForkFeedError extends Data.Error<{ readonly message: string }> {
+  readonly _tag: string = "ForkFeedError";
   override readonly name: string = "ForkFeedError";
+  constructor(message: string) {
+    super({ message });
+  }
 }
 
 /** GitHub's advertised cooldown is distinct from an ordinary network failure. */

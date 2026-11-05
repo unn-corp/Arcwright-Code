@@ -96,7 +96,10 @@ const make = Effect.gen(function* () {
       return yield* new OpenWhisprConfigurationError({ reason: "settings" });
     const manifest = yield* read(path.join(storage, current));
     const names = yield* fs.readDirectory(storage);
-    const selected = yield* Effect.try(() => chromiumStorageFiles(manifest, names));
+    const selected = yield* Effect.try({
+      try: () => chromiumStorageFiles(manifest, names),
+      catch: () => new OpenWhisprConfigurationError({ reason: "settings" }),
+    });
     let total = 0;
     const files = new Map<string, Uint8Array>();
     for (const name of selected) {
@@ -111,7 +114,10 @@ const make = Effect.gen(function* () {
     const finalManifest = yield* read(path.join(storage, current));
     if (!Buffer.from(manifest).equals(finalManifest))
       return yield* new OpenWhisprConfigurationError({ reason: "settings" });
-    return yield* Effect.try(() => decodeChromiumLocalStorage(files, keys));
+    return yield* Effect.try({
+      try: () => decodeChromiumLocalStorage(files, keys),
+      catch: () => new OpenWhisprConfigurationError({ reason: "settings" }),
+    });
   }).pipe(
     Effect.mapError(() => new OpenWhisprConfigurationError({ reason: "settings" })),
     // Compaction may retire a table between CURRENT and the last read. Retry from CURRENT once.
@@ -122,20 +128,23 @@ const make = Effect.gen(function* () {
       const encryptedFile = path.join(profile, "secure-keys", "CUSTOM_TRANSCRIPTION_API_KEY.enc");
       if (yield* fs.exists(encryptedFile)) {
         const encrypted = yield* read(encryptedFile);
-        return yield* Effect.tryPromise(async (signal) => {
-          const stored = await readMasterKey(signal);
-          if (!stored || encrypted.length <= 28) throw new Error("Cloud credential unavailable");
-          const key = Buffer.from(stored, "base64");
-          if (key.length !== 32) throw new Error("Invalid master key");
-          const decipher = NodeCrypto.createDecipheriv(
-            "aes-256-gcm",
-            key,
-            encrypted.subarray(0, 12),
-          );
-          decipher.setAuthTag(encrypted.subarray(12, 28));
-          return Buffer.concat([decipher.update(encrypted.subarray(28)), decipher.final()])
-            .toString("utf8")
-            .trim();
+        return yield* Effect.tryPromise({
+          try: async (signal) => {
+            const stored = await readMasterKey(signal);
+            if (!stored || encrypted.length <= 28) throw new Error("Cloud credential unavailable");
+            const key = Buffer.from(stored, "base64");
+            if (key.length !== 32) throw new Error("Invalid master key");
+            const decipher = NodeCrypto.createDecipheriv(
+              "aes-256-gcm",
+              key,
+              encrypted.subarray(0, 12),
+            );
+            decipher.setAuthTag(encrypted.subarray(12, 28));
+            return Buffer.concat([decipher.update(encrypted.subarray(28)), decipher.final()])
+              .toString("utf8")
+              .trim();
+          },
+          catch: () => new OpenWhisprConfigurationError({ reason: "credentials" }),
         }).pipe(
           Effect.timeoutOrElse({
             duration: 3_000,
@@ -178,22 +187,25 @@ const make = Effect.gen(function* () {
         (selfHosted ? preferences.get("remoteTranscriptionModel") : null) ||
         preferences.get("cloudTranscriptionModel") ||
         "whisper-1";
-      const endpoint = yield* Effect.try(() => {
-        const url = new URL(baseUrl);
-        if (
-          (url.protocol !== "https:" && url.protocol !== "http:") ||
-          url.username ||
-          url.password ||
-          url.search ||
-          url.hash
-        )
-          throw new Error("Invalid cloud endpoint");
-        const pathname = url.pathname.replace(/\/+$/, "");
-        url.pathname = pathname.endsWith("/audio/transcriptions")
-          ? pathname
-          : `${pathname}/audio/transcriptions`;
-        return url.toString();
-      }).pipe(Effect.mapError(() => new OpenWhisprConfigurationError({ reason: "settings" })));
+      const endpoint = yield* Effect.try({
+        try: () => {
+          const url = new URL(baseUrl);
+          if (
+            (url.protocol !== "https:" && url.protocol !== "http:") ||
+            url.username ||
+            url.password ||
+            url.search ||
+            url.hash
+          )
+            throw new Error("Invalid cloud endpoint");
+          const pathname = url.pathname.replace(/\/+$/, "");
+          url.pathname = pathname.endsWith("/audio/transcriptions")
+            ? pathname
+            : `${pathname}/audio/transcriptions`;
+          return url.toString();
+        },
+        catch: () => new OpenWhisprConfigurationError({ reason: "settings" }),
+      });
       const language = preferences.get("preferredLanguage")?.split("-")[0];
       return {
         endpoint,

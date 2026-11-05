@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 // @effect-diagnostics nodeBuiltinImport:off - Disposable child verifies Linux pidfd recovery.
 import * as NodeChildProcess from "node:child_process";
@@ -46,6 +47,9 @@ import {
   resumePausedOrganization,
 } from "./OrganizationLiveWorkLifecycle.ts";
 import { OrganizationStore, OrganizationStoreLive } from "./OrganizationStore.ts";
+
+const isDrainDeferred = Schema.is(OrganizationLiveWorkDrainDeferred);
+const isEmergencyDeferred = Schema.is(OrganizationLiveWorkEmergencyDeferred);
 
 let ready = true;
 const testLayer = it.layer(
@@ -432,7 +436,7 @@ testLayer("Organization live work lifecycle", (it) => {
         "qa",
         Effect.void,
       ).pipe(Effect.flip);
-      assert.equal(denied instanceof OrganizationLiveWorkEmergencyDeferred, true);
+      assert.equal(isEmergencyDeferred(denied), true);
       const second = yield* requestOrganizationEmergencyStop(
         { ...input, requestId: `${fixture.tag}-different` },
         interactive,
@@ -586,7 +590,7 @@ testLayer("Organization live work lifecycle", (it) => {
         "qa",
         Effect.void,
       ).pipe(Effect.flip);
-      assert.equal(denied instanceof OrganizationLiveWorkDrainDeferred, true);
+      assert.equal(isDrainDeferred(denied), true);
       const store = yield* OrganizationStore;
       const pause = yield* store
         .setLifecycle({

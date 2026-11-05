@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalDate:off - retention fixtures need wall-clock-relative timestamps.
 // @effect-diagnostics preferSchemaOverJson:off - These tests inspect the compatibility store's raw JSON document.
@@ -171,57 +172,50 @@ const initializeGitRepository = async (path: string): Promise<void> => {
   ]);
 };
 
-it.effect("imports the legacy feed when the T3 target already exists but is empty", () =>
-  Effect.promise(async () => {
-    const homeDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-legacy-home-"));
-    const stateDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-state-"));
-    const targetDirectory = NodePath.join(stateDir, "agent-dashboard");
-    const legacyDirectory = NodePath.join(homeDir, ".local", "share", "agent-widget");
-    const legacyCard = {
-      id: 42,
-      ts: 1_900_000_000,
-      agent: "hermes",
-      title: "Legacy update",
-      text: "Still visible after the Arcwright Code store was initialized.",
-      level: "success",
-    };
-    const previousHome = process.env.HOME;
+it("imports the legacy feed when the T3 target already exists but is empty", async () => {
+  const homeDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-legacy-home-"));
+  const stateDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-state-"));
+  const targetDirectory = NodePath.join(stateDir, "agent-dashboard");
+  const legacyDirectory = NodePath.join(homeDir, ".local", "share", "agent-widget");
+  const legacyCard = {
+    id: 42,
+    ts: 1_900_000_000,
+    agent: "hermes",
+    title: "Legacy update",
+    text: "Still visible after the Arcwright Code store was initialized.",
+    level: "success",
+  };
 
-    try {
-      await NodeFSP.mkdir(targetDirectory, { recursive: true });
-      await NodeFSP.mkdir(legacyDirectory, { recursive: true });
-      await NodeFSP.writeFile(NodePath.join(targetDirectory, "feed.jsonl"), "\n");
-      await NodeFSP.writeFile(
-        NodePath.join(legacyDirectory, "feed.jsonl"),
-        `${JSON.stringify(legacyCard)}\n`,
-      );
+  try {
+    await NodeFSP.mkdir(targetDirectory, { recursive: true });
+    await NodeFSP.mkdir(legacyDirectory, { recursive: true });
+    await NodeFSP.writeFile(NodePath.join(targetDirectory, "feed.jsonl"), "\n");
+    await NodeFSP.writeFile(
+      NodePath.join(legacyDirectory, "feed.jsonl"),
+      `${JSON.stringify(legacyCard)}\n`,
+    );
 
-      process.env.HOME = homeDir;
-      const store = AgentDashboardStore.getStore(stateDir);
-      const feed = await Effect.runPromise(store.readFeed);
+    vi.stubEnv("HOME", homeDir);
+    const store = AgentDashboardStore.getStore(stateDir);
+    const feed = await Effect.runPromise(store.readFeed);
 
-      expect(feed).toHaveLength(1);
-      expect(feed[0]).toMatchObject(legacyCard);
-      expect(
-        await NodeFSP.readFile(NodePath.join(targetDirectory, "feed.legacy-cursor"), "utf8"),
-      ).toBe("42\n");
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject(legacyCard);
+    expect(
+      await NodeFSP.readFile(NodePath.join(targetDirectory, "feed.legacy-cursor"), "utf8"),
+    ).toBe("42\n");
 
-      await Effect.runPromise(store.clearFeed);
-      // Cursor prevents re-importing already-ingested legacy ids after clear.
-      expect(await Effect.runPromise(store.readFeed)).toHaveLength(0);
-    } finally {
-      if (previousHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = previousHome;
-      }
-      await Promise.all([
-        NodeFSP.rm(homeDir, { recursive: true, force: true }),
-        NodeFSP.rm(stateDir, { recursive: true, force: true }),
-      ]);
-    }
-  }),
-);
+    await Effect.runPromise(store.clearFeed);
+    // Cursor prevents re-importing already-ingested legacy ids after clear.
+    expect(await Effect.runPromise(store.readFeed)).toHaveLength(0);
+  } finally {
+    vi.unstubAllEnvs();
+    await Promise.all([
+      NodeFSP.rm(homeDir, { recursive: true, force: true }),
+      NodeFSP.rm(stateDir, { recursive: true, force: true }),
+    ]);
+  }
+});
 
 it.effect("preserves feed origin metadata for project and chat navigation", () =>
   Effect.promise(async () => {
@@ -1286,83 +1280,76 @@ it.effect("copies accepted images into owned assets and rejects foreign paths", 
   }),
 );
 
-it.effect("idempotently ingests new legacy cards without clobbering local data", () =>
-  Effect.promise(async () => {
-    const homeDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-cont-home-"));
-    const stateDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-cont-state-"));
-    const legacyDirectory = NodePath.join(homeDir, ".local", "share", "agent-widget");
-    const previousHome = process.env.HOME;
+it("idempotently ingests new legacy cards without clobbering local data", async () => {
+  const homeDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-cont-home-"));
+  const stateDir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-cont-state-"));
+  const legacyDirectory = NodePath.join(homeDir, ".local", "share", "agent-widget");
 
-    try {
-      await NodeFSP.mkdir(legacyDirectory, { recursive: true });
-      const legacyPath = NodePath.join(legacyDirectory, "feed.jsonl");
-      await NodeFSP.writeFile(
-        legacyPath,
-        `${JSON.stringify({
-          id: 1,
-          ts: 1_900_000_000,
-          agent: "hermes",
-          title: "First",
-          text: "legacy-one",
-          level: "info",
-        })}\n`,
-      );
+  try {
+    await NodeFSP.mkdir(legacyDirectory, { recursive: true });
+    const legacyPath = NodePath.join(legacyDirectory, "feed.jsonl");
+    await NodeFSP.writeFile(
+      legacyPath,
+      `${JSON.stringify({
+        id: 1,
+        ts: 1_900_000_000,
+        agent: "hermes",
+        title: "First",
+        text: "legacy-one",
+        level: "info",
+      })}\n`,
+    );
 
-      process.env.HOME = homeDir;
-      const store = AgentDashboardStore.getStore(stateDir);
-      expect(await Effect.runPromise(store.readFeed)).toHaveLength(1);
+    vi.stubEnv("HOME", homeDir);
+    const store = AgentDashboardStore.getStore(stateDir);
+    expect(await Effect.runPromise(store.readFeed)).toHaveLength(1);
 
-      // Local card coexists; subsequent legacy append is ingested by id.
-      await Effect.runPromise(
-        store.appendFeed({
-          agent: "t3",
-          title: "Local only",
-          text: "must survive continuous ingest",
-        }),
-      );
+    // Local card coexists; subsequent legacy append is ingested by id.
+    await Effect.runPromise(
+      store.appendFeed({
+        agent: "t3",
+        title: "Local only",
+        text: "must survive continuous ingest",
+      }),
+    );
 
-      await NodeFSP.appendFile(
-        legacyPath,
-        `${JSON.stringify({
-          id: 1,
-          ts: 1_900_000_000,
-          agent: "hermes",
-          title: "First rewritten",
-          text: "should not replace existing id",
-          level: "warn",
-        })}\n${JSON.stringify({
-          id: 7,
-          ts: 1_900_000_001,
-          agent: "hermes",
-          title: "Second",
-          text: "legacy-two",
-          level: "success",
-        })}\n`,
-      );
+    await NodeFSP.appendFile(
+      legacyPath,
+      `${JSON.stringify({
+        id: 1,
+        ts: 1_900_000_000,
+        agent: "hermes",
+        title: "First rewritten",
+        text: "should not replace existing id",
+        level: "warn",
+      })}\n${JSON.stringify({
+        id: 7,
+        ts: 1_900_000_001,
+        agent: "hermes",
+        title: "Second",
+        text: "legacy-two",
+        level: "success",
+      })}\n`,
+    );
 
-      const feed = await Effect.runPromise(store.readFeed);
-      const byTitle = new Map(feed.map((card) => [card.title, card]));
-      expect(byTitle.get("First")?.text).toBe("legacy-one");
-      expect(byTitle.get("First rewritten")).toBeUndefined();
-      expect(byTitle.get("Second")?.text).toBe("legacy-two");
-      expect(byTitle.get("Local only")?.text).toBe("must survive continuous ingest");
+    const feed = await Effect.runPromise(store.readFeed);
+    const byTitle = new Map(feed.map((card) => [card.title, card]));
+    expect(byTitle.get("First")?.text).toBe("legacy-one");
+    expect(byTitle.get("First rewritten")).toBeUndefined();
+    expect(byTitle.get("Second")?.text).toBe("legacy-two");
+    expect(byTitle.get("Local only")?.text).toBe("must survive continuous ingest");
 
-      // Idempotent re-read does not duplicate.
-      const again = await Effect.runPromise(store.readFeed);
-      expect(again).toHaveLength(feed.length);
-    } finally {
-      if (previousHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = previousHome;
-      }
-      await Promise.all([
-        NodeFSP.rm(homeDir, { recursive: true, force: true }),
-        NodeFSP.rm(stateDir, { recursive: true, force: true }),
-      ]);
-    }
-  }),
-);
+    // Idempotent re-read does not duplicate.
+    const again = await Effect.runPromise(store.readFeed);
+    expect(again).toHaveLength(feed.length);
+  } finally {
+    vi.unstubAllEnvs();
+    await Promise.all([
+      NodeFSP.rm(homeDir, { recursive: true, force: true }),
+      NodeFSP.rm(stateDir, { recursive: true, force: true }),
+    ]);
+  }
+});
 
 it.effect("keeps feed and research state-file mtimes stable across pure reads", () =>
   Effect.promise(async () => {

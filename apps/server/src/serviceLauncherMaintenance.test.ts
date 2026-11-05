@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { vi } from "vite-plus/test";
 
 import { Launcher, readServiceState, writeServiceState } from "./serviceLauncher.ts";
 import {
@@ -109,13 +110,15 @@ if (role === "trial") {
           }),
         );
 
-        const inherited = process.env.T3CODE_MAINTENANCE_TRIAL;
         // A capability in the launcher's own environment must never reach any child.
-        process.env.T3CODE_MAINTENANCE_TRIAL = JSON.stringify({
-          transactionId: "stale",
-          home: "/x",
-          nonce: "stale",
-        });
+        vi.stubEnv(
+          "T3CODE_MAINTENANCE_TRIAL",
+          JSON.stringify({
+            transactionId: "stale",
+            home: "/x",
+            nonce: "stale",
+          }),
+        );
         try {
           const launcher = new Launcher(
             root,
@@ -131,8 +134,7 @@ if (role === "trial") {
             ),
           );
         } finally {
-          if (inherited === undefined) delete process.env.T3CODE_MAINTENANCE_TRIAL;
-          else process.env.T3CODE_MAINTENANCE_TRIAL = inherited;
+          vi.unstubAllEnvs();
         }
         const read = (role: string) =>
           fs

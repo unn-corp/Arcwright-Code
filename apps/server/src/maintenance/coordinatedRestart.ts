@@ -1,15 +1,20 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off processEnv:off
+import * as Data from "effect/Data";
 import * as NodeCrypto from "node:crypto";
 import { newJournal } from "@t3tools/shared/forkMaintenanceJournal";
 import { CoordinatorStore, coordinatorDirectory } from "@t3tools/shared/forkMaintenanceStore";
 
 /** The device is not quiet, so nothing may be stopped. The reasons are the coordinator's own. */
-export class DeviceRestartBlocked extends Error {
-  override readonly name = "DeviceRestartBlocked";
+export class DeviceRestartBlocked extends Data.Error<{
+  readonly _tag: "DeviceRestartBlocked";
   readonly blockers: ReadonlyArray<string>;
+}> {
+  override readonly name = "DeviceRestartBlocked";
+  override get message(): string {
+    return this.blockers.join(" ");
+  }
   constructor(blockers: ReadonlyArray<string>) {
-    super(blockers.join(" "));
-    this.blockers = blockers;
+    super({ _tag: "DeviceRestartBlocked", blockers });
   }
 }
 

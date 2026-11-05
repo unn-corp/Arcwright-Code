@@ -1,3 +1,4 @@
+import * as Data from "effect/Data";
 import { type MaintenanceJournal, type MaintenancePhase } from "./forkMaintenanceJournal.ts";
 
 /**
@@ -30,11 +31,15 @@ export interface TransactionPorts {
   readonly release: (transactionId: string) => Promise<void>;
 }
 
-export class MaintenanceTransactionError extends Error {
+export class MaintenanceTransactionError extends Data.Error<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {
+  readonly _tag = "MaintenanceTransactionError";
   override readonly name = "MaintenanceTransactionError";
   readonly phase: MaintenancePhase;
   constructor(message: string, phase: MaintenancePhase, options?: { readonly cause?: unknown }) {
-    super(message, options);
+    super({ message, ...options });
     this.phase = phase;
   }
 }

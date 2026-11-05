@@ -8,9 +8,10 @@ import { createOrganizationSingleFileArtifact } from "./OrganizationSingleFileAr
 const decodeProposal = Schema.decodeUnknownSync(OrganizationPatchProposalOutput);
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 
-export class OrganizationPatchArtifactBuildError extends Error {
-  override readonly name = "OrganizationPatchArtifactBuildError";
-}
+export class OrganizationPatchArtifactBuildError extends Schema.TaggedError<OrganizationPatchArtifactBuildError>()(
+  "OrganizationPatchArtifactBuildError",
+  { message: Schema.String },
+) {}
 
 /** Joins a pinned Git source and one tool-free proposal into reviewed artifact bytes. */
 export function buildOrganizationPatchArtifact(
@@ -21,7 +22,7 @@ export function buildOrganizationPatchArtifact(
   try {
     proposal = decodeProposal(rawProposal);
   } catch {
-    throw new OrganizationPatchArtifactBuildError("Patch proposal is invalid.");
+    throw new OrganizationPatchArtifactBuildError({ message: "Patch proposal is invalid." });
   }
   const baseBytes = Buffer.from(source.content, "utf8");
   if (
@@ -30,9 +31,9 @@ export function buildOrganizationPatchArtifact(
     source.byteLength !== baseBytes.byteLength ||
     sha256(baseBytes) !== source.sha256
   )
-    throw new OrganizationPatchArtifactBuildError(
-      "Patch proposal does not match the pinned source bytes.",
-    );
+    throw new OrganizationPatchArtifactBuildError({
+      message: "Patch proposal does not match the pinned source bytes.",
+    });
   try {
     return createOrganizationSingleFileArtifact({
       relativePath: source.relativePath,
@@ -44,8 +45,8 @@ export function buildOrganizationPatchArtifact(
       replacementBytes: Buffer.from(proposal.replacementContent, "utf8"),
     });
   } catch {
-    throw new OrganizationPatchArtifactBuildError(
-      "Patch proposal cannot be encoded as a single-file artifact.",
-    );
+    throw new OrganizationPatchArtifactBuildError({
+      message: "Patch proposal cannot be encoded as a single-file artifact.",
+    });
   }
 }

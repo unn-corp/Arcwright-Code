@@ -4,6 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import {
   GitHubAccountId,
   OrganizationId,
@@ -62,8 +63,8 @@ it.effect(
               { mode: 0o700 },
             ),
           );
-          process.env.PATH = `${bin}:${originalPath ?? "/usr/bin:/bin"}`;
-          process.env.T3_TEST_BARE = bare;
+          vi.stubEnv("PATH", `${bin}:${originalPath ?? "/usr/bin:/bin"}`);
+          vi.stubEnv("T3_TEST_BARE", bare);
           let remoteVisibility: "private" | "public" = "private";
           let createCalls = 0;
           let inspectCalls = 0;
@@ -436,9 +437,7 @@ it.effect(
         }),
       (root) =>
         Effect.promise(async () => {
-          if (originalPath === undefined) delete process.env.PATH;
-          else process.env.PATH = originalPath;
-          delete process.env.T3_TEST_BARE;
+          vi.unstubAllEnvs();
           await NodeFSP.rm(root, { recursive: true, force: true });
         }),
     );

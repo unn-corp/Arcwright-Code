@@ -2,7 +2,6 @@ import { createClerkClient } from "@clerk/backend";
 import { hmac } from "@noble/hashes/hmac";
 import { sha256 } from "@noble/hashes/sha2";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -33,7 +32,10 @@ const decodeLinkResponse = Schema.decodeUnknownEffect(
   }),
 );
 const decodeResponseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
-class T3ChatResponseTooLarge extends Data.TaggedError("T3ChatResponseTooLarge") {}
+class T3ChatResponseTooLarge extends Schema.TaggedError<T3ChatResponseTooLarge>()(
+  "T3ChatResponseTooLarge",
+  {},
+) {}
 
 const readResponseJson = Effect.fn("relay.t3chat.read_response_json")(function* (
   response: HttpClientResponse.HttpClientResponse,

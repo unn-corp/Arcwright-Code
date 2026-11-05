@@ -1,3 +1,4 @@
+import * as Data from "effect/Data";
 /* oxlint-disable t3code/no-global-process-runtime -- node-only filesystem coordinator: the host platform is the point */
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalTimers:off — the host coordinator is a cross-process filesystem protocol.
 import * as NodeCrypto from "node:crypto";
@@ -67,8 +68,12 @@ const PROCESS_IDENTITY_TIMEOUT_MS = 10_000;
 /** Startup may pay the cold Windows PowerShell launch cost; uncertainty still refuses registration. */
 export const STARTUP_OWNER_IDENTITY_TIMEOUT_MS = 30_000;
 
-export class UnsupportedPlatformError extends Error {
+export class UnsupportedPlatformError extends Data.Error<{ readonly message: string }> {
+  readonly _tag = "UnsupportedPlatformError";
   override readonly name = "UnsupportedPlatformError";
+  constructor(message: string) {
+    super({ message });
+  }
 }
 
 const isCode = (cause: unknown, code: string) =>

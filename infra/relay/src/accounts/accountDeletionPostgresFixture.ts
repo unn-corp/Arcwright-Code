@@ -4,7 +4,6 @@ import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import type { EffectDrizzleQueryError, MigratorInitError } from "drizzle-orm/effect-core/errors";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import type { MigrationConfig } from "drizzle-orm/migrator";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -26,11 +25,17 @@ export const migrationDirectory = NodeURL.fileURLToPath(
 );
 export const deletionMigration = "20261014174933_account_deletions";
 export type FixtureSchema = "task4c_account_deletions" | "task4c_account_deletion_migration";
-class FixtureConfigurationRejected extends Data.TaggedError("FixtureConfigurationRejected") {}
-class FixtureMigrationError extends Data.TaggedError("FixtureMigrationError")<{
-  readonly reason: string;
-  readonly sqlState: string | null;
-}> {
+class FixtureConfigurationRejected extends Schema.TaggedError<FixtureConfigurationRejected>()(
+  "FixtureConfigurationRejected",
+  {},
+) {}
+class FixtureMigrationError extends Schema.TaggedError<FixtureMigrationError>()(
+  "FixtureMigrationError",
+  {
+    reason: Schema.String,
+    sqlState: Schema.NullOr(Schema.String),
+  },
+) {
   override get message() {
     return `${this.reason}:${this.sqlState ?? "unknown"}`;
   }

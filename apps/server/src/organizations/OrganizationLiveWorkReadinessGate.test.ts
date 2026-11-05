@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import * as Data from "effect/Data";
+import * as Schema from "effect/Schema";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -8,9 +8,9 @@ import { OrganizationLiveWorkRuntimeReadiness } from "./OrganizationLiveWorkExec
 import { makeOrganizationLiveWorkReadinessGate } from "./OrganizationLiveWorkReadinessGate.ts";
 import { OrganizationWorkIntentActivationReadiness } from "./OrganizationWorkIntentActivation.ts";
 
-class GateTestError extends Data.TaggedError("GateTestError")<{
-  readonly message: string;
-}> {}
+class GateTestError extends Schema.TaggedError<GateTestError>()("GateTestError", {
+  message: Schema.String,
+}) {}
 
 it.effect("does not run recovery or grant readiness when owner claim fails", () =>
   Effect.gen(function* () {

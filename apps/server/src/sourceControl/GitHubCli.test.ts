@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Context from "effect/Context";
+import * as Config from "effect/Config";
+import * as Option from "effect/Option";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
@@ -165,7 +167,9 @@ describe("GitHubCli compatibility adapter", () => {
         );
         expect(error._tag).toBe("GitHubCliCommandError");
         expect(seen.pins).toHaveLength(0);
-        expect(process.env.GH_TOKEN).toBe(envBefore);
+        expect(Option.getOrUndefined(yield* Config.String("GH_TOKEN").pipe(Config.option))).toBe(
+          envBefore,
+        );
       }).pipe(Effect.provide(layer));
     },
   );
@@ -212,7 +216,9 @@ describe("GitHubCli compatibility adapter", () => {
         body: { sha: "exact-head-sha", merge_method: "squash" },
       });
       expect(seen.pins[0]?.host).toBe("git.acme.internal");
-      expect(process.env.GH_TOKEN).toBe(envBefore);
+      expect(Option.getOrUndefined(yield* Config.String("GH_TOKEN").pipe(Config.option))).toBe(
+        envBefore,
+      );
     }).pipe(Effect.provide(layer));
   });
 });

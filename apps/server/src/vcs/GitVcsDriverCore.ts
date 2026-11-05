@@ -1,6 +1,6 @@
 import * as Cache from "effect/Cache";
-import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
 import * as Data from "effect/Data";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
@@ -43,7 +43,7 @@ import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import { resolveProjectFileBackedSetting } from "@t3tools/shared/projectSettings";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
-import { removeEmptyDirectory } from "./removeEmptyDirectory.ts";
+import { removeEmptyDirectory, type RemoveEmptyDirectoryError } from "./removeEmptyDirectory.ts";
 import { explicitBareRepositoryEnv, gitConfigEnv } from "./VcsProcess.ts";
 import { removeLinkedWorktree } from "./worktreeRemoval.ts";
 import { resolveWorktreesDirectory } from "../worktreesDirectory.ts";
@@ -996,7 +996,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ),
         );
         const baseEnv = {
-          ...process.env,
+          ...(yield* HostProcess.Environment),
           // Concurrent status polls must not take index.lock to save refreshed indexes.
           GIT_OPTIONAL_LOCKS: "0",
           ...input.env,
@@ -4408,14 +4408,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         const customAttributes = yield* fileSystem
           .exists(path.join(repository.gitCommonDir, "info", "attributes"))
           .pipe(Effect.orElseSucceed(() => true));
+        const xdgConfigHome = yield* Config.String("XDG_CONFIG_HOME").pipe(
+          Config.option,
+          Config.map(Option.getOrUndefined),
+        );
+        const home = yield* Config.String("HOME").pipe(Config.withDefault(""));
         const userAttributes = yield* fileSystem
-          .exists(
-            path.join(
-              process.env.XDG_CONFIG_HOME ?? path.join(process.env.HOME ?? "", ".config"),
-              "git",
-              "attributes",
-            ),
-          )
+          .exists(path.join(xdgConfigHome ?? path.join(home, ".config"), "git", "attributes"))
           .pipe(Effect.orElseSucceed(() => true));
         // Arbitrary smudge filters can depend on external mutable state. Let Git
         // materialize those normally; Git LFS objects are content addressed.
@@ -4437,9 +4436,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           signature = [
             checkoutConfig.stdout,
             attributes,
-            process.env.GIT_LFS_SKIP_SMUDGE ?? "",
-            process.env.GIT_LFS_SKIP_DOWNLOAD_ERRORS ?? "",
-            process.env.GIT_ATTR_NOSYSTEM ?? "",
+            yield* Config.String("GIT_LFS_SKIP_SMUDGE").pipe(Config.withDefault("")),
+            yield* Config.String("GIT_LFS_SKIP_DOWNLOAD_ERRORS").pipe(Config.withDefault("")),
+            yield* Config.String("GIT_ATTR_NOSYSTEM").pipe(Config.withDefault("")),
           ].join("\0");
         }
       }
@@ -4590,6 +4589,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     yield* (
       enabled ? storage.withLock(repository?.gitCommonDir ?? input.cwd, prepare) : prepare
     ).pipe(
+      Effect.catchTags({
+        ConfigError: (cause) =>
+          Effect.fail(
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree",
+              command: "git worktree add",
+              cwd: input.cwd,
+              detail: String(cause),
+            }),
+          ),
+      }),
       Effect.onError(() =>
         newRefName
           ? deleteLocalBranch({ cwd: input.cwd, refName: newRefName, force: true }).pipe(
@@ -5044,7 +5054,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   // Recursive filesystem traversal can visit many entries; removeWorktree owns the operation span.
   const removeLeftoverLinks = Effect.fnUntraced(function* (
     target: string,
-  ): Effect.fn.Return<boolean, PlatformError.PlatformError | Cause.UnknownError> {
+  ): Effect.fn.Return<boolean, PlatformError.PlatformError | RemoveEmptyDirectoryError> {
     if (Option.isSome(yield* fileSystem.readLink(target).pipe(Effect.option))) {
       yield* fileSystem.remove(target);
       return true;

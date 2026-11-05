@@ -2,6 +2,11 @@
 // @effect-diagnostics preferSchemaOverJson:off - These cases mutate the exact JSON wire bytes.
 import * as NodeCrypto from "node:crypto";
 import { assert, it } from "@effect/vitest";
+import * as Schema from "effect/Schema";
+import { OrganizationLiveWorkDrainDeferred } from "./OrganizationLiveWorkDrain.ts";
+import { OrganizationLiveWorkEmergencyDeferred } from "./OrganizationLiveWorkEmergencyStop.ts";
+import { OrganizationPatchArtifactBuildError } from "./OrganizationPatchArtifactBuilder.ts";
+import { OrganizationSandboxUnavailable } from "./OrganizationSandboxHost.ts";
 import {
   createOrganizationSingleFileArtifact,
   decodeOrganizationSingleFileArtifact,
@@ -10,6 +15,35 @@ import {
   OrganizationSingleFileArtifactError,
   type OrganizationSingleFileArtifactInput,
 } from "./OrganizationSingleFileArtifact.ts";
+
+const error0 = new OrganizationLiveWorkDrainDeferred({ message: "boundary failure" });
+const decodedError0 = Schema.decodeSync(OrganizationLiveWorkDrainDeferred)(
+  Schema.encodeSync(OrganizationLiveWorkDrainDeferred)(error0),
+);
+const error1 = new OrganizationLiveWorkEmergencyDeferred({ message: "boundary failure" });
+const decodedError1 = Schema.decodeSync(OrganizationLiveWorkEmergencyDeferred)(
+  Schema.encodeSync(OrganizationLiveWorkEmergencyDeferred)(error1),
+);
+const error2 = new OrganizationPatchArtifactBuildError({ message: "boundary failure" });
+const decodedError2 = Schema.decodeSync(OrganizationPatchArtifactBuildError)(
+  Schema.encodeSync(OrganizationPatchArtifactBuildError)(error2),
+);
+const error3 = new OrganizationSandboxUnavailable({ message: "boundary failure" });
+const decodedError3 = Schema.decodeSync(OrganizationSandboxUnavailable)(
+  Schema.encodeSync(OrganizationSandboxUnavailable)(error3),
+);
+const error4 = new OrganizationSingleFileArtifactError({ message: "boundary failure" });
+const decodedError4 = Schema.decodeSync(OrganizationSingleFileArtifactError)(
+  Schema.encodeSync(OrganizationSingleFileArtifactError)(error4),
+);
+
+const errorRoundTrips = [
+  { original: error0, decoded: decodedError0, ErrorClass: OrganizationLiveWorkDrainDeferred },
+  { original: error1, decoded: decodedError1, ErrorClass: OrganizationLiveWorkEmergencyDeferred },
+  { original: error2, decoded: decodedError2, ErrorClass: OrganizationPatchArtifactBuildError },
+  { original: error3, decoded: decodedError3, ErrorClass: OrganizationSandboxUnavailable },
+  { original: error4, decoded: decodedError4, ErrorClass: OrganizationSingleFileArtifactError },
+];
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
@@ -126,4 +160,12 @@ it("accepts the 64 KiB replacement boundary within the 128 KiB wire cap", () => 
   const bytes = createOrganizationSingleFileArtifact({ ...fixture, replacementBytes: exact });
   assert.isAtMost(bytes.byteLength, ORGANIZATION_SINGLE_FILE_ARTIFACT_MAX_BYTES);
   assert.deepEqual(decodeOrganizationSingleFileArtifact(bytes).replacementBytes, exact);
+});
+
+it("round-trips organization error schemas with their message and class identity", () => {
+  for (const { ErrorClass, original, decoded } of errorRoundTrips) {
+    assert.strictEqual(Object.getPrototypeOf(decoded), ErrorClass.prototype);
+    assert.equal(decoded.message, "boundary failure");
+    assert.equal(decoded._tag, original._tag);
+  }
 });

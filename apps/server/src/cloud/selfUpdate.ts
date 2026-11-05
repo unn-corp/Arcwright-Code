@@ -116,7 +116,11 @@ export const pruneRuntimesOnStart = Effect.fn("cloud.server_self_update.prune_on
     // retained database restore point can still require that exact binary.
     const journalStore = input.journals;
     const journals = journalStore
-      ? yield* Effect.tryPromise(() => journalStore.listJournals())
+      ? yield* Effect.tryPromise({
+          try: () => journalStore.listJournals(),
+          catch: (cause) =>
+            new ServerSelfUpdateError({ reason: "Could not read maintenance journals.", cause }),
+        })
       : [];
     const removed = yield* prunePinnedRuntimes({
       baseDir: input.baseDir,

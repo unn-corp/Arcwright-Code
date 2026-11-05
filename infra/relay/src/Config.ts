@@ -1,7 +1,6 @@
 import * as Config from "effect/Config";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -197,7 +196,10 @@ export class RelayConfiguration extends Context.Service<
 >()("t3code-relay/Config/RelayConfiguration") {}
 
 /** Validate injected runtime services too, before accepting any credential. */
-class InvalidClerkAuthPolicy extends Data.TaggedError("InvalidClerkAuthPolicy") {}
+class InvalidClerkAuthPolicy extends Schema.TaggedError<InvalidClerkAuthPolicy>()(
+  "InvalidClerkAuthPolicy",
+  {},
+) {}
 
 export const resolveClerkAuthPolicy = Effect.fn("Config.resolveClerkAuthPolicy")(function* (
   configuration: RelayConfiguration["Service"],

@@ -549,11 +549,13 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
      * Error construction can itself fail when request context is incomplete. Always settle the waiter
      * so host failures cannot strand a caller.
      */
-    const failure = yield* Effect.try(() =>
-      response.error
-        ? classifyResponseError(pending.context, response.error)
-        : new PreviewAutomationMalformedResponseError(pending.context),
-    ).pipe(
+    const failure = yield* Effect.try({
+      try: () =>
+        response.error
+          ? classifyResponseError(pending.context, response.error)
+          : new PreviewAutomationMalformedResponseError(pending.context),
+      catch: () => new PreviewAutomationMalformedResponseError(pending.context),
+    }).pipe(
       Effect.orElseSucceed(() => new PreviewAutomationMalformedResponseError(pending.context)),
       Effect.orElseSucceed(() => new PreviewAutomationMalformedResponseError(pending.context)),
     );

@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off globalDate:off preferSchemaOverJson:off - This boundary needs captured OS PIDs, /proc, and hard stop timers; bwrap owns the JSON info protocol.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
@@ -49,9 +50,10 @@ export interface OrganizationSandboxHandle {
   stop(): Promise<OrganizationSandboxResult>;
 }
 
-export class OrganizationSandboxUnavailable extends Error {
-  override readonly name = "OrganizationSandboxUnavailable";
-}
+export class OrganizationSandboxUnavailable extends Schema.TaggedError<OrganizationSandboxUnavailable>()(
+  "OrganizationSandboxUnavailable",
+  { message: Schema.String },
+) {}
 
 const BASE_ARGS = [
   "--unshare-all",
@@ -307,9 +309,9 @@ export async function launchOrganizationSandbox(
   });
   const stagedInput = sourceFiles.map(([name, contents]) => [name, Buffer.from(contents)] as const);
   if (!isOrganizationSandboxAvailable()) {
-    throw new OrganizationSandboxUnavailable(
-      "Linux bubblewrap user/PID/network namespaces are unavailable",
-    );
+    throw new OrganizationSandboxUnavailable({
+      message: "Linux bubblewrap user/PID/network namespaces are unavailable",
+    });
   }
 
   const workDirectory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-sandbox-"));
@@ -375,9 +377,11 @@ export async function launchOrganizationSandbox(
       },
     );
     if (child.pid === undefined)
-      throw new OrganizationSandboxUnavailable("bubblewrap did not start");
+      throw new OrganizationSandboxUnavailable({ message: "bubblewrap did not start" });
     if (!child.stdout || !child.stderr)
-      throw new OrganizationSandboxUnavailable("bubblewrap output pipes are unavailable");
+      throw new OrganizationSandboxUnavailable({
+        message: "bubblewrap output pipes are unavailable",
+      });
     const infoPromise = readSandboxInfo(child);
     // The close handler consumes this, including when bwrap fails during startup.
     void infoPromise.catch(() => {});

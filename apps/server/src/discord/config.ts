@@ -1,3 +1,4 @@
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -23,7 +24,9 @@ const decoder = new TextDecoder();
  * normal standby condition, not an error: the bridge simply stays dormant.
  */
 export const readDiscordBotToken = Effect.gen(function* () {
-  const fromEnv = process.env[DISCORD_BRIDGE_TOKEN_ENV]?.trim();
+  const fromEnv = Option.getOrUndefined(
+    yield* Config.String(DISCORD_BRIDGE_TOKEN_ENV).pipe(Config.option),
+  )?.trim();
   const store = yield* Effect.serviceOption(ServerSecretStore);
   if (Option.isSome(store)) {
     const stored = yield* store.value

@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics preferSchemaOverJson:off - Publisher body fixtures intentionally use JSON text at the HTTP boundary.
 // @effect-diagnostics multipleEffectProvide:off - Test harness composes route, HTTP, and Node layers in one provide stack.
@@ -27,6 +28,11 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { agentDashboardFeedRouteLayer } from "./AgentDashboardFeedRoutes.ts";
 import * as AgentDashboardStore from "./AgentDashboardStore.ts";
+
+class FixtureError extends Schema.TaggedError<FixtureError>()("FixtureError", {
+  message: Schema.String,
+  cause: Schema.Unknown,
+}) {}
 
 const unusedAuthOperation = () => Effect.die("unused EnvironmentAuth operation in feed route test");
 
@@ -111,10 +117,16 @@ const runWithFeedRoutes = <A, E>(
   );
 };
 
+const fixtureIO = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => new FixtureError({ message: "Feed route fixture failed", cause }),
+  });
+
 describe("AgentDashboardFeedRoutes", () => {
   it.effect("rejects anonymous feed and image reads", () =>
     Effect.gen(function* () {
-      const stateDir = yield* Effect.tryPromise(() =>
+      const stateDir = yield* fixtureIO(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-route-anon-")),
       );
       try {
@@ -137,17 +149,17 @@ describe("AgentDashboardFeedRoutes", () => {
           }),
         );
       } finally {
-        yield* Effect.tryPromise(() => NodeFSP.rm(stateDir, { recursive: true, force: true }));
+        yield* fixtureIO(() => NodeFSP.rm(stateDir, { recursive: true, force: true }));
       }
     }),
   );
 
   it.effect("serves feed and owned images to environment-authenticated clients", () =>
     Effect.gen(function* () {
-      const stateDir = yield* Effect.tryPromise(() =>
+      const stateDir = yield* fixtureIO(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-route-auth-")),
       );
-      const sourceDir = yield* Effect.tryPromise(() =>
+      const sourceDir = yield* fixtureIO(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-route-src-")),
       );
       const pngBytes = Uint8Array.from([
@@ -159,7 +171,7 @@ describe("AgentDashboardFeedRoutes", () => {
       ]);
       try {
         const sourceImage = NodePath.join(sourceDir, "shot.png");
-        yield* Effect.tryPromise(() => NodeFSP.writeFile(sourceImage, pngBytes));
+        yield* fixtureIO(() => NodeFSP.writeFile(sourceImage, pngBytes));
         const store = AgentDashboardStore.getStore(stateDir);
         const card = yield* store.appendFeed({
           agent: "codex",
@@ -187,7 +199,7 @@ describe("AgentDashboardFeedRoutes", () => {
           }),
         );
       } finally {
-        yield* Effect.tryPromise(() =>
+        yield* fixtureIO(() =>
           Promise.all([
             NodeFSP.rm(stateDir, { recursive: true, force: true }),
             NodeFSP.rm(sourceDir, { recursive: true, force: true }),
@@ -199,7 +211,7 @@ describe("AgentDashboardFeedRoutes", () => {
 
   it.effect("keeps publisher token auth distinct from environment read auth", () =>
     Effect.gen(function* () {
-      const stateDir = yield* Effect.tryPromise(() =>
+      const stateDir = yield* fixtureIO(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-feed-route-pub-")),
       );
       try {
@@ -238,7 +250,7 @@ describe("AgentDashboardFeedRoutes", () => {
         const cards = yield* store.readFeed;
         expect(cards.some((card) => card.title === "From token")).toBe(true);
       } finally {
-        yield* Effect.tryPromise(() => NodeFSP.rm(stateDir, { recursive: true, force: true }));
+        yield* fixtureIO(() => NodeFSP.rm(stateDir, { recursive: true, force: true }));
       }
     }),
   );

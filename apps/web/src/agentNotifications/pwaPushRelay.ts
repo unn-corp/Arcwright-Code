@@ -1,3 +1,4 @@
+import { Data } from "effect";
 import type { RelayWebPushPreferences } from "@t3tools/contracts/relay";
 import { resolveCloudPublicConfig } from "../cloud/publicConfig";
 
@@ -37,16 +38,16 @@ export type PwaPushRelayProfile =
   | { readonly type: "available"; readonly mode: "legacy" | "owned"; readonly relayOrigin: string }
   | { readonly type: "blocked"; readonly reason: "cloudless" | "profile" };
 
-export class PwaPushUnavailableError extends Error {
+export class PwaPushUnavailableError extends Data.Error<{ readonly message: string }> {
   constructor() {
-    super("Remote notifications are unavailable for this Connect profile.");
+    super({ message: "Remote notifications are unavailable for this Connect profile." });
     this.name = "PwaPushUnavailableError";
   }
 }
-class PwaPushTemporaryError extends Error {
+class PwaPushTemporaryError extends Data.Error<{ readonly message: string }> {
   readonly traceId: string;
   constructor(message: string, traceId: string) {
-    super(message);
+    super({ message });
     this.traceId = traceId;
   }
 }
@@ -142,21 +143,22 @@ async function publicRelayRejection(
   }
 }
 
-export class PwaPushRemovalPendingError extends Error {
+export class PwaPushRemovalPendingError extends Data.Error<{ readonly message: string }> {
   constructor(recoveryRequired = false) {
-    super(
-      recoveryRequired
+    super({
+      message: recoveryRequired
         ? "Remote notification setup or cleanup has an uncertain outcome. In owned mode, use Reset browser push, then Enable to enroll a fresh installation. Legacy credentials are preserved and cannot be safely renewed until the old service setup and cleanup are confirmed."
         : "Remote notification setup or cleanup is still pending. Local Disable or Reset remains available. Enable notifications again after the remote request finishes.",
-    );
+    });
     this.name = "PwaPushRemovalPendingError";
   }
 }
-class PwaPushBindingError extends Error {
+class PwaPushBindingError extends Data.Error<{ readonly message: string }> {
   constructor() {
-    super(
-      "Reset this browser's push subscription, then explicitly enable notifications again. Previous service cleanup may still be pending.",
-    );
+    super({
+      message:
+        "Reset this browser's push subscription, then explicitly enable notifications again. Previous service cleanup may still be pending.",
+    });
     this.name = "PwaPushBindingError";
   }
 }

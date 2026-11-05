@@ -38,13 +38,14 @@ const currentTraceId = Effect.currentParentSpan.pipe(
   Effect.orElseSucceed(() => "unknown"),
 );
 type BoundaryStatus = 400 | 413 | 431;
-class BodyRejected extends Error {
-  readonly status: BoundaryStatus;
-  constructor(status: BoundaryStatus) {
-    super("Relay body rejected");
-    this.status = status;
+class BodyRejected extends Schema.TaggedError<BodyRejected>()("BodyRejected", {
+  status: Schema.Literals([400, 413, 431]),
+}) {
+  override get message() {
+    return "Relay body rejected";
   }
 }
+const isBodyRejected = Schema.is(BodyRejected);
 function cancelBody(request: Request): void {
   try {
     void request.body?.cancel().catch(() => {});
@@ -81,21 +82,21 @@ const readBody = (request: Request) =>
         cancel();
       };
       const aborted = new Promise<never>((_resolve, reject) => {
-        rejectAbort = () => reject(new BodyRejected(400));
+        rejectAbort = () => reject(new BodyRejected({ status: 400 }));
       });
       signal.addEventListener("abort", abort, { once: true });
       request.signal.addEventListener("abort", abort, { once: true });
       try {
-        if (signal.aborted || request.signal.aborted) throw new BodyRejected(400);
+        if (signal.aborted || request.signal.aborted) throw new BodyRejected({ status: 400 });
         while (true) {
           const chunk = await Promise.race([reader.read(), aborted]);
-          if (signal.aborted || request.signal.aborted) throw new BodyRejected(400);
+          if (signal.aborted || request.signal.aborted) throw new BodyRejected({ status: 400 });
           if (chunk.done) {
             ended = true;
             break;
           }
           if (chunk.value.byteLength > publicRelayBounds.bodyBytes - bytes)
-            throw new BodyRejected(413);
+            throw new BodyRejected({ status: 413 });
           bytes += chunk.value.byteLength;
           chunks.push(chunk.value);
         }
@@ -115,7 +116,7 @@ const readBody = (request: Request) =>
         } catch {}
       }
     },
-    catch: (error) => (error instanceof BodyRejected ? error : new BodyRejected(400)),
+    catch: (error) => (isBodyRejected(error) ? error : new BodyRejected({ status: 400 })),
   });
 
 function responseFor(error: (typeof CommonRelayPublicBoundaryErrors)[number]["Type"]) {

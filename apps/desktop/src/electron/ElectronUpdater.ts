@@ -205,13 +205,15 @@ export const make = ElectronUpdater.of({
     },
   ),
   // Use the updater's helper so cache lookup follows the same configuration as downloads.
-  pendingDownloadDirectory: Effect.tryPromise(() =>
-    (
-      autoUpdater as unknown as {
-        getOrCreateDownloadHelper: () => Promise<{ readonly cacheDirForPendingUpdate: string }>;
-      }
-    ).getOrCreateDownloadHelper(),
-  ).pipe(
+  pendingDownloadDirectory: Effect.tryPromise({
+    try: () =>
+      (
+        autoUpdater as unknown as {
+          getOrCreateDownloadHelper: () => Promise<{ readonly cacheDirForPendingUpdate: string }>;
+        }
+      ).getOrCreateDownloadHelper(),
+    catch: () => "pending-download-unavailable" as const,
+  }).pipe(
     Effect.map((helper) => helper.cacheDirForPendingUpdate),
     Effect.option,
   ),

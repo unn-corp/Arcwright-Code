@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 // @effect-diagnostics nodeBuiltinImport:off preferSchemaOverJson:off - This disconnected OS boundary validates a fixed JSON probe protocol.
 import * as NodeCrypto from "node:crypto";
 import {
@@ -61,14 +62,15 @@ export interface OrganizationSingleFileQAEvaluation {
   readonly evidenceBytes: Uint8Array;
 }
 
-class OrganizationSingleFileQAEvaluatorError extends Error {
-  override readonly name = "OrganizationSingleFileQAEvaluatorError";
-}
+class OrganizationSingleFileQAEvaluatorError extends Schema.TaggedError<OrganizationSingleFileQAEvaluatorError>()(
+  "OrganizationSingleFileQAEvaluatorError",
+  { message: Schema.String },
+) {}
 
 const sha256 = (bytes: Uint8Array): string =>
   NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 const invalid = (message: string): never => {
-  throw new OrganizationSingleFileQAEvaluatorError(message);
+  throw new OrganizationSingleFileQAEvaluatorError({ message: message });
 };
 
 /** Canonical JSON comparison rejects non-JSON, non-finite numbers and cyclic values. */

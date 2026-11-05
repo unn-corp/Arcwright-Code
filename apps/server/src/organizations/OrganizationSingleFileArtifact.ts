@@ -33,9 +33,10 @@ export interface OrganizationSingleFileArtifact {
   readonly replacementSha256: string;
 }
 
-export class OrganizationSingleFileArtifactError extends Error {
-  override readonly name = "OrganizationSingleFileArtifactError";
-}
+export class OrganizationSingleFileArtifactError extends Schema.TaggedError<OrganizationSingleFileArtifactError>()(
+  "OrganizationSingleFileArtifactError",
+  { message: Schema.String },
+) {}
 
 const EncodedArtifact = Schema.Struct({
   version: Schema.Literal(1),
@@ -50,7 +51,7 @@ const EncodedArtifact = Schema.Struct({
 const decodeEncoded = Schema.decodeUnknownSync(EncodedArtifact);
 
 const invalid = (reason: string): never => {
-  throw new OrganizationSingleFileArtifactError(reason);
+  throw new OrganizationSingleFileArtifactError({ message: reason });
 };
 const sha256 = (bytes: Uint8Array): string =>
   NodeCrypto.createHash("sha256").update(bytes).digest("hex");

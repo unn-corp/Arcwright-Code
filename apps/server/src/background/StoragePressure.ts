@@ -11,7 +11,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
+
+class StorageProbeError extends Schema.TaggedError<StorageProbeError>()("StorageProbeError", {
+  cause: Schema.Defect(),
+}) {}
 
 type Snapshot = NonNullable<BackgroundPolicySnapshot["storagePressure"]>;
 
@@ -96,9 +101,10 @@ const makeForDatabase = Effect.fn("StoragePressure.makeForDatabase")(function* (
   const platform = yield* HostProcessPlatform;
   const psi =
     platform === "linux"
-      ? Effect.tryPromise((signal) =>
-          NodeFSP.readFile("/proc/pressure/io", { encoding: "utf8", signal }),
-        ).pipe(
+      ? Effect.tryPromise({
+          try: (signal) => NodeFSP.readFile("/proc/pressure/io", { encoding: "utf8", signal }),
+          catch: (cause) => new StorageProbeError({ cause }),
+        }).pipe(
           Effect.timeoutOption("250 millis"),
           Effect.orElseSucceed(() => Option.none<string>()),
         )
@@ -106,13 +112,14 @@ const makeForDatabase = Effect.fn("StoragePressure.makeForDatabase")(function* (
   // statfs cannot be cancelled. Reuse an outstanding native request after a
   // timeout so a stalled filesystem cannot fill libuv's queue with probes.
   let diskFlight: Promise<NodeFS.StatsFs> | undefined;
-  const disk = Effect.tryPromise(
-    () =>
+  const disk = Effect.tryPromise({
+    try: () =>
       diskFlight ??
       (diskFlight = NodeFSP.statfs(NodePath.dirname(dbPath)).finally(() => {
         diskFlight = undefined;
       })),
-  ).pipe(
+    catch: (cause) => new StorageProbeError({ cause }),
+  }).pipe(
     Effect.timeoutOption("250 millis"),
     Effect.orElseSucceed(() => Option.none<NodeFS.StatsFs>()),
   );

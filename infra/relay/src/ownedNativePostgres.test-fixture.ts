@@ -1,14 +1,17 @@
+import * as Config from "effect/Config";
 import * as NodeBuffer from "node:buffer";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-class FixtureConfigurationRejected extends Data.TaggedError("FixtureConfigurationRejected") {}
+class FixtureConfigurationRejected extends Schema.TaggedError<FixtureConfigurationRejected>()(
+  "FixtureConfigurationRejected",
+  {},
+) {}
 
 const NativeConnection = Schema.Struct({
   kind: Schema.Literal("owned-native-postgres-v1"),
@@ -30,7 +33,7 @@ export const verifiedNativeConnection = Effect.fn("ownedNativePostgres.verifiedN
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     if (!nativeFixtureFile) return yield* new FixtureConfigurationRejected();
-    const temporaryDirectory = process.env.TMPDIR ?? "/tmp";
+    const temporaryDirectory = yield* Config.String("TMPDIR").pipe(Config.withDefault("/tmp"));
     if (!path.isAbsolute(temporaryDirectory)) return yield* new FixtureConfigurationRejected();
     const temporaryParent = yield* fs.realPath(temporaryDirectory);
     if ((yield* fs.stat(temporaryParent)).type !== "Directory")

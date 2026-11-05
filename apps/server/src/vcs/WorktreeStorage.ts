@@ -143,7 +143,7 @@ export const make = Effect.gen(function* () {
     timeToLive: "1 minute",
     lookup: Effect.fn("WorktreeStorage.lookup")(
       function* (cwd: string) {
-        const filesystem = yield* Effect.tryPromise(() => NodeFSP.statfs(cwd));
+        const filesystem = yield* io("inspect filesystem", () => NodeFSP.statfs(cwd));
         if (platform === "linux" && filesystem.type === 0x9123683e) {
           // FIEMAP reports exclusive data separately from shared extents. Ordinary
           // du/stat cannot distinguish reflinks. Never require elevated privileges.

@@ -137,6 +137,11 @@ function isLoopbackManagedTunnelOrigin(
   );
 }
 
+class RelayProofPrecheckError extends Schema.TaggedError<RelayProofPrecheckError>()(
+  "RelayProofPrecheckError",
+  { cause: Schema.Defect() },
+) {}
+
 const make = Effect.gen(function* () {
   const lifecycle = yield* ManagedEndpointLifecycle.ManagedEndpointLifecycle;
   const managedEndpointProvider = yield* ManagedEndpointProvider.ManagedEndpointProvider;
@@ -149,7 +154,10 @@ const make = Effect.gen(function* () {
     link: Effect.fn("relay.environment_linker.link")(function* (input) {
       const now = yield* DateTime.now;
       const nowSeconds = Math.floor(now.epochMilliseconds / 1_000);
-      const unverified = yield* Effect.try(() => inspectBoundedJwt(input.request.proof)).pipe(
+      const unverified = yield* Effect.try({
+        try: () => inspectBoundedJwt(input.request.proof),
+        catch: (cause) => new RelayProofPrecheckError({ cause }),
+      }).pipe(
         Effect.andThen(decodeRelayJwt(input.request.proof)),
         Effect.mapError(
           (cause) =>
@@ -189,9 +197,10 @@ const make = Effect.gen(function* () {
       }
       const issuer = `t3-env:${candidate.environmentId}`;
       const relayIssuer = normalizeRelayIssuer(config.relayIssuer);
-      const verified = yield* Effect.try(() =>
-        assertPublicSpki(candidate.environmentPublicKey),
-      ).pipe(
+      const verified = yield* Effect.try({
+        try: () => assertPublicSpki(candidate.environmentPublicKey),
+        catch: (cause) => new RelayProofPrecheckError({ cause }),
+      }).pipe(
         Effect.andThen(
           verifyRelayJwt(RelayEnvironmentLinkProofPayload, {
             publicKey: candidate.environmentPublicKey,

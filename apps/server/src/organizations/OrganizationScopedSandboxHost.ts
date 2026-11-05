@@ -56,7 +56,9 @@ async function writeAndClose(fd: NodeStream.Writable, bytes: string | Buffer): P
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       fd.destroy();
-      reject(new OrganizationSandboxUnavailable("Scoped sandbox gate write timed out"));
+      reject(
+        new OrganizationSandboxUnavailable({ message: "Scoped sandbox gate write timed out" }),
+      );
     }, 3_000);
   });
   try {
@@ -150,7 +152,9 @@ function busEnv(): NodeJS.ProcessEnv {
   const runtime = process.env.XDG_RUNTIME_DIR;
   const bus = process.env.DBUS_SESSION_BUS_ADDRESS;
   if (!runtime || !bus || process.getuid?.() === undefined)
-    throw new OrganizationSandboxUnavailable("A systemd user bus and host UID are required");
+    throw new OrganizationSandboxUnavailable({
+      message: "A systemd user bus and host UID are required",
+    });
   return { XDG_RUNTIME_DIR: runtime, DBUS_SESSION_BUS_ADDRESS: bus };
 }
 
@@ -214,7 +218,9 @@ function cgroupAbsolute(controlGroup: string): string {
     !/^\/[A-Za-z0-9_./@-]+$/.test(controlGroup) ||
     controlGroup.includes("..")
   )
-    throw new OrganizationSandboxUnavailable("Scope cgroup is outside the current user manager");
+    throw new OrganizationSandboxUnavailable({
+      message: "Scope cgroup is outside the current user manager",
+    });
   return NodePath.join("/sys/fs/cgroup", controlGroup);
 }
 
@@ -248,9 +254,9 @@ async function verifyScope(
     !Number.isFinite(durationMicros(p.get("RuntimeMaxUSec"))) ||
     !group.endsWith(`/${unit}`)
   )
-    throw new OrganizationSandboxUnavailable(
-      "Scope identity or requested limits could not be verified",
-    );
+    throw new OrganizationSandboxUnavailable({
+      message: "Scope identity or requested limits could not be verified",
+    });
   const cgroup = cgroupAbsolute(group);
   const [memory, swap, pids, cpu, membership] = await Promise.all([
     NodeFSP.readFile(NodePath.join(cgroup, "memory.max"), "utf8"),
@@ -272,9 +278,9 @@ async function verifyScope(
     (cpuParts[0] ?? Infinity) * 100 > (cpuParts[1] ?? 0) * CPU_PERCENT ||
     !membership.split("\n").includes(`0::${group}`)
   )
-    throw new OrganizationSandboxUnavailable(
-      "Kernel cgroup limits or sandbox membership could not be verified",
-    );
+    throw new OrganizationSandboxUnavailable({
+      message: "Kernel cgroup limits or sandbox membership could not be verified",
+    });
   return { invocationId: id, controlGroup: group };
 }
 
@@ -337,21 +343,25 @@ export async function stopAndVerifyOrganizationScopedSandbox(
     !Number.isSafeInteger(pidNamespace) ||
     pidNamespace <= 0
   )
-    throw new OrganizationSandboxUnavailable("Persisted scope identity is invalid");
+    throw new OrganizationSandboxUnavailable({ message: "Persisted scope identity is invalid" });
   cgroupAbsolute(controlGroup);
   const current = await showUnit(unitName);
   if (current.get("Id") !== unitName)
-    throw new OrganizationSandboxUnavailable("Persisted scope unit identity changed");
+    throw new OrganizationSandboxUnavailable({ message: "Persisted scope unit identity changed" });
   const absent =
     current.get("LoadState") === "not-found" &&
     !current.get("InvocationID") &&
     !current.get("ControlGroup");
   if (!absent) {
     if (current.get("InvocationID") !== invocationId)
-      throw new OrganizationSandboxUnavailable("Persisted scope invocation identity changed");
+      throw new OrganizationSandboxUnavailable({
+        message: "Persisted scope invocation identity changed",
+      });
     const liveGroup = current.get("ControlGroup");
     if (liveGroup && liveGroup !== controlGroup)
-      throw new OrganizationSandboxUnavailable("Persisted scope cgroup identity changed");
+      throw new OrganizationSandboxUnavailable({
+        message: "Persisted scope cgroup identity changed",
+      });
     if (current.get("ActiveState") !== "inactive") await stopExactUnit(unitName);
   }
   await verifyStopped(unitName, invocationId, controlGroup, { pidNamespace });
@@ -400,14 +410,14 @@ export async function prepareOrganizationScopedSandbox(
   const captured = snapshotInput(input); // All caller-owned data is copied before the first await.
   const unitName = input.reservedUnitName ?? allocateOrganizationScopedUnitName();
   if (!RESERVED_UNIT.test(unitName))
-    throw new OrganizationSandboxUnavailable("Reserved scope unit name is invalid");
+    throw new OrganizationSandboxUnavailable({ message: "Reserved scope unit name is invalid" });
   const hardRuntimeMs = captured.runtimeMs + START_BUDGET_MS;
   if (
     HostProcessPlatform.defaultValue() !== "linux" ||
     NodeChildProcess.spawnSync(BWRAP, ["--version"], { stdio: "ignore", timeout: 1_000 }).status !==
       0
   )
-    throw new OrganizationSandboxUnavailable("Linux bubblewrap is unavailable");
+    throw new OrganizationSandboxUnavailable({ message: "Linux bubblewrap is unavailable" });
   const env = busEnv();
   const token = NodeCrypto.randomBytes(32).toString("hex");
   const workDirectory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-org-scoped-"));
@@ -545,7 +555,9 @@ export async function prepareOrganizationScopedSandbox(
       !controlFd(child, 4) ||
       !controlFd(child, 5)
     )
-      throw new OrganizationSandboxUnavailable("Scoped bubblewrap pipes are unavailable");
+      throw new OrganizationSandboxUnavailable({
+        message: "Scoped bubblewrap pipes are unavailable",
+      });
     // Install output readers before waiting, so the child cannot block on a full pipe.
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -678,7 +690,9 @@ export async function prepareOrganizationScopedSandbox(
         const blockFd = child && controlFd(child, 4);
         const gateFd = child && controlFd(child, 5);
         if (!blockFd || !gateFd)
-          throw new OrganizationSandboxUnavailable("Scoped sandbox control pipes closed");
+          throw new OrganizationSandboxUnavailable({
+            message: "Scoped sandbox control pipes closed",
+          });
         await writeAndClose(blockFd, "R");
         await writeAndClose(gateFd, Buffer.from(token, "hex"));
         runtimeTimer = setTimeout(() => {

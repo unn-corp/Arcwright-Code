@@ -20,6 +20,7 @@ import {
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Config from "effect/Config";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -129,6 +130,7 @@ const exists = async (target: string) =>
 /** @public */
 export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
+  const namespace = yield* Config.option(Config.String("T3CODE_MAINTENANCE_NAMESPACE"));
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const desktopState = yield* DesktopState.DesktopState;
@@ -213,7 +215,7 @@ export const make = Effect.gen(function* () {
   };
 
   const core: DesktopMaintenance = createDesktopMaintenance({
-    namespace: process.env.T3CODE_MAINTENANCE_NAMESPACE,
+    namespace: Option.getOrUndefined(namespace),
     baseDir: environment.baseDir,
     version: environment.appVersion,
     provenance:

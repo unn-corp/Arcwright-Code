@@ -1,5 +1,5 @@
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "@effect/vitest";
-import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -245,7 +245,7 @@ describe("AccountDeletionFence owned PostgreSQL authority and writes", () => {
         Effect.gen(function* () {
           const { db, port, fence } = yield* setup;
           const subject = yield* port.fromAlreadyVerifiedSession("user_Failure");
-          class BusinessDenied extends Data.TaggedError("BusinessDenied") {}
+          class BusinessDenied extends Schema.TaggedError<BusinessDenied>()("BusinessDenied", {}) {}
           const business = new BusinessDenied();
           expect(
             yield* Effect.flip(

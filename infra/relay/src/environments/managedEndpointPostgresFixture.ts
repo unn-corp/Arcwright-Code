@@ -4,7 +4,6 @@ import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import type { EffectDrizzleQueryError, MigratorInitError } from "drizzle-orm/effect-core/errors";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import type { MigrationConfig } from "drizzle-orm/migrator";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -31,10 +30,16 @@ const containerId = "dbc30b134c2b29164e8b69094e4038f3541b24158ac5a60cccbba50f1ef
 const networkId = "873a155e6310965ce514f0ff2cf5b47c4caf384e497b65a9d0eb8424c38dbdd7";
 const image =
   "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea";
-class FixtureConfigurationRejected extends Data.TaggedError("FixtureConfigurationRejected") {}
-class FixtureMigrationError extends Data.TaggedError("FixtureMigrationError")<{
-  readonly cause: unknown;
-}> {}
+class FixtureConfigurationRejected extends Schema.TaggedError<FixtureConfigurationRejected>()(
+  "FixtureConfigurationRejected",
+  {},
+) {}
+class FixtureMigrationError extends Schema.TaggedError<FixtureMigrationError>()(
+  "FixtureMigrationError",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 const identity = {
   fixtureOnly: Schema.Literal(true),
   internalDockerOnly: Schema.Literal(true),

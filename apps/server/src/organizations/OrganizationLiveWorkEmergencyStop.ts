@@ -49,12 +49,10 @@ const livePhases = new Map<
 >();
 const liveProviders = new Map<OrganizationWorkId, ChildProcessSpawner.ChildProcessHandle>();
 
-export class OrganizationLiveWorkEmergencyDeferred extends Error {
-  readonly _tag = "OrganizationLiveWorkEmergencyDeferred";
-  constructor() {
-    super("Organization emergency stop holds Project work.");
-  }
-}
+export class OrganizationLiveWorkEmergencyDeferred extends Schema.TaggedError<OrganizationLiveWorkEmergencyDeferred>()(
+  "OrganizationLiveWorkEmergencyDeferred",
+  { message: Schema.String },
+) {}
 
 export const registerOrganizationLivePhase = Effect.fn(
   "OrganizationLiveWorkEmergencyStop.registerOrganizationLivePhase",
@@ -64,7 +62,9 @@ export const registerOrganizationLivePhase = Effect.fn(
   interrupt: () => Effect.Effect<void>,
 ) {
   if (livePhases.has(workId))
-    return yield* Effect.fail(new OrganizationLiveWorkEmergencyDeferred());
+    return yield* new OrganizationLiveWorkEmergencyDeferred({
+      message: "Organization emergency stop holds Project work.",
+    });
   const entry = { organizationId, interrupt };
   livePhases.set(workId, entry);
   return () => {

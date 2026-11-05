@@ -6,7 +6,6 @@ import type {
 } from "@t3tools/contracts/relay";
 import { and, eq, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -64,14 +63,18 @@ export type BeginResult =
   | { readonly status: "Applied"; readonly stepId: string }
   | { readonly status: "Cancelled" | "Stale" };
 
-class LifecycleTransitionRejected extends Data.TaggedError("LifecycleTransitionRejected")<{
-  readonly reason:
-    | "ambient-transaction"
-    | "missing-step-uuid"
-    | "invalid-publication"
-    | "owner-update-lost"
-    | "cleanup-update-lost";
-}> {}
+class LifecycleTransitionRejected extends Schema.TaggedError<LifecycleTransitionRejected>()(
+  "LifecycleTransitionRejected",
+  {
+    reason: Schema.Literals([
+      "ambient-transaction",
+      "missing-step-uuid",
+      "invalid-publication",
+      "owner-update-lost",
+      "cleanup-update-lost",
+    ]),
+  },
+) {}
 
 export class LifecyclePersistenceError extends Schema.TaggedError<LifecyclePersistenceError>()(
   "ManagedEndpointLifecyclePersistenceError",

@@ -101,6 +101,10 @@ export const traceMaxFilesConfig = Config.Int("T3CODE_TRACE_MAX_FILES").pipe(
 );
 
 const EnvServerConfig = Config.all({
+  maintenanceNamespace: Config.String("T3CODE_MAINTENANCE_NAMESPACE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   logLevel: Config.LogLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
   traceMinLevel: Config.LogLevel("T3CODE_TRACE_MIN_LEVEL").pipe(Config.withDefault("Info")),
   traceTimingEnabled: Config.Boolean("T3CODE_TRACE_TIMING_ENABLED").pipe(Config.withDefault(true)),
@@ -529,7 +533,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     logWebSocketEvents,
     tailscaleServeEnabled,
     tailscaleServePort,
-    maintenance: { namespace: process.env.T3CODE_MAINTENANCE_NAMESPACE },
+    maintenance: { namespace: env.maintenanceNamespace },
   };
 
   return config;

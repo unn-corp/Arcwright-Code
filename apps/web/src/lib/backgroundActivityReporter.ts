@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
@@ -21,6 +22,11 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { randomUUID } from "./utils";
 import { androidNotificationRequest, supportsAndroidNotifications } from "../android/notifications";
+
+class ClientVisibilityReadError extends Schema.TaggedError<ClientVisibilityReadError>()(
+  "ClientVisibilityReadError",
+  { cause: Schema.Unknown },
+) {}
 
 const CLIENT_ID_STORAGE_KEY = "t3.backgroundActivity.clientId";
 const REPORT_INTERVAL_MS = 25_000;
@@ -208,7 +214,10 @@ export const layer = Layer.effectDiscard(
 
     const report = Effect.gen(function* () {
       const observedAtMs = yield* Clock.currentTimeMillis;
-      const visible = yield* Effect.tryPromise(readNotificationClientVisibility).pipe(
+      const visible = yield* Effect.tryPromise({
+        try: readNotificationClientVisibility,
+        catch: (cause) => new ClientVisibilityReadError({ cause }),
+      }).pipe(
         Effect.timeout("2 seconds"),
         Effect.orElseSucceed(() => document.visibilityState === "visible"),
       );

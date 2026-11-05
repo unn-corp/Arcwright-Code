@@ -1,9 +1,14 @@
+import * as Schema from "effect/Schema";
+
 /** Relay-local prechecks run before JSON, JOSE, Clerk, or public-key import. */
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
-export class PublicRelayInputInvalid extends Error {
-  constructor() {
-    super("Invalid relay input");
+export class PublicRelayInputInvalid extends Schema.TaggedError<PublicRelayInputInvalid>()(
+  "PublicRelayInputInvalid",
+  {},
+) {
+  override get message() {
+    return "Invalid relay input";
   }
 }
 function invalid(): never {

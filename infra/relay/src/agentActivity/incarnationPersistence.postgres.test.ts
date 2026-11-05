@@ -1,10 +1,10 @@
+import * as Schema from "effect/Schema";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { RelayEnvironmentLinkProofPayload } from "@t3tools/contracts/relay";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { eq, sql } from "drizzle-orm";
-import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -95,9 +95,10 @@ const state = {
   deepLink: "/",
 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-class MigrationFixtureError extends Data.TaggedError("MigrationFixtureError")<{
-  readonly cause: unknown;
-}> {}
+class MigrationFixtureError extends Schema.TaggedError<MigrationFixtureError>()(
+  "MigrationFixtureError",
+  { cause: Schema.Defect() },
+) {}
 const fixture = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(layerPersistence));
 

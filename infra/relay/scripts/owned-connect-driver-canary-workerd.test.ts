@@ -1,3 +1,4 @@
+import * as Config from "effect/Config";
 import * as NodeBuffer from "node:buffer";
 import * as NodeModule from "node:module";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -248,7 +249,9 @@ sockets=[(name="http",address="127.0.0.1:0",http=(),service="fixture")]);`,
                   yield* Fiber.join(stdout).pipe(Effect.timeout("2 seconds"), Effect.orDie);
                   expect(yield* child.isRunning).toBe(false);
                   expect(logs.join("")).not.toMatch(/unhandled|uncaught/i);
-                  const evidence = process.env.ARCWRIGHT_DRIVER_CANARY_TEST_EVIDENCE;
+                  const evidence = yield* Config.String(
+                    "ARCWRIGHT_DRIVER_CANARY_TEST_EVIDENCE",
+                  ).pipe(Config.withDefault(""));
                   if (evidence) {
                     yield* fs.writeFileString(
                       path.join(evidence, `deadline-workerd-${child.pid}.log`),
@@ -457,7 +460,9 @@ const config :Workerd.Config = (
                       logs.join(""),
                       { mode: 0o600 },
                     );
-                    const evidence = process.env.ARCWRIGHT_DRIVER_CANARY_TEST_EVIDENCE;
+                    const evidence = yield* Config.String(
+                      "ARCWRIGHT_DRIVER_CANARY_TEST_EVIDENCE",
+                    ).pipe(Config.withDefault(""));
                     if (evidence) {
                       const stat = yield* fs.stat(evidence);
                       if (

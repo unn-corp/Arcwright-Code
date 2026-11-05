@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off - Durable local process claims use a process epoch and UTC receipts.
 import * as OrganizationWorkStatusChanges from "./OrganizationWorkStatusChanges.ts";
 import * as NodeCrypto from "node:crypto";
@@ -53,12 +54,10 @@ const status = (
   requestedAt: row?.requested_at ?? null,
 });
 
-export class OrganizationLiveWorkDrainDeferred extends Error {
-  readonly _tag = "OrganizationLiveWorkDrainDeferred";
-  constructor() {
-    super("Organization drain defers new work phases.");
-  }
-}
+export class OrganizationLiveWorkDrainDeferred extends Schema.TaggedError<OrganizationLiveWorkDrainDeferred>()(
+  "OrganizationLiveWorkDrainDeferred",
+  { message: Schema.String },
+) {}
 
 /** This transaction is also called after the last admitted phase settles. */
 const finishDrain = Effect.fn("OrganizationLiveWorkDrain.finishDrain")(function* (
@@ -197,14 +196,21 @@ const claimPhase = Effect.fn("OrganizationLiveWorkDrain.claimPhase")(function* (
           JOIN organizations o ON o.organization_id = w.organization_id
           WHERE w.work_id = ${workId}`)[0];
       if (!work || work.lifecycle !== "active")
-        return yield* Effect.fail(new OrganizationLiveWorkDrainDeferred());
+        return yield* new OrganizationLiveWorkDrainDeferred({
+          message: "Organization drain defers new work phases.",
+        });
       const emergencyStop = yield* sql<{ organization_id: string }>`SELECT organization_id
           FROM organization_emergency_stops WHERE organization_id = ${work.organization_id}`;
       if (emergencyStop.length > 0)
-        return yield* Effect.fail(new OrganizationLiveWorkEmergencyDeferred());
+        return yield* new OrganizationLiveWorkEmergencyDeferred({
+          message: "Organization emergency stop holds Project work.",
+        });
       const drain = yield* sql<{ organization_id: string }>`SELECT organization_id
           FROM organization_live_work_drains WHERE organization_id = ${work.organization_id}`;
-      if (drain.length > 0) return yield* Effect.fail(new OrganizationLiveWorkDrainDeferred());
+      if (drain.length > 0)
+        return yield* new OrganizationLiveWorkDrainDeferred({
+          message: "Organization drain defers new work phases.",
+        });
       const startedAt = new Date().toISOString();
       yield* sql`INSERT INTO organization_live_work_phase_claims
           (work_id, organization_id, phase, owner_epoch, started_at)
@@ -278,11 +284,17 @@ export const withOrganizationLiveWorkPhaseClaim = <A, E, R>(
                   FROM organization_emergency_stops
                   WHERE organization_id = ${claim.organizationId}`;
                 if (stop.length > 0)
-                  return yield* Effect.fail(new OrganizationLiveWorkEmergencyDeferred());
+                  return yield* new OrganizationLiveWorkEmergencyDeferred({
+                    message: "Organization emergency stop holds Project work.",
+                  });
                 yield* Deferred.succeed(gate, undefined);
                 return yield* restore(Fiber.join(fiber)).pipe(
                   Effect.catchCauseIf(Cause.hasInterruptsOnly, () =>
-                    Effect.fail(new OrganizationLiveWorkEmergencyDeferred()),
+                    Effect.fail(
+                      new OrganizationLiveWorkEmergencyDeferred({
+                        message: "Organization emergency stop holds Project work.",
+                      }),
+                    ),
                   ),
                 );
               }),

@@ -241,8 +241,9 @@ describe("VcsStatusBroadcaster", () => {
       assert.strictEqual(state.localStatusCalls, 3);
     }).pipe(Effect.provide(layerTestFor(state)), Effect.scoped);
   });
-  it.effect("publishes a terminal branch switch without reading remote status", () => {
-    const state = {
+
+  it.effect("publishes terminal branch switches and validates cached status reads", () => {
+    const state: Parameters<typeof layerTestFor>[0] = {
       currentLocalStatus: baseLocalStatus,
       currentRemoteStatus: remoteStatusWithPr,
       localStatusCalls: 0,
@@ -252,9 +253,12 @@ describe("VcsStatusBroadcaster", () => {
     };
     return Effect.gen(function* () {
       const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
-      yield* broadcaster.getStatus({
-        cwd: "/repo",
-      });
+      yield* broadcaster.getStatus({ cwd: "/repo" });
+      const branchEvents = yield* broadcaster.streamBranchChanges.pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkScoped({ startImmediately: true }),
+      );
       const subscribed = yield* Deferred.make<void>();
       const events = yield* broadcaster
         .streamStatus({
@@ -292,11 +296,14 @@ describe("VcsStatusBroadcaster", () => {
           local: state.currentLocalStatus,
         },
       ]);
-      assert.isNull(
-        (yield* broadcaster.getStatus({
-          cwd: "/repo",
-        })).pr,
-      );
+      assert.isNull((yield* broadcaster.getStatus({ cwd: "/repo" })).pr);
+      state.currentLocalStatus = { ...state.currentLocalStatus, hasWorkingTreeChanges: true };
+      yield* broadcaster.refreshLocalStatus("/repo");
+      state.currentLocalStatus = { ...baseLocalStatus, refName: "union" };
+      state.currentRemoteStatus = null;
+      const queried = yield* broadcaster.getStatus({ cwd: "/repo" });
+      assert.equal(queried.refName, "union");
+      assert.isNull(queried.pr);
       const snapshot = yield* broadcaster
         .streamStatus({
           cwd: "/repo",
@@ -308,6 +315,10 @@ describe("VcsStatusBroadcaster", () => {
         local: state.currentLocalStatus,
         remote: null,
       });
+      assert.deepStrictEqual(yield* Fiber.join(branchEvents), [
+        { cwd: "/repo", refName: "main" },
+        { cwd: "/repo", refName: "union" },
+      ]);
     }).pipe(Effect.provide(layerTestFor(state)));
   });
   it.effect(
@@ -457,13 +468,14 @@ describe("VcsStatusBroadcaster", () => {
     },
   );
   it.effect("refreshes a loaded cwd without reusing a previous branch's PR", () => {
-    const state = {
+    const state: Parameters<typeof layerTestFor>[0] = {
       currentLocalStatus: baseLocalStatus,
-      currentRemoteStatus: baseRemoteStatus,
+      currentRemoteStatus: { ...baseRemoteStatus, aheadCount: 3, behindCount: 5 },
       localStatusCalls: 0,
       remoteStatusCalls: 0,
       localInvalidationCalls: 0,
       remoteInvalidationCalls: 0,
+      remoteStatusRefreshUpstreamValues: [],
     };
     return Effect.gen(function* () {
       const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -473,9 +485,13 @@ describe("VcsStatusBroadcaster", () => {
         cwd: "/repo",
       });
       assert.equal(state.remoteStatusCalls, 1);
-      state.currentRemoteStatus = remoteStatusWithPr;
+      state.currentRemoteStatus = { ...remoteStatusWithPr, aheadCount: 7 };
       const refreshed = yield* broadcaster.refreshPullRequestStatus("/repo");
-      assert.deepStrictEqual(refreshed, remoteStatusWithPr);
+      assert.deepStrictEqual(refreshed, state.currentRemoteStatus);
+      const merged = yield* broadcaster.getStatus({ cwd: "/repo" });
+      assert.equal(merged.aheadCount, 7);
+      assert.equal(merged.behindCount, 0);
+      assert.equal(state.remoteStatusRefreshUpstreamValues?.at(-1), false);
       assert.equal(state.remoteStatusCalls, 2);
       assert.equal(state.remoteInvalidationCalls, 2);
       state.currentLocalStatus = {
@@ -1146,8 +1162,7 @@ describe("VcsStatusBroadcaster", () => {
         },
       };
       state.backgroundWorkEnabled = false;
-      yield* broadcaster.refreshPullRequestStatus("/repo");
-      assert.equal(state.remoteStatusCalls, 1);
+      assert.isNull(yield* broadcaster.refreshPullRequestStatus("/repo"));
       state.backgroundWorkEnabled = true;
       const recovered = yield* broadcaster.refreshPullRequestStatus("/repo");
       assert.deepStrictEqual(recovered, state.currentRemoteStatus);

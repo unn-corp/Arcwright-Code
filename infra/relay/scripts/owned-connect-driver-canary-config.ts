@@ -1,3 +1,4 @@
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -88,13 +89,19 @@ export const assertDriverCanaryOperatorContext = Effect.fnUntraced(function* (
   stage: string,
 ) {
   const path = yield* Path.Path;
+  const account = yield* Config.String("CLOUDFLARE_ACCOUNT_ID").pipe(Config.withDefault(""));
+  const ci = yield* Config.String("CI").pipe(Config.withDefault(""));
+  const token = yield* Config.String("CLOUDFLARE_API_TOKEN").pipe(Config.withDefault(""));
+  const secret = yield* Config.String("ARCWRIGHT_CONNECT_DRIVER_CANARY_SECRET").pipe(
+    Config.withDefault(""),
+  );
   if (
     path.resolve(process.cwd()) !== config.privateStateRoot ||
     stage !== config.stage ||
-    process.env.CLOUDFLARE_ACCOUNT_ID !== config.accountId ||
-    process.env.CI !== "true" ||
-    !process.env.CLOUDFLARE_API_TOKEN ||
-    !process.env.ARCWRIGHT_CONNECT_DRIVER_CANARY_SECRET
+    account !== config.accountId ||
+    ci !== "true" ||
+    !token ||
+    !secret
   )
     return yield* new InvalidDriverCanaryConfig();
 });

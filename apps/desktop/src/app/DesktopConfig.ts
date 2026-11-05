@@ -8,7 +8,7 @@ const trimNonEmptyOption = (value: string): Option.Option<string> => {
   return trimmed.length > 0 ? Option.some(trimmed) : Option.none();
 };
 
-const trimmedString = (name: string) =>
+export const trimmedString = (name: string) =>
   Config.String(name).pipe(Config.option, Config.map(Option.flatMap(trimNonEmptyOption)));
 
 // The fork setting wins even when explicitly false; retain the old name for existing launchers.

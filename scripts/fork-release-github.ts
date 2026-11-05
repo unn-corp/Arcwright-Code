@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalFetch:off - release tooling talks to the GitHub REST API directly.
 // GitHub access for the fork release pipeline. `GitHubApi` is the whole surface the pipeline
 // needs, so tests run the real publish/withdraw logic against an in-memory implementation.
+import * as Data from "effect/Data";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { formatBuildVersion } from "@t3tools/shared/buildVersion";
@@ -89,10 +90,11 @@ export interface GitHubApi {
   deleteRelease(id: number): Promise<void>;
 }
 
-export class GitHubApiError extends Error {
+export class GitHubApiError extends Data.Error<{ readonly message: string }> {
+  readonly _tag = "GitHubApiError";
   readonly status: number;
   constructor(status: number, method: string, url: string, detail: string) {
-    super(`${method} ${url} failed with ${status}: ${detail}`);
+    super({ message: `${method} ${url} failed with ${status}: ${detail}` });
     this.status = status;
   }
 }

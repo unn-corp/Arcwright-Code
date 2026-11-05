@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics globalDate:off - tests pin ISO timestamps and TestClock.
 // @effect-diagnostics nodeBuiltinImport:off - temp fixture directories use Node fs/path at the test boundary.
@@ -39,6 +40,11 @@ import {
   WorkAdmission,
   type WorkAdmissionShape,
 } from "../maintenance/WorkAdmission.ts";
+
+class FixtureError extends Schema.TaggedError<FixtureError>()("FixtureError", {
+  message: Schema.String,
+  cause: Schema.Unknown,
+}) {}
 
 const PROJECT_ID = ProjectId.make("project-review-1");
 const THREAD_ID = ThreadId.make("thread-review-1");
@@ -645,7 +651,11 @@ describe("AgentDashboardReviewJobService lifecycle", () => {
       const baseDir = yield* makeTempStateDir();
       const history = yield* makeObservedRunHistory(baseDir);
       const workspaceRoot = NodePath.join(baseDir, "repo");
-      yield* Effect.tryPromise(() => NodeFSP.mkdir(workspaceRoot, { recursive: true }));
+      yield* Effect.tryPromise({
+        try: () => NodeFSP.mkdir(workspaceRoot, { recursive: true }),
+        catch: (cause) =>
+          new FixtureError({ message: "Could not create review workspace fixture", cause }),
+      });
 
       const turnComplete = yield* Ref.make(false);
       const reviewStarted = yield* Deferred.make<void>();

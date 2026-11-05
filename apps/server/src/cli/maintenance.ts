@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off processEnv:off globalDate:off preferSchemaOverJson:off
+import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -30,6 +31,11 @@ import { resolveBaseDir } from "../os-jank.ts";
 import { baseDirFlag } from "./config.ts";
 import { bootstrapManagedScopeBroker } from "../maintenance/scopeBrokerBootstrap.ts";
 
+const maintenanceNamespace = Config.String("T3CODE_MAINTENANCE_NAMESPACE").pipe(
+  Config.option,
+  Config.map(Option.getOrUndefined),
+  Effect.mapError((cause) => new MaintenanceCliError({ reason: String(cause) })),
+);
 const decodeRecoveryRequest = Schema.decodeUnknownEffect(ForkRecoveryRequest);
 class MaintenanceCliError extends Schema.TaggedError<MaintenanceCliError>()("MaintenanceCliError", {
   reason: Schema.String,
@@ -228,9 +234,9 @@ const repairLockCommand = Command.make("repair-lock", {}).pipe(
   ),
   Command.withHandler(() =>
     Effect.gen(function* () {
+      const namespace = yield* maintenanceNamespace;
       const store = yield* Effect.tryPromise({
-        try: () =>
-          CoordinatorStore.open(coordinatorDirectory(process.env.T3CODE_MAINTENANCE_NAMESPACE)),
+        try: () => CoordinatorStore.open(coordinatorDirectory(namespace)),
         catch: (cause) => new MaintenanceCoordinatorOpenError({ reason: String(cause) }),
       });
       const removed = yield* Effect.tryPromise({
@@ -253,11 +259,12 @@ const scopeBrokerCommand = Command.make("scope-broker", { baseDir: baseDirFlag }
   Command.withHandler(({ baseDir: flag }) =>
     Effect.gen(function* () {
       const home = yield* baseDir(flag);
+      const namespace = yield* maintenanceNamespace;
       yield* Effect.tryPromise({
         try: () =>
           bootstrapManagedScopeBroker({
             home,
-            namespace: process.env.T3CODE_MAINTENANCE_NAMESPACE,
+            namespace,
           }),
         catch: (cause) =>
           new MaintenanceCliError({
@@ -274,9 +281,9 @@ const orphanListCommand = Command.make("orphans", { json: jsonFlag }).pipe(
   ),
   Command.withHandler(({ json }) =>
     Effect.gen(function* () {
+      const namespace = yield* maintenanceNamespace;
       const store = yield* Effect.tryPromise({
-        try: () =>
-          CoordinatorStore.open(coordinatorDirectory(process.env.T3CODE_MAINTENANCE_NAMESPACE)),
+        try: () => CoordinatorStore.open(coordinatorDirectory(namespace)),
         catch: (cause) => new MaintenanceCoordinatorOpenError({ reason: String(cause) }),
       });
       const now = yield* Clock.currentTimeMillis;
@@ -328,9 +335,9 @@ const attestOrphanCommand = Command.make("attest-orphan", {
   ),
   Command.withHandler(({ participant, ownerPid, ownerStarted, confirm }) =>
     Effect.gen(function* () {
+      const namespace = yield* maintenanceNamespace;
       const store = yield* Effect.tryPromise({
-        try: () =>
-          CoordinatorStore.open(coordinatorDirectory(process.env.T3CODE_MAINTENANCE_NAMESPACE)),
+        try: () => CoordinatorStore.open(coordinatorDirectory(namespace)),
         catch: (cause) => new MaintenanceCoordinatorOpenError({ reason: String(cause) }),
       });
       yield* Effect.tryPromise({

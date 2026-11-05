@@ -36,6 +36,9 @@ import {
 } from "./OrganizationWorkIntentActivation.ts";
 import { OrganizationWorkStore } from "./OrganizationWorkStore.ts";
 
+const isDrainDeferred = Schema.is(OrganizationLiveWorkDrainDeferred);
+const isEmergencyDeferred = Schema.is(OrganizationLiveWorkEmergencyDeferred);
+
 const isOrganizationProviderBudgetError = Schema.is(OrganizationProviderBudgetError);
 
 const BATCH_SIZE = 4;
@@ -140,14 +143,10 @@ const classifyFailure = (
   return "unexpected_failure";
 };
 
-class OrganizationLiveWorkPhaseError extends Error {
-  readonly _tag = "OrganizationLiveWorkPhaseError";
-  readonly code: "qa_rejected" | "attempt_unavailable";
-  constructor(code: "qa_rejected" | "attempt_unavailable") {
-    super(code);
-    this.code = code;
-  }
-}
+class OrganizationLiveWorkPhaseError extends Schema.TaggedError<OrganizationLiveWorkPhaseError>()(
+  "OrganizationLiveWorkPhaseError",
+  { code: Schema.Literals(["qa_rejected", "attempt_unavailable"]), message: Schema.String },
+) {}
 
 /** Durable state: budget exhaustion and transient integration are recoverable. */
 export const recordOrganizationLiveWorkFailure = Effect.fn(
@@ -282,10 +281,7 @@ export function makeOrganizationLiveWorkExecutor<RS, RA, RQ, RI>(
     const exit = yield* Effect.exit(action);
     if (Exit.isFailure(exit)) {
       const failure = Cause.squash(exit.cause);
-      if (
-        failure instanceof OrganizationLiveWorkDrainDeferred ||
-        failure instanceof OrganizationLiveWorkEmergencyDeferred
-      )
+      if (isDrainDeferred(failure) || isEmergencyDeferred(failure))
         return { workId, phase, outcome: "waiting" as const };
       const code = classifyFailure(phase, failure);
       if (code === "authority_changed") {
@@ -474,7 +470,10 @@ export const organizationLiveWorkActions = {
     const proposal = yield* proposeOrganizationSingleFileArtifactWithBudget(workId);
     const attempt = yield* runOrganizationSingleFileAttempt(proposal);
     if (attempt.status !== "submitted")
-      return yield* Effect.fail(new OrganizationLiveWorkPhaseError("attempt_unavailable"));
+      return yield* new OrganizationLiveWorkPhaseError({
+        code: "attempt_unavailable",
+        message: "attempt_unavailable",
+      });
   }),
   candidateAndQA: Effect.fn("OrganizationLiveWorkExecutor.candidateAndQA")(function* (
     workId: OrganizationWorkId,
@@ -521,7 +520,10 @@ export const organizationLiveWorkActions = {
     );
     const qa = yield* runOrganizationSingleFileQA({ workId, attemptId: attempt.id });
     if (qa.attempts.at(-1)?.status === "qa-rejected")
-      return yield* Effect.fail(new OrganizationLiveWorkPhaseError("qa_rejected"));
+      return yield* new OrganizationLiveWorkPhaseError({
+        code: "qa_rejected",
+        message: "qa_rejected",
+      });
   }),
   integrateAndComplete: Effect.fn("OrganizationLiveWorkExecutor.integrateAndComplete")(function* (
     workId: OrganizationWorkId,
