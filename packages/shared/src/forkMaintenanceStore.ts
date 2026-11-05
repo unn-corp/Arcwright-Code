@@ -360,7 +360,7 @@ export interface TrialCapability {
 export interface CoordinatorStatus {
   readonly coordinatorId: string;
   readonly bootstrapped: boolean;
-  readonly blockers: ReadonlyArray<typeof ForkActivityBlocker.Type>;
+  readonly blockers: ReadonlyArray<ForkActivityBlocker>;
   readonly participants: ReadonlyArray<MaintenanceParticipant>;
   readonly fence: {
     readonly transactionId: string;
@@ -985,7 +985,7 @@ export class CoordinatorStore {
    */
   async observe(
     id: string,
-    blockers: ReadonlyArray<typeof ForkActivityBlocker.Type>,
+    blockers: ReadonlyArray<ForkActivityBlocker>,
     now: number,
     descendants: ReadonlyArray<MaintenanceParticipant["descendants"][number]> = [],
     options: { readonly alreadyIdleFor?: number; readonly descendantsKnown?: boolean } = {},

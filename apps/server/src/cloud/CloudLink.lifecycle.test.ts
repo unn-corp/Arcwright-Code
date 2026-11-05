@@ -20,6 +20,7 @@ import { HttpClient, HttpClientResponse, HttpServer, type HttpClientRequest } fr
 import * as NetAddress from "effect/net/NetAddress";
 
 import { EnvironmentId } from "@t3tools/contracts";
+import * as EnvironmentKeys from "./environmentKeys.ts";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfigModule from "../config.ts";
@@ -175,7 +176,12 @@ describe("releaseManagedTunnelOnShutdown", () => {
     (harness: ReleaseHarness) =>
     <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(
-        Effect.provide(CloudLink.layer.pipe(Layer.provide(ManagedPolicy.layerTest()))),
+        Effect.provide(
+          CloudLink.layer.pipe(
+            Layer.provide(EnvironmentKeys.layer),
+            Layer.provide(ManagedPolicy.layerTest()),
+          ),
+        ),
         Effect.provideService(
           ConnectReachability.ConnectReachability,
           ConnectReachability.ConnectReachability.of({
@@ -214,6 +220,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
               }),
             recoveryRequests: Stream.empty,
             requestRecovery: () => Effect.void,
+            restartConnector: () => Effect.succeed(false),
             tunnelConnected: Stream.empty,
             inspectConnector: Effect.succeed(null),
             readinessChanged: Stream.empty,
@@ -1277,6 +1284,8 @@ describe("releaseManagedTunnelOnShutdown", () => {
       const requests: Array<HttpClientRequest.HttpClientRequest> = [];
       return Effect.gen(function* () {
         const link = yield* CloudLink.CloudLink;
+        const signingKey = values.get("cloud-link-ed25519-key-pair");
+        expect(signingKey).toBeDefined();
         const before = yield* link.linkState();
         expect(before.linked).toBe(false);
         expect(before.persistedLinkPresent).toBe(true);
@@ -1286,7 +1295,12 @@ describe("releaseManagedTunnelOnShutdown", () => {
         expect(result.remoteCleanupAllowed).toBe(false);
         expect(applyConfigCalls).toEqual([null]);
         expect(requests).toEqual([]);
-        expect([...values.keys()]).toEqual(["provider-fixture"]);
+        expect(values).toEqual(
+          new Map([
+            ["provider-fixture", new TextEncoder().encode("untouched-provider")],
+            ["cloud-link-ed25519-key-pair", signingKey],
+          ]),
+        );
         const references = yield* readPendingRemoteCleanup;
         expect(references).toHaveLength(1);
         expect(references[0]?.relayOrigin).toBe(
@@ -1463,6 +1477,9 @@ describe("releaseManagedTunnelOnShutdown", () => {
         yield* fs.writeFileString(reminderPath, contents);
         if (shape === "locked") yield* fs.makeDirectory(`${reminderPath}.lock`);
         const link = yield* CloudLink.CloudLink;
+        const signingKey = values.get("cloud-link-ed25519-key-pair");
+        expect(signingKey).toBeDefined();
+        original.set("cloud-link-ed25519-key-pair", signingKey!);
         const error = yield* Effect.flip(link.unlink());
         expect(error._tag).toBe("CloudLinkInternalError");
         expect(error.message).toContain("disabled locally");
@@ -1511,7 +1528,7 @@ describe("releaseManagedTunnelOnShutdown", () => {
         if (shape === "locked") yield* fs.remove(`${reminderPath}.lock`, { recursive: true });
         yield* fs.writeFileString(reminderPath, "[]");
         yield* link.unlink();
-        expect(values.size).toBe(0);
+        expect(values).toEqual(new Map([["cloud-link-ed25519-key-pair", signingKey]]));
         expect((yield* link.linkState()).locallyDisabled).toBe(false);
         expect(applyConfigCalls).toEqual([null, null]);
         expect(requests).toEqual([]);

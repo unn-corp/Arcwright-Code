@@ -61,6 +61,7 @@ const isGrantError = Schema.is(OrganizationStandingWorkAuthorizationError);
 const decodePublished = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrganizationPublishedConfig),
 );
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const MAX_GRANT_MS = 30 * 24 * 60 * 60 * 1_000;
 const PROVIDER_ESTIMATE = 140_000;
 const requiredCapabilities = ["propose-work", "read-files", "write-files", "run-tests"] as const;
@@ -70,10 +71,9 @@ const human = (principal: OrganizationStandingWorkPrincipal) =>
   principal.subject.trim().length > 0 &&
   Buffer.byteLength(principal.subject, "utf8") <= 160;
 const decode = Effect.fn("OrganizationStandingWorkAuthorization.decode")(function* (row: GrantRow) {
-  const parsed = yield* Effect.try({
-    try: () => JSON.parse(row.selection_json) as unknown,
-    catch: () => fail("unavailable", "Saved standing work selection is unreadable."),
-  });
+  const parsed = yield* decodeJson(row.selection_json).pipe(
+    Effect.mapError(() => fail("unavailable", "Saved standing work selection is unreadable.")),
+  );
   const selection = yield* selectionSnapshot(parsed).pipe(
     Effect.mapError(() => fail("unavailable", "Saved standing work selection is invalid.")),
   );
@@ -211,10 +211,7 @@ export const createOrganizationStandingWorkAuthorization = Effect.fn(
         FROM organization_project_bindings
         WHERE binding_id = ${input.bindingId} AND organization_id = ${input.organizationId}`)[0];
         const capabilities = binding
-          ? yield* Effect.try({
-              try: () => JSON.parse(binding.capabilities_json) as unknown,
-              catch: () => null,
-            }).pipe(Effect.orElseSucceed(() => null))
+          ? yield* decodeJson(binding.capabilities_json).pipe(Effect.orElseSucceed(() => null))
           : null;
         if (
           !binding ||
@@ -419,10 +416,7 @@ export const reconcileOrganizationStandingWorkAuthorizationsOnce = Effect.gen(fu
   let activated = 0;
   let skipped = 0;
   for (const candidate of candidates) {
-    const parsed = yield* Effect.try({
-      try: () => JSON.parse(candidate.selection_json) as unknown,
-      catch: () => fail("unavailable", "Saved standing work selection is unreadable."),
-    }).pipe(Effect.result);
+    const parsed = yield* decodeJson(candidate.selection_json).pipe(Effect.result);
     if (parsed._tag === "Failure") {
       skipped++;
       continue;

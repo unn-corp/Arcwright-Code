@@ -23,6 +23,7 @@ import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as DpopProofs from "../auth/DpopProofs.ts";
 import * as RelayConfiguration from "../Config.ts";
@@ -258,6 +259,7 @@ it.effect.each(localClaimFixtures)(
   "preserves genuinely verified $name proof registered-claim compatibility",
   ({ decode, fields }) =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(1791936000000);
       const ordinary = {
         iss: "https://relay.test",
         aud: "t3-env:env",
@@ -284,13 +286,12 @@ it.effect.each(localClaimFixtures)(
           typ: "compatibility-local-proof+jwt",
           payload: claims,
         });
-        const verified = yield* verifyRelayJwt({
+        const verified = yield* verifyRelayJwt(Schema.Unknown, {
           publicKey: keyPair.publicKey,
           token,
           typ: "compatibility-local-proof+jwt",
           issuer: claims.iss,
           audience: claims.aud,
-          nowEpochSeconds: claims.iat,
         });
         const decoded = yield* decode(verified);
         expect(decoded).toMatchObject({
@@ -301,7 +302,7 @@ it.effect.each(localClaimFixtures)(
         });
       }
       expect((yield* Effect.exit(decode({ ...ordinary, jti: " " })))._tag).toBe("Failure");
-    }),
+    }).pipe(Effect.provide(NodeCryptoLayer.layerSignature)),
 );
 
 it.effect(

@@ -6,12 +6,11 @@ import {
   RELAY_HOOK_DELIVERY_TYP,
   verifyRelayJwt,
 } from "@t3tools/shared/relayJwt";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Signature from "effect/crypto/Signature";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
@@ -24,9 +23,8 @@ import { selectedConnectAuthority } from "../cloud/connectAuthority.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 
 /** Covers the relay's 24-hour hold plus a margin. */
-const MAX_PROOF_AGE_SECONDS = 25 * 60 * 60;
+const MAX_PROOF_AGE = "25 hours";
 
-const decodePayload = Schema.decodeUnknownOption(RelayHookDeliveryProofPayload);
 const text = (bytes: Option.Option<Uint8Array>) =>
   Option.map(bytes, (value) => new TextDecoder().decode(value));
 
@@ -49,6 +47,7 @@ const make = Effect.gen(function* () {
   const authority = yield* selectedConnectAuthority;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const environment = yield* ServerEnvironment.ServerEnvironment;
+  const signature = yield* Signature.Signature;
   const verify: RelayDeliveryProof["Service"]["verify"] = Effect.fn("webhook.verifyRelayDelivery")(
     function* (input) {
       if ((yield* readPersistedRelayAuthorityStatus(secrets, authority)) !== "active")
@@ -68,15 +67,14 @@ const make = Effect.gen(function* () {
       // Not linked to Arcwright Connect: no relay can be delivering to us.
       if (Option.isNone(publicKey) || Option.isNone(relayIssuer)) return Option.none();
       const environmentId = yield* environment.getEnvironmentId;
-      const payload = yield* verifyRelayJwt({
+      const payload = yield* verifyRelayJwt(RelayHookDeliveryProofPayload, {
         publicKey: publicKey.value,
         token: proof,
         typ: RELAY_HOOK_DELIVERY_TYP,
         issuer: normalizeRelayIssuer(relayIssuer.value),
         audience: `t3-env:${environmentId}`,
-        nowEpochSeconds: Math.floor((yield* Clock.currentTimeMillis) / 1_000),
-        maxTokenAge: MAX_PROOF_AGE_SECONDS,
-      }).pipe(Effect.map(decodePayload), Effect.orElseSucceed(Option.none));
+        maxTokenAge: MAX_PROOF_AGE,
+      }).pipe(Effect.provideService(Signature.Signature, signature), Effect.option);
       // The proof must name exactly this delivery, so it cannot be lifted onto another one.
       if (
         Option.isNone(payload) ||

@@ -38,6 +38,13 @@ class MaintenanceCliError extends Schema.TaggedError<MaintenanceCliError>()("Mai
     return this.reason;
   }
 }
+const formatJson = (value: unknown) =>
+  encodePrettyJson(value).pipe(
+    Effect.mapError(
+      (cause) =>
+        new MaintenanceCliError({ reason: `Cannot format maintenance output: ${String(cause)}` }),
+    ),
+  );
 const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDescription("Print machine-readable JSON."),
   Flag.withDefault(false),
@@ -63,7 +70,7 @@ const operate = Effect.fn("maintenance.operate")(function* (
     return yield* new MaintenanceCliError({ reason: "Device maintenance refused the request." });
   }
   yield* json
-    ? Console.log(JSON.stringify(result.status, null, 2))
+    ? formatJson(result.status).pipe(Effect.flatMap(Console.log))
     : Effect.forEach(describeStatus(result.status), (line) => Console.log(line), {
         discard: true,
       });
@@ -293,7 +300,7 @@ const orphanListCommand = Command.make("orphans", { json: jsonFlag }).pipe(
           blockers: participant.blockers,
         })),
       };
-      if (json) yield* Console.log(JSON.stringify(result, null, 2));
+      if (json) yield* formatJson(result).pipe(Effect.flatMap(Console.log));
       else if (result.participants.filter((participant) => participant.orphaned).length === 0)
         yield* Console.log("No orphaned runtimes are recorded.");
       else
@@ -430,3 +437,5 @@ export async function runMaintenanceMachineVerb(
   write(JSON.stringify({ ok: false, reason: `Unknown machine verb ${verb ?? "(none)"}.` }));
   return 2;
 }
+
+const encodePrettyJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown, { space: 2 }));

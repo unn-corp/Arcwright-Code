@@ -70,6 +70,10 @@ export const config = {
       has: [matchers.host(ROUTER_HOST)],
       dest: `${LATEST_ORIGIN}/$1`,
     },
+    {
+      src: "/.well-known/apple-app-site-association",
+      dest: "/.well-known/apple-app-site-association.json",
+    },
     { handle: "filesystem" },
     { src: "/(.*)", dest: "/index.html" },
   ],

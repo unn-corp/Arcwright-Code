@@ -13,6 +13,7 @@ export function FoldedSettingsSection({
   control,
   headerPlacement = "inside",
   searchTargetPrefix,
+  collapsedContent,
   children,
 }: {
   readonly id: string;
@@ -21,6 +22,8 @@ export function FoldedSettingsSection({
   readonly control?: ReactNode;
   readonly headerPlacement?: "inside" | "outside";
   readonly searchTargetPrefix?: string;
+  /** Shown under the header only while folded. */
+  readonly collapsedContent?: ReactNode;
   readonly children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -102,6 +105,9 @@ export function FoldedSettingsSection({
           </CollapsibleTrigger>
           {control ? <div className="flex shrink-0 items-center">{control}</div> : null}
         </div>
+        {!open && collapsedContent ? (
+          <div className="border-t border-border/50 empty:hidden">{collapsedContent}</div>
+        ) : null}
         <CollapsiblePanel>
           <div className="border-t border-border/50 [&>*+*]:border-t [&>*+*]:border-border/50">
             {children}

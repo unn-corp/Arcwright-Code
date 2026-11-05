@@ -433,7 +433,7 @@ const run = Effect.gen(function* HeadlessBrowserHostRun() {
           page.sessionId,
         )
         .pipe(
-          Effect.map(() => true),
+          Effect.as(true),
           Effect.orElseSucceed(() => false),
         );
       if (started) {

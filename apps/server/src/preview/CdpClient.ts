@@ -49,6 +49,7 @@ export interface CdpClient {
 }
 
 const COMMAND_TIMEOUT_MS = 15_000;
+const encodeFrame = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 /**
  * Opens the socket and keeps it for the lifetime of the given scope. The
@@ -148,37 +149,42 @@ export const connect = Effect.fn("CdpClient.connect")(function* (endpoint: strin
   yield* Deferred.await(opened);
 
   const send: CdpClient["send"] = (method, params, sessionId) =>
-    Effect.callback<Record<string, unknown>, CdpCommandError>((resume) => {
-      if (socket.readyState !== WebSocket.OPEN) {
-        resume(
-          Effect.fail(new CdpCommandError({ method, detail: "the browser is not connected" })),
-        );
-        return;
-      }
+    Effect.suspend(() => {
       const id = ++nextId;
-      pending.set(id, {
+      return encodeFrame({
+        id,
         method,
-        resolve: (result) => resume(Effect.succeed(result)),
-        reject: (error) => resume(Effect.fail(error)),
-      });
-      socket.send(
-        // @effect-diagnostics-next-line preferSchemaOverJson:off - CDP wire frame; its shape is the protocol's, not a schema's.
-        JSON.stringify({
-          id,
-          method,
-          params: params ?? {},
-          ...(sessionId === undefined ? {} : { sessionId }),
-        }),
+        params: params ?? {},
+        ...(sessionId === undefined ? {} : { sessionId }),
+      }).pipe(
+        Effect.mapError((error) => new CdpCommandError({ method, detail: String(error) })),
+        Effect.flatMap((frame) =>
+          Effect.callback<Record<string, unknown>, CdpCommandError>((resume) => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              resume(
+                Effect.fail(
+                  new CdpCommandError({ method, detail: "the browser is not connected" }),
+                ),
+              );
+              return;
+            }
+            pending.set(id, {
+              method,
+              resolve: (result) => resume(Effect.succeed(result)),
+              reject: (error) => resume(Effect.fail(error)),
+            });
+            socket.send(frame);
+          }),
+        ),
+        Effect.timeoutOption(COMMAND_TIMEOUT_MS),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.fail(new CdpCommandError({ method, detail: "timed out" })),
+            onSome: (result: Record<string, unknown>) => Effect.succeed(result),
+          }),
+        ),
       );
-    }).pipe(
-      Effect.timeoutOption(COMMAND_TIMEOUT_MS),
-      Effect.flatMap(
-        Option.match({
-          onNone: () => Effect.fail(new CdpCommandError({ method, detail: "timed out" })),
-          onSome: (result: Record<string, unknown>) => Effect.succeed(result),
-        }),
-      ),
-    );
+    });
 
   const client: CdpClient = {
     send,

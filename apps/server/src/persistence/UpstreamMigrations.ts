@@ -83,6 +83,8 @@ import Migration0123 from "./Migrations/123_ProjectionProjectsPinArchive.ts";
 import Migration0124 from "./Migrations/124_RepairBooleanSettledOverride.ts";
 import Migration0125 from "./Migrations/125_DropOrchestrationEventCorrelationIndex.ts";
 
+import Migration0126 from "./Migrations/126_DelegatedRecoveryIndexes.ts";
+
 export const upstreamMigrationEntries = [
   [1, 1, "OrchestrationEvents", Migration0001],
   [2, 2, "OrchestrationCommandReceipts", Migration0002],
@@ -162,4 +164,5 @@ export const upstreamMigrationEntries = [
   [76, 123, "ProjectionProjectsPinArchive", Migration0123],
   [77, 124, "RepairBooleanSettledOverride", Migration0124],
   [78, 125, "DropOrchestrationEventCorrelationIndex", Migration0125],
+  [79, 126, "DelegatedRecoveryIndexes", Migration0126],
 ] as const;

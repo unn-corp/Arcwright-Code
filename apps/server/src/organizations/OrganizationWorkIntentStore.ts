@@ -95,7 +95,7 @@ export interface OrganizationWorkIntent {
   readonly bindingId: string;
   readonly bindingVersion: string;
   readonly publishedRevision: number;
-  readonly evidence: ReadonlyArray<typeof OrganizationProposalEvidence.Type>;
+  readonly evidence: ReadonlyArray<OrganizationProposalEvidence>;
   readonly requestedBy: string;
   /** Persistence state only. No work item, activation, approval, or execution is implied. */
   readonly status: "awaiting-activation";

@@ -148,10 +148,11 @@ export const runOrganizationSingleFileApproval = Effect.fn(
           ON b.organization_id = o.organization_id AND b.binding_id = ${work.bindingId}
         JOIN projection_projects p ON p.project_id = b.project_id AND p.deleted_at IS NULL
         WHERE o.organization_id = ${work.organizationId} AND b.project_id = ${work.projectId}`)[0];
-    const capabilities = yield* Effect.try({
-      try: (): unknown => current && JSON.parse(current.capabilities_json),
-      catch: () => undefined,
-    }).pipe(Effect.orElseSucceed(() => undefined));
+    const capabilities = current
+      ? yield* decodePlainJson(current.capabilities_json).pipe(
+          Effect.orElseSucceed(() => undefined),
+        )
+      : undefined;
     if (
       !current ||
       current.lifecycle !== "active" ||
@@ -246,28 +247,26 @@ export const runOrganizationSingleFileApproval = Effect.fn(
     if (replacement.byteLength > 4_096 || redactKnownCredentials(text) !== text)
       return yield* failure("conflict", "The complete unredacted artifact is not reviewable.");
   }
-  const evidenceBytes = Buffer.from(
-    JSON.stringify({
-      version: 1,
-      requestId: input.requestId,
-      reason,
-      workId: work.id,
-      attemptId: attempt.id,
-      projectId: work.projectId,
-      baseCodeRevision: work.codeRevision,
-      ...(input.canonicalProjectRoot === undefined
-        ? {}
-        : { canonicalProjectRoot: input.canonicalProjectRoot }),
-      artifactDigest: artifact.artifactDigest,
-      artifactRef: artifact.artifactRef,
-      qaReceiptDigest: qa.receiptDigest,
-      workerSubject: attempt.workerSubject,
-      qaSubject: attempt.qaSubject,
-      approvalSubject,
-      approved,
-    }),
-    "utf8",
-  );
+  const evidenceJson = yield* encodePlainJson({
+    version: 1,
+    requestId: input.requestId,
+    reason,
+    workId: work.id,
+    attemptId: attempt.id,
+    projectId: work.projectId,
+    baseCodeRevision: work.codeRevision,
+    ...(input.canonicalProjectRoot === undefined
+      ? {}
+      : { canonicalProjectRoot: input.canonicalProjectRoot }),
+    artifactDigest: artifact.artifactDigest,
+    artifactRef: artifact.artifactRef,
+    qaReceiptDigest: qa.receiptDigest,
+    workerSubject: attempt.workerSubject,
+    qaSubject: attempt.qaSubject,
+    approvalSubject,
+    approved,
+  }).pipe(Effect.mapError(() => failure("invalid", "Approval evidence is not serializable.")));
+  const evidenceBytes = Buffer.from(evidenceJson, "utf8");
   const evidenceRef = `approval-${sha256(evidenceBytes)}`;
   const saved = yield* approvals.get(attempt.id);
   if (
@@ -319,3 +318,6 @@ export const runOrganizationSingleFileApproval = Effect.fn(
     { subject: approvalSubject },
   );
 });
+
+const encodePlainJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodePlainJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));

@@ -3,42 +3,22 @@ import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 const fixture = vi.hoisted(() => ({ canRead: true, id: "cloudless-state", reads: 0 }));
 vi.mock("../state/environments", () => ({
-  usePrimaryEnvironment: () => ({
-    environmentId: fixture.id,
-    label: "Direct",
-    entry: {
-      target: {
-        _tag: "PrimaryConnectionTarget",
-        httpBaseUrl: "http://localhost:3773",
-        wsBaseUrl: "ws://localhost:3773/ws",
-      },
-    },
-  }),
+  usePrimaryEnvironmentId: () => fixture.id,
 }));
 vi.mock("../state/session", () => ({
   useEnvironmentScope: () => fixture.canRead,
   readEnvironmentScope: () => fixture.canRead,
 }));
 vi.mock("./publicConfig", () => ({ hasCloudPublicConfig: () => false }));
-vi.mock("../lib/runtime", async () => {
-  const Effect = await import("effect/Effect");
-  const Context = await import("effect/Context");
-  const HttpClient = await import("effect/http/HttpClient");
-  return {
-    runtime: {
-      contextEffect: Effect.succeed(
-        Context.make(
-          HttpClient.HttpClient,
-          HttpClient.make(() => Effect.die("unused")),
-        ),
-      ),
-    },
-  };
+vi.mock("../connection/runtime", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const Layer = await import("effect/Layer");
+  return { connectionAtomRuntime: Atom.runtime(Layer.empty) };
 });
 vi.mock("./linkEnvironment", async () => {
   const Effect = await import("effect/Effect");
   return {
-    readPrimaryCloudLinkState: () =>
+    readCloudLinkState: () =>
       Effect.sync(() => {
         fixture.reads++;
         return {
@@ -56,7 +36,7 @@ vi.mock("./linkEnvironment", async () => {
   };
 });
 import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
-import { usePrimaryCloudLinkState } from "./primaryCloudLinkState";
+import { usePrimaryCloudLinkState } from "./cloudLinkState";
 let renderer: ReactTestRenderer | null = null;
 let observed: ReturnType<typeof usePrimaryCloudLinkState> | null = null;
 function Probe() {

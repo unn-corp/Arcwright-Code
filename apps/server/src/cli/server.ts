@@ -10,6 +10,8 @@ import * as ServerConfig from "../config.ts";
 import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { ensureOrganizationScopeLaunchBroker } from "../organizations/OrganizationScopeLaunchBrokerBootstrap.ts";
 import { OrganizationScopeRecoveryError } from "../organizations/OrganizationScopeRecoveryStore.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as AutomaticPort from "./automaticPort.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
@@ -32,7 +34,8 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
   // Before config resolution, which claims a port and creates directories.
   const { runServer } = yield* Effect.promise(() => import("../server.ts"));
   const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveServerConfig(flags, logLevel, options);
+  const selectAutomaticPort = yield* AutomaticPort.make.pipe(Effect.provide(ProcessRunner.layer));
+  const config = yield* resolveServerConfig(flags, logLevel, { ...options, selectAutomaticPort });
   yield* Effect.tryPromise({
     try: () => ensureOrganizationScopeLaunchBroker(config.baseDir),
     catch: (cause) =>

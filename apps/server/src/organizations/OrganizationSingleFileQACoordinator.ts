@@ -119,10 +119,11 @@ export const runOrganizationSingleFileQA = Effect.fn(
         ON b.organization_id = o.organization_id AND b.binding_id = ${work.bindingId}
       JOIN projection_projects p ON p.project_id = b.project_id AND p.deleted_at IS NULL
       WHERE o.organization_id = ${work.organizationId} AND b.project_id = ${work.projectId}`)[0];
-    const capabilities = yield* Effect.try({
-      try: (): unknown => current && JSON.parse(current.capabilities_json),
-      catch: () => undefined,
-    }).pipe(Effect.orElseSucceed(() => undefined));
+    const capabilities = current
+      ? yield* decodePlainJson(current.capabilities_json).pipe(
+          Effect.orElseSucceed(() => undefined),
+        )
+      : undefined;
     if (
       !current ||
       current.lifecycle !== "active" ||
@@ -171,16 +172,14 @@ export const runOrganizationSingleFileQA = Effect.fn(
   )
     return yield* failure("forbidden", "QA reviewer must be independent of the worker.");
   // Serialize once so the evaluated plan and its receipt identify the same snapshot.
-  const serializedPlan = yield* Effect.try({
-    try: () => JSON.stringify(decision.plan),
-    catch: () => failure("invalid", "Server QA plan is not serializable."),
-  });
+  const serializedPlan = yield* encodePlainJson(decision.plan).pipe(
+    Effect.mapError(() => failure("invalid", "Server QA plan is not serializable.")),
+  );
   if (Buffer.byteLength(serializedPlan, "utf8") > 24 * 1024)
     return yield* failure("invalid", "Server QA plan exceeds its byte limit.");
-  const planSnapshot: OrganizationSingleFileQAPlan = yield* Effect.try({
-    try: () => JSON.parse(serializedPlan),
-    catch: () => failure("invalid", "Server QA plan is not serializable."),
-  });
+  const planSnapshot: OrganizationSingleFileQAPlan = yield* decodeQAPlan(serializedPlan).pipe(
+    Effect.mapError(() => failure("invalid", "Server QA plan is not serializable.")),
+  );
   const policyPlanSha256 = digest(Buffer.from(serializedPlan));
   // An existing receipt is the durable retry point after capture and before transition.
   const saved = yield* qa.get(input.attemptId);
@@ -195,23 +194,27 @@ export const runOrganizationSingleFileQA = Effect.fn(
           }),
         catch: () => failure("unavailable", "Scoped independent QA could not complete."),
       });
+  const evaluatorEvidence = evaluation
+    ? yield* decodePlainJson(Buffer.from(evaluation.evidenceBytes).toString("utf8")).pipe(
+        Effect.mapError(() => failure("invalid", "QA evaluator evidence is invalid.")),
+      )
+    : undefined;
   const evidenceBytes = evaluation
     ? Buffer.from(
-        JSON.stringify({
+        yield* encodePlainJson({
           version: 1,
           policyPlanSha256,
-          evaluator: JSON.parse(Buffer.from(evaluation.evidenceBytes).toString("utf8")),
-        }),
+          evaluator: evaluatorEvidence,
+        }).pipe(Effect.mapError(() => failure("invalid", "QA evidence is not serializable."))),
       )
     : null;
   const evidenceRef = saved?.evidenceRef ?? `qa-${digest(evidenceBytes!)}`;
   const accepted = saved?.accepted ?? evaluation!.accepted;
   let savedPlanSha256: string | undefined;
   if (saved) {
-    const parsed = yield* Effect.try({
-      try: (): unknown => JSON.parse(Buffer.from(saved.evidenceBytes).toString("utf8")),
-      catch: () => undefined,
-    }).pipe(Effect.orElseSucceed(() => undefined));
+    const parsed = yield* decodePlainJson(Buffer.from(saved.evidenceBytes).toString("utf8")).pipe(
+      Effect.orElseSucceed(() => undefined),
+    );
     if (
       parsed &&
       typeof parsed === "object" &&
@@ -259,3 +262,15 @@ export const runOrganizationSingleFileQA = Effect.fn(
     { subject: decision.reviewerSubject },
   );
 });
+
+const encodePlainJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodePlainJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeQAPlan = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      version: Schema.Literal(1),
+      exportName: Schema.String,
+      cases: Schema.Array(Schema.Struct({ input: Schema.Unknown, expected: Schema.Unknown })),
+    }),
+  ),
+);

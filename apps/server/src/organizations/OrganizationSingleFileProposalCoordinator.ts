@@ -3,7 +3,7 @@
 import * as NodeCrypto from "node:crypto";
 import {
   OrganizationPublishedConfig,
-  type ModelSelection,
+  ModelSelection,
   type OrganizationWorkId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -37,6 +37,17 @@ export class OrganizationSingleFileProposalCoordinatorError extends Schema.Tagge
 ) {}
 const failure = (code: OrganizationSingleFileProposalCoordinatorError["code"], message: string) =>
   new OrganizationSingleFileProposalCoordinatorError({ code, message });
+const Json = Schema.fromJsonString(Schema.Unknown);
+const SelectionJson = Schema.fromJsonString(
+  Schema.Struct({
+    fileName: Schema.String,
+    taskText: Schema.String,
+    modelSelection: ModelSelection,
+    findingContext: Schema.optional(
+      Schema.Struct({ title: Schema.String, summary: Schema.String }),
+    ),
+  }),
+);
 const FLAT_MJS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.mjs$/;
 const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 const decodeGenerationInput = Schema.decodeUnknownEffect(OrganizationPatchProposalInput);
@@ -156,16 +167,14 @@ export const proposeOrganizationSingleFileArtifact = Effect.fn(
     baseCommit: before.baseCommit,
   };
   const selected = yield* policy.select(target);
-  const serializedSelection = yield* Effect.try({
-    try: () => JSON.stringify(selected),
-    catch: () => failure("invalid", "Policy selection is not plain JSON."),
-  });
+  const serializedSelection = yield* encodeJsonValue(selected).pipe(
+    Effect.mapError(() => failure("invalid", "Policy selection is not plain JSON.")),
+  );
   if (Buffer.byteLength(serializedSelection, "utf8") > 8_192)
     return yield* failure("invalid", "Policy selection exceeds its limit.");
-  const selection: OrganizationSingleFileProposalSelection = yield* Effect.try({
-    try: () => JSON.parse(serializedSelection),
-    catch: () => failure("invalid", "Policy selection is not plain JSON."),
-  });
+  const selection = yield* decodeSelectionValue(serializedSelection).pipe(
+    Effect.mapError(() => failure("invalid", "Policy selection is not plain JSON.")),
+  );
   if (
     !selection ||
     typeof selection.fileName !== "string" ||
@@ -213,16 +222,14 @@ export const proposeOrganizationSingleFileArtifact = Effect.fn(
     baseDigest: source.sha256,
   }).pipe(Effect.mapError(() => failure("invalid", "Patch generation input is invalid.")));
   const rawProposal = yield* generateOrganizationPatchProposal(generationInput);
-  const serializedProposal = yield* Effect.try({
-    try: () => JSON.stringify(rawProposal),
-    catch: () => failure("invalid", "Patch proposal is not plain JSON."),
-  });
+  const serializedProposal = yield* encodeJsonValue(rawProposal).pipe(
+    Effect.mapError(() => failure("invalid", "Patch proposal is not plain JSON.")),
+  );
   if (Buffer.byteLength(serializedProposal, "utf8") > 70_000)
     return yield* failure("invalid", "Patch proposal exceeds its limit.");
-  const proposalSnapshot = yield* Effect.try({
-    try: (): unknown => JSON.parse(serializedProposal),
-    catch: () => failure("invalid", "Patch proposal is not plain JSON."),
-  });
+  const proposalSnapshot = yield* decodeJsonValue(serializedProposal).pipe(
+    Effect.mapError(() => failure("invalid", "Patch proposal is not plain JSON.")),
+  );
   const proposal = yield* decodeProposal(proposalSnapshot).pipe(
     Effect.mapError(() => failure("invalid", "Patch proposal has invalid fields.")),
   );
@@ -258,3 +265,7 @@ export const proposeOrganizationSingleFileArtifact = Effect.fn(
     artifactSha256: sha256(artifactBytes),
   } satisfies OrganizationSingleFileProposalResult;
 });
+
+const encodeJsonValue = Schema.encodeEffect(Json);
+const decodeSelectionValue = Schema.decodeEffect(SelectionJson);
+const decodeJsonValue = Schema.decodeEffect(Json);

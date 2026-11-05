@@ -24,7 +24,7 @@ import {
 } from "../threads/thread-settings-options";
 import { SettingsScreen } from "./components/SettingsScreen";
 import {
-  AndroidSettingsEnvironmentFilter,
+  useSettingsEnvironmentMenu,
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { BranchNamingSettings } from "./components/BranchNamingSettings";
@@ -183,6 +183,7 @@ export function SettingsEnvironmentMaintenanceRouteScreen() {
 }
 
 function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+  const environmentMenu = useSettingsEnvironmentMenu();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
@@ -306,10 +307,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen
-        title={PAGE_TITLES[props.page]}
-        trailing={<AndroidSettingsEnvironmentFilter />}
-      >
+      <SettingsScreen title={PAGE_TITLES[props.page]} menus={[environmentMenu]}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
@@ -477,6 +475,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       value={uniform("defaultAutoPull")}
                       disabled={disabledFor("defaultAutoPull")}
                       onValueChange={(value) => write({ defaultAutoPull: value })}
+                    />
+                  </SettingsSection>
+                  <SettingsSection title="Clones">
+                    <SettingsSwitchRow
+                      icon="folder"
+                      label="Clone into host folders"
+                      subtitle="Clones go to github.com/owner/repo under the Add project folder, like ghq."
+                      value={uniform("ghqCloneLayout")}
+                      disabled={disabledFor("ghqCloneLayout")}
+                      onValueChange={(value) => write({ ghqCloneLayout: value })}
                     />
                   </SettingsSection>
                 </>

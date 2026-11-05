@@ -95,7 +95,9 @@ const checkPublish = Effect.fnUntraced(function* (
                 expect(observed.jwt).not.toHaveBeenCalled();
               } else {
                 expect(observed.jwt).toHaveBeenCalledOnce();
-                expect(observed.importKey).toHaveBeenCalledOnce();
+                expect(
+                  observed.importKey.mock.calls.filter(([format]) => format === "spki"),
+                ).toHaveLength(1);
                 expect(observed.verify).toHaveBeenCalledOnce();
                 expect(c.owners).toBe(1);
               }
@@ -111,6 +113,7 @@ const checkPublish = Effect.fnUntraced(function* (
         if (accepted) {
           expect(yield* Effect.promise(() => response.json())).toMatchObject({ ok: true });
           expect(observed.jwt).toHaveBeenCalledExactlyOnceWith(
+            expect.anything(),
             expect.objectContaining({
               publicKey,
               token: input.proof,
@@ -119,8 +122,9 @@ const checkPublish = Effect.fnUntraced(function* (
               audience: config.relayIssuer,
             }),
           );
-          expect(observed.importKey).toHaveBeenCalledOnce();
-          expect(observed.importKey.mock.calls[0]?.[0]).toBe("spki");
+          expect(
+            observed.importKey.mock.calls.filter(([format]) => format === "spki"),
+          ).toHaveLength(1);
           expect(observed.verify).toHaveBeenCalledOnce();
           expect(admitted).toEqual(["edge", "environment", "user"]);
           expect(c.owners).toBe(1);

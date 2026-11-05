@@ -645,7 +645,7 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
                       principal,
                     );
                   }).pipe(
-                    Effect.catch((error) =>
+                    Effect.tapError((error) =>
                       organizationArchitectTranscriptStore
                         .fail(
                           {
@@ -657,7 +657,7 @@ export const makeForkWsRpcLayer = (currentSession: EnvironmentAuth.Authenticated
                           },
                           principal,
                         )
-                        .pipe(Effect.ignore, Effect.andThen(Effect.fail(error))),
+                        .pipe(Effect.ignore),
                     ),
                   );
                 }),

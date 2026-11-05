@@ -29,6 +29,9 @@ export class OrganizationGitIntegrationCoordinatorError extends Schema.TaggedErr
 ) {}
 const failure = (code: OrganizationGitIntegrationCoordinatorError["code"], message: string) =>
   new OrganizationGitIntegrationCoordinatorError({ code, message });
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
 const isCoordinatorError = Schema.is(OrganizationGitIntegrationCoordinatorError);
 const unavailable = () => failure("unavailable", "Git integration coordination is unavailable.");
 
@@ -199,12 +202,9 @@ export function coordinateOrganizationGitIntegration(
           FROM organization_emergency_stops WHERE organization_id = ${row.organization_id}`;
       if (stopped.length > 0)
         return yield* failure("conflict", "Emergency stop holds Git integration.");
-      let capabilities: unknown;
-      try {
-        capabilities = JSON.parse(row.binding_capabilities_json ?? "");
-      } catch {
-        /* Fail closed. */
-      }
+      const capabilities = yield* decodeJson(row.binding_capabilities_json ?? "").pipe(
+        Effect.orElseSucceed(() => undefined),
+      );
       if (
         row.attempt_status !== "qa-accepted" ||
         row.work_status !== "blocked" ||
@@ -292,12 +292,9 @@ export function coordinateOrganizationGitIntegration(
             failure("conflict", "Approval, QA or artifact evidence is invalid."),
           ),
         );
-      let evidence: unknown;
-      try {
-        evidence = JSON.parse(Buffer.from(approval.evidenceBytes).toString("utf8"));
-      } catch {
-        /* Fail closed. */
-      }
+      const evidence = yield* decodeJson(Buffer.from(approval.evidenceBytes).toString("utf8")).pipe(
+        Effect.orElseSucceed(() => undefined),
+      );
       if (
         typeof evidence !== "object" ||
         evidence === null ||
@@ -388,7 +385,16 @@ export function coordinateOrganizationGitIntegration(
         yield* lock(initial.prepared, initial.workspaceRoot);
         const checked = yield* prepare();
         if (
-          JSON.stringify(checked.prepared) !== JSON.stringify(initial.prepared) ||
+          (yield* encodeJson(checked.prepared).pipe(
+            Effect.mapError(() =>
+              failure("conflict", "Integration operands could not be encoded."),
+            ),
+          )) !==
+            (yield* encodeJson(initial.prepared).pipe(
+              Effect.mapError(() =>
+                failure("conflict", "Integration operands could not be encoded."),
+              ),
+            )) ||
           checked.root !== initial.root
         )
           return yield* failure(
@@ -427,7 +433,16 @@ export function coordinateOrganizationGitIntegration(
           yield* lock(initial.prepared, initial.workspaceRoot);
           const checked = yield* prepare();
           if (
-            JSON.stringify(checked.prepared) !== JSON.stringify(initial.prepared) ||
+            (yield* encodeJson(checked.prepared).pipe(
+              Effect.mapError(() =>
+                failure("conflict", "Integration operands could not be encoded."),
+              ),
+            )) !==
+              (yield* encodeJson(initial.prepared).pipe(
+                Effect.mapError(() =>
+                  failure("conflict", "Integration operands could not be encoded."),
+                ),
+              )) ||
             checked.root !== initial.root
           )
             return yield* failure("conflict", "Integration target changed before Git CAS.");

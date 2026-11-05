@@ -49,6 +49,8 @@ import * as Devices from "../agentActivity/Devices.ts";
 import * as Subscriptions from "../agentActivity/WebPushSubscriptions.ts";
 import * as Queue from "../agentActivity/WebPushDeliveryQueue.ts";
 import * as Tokens from "../auth/RelayTokens.ts";
+import * as CloudMintSigner from "../auth/CloudMintSigner.ts";
+import * as Signature from "effect/crypto/Signature";
 import * as Dpop from "../auth/DpopProofs.ts";
 import * as PublishProofs from "../environments/EnvironmentPublishSignatures.ts";
 import * as Publisher from "../agentActivity/AgentActivityPublisher.ts";
@@ -213,6 +215,7 @@ export const fixture = Effect.fn("fixture")(function (input: {
     }),
   } as unknown as Db.RelayDb["Service"];
   const layerCrypto = Layer.mergeAll(
+    Signature.layerWebCrypto.pipe(Layer.provide(SecureRandom.layerWebCrypto)),
     Layer.effect(
       Digest.Digest,
       Digest.Digest.pipe(
@@ -253,7 +256,11 @@ export const fixture = Effect.fn("fixture")(function (input: {
     }),
   ).pipe(
     Layer.provide(
-      Tokens.layer.pipe(Layer.provide(Configuration.layer(settings)), Layer.provide(layerCrypto)),
+      Tokens.layer.pipe(
+        Layer.provide(CloudMintSigner.layer),
+        Layer.provide(Configuration.layer(settings)),
+        Layer.provide(layerCrypto),
+      ),
     ),
   );
   const linkLayer = input.links

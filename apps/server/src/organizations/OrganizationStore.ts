@@ -699,7 +699,7 @@ const make = Effect.gen(function* () {
           id: string;
           requestId: string;
           position: number;
-          change: typeof OrganizationArchitectAllowedChange.Type;
+          change: OrganizationArchitectAllowedChange;
         }> = [];
         for (const proposalId of input.proposalIds) {
           const row = (yield* sql<{

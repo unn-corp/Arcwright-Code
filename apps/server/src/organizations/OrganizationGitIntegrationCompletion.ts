@@ -51,6 +51,9 @@ export class OrganizationGitIntegrationCompletionError extends Schema.TaggedErro
 ) {}
 const failure = (code: OrganizationGitIntegrationCompletionError["code"], message: string) =>
   new OrganizationGitIntegrationCompletionError({ code, message });
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
 const isCompletionError = Schema.is(OrganizationGitIntegrationCompletionError);
 const unavailable = () => failure("unavailable", "Git integration completion is unavailable.");
 
@@ -231,12 +234,9 @@ export function completeOrganizationGitIntegration(
       const intent = (yield* intentFor())[0];
       if (!row || !intent)
         return yield* failure("not_found", "Applied integration intent was not found.");
-      let capabilities: unknown;
-      try {
-        capabilities = JSON.parse(row.binding_capabilities_json ?? "");
-      } catch {
-        /* Fail closed. */
-      }
+      const capabilities = yield* decodeJson(row.binding_capabilities_json ?? "").pipe(
+        Effect.orElseSucceed(() => undefined),
+      );
       if (
         intent.status !== "applied" ||
         !intent.applied_at ||
@@ -341,12 +341,9 @@ export function completeOrganizationGitIntegration(
             failure("conflict", "Approval, QA or artifact receipt is invalid."),
           ),
         );
-      let approvalEvidence: unknown;
-      try {
-        approvalEvidence = JSON.parse(Buffer.from(approval.evidenceBytes).toString("utf8"));
-      } catch {
-        /* Fail closed. */
-      }
+      const approvalEvidence = yield* decodeJson(
+        Buffer.from(approval.evidenceBytes).toString("utf8"),
+      ).pipe(Effect.orElseSucceed(() => undefined));
       if (
         typeof approvalEvidence !== "object" ||
         approvalEvidence === null ||
@@ -379,7 +376,7 @@ export function completeOrganizationGitIntegration(
       const bytes = Uint8Array.from(artifact.patchBytes);
       const intentDigest = intentIdentity(intent);
       const evidenceBytes = Buffer.from(
-        JSON.stringify({
+        yield* encodeJson({
           version: 1,
           intentDigest,
           attemptId: intent.attempt_id,
@@ -397,7 +394,11 @@ export function completeOrganizationGitIntegration(
           artifactReceiptDigest: intent.artifact_receipt_digest,
           approvalReceiptDigest: intent.approval_receipt_digest,
           integratorSubject: intent.integrator_subject,
-        }),
+        }).pipe(
+          Effect.mapError(() =>
+            failure("unavailable", "Integration evidence could not be encoded."),
+          ),
+        ),
         "utf8",
       );
       const receiptRef = `integration-${hash(evidenceBytes)}`;

@@ -6,6 +6,7 @@ import * as NodeUtil from "node:util";
 import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 import { OrganizationWorkError, type OrganizationId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -198,20 +199,11 @@ export const recoverOrganizationProviderProcessesAtStartup = Effect.gen(function
       held.push({ workId: row.work_id, reason: "provider_recovery_unavailable" });
       continue;
     }
-    let clear = false;
-    try {
-      const parsed: unknown = JSON.parse(result.success.stdout);
-      clear =
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "clear" in parsed &&
-        parsed.clear === true &&
-        "stopped" in parsed &&
-        typeof parsed.stopped === "number" &&
-        (row.state !== "launching" || parsed.stopped > 0);
-    } catch {
-      /* Invalid helper evidence is held. */
-    }
+    const parsed = yield* decodeRecoveryResult(result.success.stdout).pipe(
+      Effect.orElseSucceed(() => undefined),
+    );
+    const clear =
+      parsed !== undefined && parsed.clear && (row.state !== "launching" || parsed.stopped > 0);
     if (!clear) {
       held.push({ workId: row.work_id, reason: "provider_exit_unverified" });
       continue;
@@ -224,3 +216,7 @@ export const recoverOrganizationProviderProcessesAtStartup = Effect.gen(function
   }
   return { held };
 });
+
+const decodeRecoveryResult = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Struct({ clear: Schema.Boolean, stopped: Schema.Number })),
+);

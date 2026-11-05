@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts/relay";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
+import * as CloudMintSigner from "../auth/CloudMintSigner.ts";
 import * as Devices from "../agentActivity/Devices.ts";
 import * as WebPushSubscriptions from "../agentActivity/WebPushSubscriptions.ts";
 import * as WebPushDeliveryQueue from "../agentActivity/WebPushDeliveryQueue.ts";
@@ -706,6 +707,8 @@ describe("owned RelayClientAuth boundary", () => {
               RelayHttpApi.layerDpopClientAuth.pipe(
                 Layer.provide(
                   RelayTokens.layer.pipe(
+                    Layer.provide(CloudMintSigner.layer),
+                    Layer.provide(NodeCryptoLayer.layerSignature),
                     Layer.provide(RelayConfiguration.layer(ownedRelaySettings)),
                   ),
                 ),
@@ -1044,7 +1047,10 @@ describe("relay managed tunnel recovery", () => {
         }),
       );
       expect(wrongAction).toMatchObject({ _tag: "Unauthorized" });
-    }).pipe(Effect.provideService(RelayConfiguration.RelayConfiguration, relaySettings)),
+    }).pipe(
+      Effect.provideService(RelayConfiguration.RelayConfiguration, relaySettings),
+      Effect.provide(NodeCryptoLayer.layerSignature),
+    ),
   );
 
   it.effect("rejects a signed registration proof for a different origin", () =>
@@ -1086,7 +1092,10 @@ describe("relay managed tunnel recovery", () => {
       );
 
       expect(error).toMatchObject({ _tag: "Unauthorized" });
-    }).pipe(Effect.provideService(RelayConfiguration.RelayConfiguration, relaySettings)),
+    }).pipe(
+      Effect.provideService(RelayConfiguration.RelayConfiguration, relaySettings),
+      Effect.provide(NodeCryptoLayer.layerSignature),
+    ),
   );
 
   it.effect("registration passes the exact captured active authority to reconciliation", () => {
@@ -1521,7 +1530,7 @@ describe("relay routing fallback", () => {
         })),
       );
       expect(verified.map((input) => input.threadId)).toEqual(threadIds);
-    }).pipe(Effect.scoped),
+    }).pipe(Effect.scoped, Effect.provide(NodeCryptoLayer.layerSignature)),
   );
 });
 

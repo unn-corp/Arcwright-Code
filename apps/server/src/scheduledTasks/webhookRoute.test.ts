@@ -1,3 +1,4 @@
+import * as PlatformNodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no generateKeyPairSync.
 import * as NodeCrypto from "node:crypto";
@@ -68,7 +69,7 @@ const relayProof = Effect.fn("relayProof")(function* (claims: {
       receivedAt: claims.receivedAt,
       hookId: claims.hookId,
     },
-  });
+  }).pipe(Effect.provide(PlatformNodeCrypto.layerSignature));
 });
 
 const handlerFor = (
@@ -103,7 +104,7 @@ const handlerFor = (
           Layer.provideMerge(Etag.layerWeak),
         ),
       ),
-      Layer.provide(NodeServices.layer),
+      Layer.provide([NodeServices.layer, PlatformNodeCrypto.layerSignature]),
     ),
     { disableLogger: true },
   );
@@ -165,17 +166,20 @@ describe("webhook route", () => {
         ).toBe(true);
       }).pipe(
         Effect.provide(
-          ConfigProvider.layer(
-            ConfigProvider.fromEnv({
-              env: {
-                T3CODE_CONNECT_MODE: mode === "locally-disabled" ? "legacy" : mode,
-                T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
-                T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
-                T3CODE_CLERK_JWT_TEMPLATE: "connect",
-                T3CODE_RELAY_URL: "https://selected.example.test",
-                T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
-              },
-            }),
+          Layer.mergeAll(
+            PlatformNodeCrypto.layerSignature,
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_CONNECT_MODE: mode === "locally-disabled" ? "legacy" : mode,
+                  T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+                  T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+                  T3CODE_CLERK_JWT_TEMPLATE: "connect",
+                  T3CODE_RELAY_URL: "https://selected.example.test",
+                  T3CODE_HOSTED_APP_URL: "https://hosted.example.test",
+                },
+              }),
+            ),
           ),
         ),
       ),

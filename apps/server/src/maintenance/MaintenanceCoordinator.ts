@@ -349,12 +349,16 @@ const make = Effect.gen(function* () {
     const slot = receiptSlotFor({ trial: host.trial !== null }, journal?.phase ?? null);
     // A successor adopted for commit has nothing to prove: the trial child's receipts already exist.
     if (slot === null) return;
-    const receipt = JSON.stringify({
+    const receipt = yield* encodePlainJson({
       version: BUILD_IDENTITY.version,
       home: host.home,
       transaction: transactionId,
       projections: "readable",
-    });
+    }).pipe(
+      Effect.mapError(
+        (cause) => new MaintenanceCoordinatorError({ operation: "health receipt", cause }),
+      ),
+    );
     yield* Effect.tryPromise({
       try: () =>
         host.store.writeReceipt(transactionId, host.participantId, host.home, receipt, slot),
@@ -363,6 +367,8 @@ const make = Effect.gen(function* () {
   });
   return { host, status, recordHealth };
 });
+
+const decodePolicyJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 /** Reads the durable restored-automation hold. Missing policy is the legacy default; corruption holds autonomous work. */
 export const automationReviewAdmissionFor = (
@@ -390,7 +396,7 @@ export const automationReviewAdmissionFor = (
               return;
             throw cause;
           }
-          const policy: unknown = JSON.parse(raw);
+          const policy: unknown = decodePolicyJson(raw);
           if (
             typeof policy !== "object" ||
             policy === null ||
@@ -463,3 +469,5 @@ export const recordHealthIfPresent = Effect.gen(function* () {
   if (Option.isNone(present)) return;
   yield* present.value.recordHealth;
 });
+
+const encodePlainJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));

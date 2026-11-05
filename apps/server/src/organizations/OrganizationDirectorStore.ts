@@ -86,11 +86,11 @@ const decodeMessage = Effect.fn("OrganizationDirectorStore.decodeMessage")(
 
 export interface OrganizationDirectorStoreShape {
   readonly ask: (
-    input: typeof OrganizationDirectorAskInput.Type,
+    input: OrganizationDirectorAskInput,
     principal: OrganizationDirectorPrincipal,
   ) => Effect.Effect<OrganizationDirectorAskResult, OrganizationDirectorError>;
   readonly list: (
-    input: typeof OrganizationDirectorListInput.Type,
+    input: OrganizationDirectorListInput,
   ) => Effect.Effect<OrganizationDirectorListResult, OrganizationDirectorError>;
 }
 export class OrganizationDirectorStore extends Context.Service<

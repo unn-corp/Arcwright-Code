@@ -103,7 +103,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("persisted CLI au
             ExternalLauncher.ExternalLauncher,
             ExternalLauncher.ExternalLauncher.of({
               resolveAvailableEditors: () => Effect.succeed([]),
-              resolveFileManagerRevealKind: () => Effect.sync(() => undefined),
+              resolveFileManagerRevealKind: () => Effect.undefined,
               launchBrowser: () => Effect.die("unexpected browser"),
               launchEditor: () => Effect.die("unused"),
             }),
@@ -191,7 +191,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
               ExternalLauncher.ExternalLauncher,
               ExternalLauncher.ExternalLauncher.of({
                 resolveAvailableEditors: () => Effect.succeed([]),
-                resolveFileManagerRevealKind: () => Effect.sync(() => undefined),
+                resolveFileManagerRevealKind: () => Effect.undefined,
                 launchEditor: () => Effect.die("unused"),
                 launchBrowser: (url) =>
                   Effect.gen(function* () {

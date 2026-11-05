@@ -5,6 +5,7 @@ import { TextGenerationError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { TextGeneration } from "../textGeneration/TextGeneration.ts";
 import {
@@ -99,12 +100,9 @@ const readBoundActivation = Effect.fn(
       JOIN projection_projects p ON p.project_id = w.project_id AND p.deleted_at IS NULL
       WHERE w.work_id = ${target.workId}`;
   const row = rows[0];
-  let capabilities: unknown;
-  try {
-    capabilities = row && JSON.parse(row.capabilities_json);
-  } catch {
-    /* Invalid stored authority fails closed. */
-  }
+  const capabilities = row
+    ? yield* decodePlainJson(row.capabilities_json).pipe(Effect.orElseSucceed(() => undefined))
+    : undefined;
   if (
     !row ||
     row.work_id !== target.workId ||
@@ -298,22 +296,39 @@ export const makeOrganizationBudgetedPatchGenerator = Effect.fn(
               }),
           ),
         ))[0];
+        const encodeIdentity = (value: unknown) =>
+          encodePlainJson(value).pipe(
+            Effect.mapError(
+              () =>
+                new TextGenerationError({
+                  operation: "generateOrganizationPatchProposal",
+                  detail: "Provider request identity is invalid.",
+                }),
+            ),
+          );
+        const requestIdentity = yield* encodeIdentity({ workId, input });
+        const requestedFinding = yield* encodeIdentity(input.findingContext);
+        const requestedModel = yield* encodeIdentity(input.modelSelection);
+        const currentFinding = finding
+          ? yield* encodeIdentity(findingContext(finding.title, finding.summary))
+          : undefined;
+        const currentModel = bound
+          ? yield* encodeIdentity(bound.activation.selection.modelSelection)
+          : undefined;
         if (
           !bound ||
           !finding ||
           bound.activation.selection.fileName !== input.fileName ||
           bound.activation.selection.taskText !== input.taskText ||
-          JSON.stringify(findingContext(finding.title, finding.summary)) !==
-            JSON.stringify(input.findingContext) ||
-          JSON.stringify(bound.activation.selection.modelSelection) !==
-            JSON.stringify(input.modelSelection)
+          currentFinding !== requestedFinding ||
+          currentModel !== requestedModel
         )
           return yield* new TextGenerationError({
             operation: "generateOrganizationPatchProposal",
             detail: "Provider request differs from the human-selected Project work.",
           });
         const requestId = `org-proposal:${NodeCrypto.createHash("sha256")
-          .update(JSON.stringify({ workId, input }))
+          .update(requestIdentity)
           .digest("hex")}`;
         const admitted = yield* budget
           .reserve({
@@ -398,3 +413,6 @@ export const proposeOrganizationSingleFileArtifactWithBudget = Effect.fn(
     Effect.provide(OrganizationSingleFileProductionProposalPolicy),
   );
 });
+
+const encodePlainJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodePlainJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));

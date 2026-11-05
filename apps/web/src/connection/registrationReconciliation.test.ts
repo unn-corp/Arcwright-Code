@@ -64,7 +64,7 @@ it.effect("coalesces events during an in-flight read and reconciles again withou
         }
         return value;
       }),
-      nextDelay: Effect.sync(() => undefined),
+      nextDelay: Effect.undefined,
       subscribe: (notify) => {
         wake = notify;
         return () => {};

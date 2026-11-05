@@ -10,19 +10,14 @@ import {
   type RelayEnvironmentLinkChallengeRequest,
 } from "@t3tools/contracts/relay";
 import { encodeOAuthScope, parseAllowedOAuthScope } from "@t3tools/shared/oauthScope";
-import {
-  normalizeRelayIssuer,
-  RelayJwtError,
-  signRelayJwt,
-  verifyRelayJwt,
-} from "@t3tools/shared/relayJwt";
+import { normalizeRelayIssuer, RelayJwtError } from "@t3tools/shared/relayJwt";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
 import * as RelayConfiguration from "../Config.ts";
+import * as CloudMintSigner from "./CloudMintSigner.ts";
 
 const LINK_CHALLENGE_TYP = "t3-link-challenge+jwt";
 const ACCESS_TOKEN_TYP = "t3-relay-dpop-access+jwt";
@@ -57,9 +52,6 @@ const RelayDpopAccessTokenClaims = Schema.Struct({
 export type RelayDpopAccessTokenClaims = Omit<typeof RelayDpopAccessTokenClaims.Type, "scope"> & {
   readonly scope: ReadonlyArray<RelayDpopAccessTokenScope>;
 };
-
-const decodeLinkChallengeClaims = Schema.decodeUnknownEffect(LinkChallengeClaims);
-const decodeDpopAccessTokenClaims = Schema.decodeUnknownEffect(RelayDpopAccessTokenClaims);
 
 const allowedScopesByClientId: Record<
   RelayPublicClientId,
@@ -99,7 +91,6 @@ export class RelayTokens extends Context.Service<
       readonly token: string;
       readonly userId: string;
       readonly request: RelayEnvironmentLinkChallengeRequest;
-      readonly nowEpochSeconds: number;
     }) => Effect.Effect<LinkChallengeClaims | null>;
     readonly issueDpopAccessToken: (input: {
       readonly userId: string;
@@ -112,7 +103,6 @@ export class RelayTokens extends Context.Service<
     }) => Effect.Effect<string, RelayJwtError>;
     readonly verifyDpopAccessToken: (input: {
       readonly token: string;
-      readonly nowEpochSeconds: number;
     }) => Effect.Effect<RelayDpopAccessTokenClaims | null>;
   }
 >()("t3code-relay/auth/RelayTokens") {}
@@ -120,12 +110,12 @@ export class RelayTokens extends Context.Service<
 const make = Effect.gen(function* () {
   const config = yield* RelayConfiguration.RelayConfiguration;
   const issuer = normalizeRelayIssuer(config.relayIssuer);
+  const mint = yield* CloudMintSigner.CloudMintSigner;
 
   const issueLinkChallenge: RelayTokens["Service"]["issueLinkChallenge"] = Effect.fn(
     "relay.tokens.issue_link_challenge",
   )(function* (input) {
-    return yield* signRelayJwt({
-      privateKey: Redacted.value(config.cloudMintPrivateKey),
+    return yield* mint.sign({
       typ: LINK_CHALLENGE_TYP,
       payload: {
         kind: LINK_CHALLENGE_KIND,
@@ -145,35 +135,33 @@ const make = Effect.gen(function* () {
   )((input) =>
     !isBoundedJwt(input.token, 16384)
       ? Effect.succeed(null)
-      : verifyRelayJwt({
-          publicKey: config.cloudMintPublicKey,
-          token: input.token,
-          typ: LINK_CHALLENGE_TYP,
-          issuer,
-          audience: issuer,
-          nowEpochSeconds: input.nowEpochSeconds,
-        }).pipe(
-          Effect.flatMap(decodeLinkChallengeClaims),
-          Effect.map((claims) => {
-            if (
-              claims.sub !== input.userId ||
-              (input.request.notificationsEnabled && claims.notificationsEnabled !== true) ||
-              (input.request.liveActivitiesEnabled && claims.liveActivitiesEnabled !== true) ||
-              (input.request.managedTunnelsEnabled && claims.managedTunnelsEnabled !== true)
-            ) {
-              return null;
-            }
-            return claims;
-          }),
-          Effect.orElseSucceed(() => null),
-        ),
+      : mint
+          .verify(LinkChallengeClaims, {
+            token: input.token,
+            typ: LINK_CHALLENGE_TYP,
+            issuer,
+            audience: issuer,
+          })
+          .pipe(
+            Effect.map((claims) => {
+              if (
+                claims.sub !== input.userId ||
+                (input.request.notificationsEnabled && claims.notificationsEnabled !== true) ||
+                (input.request.liveActivitiesEnabled && claims.liveActivitiesEnabled !== true) ||
+                (input.request.managedTunnelsEnabled && claims.managedTunnelsEnabled !== true)
+              ) {
+                return null;
+              }
+              return claims;
+            }),
+            Effect.orElseSucceed(() => null),
+          ),
   );
 
   const issueDpopAccessToken: RelayTokens["Service"]["issueDpopAccessToken"] = Effect.fn(
     "relay.tokens.issue_dpop_access_token",
   )(function* (input) {
-    return yield* signRelayJwt({
-      privateKey: Redacted.value(config.cloudMintPrivateKey),
+    return yield* mint.sign({
       typ: ACCESS_TOKEN_TYP,
       payload: {
         iss: issuer,
@@ -194,33 +182,32 @@ const make = Effect.gen(function* () {
   )((input) =>
     !isBoundedJwt(input.token, 16384)
       ? Effect.succeed(null)
-      : verifyRelayJwt({
-          publicKey: config.cloudMintPublicKey,
-          token: input.token,
-          typ: ACCESS_TOKEN_TYP,
-          issuer,
-          audience: issuer,
-          nowEpochSeconds: input.nowEpochSeconds,
-          maxTokenAge: RELAY_DPOP_ACCESS_TOKEN_TTL,
-        }).pipe(
-          Effect.tapError((error) =>
-            Effect.annotateCurrentSpan(
-              "relay.tokens.verification_failure",
-              RelayJwtError.diagnosticCode(error),
+      : mint
+          .verify(RelayDpopAccessTokenClaims, {
+            token: input.token,
+            typ: ACCESS_TOKEN_TYP,
+            issuer,
+            audience: issuer,
+            maxTokenAge: RELAY_DPOP_ACCESS_TOKEN_TTL,
+          })
+          .pipe(
+            Effect.tapError((error) =>
+              Effect.annotateCurrentSpan(
+                "relay.tokens.verification_failure",
+                RelayJwtError.diagnosticCode(error),
+              ),
             ),
+            Effect.map((claims): RelayDpopAccessTokenClaims | null => {
+              const scopes = resolveDpopAccessTokenScopes({
+                clientId: claims.client_id,
+                scope: claims.scope,
+              });
+              return scopes === null || claims.sub.length === 0 || claims.sub.length > 191
+                ? null
+                : { ...claims, scope: scopes };
+            }),
+            Effect.orElseSucceed(() => null),
           ),
-          Effect.flatMap(decodeDpopAccessTokenClaims),
-          Effect.map((claims): RelayDpopAccessTokenClaims | null => {
-            const scopes = resolveDpopAccessTokenScopes({
-              clientId: claims.client_id,
-              scope: claims.scope,
-            });
-            return scopes === null || claims.sub.length === 0 || claims.sub.length > 191
-              ? null
-              : { ...claims, scope: scopes };
-          }),
-          Effect.orElseSucceed(() => null),
-        ),
   );
 
   return RelayTokens.of({

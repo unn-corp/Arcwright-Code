@@ -52,6 +52,9 @@ const decodeSelection = Schema.decodeUnknownEffect(Selection);
 const decodePublished = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrganizationPublishedConfig),
 );
+const jsonCodec = Schema.fromJsonString(Schema.Unknown);
+const decodeJson = Schema.decodeUnknownEffect(jsonCodec);
+const encodeJson = Schema.encodeEffect(jsonCodec);
 const sha256 = (text: string) => NodeCrypto.createHash("sha256").update(text).digest("hex");
 const FULL_COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
@@ -105,35 +108,46 @@ export const selectionSnapshot = Effect.fn("OrganizationWorkIntentActivation.sel
       Buffer.byteLength(selected.taskText, "utf8") > 4_000
     )
       return yield* fail("invalid", "Selected task must be nonempty and at most 4 KB.");
-    const snapshot = yield* Effect.try({
-      try: () => {
-        const cases = selected.qaPlan.cases.map((item) => {
-          const inputJson = jsonValue(item.input);
-          const expectedJson = jsonValue(item.expected);
-          if (
-            Buffer.byteLength(inputJson, "utf8") > 4_096 ||
-            Buffer.byteLength(expectedJson, "utf8") > 4_096
-          )
-            throw fail("invalid", "QA case exceeds its byte limit.");
-          return { input: JSON.parse(inputJson), expected: JSON.parse(expectedJson) };
+    const cases = yield* Effect.forEach(selected.qaPlan.cases, (item) =>
+      Effect.gen(function* () {
+        const values = yield* Effect.try({
+          try: () => {
+            const inputJson = jsonValue(item.input);
+            const expectedJson = jsonValue(item.expected);
+            if (
+              Buffer.byteLength(inputJson, "utf8") > 4_096 ||
+              Buffer.byteLength(expectedJson, "utf8") > 4_096
+            )
+              throw fail("invalid", "QA case exceeds its byte limit.");
+            return { inputJson, expectedJson };
+          },
+          catch: (error) =>
+            isActivationError(error)
+              ? error
+              : fail("invalid", "Work activation selection must be finite JSON."),
         });
-        return JSON.stringify({
-          workflowId: selected.workflowId,
-          targetRef: selected.targetRef,
-          fileName: selected.fileName,
-          taskText: selected.taskText,
-          modelSelection: selected.modelSelection,
-          qaPlan: { version: 1, exportName: selected.qaPlan.exportName, cases },
-        });
-      },
-      catch: (error) =>
-        isActivationError(error)
-          ? error
-          : fail("invalid", "Work activation selection must be finite JSON."),
-    });
+        const caseInput = yield* decodeJson(values.inputJson).pipe(
+          Effect.mapError(() => fail("invalid", "Work activation selection must be finite JSON.")),
+        );
+        const expected = yield* decodeJson(values.expectedJson).pipe(
+          Effect.mapError(() => fail("invalid", "Work activation selection must be finite JSON.")),
+        );
+        return { input: caseInput, expected };
+      }),
+    );
+    const snapshot = yield* encodeJson({
+      workflowId: selected.workflowId,
+      targetRef: selected.targetRef,
+      fileName: selected.fileName,
+      taskText: selected.taskText,
+      modelSelection: selected.modelSelection,
+      qaPlan: { version: 1, exportName: selected.qaPlan.exportName, cases },
+    }).pipe(
+      Effect.mapError(() => fail("invalid", "Work activation selection must be finite JSON.")),
+    );
     if (Buffer.byteLength(snapshot, "utf8") > 24 * 1024)
       return yield* fail("invalid", "Work activation selection exceeds its byte limit.");
-    const canonical = yield* decodeSelection(JSON.parse(snapshot)).pipe(
+    const canonical = yield* decodeSelectionJson(snapshot).pipe(
       Effect.mapError(() => fail("invalid", "Canonical work selection is invalid.")),
     );
     return { selected: canonical, snapshot };
@@ -143,10 +157,9 @@ export const selectionSnapshot = Effect.fn("OrganizationWorkIntentActivation.sel
 const decodeRow = Effect.fn("OrganizationWorkIntentActivation.decodeRow")(function* (
   row: ActivationRow,
 ) {
-  const parsed = yield* Effect.try({
-    try: () => JSON.parse(row.selection_json) as unknown,
-    catch: () => fail("unavailable", "Saved work selection is unreadable."),
-  });
+  const parsed = yield* decodeJson(row.selection_json).pipe(
+    Effect.mapError(() => fail("unavailable", "Saved work selection is unreadable.")),
+  );
   const { selected } = yield* selectionSnapshot(parsed).pipe(
     Effect.mapError(() => fail("unavailable", "Saved work selection is invalid.")),
   );
@@ -538,3 +551,5 @@ export const readOrganizationWorkIntentActivationByWorkId = Effect.fn(
       : fail("unavailable", "Work activation lookup is unavailable."),
   ),
 );
+
+const decodeSelectionJson = Schema.decodeEffect(Schema.fromJsonString(Selection));

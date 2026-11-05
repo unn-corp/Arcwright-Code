@@ -11,6 +11,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { ChildProcessSpawner } from "effect/process";
 import type { OrganizationPatchProcessObserverShape } from "../textGeneration/OrganizationPatchProcessObserver.ts";
@@ -236,7 +237,11 @@ export const stopAndVerifyOrganizationEmergencyScopes = Effect.fn(
     }
     const evidence = outcome.success;
     const verifiedAt = new Date().toISOString();
-    const identityJson = evidence.identity ? JSON.stringify(evidence.identity) : null;
+    const identityJson = evidence.identity
+      ? yield* encodePlainJson(evidence.identity).pipe(
+          Effect.mapError(() => fail("unavailable", "Broker identity could not be encoded.")),
+        )
+      : null;
     yield* sql`INSERT INTO organization_emergency_scope_stops
         (operation_id, organization_id, work_id, attempt_id, disposition, identity_json, verified_at)
         VALUES (${entry.operationId}, ${organizationId}, ${attempt.work_id},
@@ -389,3 +394,5 @@ const recordOrganizationProviderExit = Effect.fn(
       ON CONFLICT(work_id) DO NOTHING`;
   yield* OrganizationWorkStatusChanges.changed(input.organizationId);
 });
+
+const encodePlainJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
