@@ -934,7 +934,7 @@ function SidebarRepositoryGroupHeader(props: {
           aria-describedby={props.collapsed ? statusDescriptionId : undefined}
           aria-label={`${props.collapsed ? "Expand" : "Collapse"} ${props.group.displayName} project group, ${props.activeCount} active ${props.activeCount === 1 ? "chat" : "chats"}`}
           data-testid="sidebar-repository-group-toggle"
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left [@media(pointer:coarse)]:min-h-11 max-md:flex-wrap [@media(pointer:coarse)]:flex-wrap focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
         >
           <ProjectFavicon project={props.group} className="size-4" />
           <span className="min-w-0 flex-1 truncate">{props.group.displayName}</span>

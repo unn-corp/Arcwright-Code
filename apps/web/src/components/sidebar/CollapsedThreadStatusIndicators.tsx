@@ -69,7 +69,7 @@ export function CollapsedThreadStatusIndicators({
   return (
     <span
       id={id}
-      className="inline-flex shrink-0 items-center gap-1.5"
+      className="inline-flex shrink-0 items-center gap-1.5 max-md:order-last [@media(pointer:coarse)]:order-last max-md:w-full [@media(pointer:coarse)]:w-full"
       data-collapsed-thread-statuses
     >
       {badges

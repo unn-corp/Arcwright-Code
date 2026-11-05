@@ -1,15 +1,23 @@
-import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  EnvironmentId,
+  ProjectId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
-import { useProjects } from "../state/entities";
+import { useProjects, useQuietThreadShells } from "../state/entities";
 import type { Project } from "../types";
 import Sidebar from "./Sidebar";
-import { SidebarProvider } from "./ui/sidebar";
+import { makeThreadFixture } from "../test-fixtures";
+import "~/index.css";
+import { SidebarProvider, Sidebar as SidebarShell, useSidebar } from "./ui/sidebar";
 
 vi.mock("../state/entities", { spy: true });
 vi.mock("../hooks/useHandleNewThread", { spy: true });
@@ -86,4 +94,139 @@ describe("sidebar header new thread", () => {
       expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
     }
   });
+});
+
+function OpenMobileSidebar() {
+  const { setOpenMobile } = useSidebar();
+  return <button onClick={() => setOpenMobile(true)}>Open sidebar</button>;
+}
+
+describe("mobile project groups", () => {
+  it.each([
+    [false, 320],
+    [false, 360],
+    [false, 390],
+    [true, 320],
+    [true, 360],
+    [true, 390],
+  ] as const)(
+    "keeps grouped rows within the sheet (boring=%s, width=%s)",
+    async (boring, width) => {
+      using stack = new DisposableStack();
+      const previous = getClientSettings();
+      stack.defer(() => __setClientSettingsForTests(previous));
+      stack.defer(() => {
+        void page.viewport(1280, 800);
+      });
+      __setClientSettingsForTests({
+        ...DEFAULT_CLIENT_SETTINGS,
+        boringSidebarEnabled: boring,
+        sidebarProjectGroupingMode: "repository",
+      });
+      const p = project("an-extremely-long-project-name-that-must-not-expand-the-sidebar");
+      vi.mocked(useProjects).mockReturnValue([p]);
+      const threads = Array.from({ length: 124 }, (_, index) => {
+        const id = ThreadId.make(`mobile-thread-${index}`);
+        const thread = makeThreadFixture({
+          id,
+          environmentId: p.environmentId,
+          projectId: p.id,
+          runtime: null,
+          lastVisitedAt: "2026-01-01T00:00:00.000Z",
+          latestRun: {
+            runId: RunId.make(`mobile-run-${index}`),
+            status: "completed",
+            assistantMessageId: null,
+            requestedAt: "2026-01-01T00:00:00.000Z",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            completedAt: "2026-01-02T00:00:00.000Z",
+          },
+        });
+        if (index < 12) return { ...thread, hasPendingApprovals: true };
+        if (index < 24)
+          return {
+            ...thread,
+            runtime: {
+              status: "failed" as const,
+              activeRunId: null,
+              providerInstanceId: thread.providerInstanceId,
+              providerName: "Codex",
+              lastError: "Failed",
+              updatedAt: "2026-01-02T00:00:00.000Z",
+            },
+          };
+        return thread;
+      });
+      vi.mocked(useQuietThreadShells).mockReturnValue(threads);
+      vi.mocked(useHandleNewThread).mockReturnValue({
+        activeDraftThread: null,
+        activeThread: null,
+        defaultProjectRef: null,
+        handleNewThread: vi.fn(),
+        routeDraftId: null,
+        routeThreadRef: null,
+      });
+      await page.viewport(width, 800);
+      await using screen = await render(
+        <SidebarProvider>
+          <OpenMobileSidebar />
+          <SidebarShell>
+            <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+          </SidebarShell>
+        </SidebarProvider>,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector(
+            boring
+              ? '[data-testid="sidebar-project-folder"]'
+              : '[data-testid="sidebar-repository-group"]',
+          ),
+        ).not.toBeNull(),
+      );
+      const row = document.querySelector<HTMLElement>(
+        boring
+          ? '[data-testid="sidebar-project-folder"]'
+          : '[data-testid="sidebar-repository-group"]',
+      )!;
+      const sheet = row.closest<HTMLElement>('[data-slot="sidebar"]')!;
+      const handle = row.querySelector<HTMLElement>(
+        '[data-testid="sidebar-repository-group-handle"]',
+      )!;
+      expect(handle.getBoundingClientRect().right).toBeLessThanOrEqual(
+        sheet.getBoundingClientRect().right,
+      );
+      expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(
+        sheet.getBoundingClientRect().right,
+      );
+      expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+      const toggle = row.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+      if (toggle.getAttribute("aria-expanded") === "false") await userEvent.click(toggle);
+      await vi.waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
+      await userEvent.click(toggle);
+      await vi.waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
+      const statuses = row.querySelector<HTMLElement>("[data-collapsed-thread-statuses]")!;
+      expect(statuses).not.toBeNull();
+      expect(statuses.querySelectorAll('[role="img"]')).toHaveLength(3);
+      expect(statuses.textContent).toContain("×100");
+      expect(statuses.getBoundingClientRect().right).toBeLessThanOrEqual(
+        toggle.getBoundingClientRect().right,
+      );
+      if (matchMedia("(pointer: coarse)").matches) {
+        expect(handle.getBoundingClientRect().width).toBeGreaterThanOrEqual(44);
+        expect(handle.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+        expect(toggle.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      }
+      const label = Array.from(toggle.querySelectorAll("span")).find(
+        (span) => span.textContent === p.title,
+      )!;
+      expect(label.getBoundingClientRect().width).toBeGreaterThanOrEqual(40);
+      expect(label.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        statuses.getBoundingClientRect().top,
+      );
+      await userEvent.click(toggle);
+      await vi.waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
+    },
+  );
 });
