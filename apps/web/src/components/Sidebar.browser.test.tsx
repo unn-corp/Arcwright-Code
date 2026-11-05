@@ -102,6 +102,113 @@ function OpenMobileSidebar() {
 }
 
 describe("mobile project groups", () => {
+  it("shows running project threads in Working when folders are enabled", async () => {
+    using stack = new DisposableStack();
+    const previous = getClientSettings();
+    stack.defer(() => __setClientSettingsForTests(previous));
+    stack.defer(() => {
+      void page.viewport(1280, 800);
+    });
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      boringSidebarEnabled: true,
+      sidebarProjectGroupingMode: "repository",
+      sidebarWorkingShelfEnabled: true,
+    });
+    const projects = [project("alpha"), project("beta")];
+    vi.mocked(useProjects).mockReturnValue(projects);
+    const running = makeThreadFixture({
+      id: ThreadId.make("running-project-thread"),
+      title: "Running project thread",
+      environmentId: projects[0]!.environmentId,
+      projectId: projects[0]!.id,
+    });
+    const idle = makeThreadFixture({
+      id: ThreadId.make("idle-project-thread"),
+      title: "Idle project thread",
+      environmentId: projects[1]!.environmentId,
+      projectId: projects[1]!.id,
+    });
+    vi.mocked(useQuietThreadShells).mockReturnValue([
+      {
+        ...running,
+        runtime: {
+          status: "running",
+          activeRunId: null,
+          providerInstanceId: running.providerInstanceId,
+          providerName: "Codex",
+          lastError: null,
+          updatedAt: "2026-01-02T00:00:00.000Z",
+        },
+      },
+      idle,
+    ]);
+    vi.mocked(useHandleNewThread).mockReturnValue({
+      activeDraftThread: null,
+      activeThread: null,
+      defaultProjectRef: null,
+      handleNewThread: vi.fn(),
+      routeDraftId: null,
+      routeThreadRef: null,
+    });
+    await page.viewport(390, 800);
+    await using screen = await render(
+      <SidebarProvider>
+        <OpenMobileSidebar />
+        <SidebarShell>
+          <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+        </SidebarShell>
+      </SidebarProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-testid="sidebar-working-header"]')).not.toBeNull(),
+    );
+    const toggle = page.getByTestId("sidebar-working-shelf-toggle");
+    if (toggle.element().getAttribute("aria-expanded") === "false") await userEvent.click(toggle);
+    await vi.waitFor(() =>
+      expect(
+        document.querySelectorAll('[data-thread-item="local:running-project-thread"]'),
+      ).toHaveLength(1),
+    );
+    expect(
+      document
+        .querySelector('[data-thread-item="local:running-project-thread"] [data-sidebar-row]')
+        ?.getAttribute("data-sidebar-parent"),
+    ).toBe("shelf:working");
+    vi.mocked(useQuietThreadShells).mockReturnValue([
+      { ...running, hasPendingApprovals: true },
+      idle,
+    ]);
+    await screen.rerender(
+      <SidebarProvider>
+        <OpenMobileSidebar />
+        <SidebarShell>
+          <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+        </SidebarShell>
+      </SidebarProvider>,
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-testid="sidebar-working-header"]')).toBeNull(),
+    );
+    const folder = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid="sidebar-project-folder"]'),
+    ).find((el) => el.textContent?.includes("alpha"));
+    expect(folder).toBeDefined();
+    const folderToggle = folder!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    if (folderToggle.getAttribute("aria-expanded") === "false") await userEvent.click(folderToggle);
+    await vi.waitFor(() =>
+      expect(
+        document.querySelectorAll('[data-thread-item="local:running-project-thread"]'),
+      ).toHaveLength(1),
+    );
+    expect(
+      document
+        .querySelector('[data-thread-item="local:running-project-thread"] [data-sidebar-row]')
+        ?.getAttribute("data-sidebar-parent"),
+    ).toBe(folderToggle.getAttribute("data-sidebar-row"));
+  });
+
   it.each([
     [false, 320],
     [false, 360],

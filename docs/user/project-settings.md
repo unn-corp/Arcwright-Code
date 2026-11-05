@@ -66,7 +66,7 @@ overrides to restore the environment defaults.
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the
 new-thread list, the command palette, the sidebar project filter, and mobile. In the boring sidebar, pinned projects get the top
-folders, even with no active threads. Pin or unpin a project from its row in any of those lists,
+folders, even with no active threads. When the Working shelf is enabled, running threads appear there and return to their project folders when work finishes or needs attention. Pin or unpin a project from its row in any of those lists,
 or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
 project** in the command palette and **Settings → Projects** work too. A list keeps its order
 while it is open, so a new pin moves up the next time you open it.
