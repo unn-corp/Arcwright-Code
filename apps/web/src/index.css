@@ -1979,7 +1979,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     );
   }
 
-  .chat-composer-context-strip {
+  :is(.chat-composer-context-strip, [data-slot="composer-context-strip"]) {
     position: relative;
     isolation: isolate;
 
@@ -1999,7 +1999,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
   }
 
-  .chat-composer-context-strip::before {
+  :is(.chat-composer-context-strip, [data-slot="composer-context-strip"])::before {
     position: absolute;
     z-index: -1;
     inset: 0;
@@ -2016,7 +2016,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       .chat-composer-glass-shell-attached,
       :has(:is(.chat-composer-top-drawer, .chat-composer-shoulder-tab))
     )
-    .chat-composer-context-strip {
+    :is(.chat-composer-context-strip, [data-slot="composer-context-strip"]) {
     &::before {
       background: color-mix(
         in srgb,
@@ -2049,7 +2049,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       clip-path: none;
     }
 
-    .chat-composer-context-strip::before {
+    :is(.chat-composer-context-strip, [data-slot="composer-context-strip"])::before {
       background: color-mix(
         in srgb,
         var(--chat-composer-glass-surface) var(--glass-opacity),
@@ -2059,7 +2059,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
     }
 
-    .chat-composer-context-strip {
+    :is(.chat-composer-context-strip, [data-slot="composer-context-strip"]) {
       @variant dark {
         &::before {
           background:
