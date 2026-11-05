@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "05d0f1f4a2509470717862feb95fd064907ddd2d82cf9b3320639b365b00d963",
+  "schemaSha256": "d4aa1c27323519bf1b4c8dd6ac9480f2b356554b461f68c23bf56f6e56d8fffe",
   "objects": [
     {
       "type": "index",
@@ -538,6 +538,12 @@
     },
     {
       "type": "index",
+      "name": "orchestration_v2_projection_runs_delegated_delivery_idx",
+      "tbl_name": "orchestration_v2_projection_runs",
+      "sql": "CREATE INDEX orchestration_v2_projection_runs_delegated_delivery_idx\n    ON orchestration_v2_projection_runs(thread_id)\n    WHERE CASE WHEN json_valid(payload_json)\n      THEN json_type(payload_json, '$.delegatedCompletion.delivery') = 'object'\n      ELSE 0 END\n  "
+    },
+    {
+      "type": "index",
       "name": "orchestration_v2_projection_runs_provider_thread_idx",
       "tbl_name": "orchestration_v2_projection_runs",
       "sql": "CREATE INDEX orchestration_v2_projection_runs_provider_thread_idx ON orchestration_v2_projection_runs(provider_thread_id)"
@@ -607,6 +613,12 @@
       "name": "orchestration_v2_projection_threads_project_updated_idx",
       "tbl_name": "orchestration_v2_projection_threads",
       "sql": "CREATE INDEX orchestration_v2_projection_threads_project_updated_idx ON orchestration_v2_projection_threads(project_id, updated_at)"
+    },
+    {
+      "type": "index",
+      "name": "orchestration_v2_projection_threads_subagent_result_idx",
+      "tbl_name": "orchestration_v2_projection_threads",
+      "sql": "CREATE INDEX orchestration_v2_projection_threads_subagent_result_idx\n    ON orchestration_v2_projection_threads(\n      thread_id, json_extract(payload_json, '$.lineage.parentThreadId')\n    )\n    WHERE CASE WHEN json_valid(payload_json) THEN\n      json_extract(payload_json, '$.lineage.relationshipToParent') = 'subagent'\n      AND json_extract(payload_json, '$.lineage.parentThreadId') IS NOT NULL\n      AND json_extract(payload_json, '$.forkedFrom.type') = 'node'\n      ELSE 0 END\n  "
     },
     {
       "type": "index",
