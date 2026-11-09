@@ -1,0 +1,5 @@
+interface:
+  display_name: "Hairline figure"
+  short_description: "Explicitly create an isometric line figure"
+policy:
+  allow_implicit_invocation: false
