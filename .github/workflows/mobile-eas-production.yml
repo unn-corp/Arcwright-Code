@@ -687,7 +687,7 @@ jobs:
     needs: production
     # Skipped when the production job failed: no store build after a failed OTA.
     if: github.repository == 'pingdotgg/t3code' && needs.production.outputs.ios_build == 'true'
-    runs-on: [self-hosted, macOS, arm64, unn]
+    runs-on: [self-hosted, macOS, arm64, unn, unn-isolated]
     timeout-minutes: 60
     concurrency:
       group: mobile-ios-store-build

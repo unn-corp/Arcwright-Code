@@ -35,6 +35,9 @@ browser interactions passed all six cases, including cross-computer destination
 changes and unsaved edits through disconnect/reconnect. Installer fixtures, fork
 release workflow/policy/retention/suite fixtures, icon generation and migration/docs
 checks passed. Changed source lint passed with existing non-blocking warnings.
+The runner-policy and release-workflow suites also passed 51 cases after adapting
+unrelated dynamic matrix axes and requiring native host/target alignment. Unknown
+runner selections remain rejected; unsupported fork platforms remain guarded.
 Required package install, update and recovery receipts must still pass in the
 fork release workflow against the exact pinned commit before publication.
 

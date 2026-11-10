@@ -58,13 +58,18 @@ function matrixValues(value: unknown, fixedSelector = false): unknown[] {
 
 function matrixContexts(matrix: Record<string, unknown> | undefined, selector: unknown) {
   if (matrix === undefined) return [{}];
-  const fixedSelector =
-    Array.isArray(selector) &&
-    selector.every((label) => typeof label === "string" && !label.includes("${{"));
+  const selectorText = JSON.stringify(selector) ?? "";
+  const referencedAxes = new Set(
+    Array.from(selectorText.matchAll(/\bmatrix\.([A-Za-z_][\w-]*)/g), (match) => match[1]!),
+  );
+  const fixedSelector = referencedAxes.size === 0;
   let contexts: Record<string, unknown>[] = [{}];
   let hasAxes = false;
   for (const [axis, value] of Object.entries(matrix)) {
     if (axis === "include" || axis === "exclude") continue;
+    // An unrelated dynamic axis cannot affect a fixed runner. Target/platform axes
+    // remain checked because they determine whether the runner can execute the job.
+    if (!referencedAxes.has(axis) && axis !== "target" && axis !== "platform") continue;
     hasAxes = true;
     contexts = contexts.flatMap((context) =>
       matrixValues(value, fixedSelector).map((choice) => ({ ...context, [axis]: choice })),
@@ -113,7 +118,9 @@ function verifyRunners(workflows: Record<string, Workflow>) {
     if (!workflow) throw new Error(`Unknown reusable workflow: ${file}`);
     for (const [name, job] of Object.entries(workflow.jobs)) {
       inspected.add(`${file}/${name}`);
-      for (const matrix of matrixContexts(job.strategy?.matrix, job["runs-on"])) {
+      const selector =
+        job.uses === undefined ? job["runs-on"] : [job.with?.runner, job.with?.runner_arch];
+      for (const matrix of matrixContexts(job.strategy?.matrix, selector)) {
         if (job.uses !== undefined) {
           const called = /^\.\/\.github\/workflows\/(.+)$/.exec(job.uses);
           if (!called) throw new Error(`Unverifiable reusable workflow: ${job.uses}`);
@@ -169,17 +176,7 @@ function verifyRunners(workflows: Record<string, Workflow>) {
               : inputs.platform === "mac"
                 ? "macos"
                 : inputs.platform;
-          // The Intel macOS DMG is packaged on Apple Silicon without an Intel
-          // CLI archive; native CLI smoke tests still require matching hardware.
-          const crossPackagedMac =
-            inputs.platform === "mac" &&
-            inputs.arch === "x64" &&
-            inputs.cli_archive === false &&
-            architectures[0] === "arm64";
-          if (
-            operatingSystems[0] !== expectedOS ||
-            (architectures[0] !== inputs.arch && !crossPackagedMac)
-          ) {
+          if (operatingSystems[0] !== expectedOS || architectures[0] !== inputs.arch) {
             throw new Error(`${file}/${name}: runner does not match desktop target`);
           }
         }
@@ -235,7 +232,7 @@ function admitsJob(
       name,
       {
         result: "success",
-        outputs: { eligible: "true", changed: "true", skip: "false" },
+        outputs: { eligible: "true", changed: "true", skip: "false", ios_build: "true" },
       },
     ]),
   );
@@ -326,6 +323,30 @@ describe("organization self-hosted CI policy", () => {
     expect(() =>
       verifyRunners({ "ci.yml": workflow([{ target: "windows-x64", runner: "linux" }]) }),
     ).toThrow(/cannot execute/);
+    verifyRunners({
+      "ci.yml": {
+        jobs: {
+          test: {
+            "runs-on": labels("${{ matrix.runner }}"),
+            strategy: {
+              matrix: { runner: ["linux"], unrelated: "${{ needs.prepare.outputs.items }}" },
+            },
+          },
+        },
+      },
+    });
+    expect(() =>
+      verifyRunners({
+        "ci.yml": {
+          jobs: {
+            test: {
+              "runs-on": labels("${{ matrix.runner }}"),
+              strategy: { matrix: { runner: "${{ needs.prepare.outputs.items }}" } },
+            },
+          },
+        },
+      }),
+    ).toThrow();
     const outputRows = "${{ fromJSON(needs.reserve.outputs.matrix) }}";
     verifyRunners({
       "ci.yml": {
@@ -386,6 +407,26 @@ describe("organization self-hosted CI policy", () => {
       },
     });
     verifyRunners({ "desktop.yml": called, "ci.yml": caller("windows") });
+    verifyRunners({
+      "desktop.yml": called,
+      "ci.yml": {
+        jobs: {
+          package: {
+            uses: "./.github/workflows/desktop.yml",
+            with: {
+              runner: "${{ matrix.runner }}",
+              runner_arch: "arm64",
+              platform: "win",
+              arch: "arm64",
+            },
+            strategy: {
+              matrix: { runner: ["windows"], unrelated: "${{ needs.prepare.outputs.items }}" },
+            },
+          },
+        },
+      },
+    });
+
     expect(() =>
       verifyRunners({ "desktop.yml": called, "ci.yml": caller("windows-2025") }),
     ).toThrow();
@@ -414,7 +455,7 @@ describe("fork CI platform capacity", () => {
           if (!host.has("macos") && !host.has("arm64")) continue;
           unsupported.push(`${file}/${name}`);
           expect(admitsJob(job, "unn-corp/Arcwright-Code", job.with)).toBe(false);
-          expect(admitsJob(job, "pingdotgg/t3code", job.with)).toBe(true);
+          expect(admitsJob(job, "pingdotgg/t3code", job.with), `${file}/${name}`).toBe(true);
         }
       }
     }
@@ -453,7 +494,12 @@ describe("fork CI platform capacity", () => {
     ]) {
       const inputs = { runner, runner_arch, platform, arch };
       expect(admitsJob(build, "unn-corp/Arcwright-Code", inputs)).toBe(false);
-      expect(admitsJob(build, "pingdotgg/t3code", inputs)).toBe(true);
+      expect(admitsJob(build, "pingdotgg/t3code", inputs)).toBe(
+        runner_arch === arch &&
+          ((runner === "macOS" && platform === "mac") ||
+            (runner === "linux" && platform === "linux") ||
+            (runner === "windows" && platform === "win")),
+      );
     }
     for (const [runner, platform] of [
       ["linux", "linux"],

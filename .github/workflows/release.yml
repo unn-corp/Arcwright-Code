@@ -672,7 +672,7 @@ jobs:
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
       label: macOS x64
       runner: macOS
-      runner_arch: arm64
+      runner_arch: x64
       platform: mac
       target: dmg
       arch: x64
