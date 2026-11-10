@@ -21,15 +21,13 @@ import { useSavedRemoteConnections } from "../../state/use-remote-environment-re
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
-import {
-  useSettingsEnvironmentMenu,
-  SettingsEnvironmentFilterHeader,
-} from "./components/SettingsEnvironmentFilterHeader";
+import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsControlRow } from "./components/SettingsControlRow";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsScreen } from "./components/SettingsScreen";
+import { formatBytes } from "../../lib/formatBytes";
 
 export function SettingsClientStorageRouteScreen() {
   const insets = useSafeAreaInsets();
@@ -86,7 +84,6 @@ export function SettingsClientStorageRouteScreen() {
         className="flex-1"
         contentContainerClassName="gap-6 px-5 pt-4 pb-[18px]"
       >
-        <SettingsEnvironmentFilterHeader />
         <ConversationEvidenceSettings />
         <SettingsSection title="Environment caches">
           {AsyncResult.isFailure(summaryResult) ? (
@@ -190,12 +187,6 @@ function CacheEnvironmentRow(props: {
       />
     </View>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
 function ConversationEvidenceSettings() {

@@ -4,7 +4,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, TextGenerationError } from "@t3tools/contracts";
+import { NonNegativeInt, settingsSecretLiteral, TextGenerationError } from "@t3tools/contracts";
 import type { OpenCodeSettings } from "../settings.ts";
 import { OrganizationArchitectTurnOutput, type ModelSelection } from "@t3tools/contracts";
 import {
@@ -29,6 +29,7 @@ const OpenCodeTextGenerationOperation = Schema.Literals([
   "generateThreadTitle",
   "generateOrganizationArchitectTurn",
   "generateReviewGuide",
+  "generateTranscriptionPostProcessing",
 ]);
 const ARCHITECT_TIMEOUT_MS = 60_000;
 
@@ -380,8 +381,8 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
               binaryPath: openCodeSettings.binaryPath,
               directory: input.cwd,
               serverUrl: openCodeSettings.serverUrl,
-              ...(openCodeSettings.serverPassword
-                ? { serverPassword: openCodeSettings.serverPassword }
+              ...(settingsSecretLiteral(openCodeSettings.serverPassword)
+                ? { serverPassword: settingsSecretLiteral(openCodeSettings.serverPassword) }
                 : {}),
             })
             .pipe(Effect.flatMap(runAgainstServer), Effect.scoped)

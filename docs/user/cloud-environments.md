@@ -383,7 +383,7 @@ that the WebSocket path or provider inference works.
    Confirm both name the cloud checkout, then send a follow-up in the same chat.
 5. Open this host's **Connections → Updates → Review installations** and review
    its known fork runtimes. Automatic installation remains blocked until that
-   review and the [idle checks](./updating.md#why-installation-waits) pass.
+   review and the [idle checks](./updating.md#native-installation-safety) pass.
 
 ## Agent commissioning and device checklist
 

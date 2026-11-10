@@ -52,6 +52,7 @@ export interface ContextHandoffServiceV2Shape {
     readonly toProviderThreadId: ProviderThreadId;
     readonly toProviderInstanceId: ProviderInstanceId;
     readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
+    readonly omittedItems?: number;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
   readonly prepareForkDelta: (input: {
@@ -65,6 +66,7 @@ export interface ContextHandoffServiceV2Shape {
     readonly toProviderInstanceId: ProviderInstanceId;
     readonly coveredRunOrdinals: OrchestrationV2ContextHandoff["coveredRunOrdinals"];
     readonly deltaItems: ReadonlyArray<OrchestrationV2TurnItem>;
+    readonly omittedItems?: number;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
   readonly prepareProviderHandoff: (input: {
@@ -82,6 +84,7 @@ export interface ContextHandoffServiceV2Shape {
       "delta_since_target_last_seen" | "full_thread_summary"
     >;
     readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
+    readonly omittedItems?: number;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
   /** Parent activity after the fork point, prepended to a side chat's first provider turn. */
@@ -95,6 +98,7 @@ export interface ContextHandoffServiceV2Shape {
     readonly toProviderInstanceId: ProviderInstanceId;
     readonly coveredRunOrdinals: OrchestrationV2ContextHandoff["coveredRunOrdinals"];
     readonly parentItems: ReadonlyArray<OrchestrationV2TurnItem>;
+    readonly omittedItems?: number;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
 }
@@ -146,32 +150,55 @@ export function visibleConversationItems(
 type ForkHistorySource = Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "attempts">;
 
 /** Visible rows of `source`'s own runs through `throughRun`, plus its v1 imported rows. */
+type BoundedHandoffItems = {
+  readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
+  readonly omittedItems: number;
+};
+const handoffBytes = (items: ReadonlyArray<OrchestrationV2TurnItem>) =>
+  Buffer.byteLength(JSON.stringify(items));
+
+/** Read context candidates before payload decompression, retaining omission counts. */
 const readOwnHistoryItems = Effect.fn("orchestrationV2.contextHandoff.readOwnHistoryItems")(
   function* (
-    projectionStore: Pick<ProjectionStoreV2Shape, "getThreadRecords">,
+    projectionStore: Pick<ProjectionStoreV2Shape, "getHandoffHistory">,
     source: ForkHistorySource,
     throughRun: Pick<OrchestrationV2Run, "ordinal">,
+    maxBytes: number,
+    includeDigestItems = false,
   ) {
-    const { turnItems } = yield* projectionStore.getThreadRecords(source.thread.id, ["turnItems"], {
-      turnItemRunIds: [
+    const history = yield* projectionStore.getHandoffHistory(
+      source.thread.id,
+      [
         ...source.runs.filter((run) => run.ordinal <= throughRun.ordinal).map((run) => run.id),
         ...(source.thread.historyOrigin === "v1_import" ? [null] : []),
       ],
-    });
-    return visibleConversationItems(source, turnItems);
+      maxBytes,
+      includeDigestItems,
+    );
+    return {
+      items: visibleConversationItems(source, history.items),
+      omittedItems: history.omittedItems,
+    };
   },
 );
 
-/** History `thread` shows from its fork ancestors, oldest first. Side chats inherit no rows. */
 export const readInheritedHandoffItems = Effect.fn(
   "orchestrationV2.contextHandoff.readInheritedHandoffItems",
 )(function* (
-  projectionStore: Pick<ProjectionStoreV2Shape, "getThreadRecords">,
+  projectionStore: Pick<ProjectionStoreV2Shape, "getThreadRecords" | "getHandoffHistory">,
   thread: OrchestrationV2AppThread,
+  maxBytes = 8388608,
+  includeDigestItems = false,
 ) {
   const segments: Array<ReadonlyArray<OrchestrationV2TurnItem>> = [];
+  const ancestors: Array<{
+    source: ForkHistorySource;
+    forkRun: Pick<OrchestrationV2Run, "ordinal">;
+  }> = [];
   const seen = new Set([thread.id]);
   let current = thread;
+  let remaining = maxBytes;
+  let omittedItems = 0;
   while (
     current.forkedFrom?.type === "run" &&
     current.lineage.sideChat !== true &&
@@ -184,24 +211,48 @@ export const readInheritedHandoffItems = Effect.fn(
       .pipe(Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }));
     const forkRun = source?.runs.find((run) => run.id === runId);
     if (source === null || forkRun === undefined) break;
-    segments.unshift(yield* readOwnHistoryItems(projectionStore, source, forkRun));
+    ancestors.unshift({ source, forkRun });
     current = source.thread;
   }
-  return segments.flat();
+  // Reserve a share for each ancestor so the oldest brief and newer context can coexist.
+  for (const [index, ancestor] of ancestors.entries()) {
+    const share = Math.floor(remaining / (ancestors.length - index));
+    const history = yield* readOwnHistoryItems(
+      projectionStore,
+      ancestor.source,
+      ancestor.forkRun,
+      share,
+      includeDigestItems,
+    );
+    segments.push(history.items);
+    remaining = Math.max(0, remaining - handoffBytes(history.items));
+    omittedItems += history.omittedItems;
+  }
+  return { items: segments.flat(), omittedItems } satisfies BoundedHandoffItems;
 });
 
-/** What a portable fork from `throughRun` of `source` carries: inherited rows, then its own. */
 export const readForkHistoryItems = Effect.fn(
   "orchestrationV2.contextHandoff.readForkHistoryItems",
 )(function* (
-  projectionStore: Pick<ProjectionStoreV2Shape, "getThreadRecords">,
+  projectionStore: Pick<ProjectionStoreV2Shape, "getThreadRecords" | "getHandoffHistory">,
   source: ForkHistorySource,
   throughRun: Pick<OrchestrationV2Run, "ordinal">,
 ) {
-  return [
-    ...(yield* readInheritedHandoffItems(projectionStore, source.thread)),
-    ...(yield* readOwnHistoryItems(projectionStore, source, throughRun)),
-  ];
+  const own = yield* readOwnHistoryItems(
+    projectionStore,
+    source,
+    throughRun,
+    source.thread.forkedFrom?.type === "run" ? 4194304 : 8388608,
+  );
+  const inherited = yield* readInheritedHandoffItems(
+    projectionStore,
+    source.thread,
+    Math.max(0, 8388608 - handoffBytes(own.items)),
+  );
+  return {
+    items: [...inherited.items, ...own.items],
+    omittedItems: inherited.omittedItems + own.omittedItems,
+  } satisfies BoundedHandoffItems;
 });
 
 function summarizeDeltaItem(item: OrchestrationV2TurnItem): string | null {
@@ -250,23 +301,36 @@ const SIDE_CHAT_CONTEXT_MAX_CHARS = 8_000;
 export function makeSideChatContext(input: {
   readonly parentThreadId: ThreadId;
   readonly digest: ReadonlyArray<string | OrchestrationV2TurnItem>;
+  readonly omittedItems?: number;
 }): string {
   const framing =
     "You are in a side chat beside the main thread. The main thread may still be running in the same worktree. Answer the user's questions; do not continue or redo the main thread's task.";
   const header = "Main thread activity since this side chat's starting point:";
+  const sourceOmissions = input.omittedItems
+    ? `- ${input.omittedItems} source items omitted before summarization.`
+    : null;
   const truncated = "- Earlier items truncated.";
   const footer = `Use t3_thread_read on thread ${input.parentThreadId} to see the main thread's live state.`;
   const kept: Array<string> = [];
-  let omitted = false;
-  // The cap covers the whole block, so the fixed lines are reserved before any digest line.
+  let truncatedItems = false;
+  // Reserve both omission notices before selecting any digest line.
   let remaining =
-    SIDE_CHAT_CONTEXT_MAX_CHARS - [framing, "", header, truncated, "", footer].join("\n").length;
+    SIDE_CHAT_CONTEXT_MAX_CHARS -
+    [
+      framing,
+      "",
+      header,
+      ...(sourceOmissions ? [sourceOmissions] : []),
+      truncated,
+      "",
+      footer,
+    ].join("\n").length;
   for (let index = input.digest.length - 1; index >= 0; index--) {
     const item = input.digest[index]!;
     const line = typeof item === "string" ? item : summarizeDeltaItem(item);
     if (line === null) continue;
     if (line.length + 1 > remaining) {
-      omitted = true;
+      truncatedItems = true;
       break;
     }
     kept.unshift(line);
@@ -274,7 +338,15 @@ export function makeSideChatContext(input: {
   }
   return [
     framing,
-    ...(kept.length === 0 ? [] : ["", header, ...(omitted ? [truncated] : []), ...kept]),
+    ...(kept.length === 0 && !sourceOmissions && !truncatedItems
+      ? []
+      : [
+          "",
+          header,
+          ...(sourceOmissions ? [sourceOmissions] : []),
+          ...(truncatedItems ? [truncated] : []),
+          ...kept,
+        ]),
     "",
     footer,
   ].join("\n");
@@ -359,6 +431,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
         readonly toProviderThreadId: ProviderThreadId;
         readonly toProviderInstanceId: ProviderInstanceId;
         readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
+        readonly omittedItems?: number;
         readonly createdAt: DateTime.Utc;
       }) {
         const handoffId = yield* idAllocator.allocate
@@ -386,6 +459,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
             return message === null ? [] : [message];
           }),
           coverage,
+          omittedItems: input.omittedItems ?? 0,
           budget: tokenCap,
         });
         return {
@@ -399,7 +473,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
           strategy: "manual_context",
           status: "ready",
           summaryMessageId: null,
-          summaryText: makeLegacyImportSummary(input.items),
+          summaryText: `${makeLegacyImportSummary(input.items)}${input.omittedItems ? `\n${input.omittedItems} source items omitted before summarization.` : ""}`,
           history: {
             messages: selected.messages,
             coverage,
@@ -425,6 +499,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
         readonly toProviderInstanceId: ProviderInstanceId;
         readonly coveredRunOrdinals: OrchestrationV2ContextHandoff["coveredRunOrdinals"];
         readonly deltaItems: ReadonlyArray<OrchestrationV2TurnItem>;
+        readonly omittedItems?: number;
         readonly createdAt: DateTime.Utc;
       }) {
         const handoffId = yield* idAllocator.allocate
@@ -456,6 +531,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
             return message === null ? [] : [message];
           }),
           coverage,
+          omittedItems: input.omittedItems ?? 0,
           budget: tokenCap,
         });
         return {
@@ -469,7 +545,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
           strategy: "fork_delta_summary",
           status: "ready",
           summaryMessageId: null,
-          summaryText: makeForkDeltaSummary(input),
+          summaryText: `${makeForkDeltaSummary(input)}${input.omittedItems ? `\n${input.omittedItems} source items omitted before summarization.` : ""}`,
           history: {
             messages: selected.messages,
             coverage,
@@ -500,6 +576,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
         "delta_since_target_last_seen" | "full_thread_summary"
       >;
       readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
+      readonly omittedItems?: number;
       readonly createdAt: DateTime.Utc;
     }) {
       const handoffId = yield* idAllocator.allocate
@@ -535,6 +612,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
               ];
         }),
         coverage,
+        omittedItems: input.omittedItems ?? 0,
         budget: tokenCap,
       });
       return {
@@ -596,6 +674,7 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
         summaryText: makeSideChatContext({
           parentThreadId: input.parentThreadId,
           digest: input.parentItems,
+          omittedItems: input.omittedItems ?? 0,
         }),
         createdByProviderInstanceId: null,
         createdAt: input.createdAt,

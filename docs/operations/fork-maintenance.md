@@ -43,6 +43,8 @@ contains Git submodule entries, preserve their root-relative registration in `.g
 initialization disabled. GitHub checkout's credential cleanup traverses these entries even during
 a sparse checkout; missing root metadata can stop every build before dependency installation.
 
+The [2026-11-10 integration record](upstream-integration-20261110.md) records the
+current pinned merge, history admission and retained client/provider boundaries.
 The [2026-10-12 integration record](upstream-integration-20261012.md) records the
 pinned upstream range, retained package ownership and compatibility corrections.
 The [2026-10-13 Connect integration record](connect-main-integration-20261013.md)
@@ -117,8 +119,21 @@ Verification: `AgentStartAdmission.test.ts`, `EffectOutbox.memory.test.ts`, `Eff
 and `FoundationPersistence.test.ts` cover hysteresis, 20 pending starts, resumption, control work,
 cancellation, and durable ordering. Sustained real-provider load and packaged-device validation
 remain separate release checks. Admission cannot prevent an already-running tool or unrelated
-application from exhausting memory. OS-killed runtimes still require verified coordinator lock
-repair; this feature does not clear locks or bypass maintenance fencing.
+application from exhausting memory.
+
+Provider-switch and restart context reads preflight stored and logical payload sizes in SQLite
+before decoding historical bodies, retain a bounded recent window and user anchors, and report
+omitted context without deleting saved history. Side-chat and merge-back digests use the same
+bounded read boundary. Command, current-run, and recovery control records remain exact; an
+oversized authoritative read fails visibly instead of being truncated. The byte admission and
+read share one SQLite transaction so a concurrent write cannot bypass admission.
+
+Coordinator startup recovers locks only after proving their recorded process identity has exited.
+Automatic and explicit repair share immutable claims; a live, unknown, malformed, or interrupted
+claim remains blocked for operator review. Recovery never clears maintenance fences or journals.
+See [the coordinator rules](../internals/server-updates.md#the-device-coordinator). Upstream's new
+reclaim-on-shutdown path remains unavailable on fork runtimes until it can satisfy the durable
+maintenance transaction; stale reclaim markers cannot authorize compaction.
 
 ## Product branding
 

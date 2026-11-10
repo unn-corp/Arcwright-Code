@@ -4,8 +4,12 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect has no free-space query.
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
 import * as SqlClient from "effect/sql/SqlClient";
 import { isSqlError } from "effect/sql/SqlError";
 
@@ -65,6 +69,15 @@ export class LegacyDatabaseRemoveError extends Schema.TaggedError<LegacyDatabase
 ) {
   override get message() {
     return "Could not delete the database from before 0.1.0. Check that this user can write to the data directory.";
+  }
+}
+
+export class DiskSpaceCheckError extends Schema.TaggedError<DiskSpaceCheckError>()(
+  "DiskSpaceCheckError",
+  { path: Schema.String, cause: Schema.Defect() },
+) {
+  override get message() {
+    return "Could not check free disk space.";
   }
 }
 
@@ -253,3 +266,67 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(DatabaseMaintenance, make);
+
+/** Settings' Reclaim writes the request; the failure stays for Settings until the next request. */
+export const reclaimFiles = (path: Path.Path, databasePath: string) => ({
+  request: path.join(path.dirname(databasePath), "reclaim-requested"),
+  failure: path.join(path.dirname(databasePath), "reclaim-failed"),
+});
+
+/** A legacy marker does not authorize offline repair on fork runtimes. */
+export const runRequestedReclaim = (_databasePath: string) => Effect.void;
+
+// SQLite's search order for its temporary files (unixTempFileDir in os_unix.c).
+const sqliteTempDirectory = Effect.gen(function* () {
+  if ((yield* HostProcess.Platform) === "win32") return NodeOS.tmpdir();
+  const fs = yield* FileSystem.FileSystem;
+  const env = yield* HostProcess.Environment;
+  for (const directory of [env.SQLITE_TMPDIR, env.TMPDIR, "/var/tmp", "/usr/tmp", "/tmp"]) {
+    if (directory === undefined || directory === "") continue;
+    const info = yield* fs.stat(directory).pipe(Effect.option);
+    if (Option.isNone(info) || info.value.type !== "Directory") continue;
+    // SQLite skips directories it cannot write to and search: osAccess(zDir, 03).
+    const usable = yield* Effect.tryPromise({
+      try: () => NodeFSP.access(directory, NodeFSP.constants.W_OK | NodeFSP.constants.X_OK),
+      catch: (cause) => new DiskSpaceCheckError({ path: directory, cause }),
+    }).pipe(
+      Effect.as(true),
+      Effect.orElseSucceed(() => false),
+    );
+    if (usable) return directory;
+  }
+  return ".";
+});
+
+const freeBytes = (directory: string) =>
+  Effect.tryPromise({
+    try: () => NodeFSP.statfs(directory),
+    catch: (cause) => new DiskSpaceCheckError({ path: directory, cause }),
+  }).pipe(Effect.map((stats) => stats.bavail * stats.bsize));
+
+/**
+ * VACUUM copies the live pages to a temporary file, then writes them again to the WAL.
+ * Returns the free space the repair needs when either file system has less, else null.
+ */
+export const reclaimSpaceShortfall = Effect.fn("DatabaseMaintenance.reclaimSpaceShortfall")(
+  function* (databasePath: string, liveBytes: number) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const databaseDirectory = path.dirname(databasePath);
+    const tempDirectory = yield* sqliteTempDirectory;
+    const copyBytes = Math.ceil(liveBytes * 1.1);
+    const [databaseFree, tempFree, databaseDevice, tempDevice] = yield* Effect.all([
+      freeBytes(databaseDirectory),
+      freeBytes(tempDirectory),
+      fs.stat(databaseDirectory).pipe(Effect.map((info) => info.dev)),
+      fs.stat(tempDirectory).pipe(Effect.map((info) => info.dev)),
+    ]);
+    if (databaseDevice === tempDevice) {
+      return databaseFree < 2 * copyBytes
+        ? { neededBytes: 2 * copyBytes, freeBytes: databaseFree }
+        : null;
+    }
+    if (databaseFree < copyBytes) return { neededBytes: copyBytes, freeBytes: databaseFree };
+    return tempFree < copyBytes ? { neededBytes: copyBytes, freeBytes: tempFree } : null;
+  },
+);

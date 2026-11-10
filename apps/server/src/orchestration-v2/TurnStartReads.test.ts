@@ -1,6 +1,10 @@
 import { assert, it } from "@effect/vitest";
+import { compressText, payloadReference } from "@t3tools/shared/forkStorageCodec";
 import {
   CheckpointScopeId,
+  CheckpointId,
+  ContextHandoffId,
+  ProviderThreadId,
   ContextTransferId,
   NodeId,
   EventId,
@@ -21,6 +25,7 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ContextHandoffService from "./ContextHandoffService.ts";
 
 const layerDatabase = Layer.mergeAll(
   SqlitePersistence.layerMemory,
@@ -288,6 +293,199 @@ it.effect.each(["sqlite"] as const)(
       assert.deepEqual(yield* store.getTurnStartHistory(threadId, [oldRunId]), [item]);
       assert.deepEqual(yield* store.getTurnStartHistory(threadId, [runId]), []);
       assert.deepEqual(yield* store.getTurnStartHistory(threadId, []), []);
+      // Oversized source rows are counted without decoding or deleting them.
+      const budgetSql = yield* SqlClient.SqlClient;
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        VALUES ('oversized-history', ${threadId}, ${oldRunId}, 'assistant_message', 'completed', 3,
+          ${DateTime.formatIso(now)}, ${"x".repeat(1_100_000)})`;
+      const archived = compressText("y".repeat(1_100_000));
+      // Deliberately leave the blob absent: inflating this reference would fail.
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        VALUES ('oversized-archive', ${threadId}, ${oldRunId}, 'assistant_message', 'completed', 4,
+          ${DateTime.formatIso(now)}, ${payloadReference(archived)})`;
+      const bounded = yield* store.getHandoffHistory(threadId, [oldRunId]);
+      assert.deepEqual(bounded.items, [item]);
+      assert.equal(bounded.omittedItems, 2);
+      const retained = yield* budgetSql<{
+        count: number;
+      }>`SELECT count(*) AS count FROM orchestration_v2_projection_turn_items WHERE turn_item_id = 'oversized-history'`;
+      assert.equal(retained[0]?.count, 1);
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_turn_items WHERE turn_item_id IN ('oversized-history', 'oversized-archive')`;
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 600)
+        SELECT 'bulk:' || n, ${threadId}, ${oldRunId}, 'command_execution', 'completed', n + 10,
+          ${DateTime.formatIso(now)}, json_set(payload_json, '$.id', 'bulk:' || n, '$.ordinal', n + 10)
+        FROM orchestration_v2_projection_turn_items, seq WHERE turn_item_id = ${item.id}`;
+      for (const [id, ordinal, text] of [
+        ["brief", 0, "Original brief"],
+        ["latest-user", 2, "Latest request"],
+      ] as const) {
+        yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+          (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+          SELECT ${id}, ${threadId}, ${oldRunId}, 'user_message', 'completed', ${ordinal}, ${DateTime.formatIso(now)},
+            json_set(payload_json, '$.id', ${id}, '$.ordinal', ${ordinal}, '$.type', 'user_message',
+              '$.messageId', ${`message:${id}`}, '$.text', ${text}, '$.createdBy', 'user',
+              '$.creationSource', 'server', '$.inputIntent', 'turn_start', '$.attachments', json('[]'))
+          FROM orchestration_v2_projection_turn_items WHERE turn_item_id = ${item.id}`;
+      }
+      // More than one history window of nodes must not hide the queued run's root.
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_nodes
+        (node_id, thread_id, run_id, parent_node_id, root_node_id, kind, status,
+         provider_thread_id, provider_turn_id, runtime_request_id, checkpoint_scope_id,
+         started_at, completed_at, payload_json)
+        WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 600)
+        SELECT 'bulk-node:' || printf('%04d', n), ${threadId}, ${runId}, ${run.rootNodeId},
+          ${run.rootNodeId}, 'tool_call', 'pending', NULL, NULL, NULL, NULL, NULL, NULL,
+          json_set(payload_json, '$.id', 'bulk-node:' || printf('%04d', n),
+            '$.parentNodeId', ${run.rootNodeId}, '$.kind', 'tool_call', '$.countsForRun', json('false'))
+        FROM orchestration_v2_projection_nodes, seq WHERE node_id = ${run.rootNodeId}`;
+      const commandControls = yield* store.getThreadRecords(
+        threadId,
+        ["runs", "nodes", "turnItems"],
+        {
+          enforceCommandReadBudget: true,
+          turnItemTypes: ["user_message", "error"],
+          omitSettledLeafNodes: true,
+          omitSettledSubagents: true,
+        },
+      );
+      assert.equal(commandControls.nodes.length, 601);
+      assert.equal(commandControls.nodes.at(-1)?.id, run.rootNodeId);
+      assert.equal(
+        commandControls.runs.find((value) => value.id === runId)?.rootNodeId,
+        run.rootNodeId,
+      );
+      assert.equal(commandControls.runs.find((value) => value.id === runId)?.status, "queued");
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_nodes WHERE thread_id = ${threadId} AND node_id LIKE 'bulk-node:%'`;
+      const recent = yield* store.getHandoffHistory(threadId, [oldRunId]);
+      assert.equal(recent.items.length, 502);
+      assert.equal(recent.omittedItems, 101);
+      assert.deepEqual(
+        recent.items.slice(0, 2).map((value) => value.id),
+        ["brief", "latest-user"],
+      );
+      assert.equal(recent.items.at(-1)?.id, "bulk:600");
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_turn_items WHERE thread_id = ${threadId} AND (turn_item_id LIKE 'bulk:%' OR turn_item_id IN ('brief', 'latest-user'))`;
+
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 10)
+        SELECT 'large:' || n, ${threadId}, ${oldRunId}, 'command_execution', 'completed', n + 10,
+          ${DateTime.formatIso(now)}, json_set(payload_json, '$.id', 'large:' || n, '$.ordinal', n + 10, '$.input', ${"z".repeat(900_000)})
+        FROM orchestration_v2_projection_turn_items, seq WHERE turn_item_id = ${item.id}`;
+      const byteBounded = yield* store.getHandoffHistory(threadId, [oldRunId]);
+      assert.equal(byteBounded.items.length, 9);
+      assert.equal(byteBounded.omittedItems, 2);
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_turn_items WHERE thread_id = ${threadId} AND turn_item_id LIKE 'large:%'`;
+
+      const handoff = {
+        ...item,
+        id: TurnItemId.make("digest-handoff"),
+        ordinal: 3,
+        type: "handoff" as const,
+        contextHandoffId: ContextHandoffId.make("handoff:digest"),
+        fromProviderThreadIds: [],
+        toProviderThreadId: ProviderThreadId.make("provider:digest"),
+        fromProviderInstanceIds: [],
+        toProviderInstanceId: instanceId,
+        strategy: "full_thread_summary" as const,
+        summary: "Earlier decision",
+      };
+      const checkpoint = {
+        ...item,
+        id: TurnItemId.make("digest-checkpoint"),
+        ordinal: 4,
+        type: "checkpoint" as const,
+        checkpointId: CheckpointId.make("checkpoint:digest"),
+        scopeId,
+        files: [],
+      };
+      for (const [index, value] of [handoff, checkpoint].entries()) {
+        yield* store.apply({
+          id: EventId.make(`digest-event:${index}`),
+          type: "turn-item.updated",
+          threadId,
+          runId: oldRunId,
+          occurredAt: now,
+          payload: value,
+        });
+      }
+      // A digest-only large archived row must be counted without trying to inflate it.
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        VALUES ('digest-large', ${threadId}, ${oldRunId}, 'handoff', 'completed', 5,
+          ${DateTime.formatIso(now)}, ${payloadReference(archived)})`;
+      const digest = yield* store.getHandoffHistory(threadId, [oldRunId], 8388608, true);
+      assert.deepEqual(
+        digest.items.map((value) => value.id),
+        [item.id, handoff.id, checkpoint.id],
+      );
+      assert.equal(digest.omittedItems, 1);
+      const sideContext = ContextHandoffService.makeSideChatContext({
+        parentThreadId: threadId,
+        digest: digest.items,
+        omittedItems: digest.omittedItems,
+      });
+      assert.include(sideContext, "Handoff: Earlier decision");
+      assert.include(sideContext, "Checkpoint: 0 files");
+      assert.include(sideContext, "1 source items omitted");
+      assert.deepEqual((yield* store.getHandoffHistory(threadId, [oldRunId])).items, [item]);
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_turn_items WHERE turn_item_id IN ('digest-handoff', 'digest-checkpoint', 'digest-large')`;
+
+      // Authoritative controls are refused before an oversized archived body can be inflated.
+      const controlRef = `arcwright:payload:v1:${"a".repeat(64)}:9000000`;
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        VALUES ('oversized-control', ${threadId}, ${oldRunId}, 'error', 'completed', 5,
+          ${DateTime.formatIso(now)}, ${controlRef})`;
+      const admission = yield* Effect.flip(store.assertCommandProjectionBudget(threadId));
+      assert.equal(admission._tag, "ProjectionStoreReadError");
+      const refusedRead = yield* Effect.flip(
+        store.getThreadRecords(threadId, ["turnItems"], {
+          turnItemTypes: ["user_message", "error"],
+          enforceCommandReadBudget: true,
+        }),
+      );
+      assert.equal(refusedRead._tag, "ProjectionStoreReadError");
+      assert.equal(
+        (refusedRead.cause as { _tag?: string })._tag,
+        "ProjectionStoreControlBudgetError",
+      );
+      assert.equal(
+        (admission.cause as { _tag?: string })._tag,
+        "ProjectionStoreControlBudgetError",
+      );
+      const preserved = yield* budgetSql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM orchestration_v2_projection_turn_items WHERE turn_item_id = 'oversized-control'`;
+      assert.equal(preserved[0]?.payload_json, controlRef);
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_turn_items WHERE turn_item_id = 'oversized-control'`;
+      yield* store.assertCommandProjectionBudget(threadId);
+
+      yield* budgetSql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, type, status, ordinal, updated_at, payload_json)
+        VALUES ('oversized-active', ${threadId}, ${oldRunId}, 'command_execution', 'running', 6,
+          ${DateTime.formatIso(now)}, ${controlRef})`;
+      for (const read of [
+        store.getTurnStartContext(threadId, oldRunId).pipe(Effect.asVoid),
+        store.getRuntimeRecoveryProjection(threadId).pipe(Effect.asVoid),
+      ]) {
+        const refused = yield* Effect.flip(read);
+        assert.equal(refused._tag, "ProjectionStoreReadError");
+        assert.equal(
+          (refused.cause as { _tag?: string })._tag,
+          "ProjectionStoreControlBudgetError",
+        );
+      }
+      const activeRetained = yield* budgetSql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM orchestration_v2_projection_turn_items WHERE turn_item_id = 'oversized-active'`;
+      assert.equal(activeRetained[0]?.payload_json, controlRef);
+      yield* budgetSql`DELETE FROM orchestration_v2_projection_turn_items WHERE turn_item_id = 'oversized-active'`;
+
       const resultId = TurnItemId.make("interrupt-result");
       assert.isTrue(yield* store.hasUnpairedRunInterruptRequest(threadId, item.id, resultId));
       assert.isFalse(yield* store.hasUnpairedRunInterruptRequest(threadId, resultId, item.id));

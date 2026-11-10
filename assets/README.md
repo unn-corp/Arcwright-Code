@@ -22,6 +22,8 @@ Arcwright Code. It fits the complete AC mark on a square transparent canvas with
 to protect it from rounded icon masks. `arcwright/exports/ac-logo-transparent.png` is the
 tightly cropped transparent export without that inset.
 
+Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and web assets. The development web exports are also copied to `apps/web/public` for the browser favicon, web app manifest icons, and splash screen. Run `vp run icons:check` to verify that the generated assets and public copies match their sources without changing files.
+
 The platform paths remain in [brand-assets.ts](../scripts/lib/brand-assets.ts). Existing
 development/nightly/production filenames are retained, but every variant uses the same AC mark.
 App, package, protocol, and data-directory identities remain compatible with installed forks.

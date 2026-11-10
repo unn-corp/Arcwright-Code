@@ -145,6 +145,8 @@ const textLayer = (generate: Generator) =>
         generatePrContent: () => Effect.die("unused"),
         generateBranchName: () => Effect.die("unused"),
         generateThreadTitle: () => Effect.die("unused"),
+        generateTranscriptionPostProcessing: () =>
+          Effect.die("unused transcription post-processing"),
         generateOrganizationPatchProposal: (input: OrganizationPatchProposalInput) =>
           generate(input).pipe(
             Effect.provideService(SqlClient.SqlClient, sql),

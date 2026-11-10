@@ -9,16 +9,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
-/** Whether a launcher target lives inside `<baseDir>/runtime/versions`. */
-export function launcherOwnsVersionsDir(
-  path: Path.Path,
-  versionsDir: string,
-  candidate: string,
-): boolean {
-  const relative = path.relative(versionsDir, path.resolve(candidate));
-  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
 /**
  * The path the executable was started through. Node keeps the shell's
  * spelling in argv0: a launcher symlink or `./t3` resolves against the

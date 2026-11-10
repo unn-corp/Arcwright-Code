@@ -664,9 +664,95 @@ describe("host coordinator", () => {
     );
     await expect(store.repairExitedLock()).rejects.toThrow("still running");
     f.processes.table.delete(200);
-    await expect(store.status(0)).rejects.toThrow("offline repair");
     expect(await store.repairExitedLock()).toBe(true);
     expect((await store.status(0)).participants).toEqual([]);
+  });
+
+  it("recovers a proven exited coordinator lock concurrently without changing maintenance fencing", async () => {
+    const f = await fixture({ 100: "boot:1", 200: "boot:2", 300: "boot:3" });
+    const first = await f.open(100);
+    const second = await f.open(300);
+    await first.register(
+      {
+        id: "desktop",
+        label: "Desktop",
+        kind: "desktop",
+        homes: [await f.home("h")],
+        updateTarget: true,
+      },
+      0,
+    );
+    await first.confirmBootstrap();
+    await idle(first, "desktop");
+    await freezeForTest(first, "tx", 600_000);
+    const journal = await first.readJournal("tx");
+    await NodeFSP.writeFile(
+      NodePath.join(f.coordinator, "registry.lock"),
+      JSON.stringify({ pid: 200, started: "boot:2" }),
+    );
+    f.processes.table.delete(200);
+    const statuses = await Promise.all([first.status(600_000), second.status(600_000)]);
+    expect(statuses.map((status) => status.fence?.transactionId)).toEqual(["tx", "tx"]);
+    expect(await first.readJournal("tx")).toEqual(journal);
+    await expect(first.beginWork("desktop")).rejects.toThrow();
+    expect((await second.status(600_000)).fence?.transactionId).toBe("tx");
+  });
+
+  it("serializes explicit repair with an automatic recovery already in progress", async () => {
+    const f = await fixture({ 100: "boot:1", 200: "boot:2", 300: "boot:3" });
+    const first = await f.open(100);
+    const second = await f.open(300);
+    await NodeFSP.writeFile(
+      NodePath.join(f.coordinator, "registry.lock"),
+      JSON.stringify({ pid: 200, started: "boot:2" }),
+    );
+    f.processes.table.delete(200);
+    const target = first as unknown as { readLockFile: (file: string) => Promise<string> };
+    let reads = 0;
+    target.readLockFile = async (file) => {
+      if (++reads === 2)
+        await expect(second.repairExitedLock()).rejects.toThrow("already in progress");
+      return actualFs.readFile(file, "utf8");
+    };
+    expect((await first.status(0)).participants).toEqual([]);
+    expect((await second.status(0)).participants).toEqual([]);
+  });
+
+  it("keeps an interrupted recovery blocked until explicit repair takes over its exited owner", async () => {
+    const f = await fixture({ 100: "boot:1", 200: "boot:2", 300: "boot:3" });
+    const first = await f.open(100);
+    const second = await f.open(300);
+    const lock = NodePath.join(f.coordinator, "registry.lock");
+    await NodeFSP.writeFile(lock, JSON.stringify({ pid: 200, started: "boot:2" }));
+    f.processes.table.delete(200);
+    {
+      using _failRemoval = vi.spyOn(NodeFSP, "unlink").mockImplementation(async (path) => {
+        if (String(path) === lock) throw new Error("repair process exited before removal");
+        return actualFs.unlink(path);
+      });
+      await expect(first.status(0)).rejects.toThrow("repair process exited before removal");
+    }
+    f.processes.table.delete(100);
+    await expect(second.status(0)).rejects.toThrow("offline repair");
+    expect(await second.repairExitedLock()).toBe(true);
+    expect((await second.status(0)).participants).toEqual([]);
+  });
+
+  it("keeps a coordinator lock when its owner's identity cannot be verified", async () => {
+    const f = await fixture();
+    const store = await CoordinatorStore.open(
+      f.coordinator,
+      async (pid) => {
+        if (pid === 200) throw new Error("process identity unavailable");
+        return f.processes.table.get(pid) ?? null;
+      },
+      100,
+    );
+    const path = NodePath.join(f.coordinator, "registry.lock");
+    const record = JSON.stringify({ pid: 200, started: "boot:2" });
+    await NodeFSP.writeFile(path, record);
+    await expect(store.status(0)).rejects.toThrow("process identity unavailable");
+    expect(await NodeFSP.readFile(path, "utf8")).toBe(record);
   });
 
   it("releases admission only against a durable terminal journal", async () => {

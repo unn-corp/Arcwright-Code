@@ -61,6 +61,7 @@ vi.mock(import("./previewBridge"), async (original) => ({
     navigate: mocks.navigate,
     pickElement: mocks.pickElement,
     captureAnnotationSnapshot: mocks.captureAnnotationSnapshot,
+    annotationVoice: { onEvent: () => () => {}, update: async () => {} },
     setAnnotationSendEnabled: mocks.setAnnotationSendEnabled,
     cancelPickElement: mocks.cancelPickElement,
     refresh: vi.fn(async () => undefined),
@@ -496,6 +497,25 @@ describe("PreviewView", () => {
       expect(mocks.pickElement).not.toHaveBeenCalled();
     },
   );
+
+  it("offers live element annotation with voice alongside snapshot annotation", async () => {
+    await using _fixture = await setup();
+    const { root } = _fixture;
+    mocks.pickElement.mockImplementationOnce(() => new Promise(() => {}));
+    await render(root, view());
+    await userEvent.click(page.getByRole("button", { name: "Pick element with voice" }));
+    await vi.waitFor(() =>
+      expect(mocks.pickElement).toHaveBeenCalledWith(
+        TEST_RUNTIME_TAB_ID,
+        expect.objectContaining({ sessionId: expect.any(String), shortcuts: expect.any(Array) }),
+      ),
+    );
+    expect(mocks.captureAnnotationSnapshot).not.toHaveBeenCalled();
+    await userEvent.click(page.getByRole("button", { name: "Cancel element selection" }));
+    await vi.waitFor(() =>
+      expect(mocks.cancelPickElement).toHaveBeenCalledWith(TEST_RUNTIME_TAB_ID),
+    );
+  });
 
   it("retains the annotation locally when its own environment loses access during submission", async () => {
     await using _fixture = await setup();

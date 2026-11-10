@@ -48,13 +48,13 @@ const layerTest = TestProviderHost.layer({ runBackgroundWork: false }).pipe(
   Layer.provideMerge(McpProviderSessions.layer),
   Layer.provideMerge(CursorSdk.layer),
   Layer.provideMerge(
-    Layer.mock(CursorAgentSdk.CursorAgentSdkRunner)({
-      open: () => Effect.die("Maintenance resolution must not open a Cursor session"),
+    Layer.succeed(CursorKeychain.CursorKeychain, {
+      accessToken: Effect.die("unexpected Keychain access"),
     }),
   ),
   Layer.provideMerge(
-    Layer.succeed(CursorKeychain.CursorKeychain, {
-      accessToken: Effect.die("The driver test must not read the Keychain"),
+    Layer.mock(CursorAgentSdk.CursorAgentSdkRunner)({
+      open: () => Effect.die("Maintenance resolution must not open a Cursor session"),
     }),
   ),
   Layer.provideMerge(

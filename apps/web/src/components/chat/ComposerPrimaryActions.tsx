@@ -1,4 +1,4 @@
-import { memo, type MouseEventHandler, type PointerEventHandler } from "react";
+import { memo, type MouseEventHandler, type PointerEventHandler, type ReactNode } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, Minimize2Icon, PlayIcon } from "lucide-react";
 import { CornerUpRight, ListPlus } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -26,6 +26,8 @@ interface PendingActionState {
 }
 
 interface ComposerPrimaryActionsProps {
+  /** Footer controls (dictation) that always sit right before the primary button. */
+  children?: ReactNode;
   compact: boolean;
   canOperateThread: boolean;
   pendingAction: PendingActionState | null;
@@ -35,8 +37,10 @@ interface ComposerPrimaryActionsProps {
   followUpBehavior?: "queue" | "steer";
   canSteer?: boolean;
   alternateShortcutLabel?: string | null;
-  showPlanFollowUpPrompt: boolean;
-  promptHasText: boolean;
+  /** Dictation is running; Send finishes it and submits once the transcript lands. */
+  voiceInputActive?: boolean;
+  showPlanFollowUpPrompt?: boolean;
+  promptHasText?: boolean;
   isSendBusy: boolean;
   sendDisabledReason: string | null;
   isEnvironmentUnavailable: boolean;
@@ -49,7 +53,7 @@ interface ComposerPrimaryActionsProps {
   onResume?: () => void;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
-  onImplementPlanInNewThread: () => void;
+  onImplementPlanInNewThread?: () => void;
   compactBeforeSendTokens?: number | null;
   keepFullHistory?: boolean;
   onToggleKeepFullHistory?: () => void;
@@ -81,6 +85,7 @@ const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
 };
 
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
+  children,
   compact,
   canOperateThread,
   pendingAction,
@@ -90,8 +95,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   followUpBehavior = "steer",
   canSteer = true,
   alternateShortcutLabel = null,
-  showPlanFollowUpPrompt,
-  promptHasText,
+  voiceInputActive = false,
+  showPlanFollowUpPrompt = false,
+  promptHasText = false,
   isSendBusy,
   sendDisabledReason,
   isEnvironmentUnavailable,
@@ -186,6 +192,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             </Button>
           )
         ) : null}
+        {children}
         <button
           type="submit"
           className={cn(messageActionPillClassName, "h-8 sm:h-7", compact ? "px-3" : "px-4")}
@@ -193,8 +200,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           disabled={
             !canOperateThread ||
             isEnvironmentUnavailable ||
+            isSendDisabled ||
             pendingAction.isResponding ||
-            (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
+            (!voiceInputActive &&
+              (pendingAction.isLastQuestion
+                ? !pendingAction.isComplete
+                : !pendingAction.canAdvance))
           }
         >
           {formatPendingPrimaryActionLabel({
@@ -208,22 +219,26 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     );
   }
 
-  if (showPlanFollowUpPrompt && (promptHasText || !canResume)) {
-    if (promptHasText) {
+  if (showPlanFollowUpPrompt && (promptHasText || voiceInputActive || !canResume)) {
+    if (promptHasText || voiceInputActive) {
       return (
-        <button
-          type="submit"
-          className={cn(messageActionPillClassName, "h-9 sm:h-8", compact ? "px-3" : "px-4")}
-          {...pointerFocusProps}
-          disabled={isSendBusy || isSendDisabled || isEnvironmentUnavailable}
-        >
-          {isSendBusy ? "Sending..." : "Refine"}
-        </button>
+        <>
+          {children}
+          <button
+            type="submit"
+            className={cn(messageActionPillClassName, "h-9 sm:h-8", compact ? "px-3" : "px-4")}
+            {...pointerFocusProps}
+            disabled={isSendBusy || isSendDisabled || isEnvironmentUnavailable}
+          >
+            {isSendBusy ? "Sending..." : "Refine"}
+          </button>
+        </>
       );
     }
 
     return (
       <div data-chat-composer-implement-actions="true" className="flex items-center justify-end">
+        {children}
         <button
           type="submit"
           className={cn(messageActionPillClassName, "h-9 rounded-r-none px-4 sm:h-8")}
@@ -253,9 +268,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
             <MenuItem
-              disabled={isSendBusy || isSendDisabled || isEnvironmentUnavailable}
+              disabled={
+                isSendBusy ||
+                isSendDisabled ||
+                isEnvironmentUnavailable ||
+                !onImplementPlanInNewThread
+              }
               onClick={() => {
-                if (canOperateThread) onImplementPlanInNewThread();
+                if (canOperateThread) onImplementPlanInNewThread?.();
               }}
             >
               Implement in a new thread
@@ -267,7 +287,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (canInterrupt && !hasSendableContent && !isEditingQueuedMessage) {
-    return renderStopGenerationButton(false);
+    return (
+      <>
+        {children}
+        {renderStopGenerationButton(false)}
+      </>
+    );
   }
 
   const showResume = canResume && !hasSendableContent && !isEditingQueuedMessage;
@@ -359,7 +384,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       <TooltipPopup>{submitTooltip}</TooltipPopup>
     </Tooltip>
   );
-  if (compactTokens === null) return submit;
+  if (compactTokens === null) {
+    return (
+      <>
+        {children}
+        {submit}
+      </>
+    );
+  }
 
   return (
     <div data-chat-composer-compact-send="true" className="flex items-center gap-2">
@@ -392,6 +424,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <div>{keepFullHistory ? "Click to compact first" : "Click to keep full history"}</div>
         </TooltipPopup>
       </Tooltip>
+      {children}
       {submit}
     </div>
   );

@@ -19,6 +19,8 @@ import {
   sanitizeThreadTitle,
 } from "./textGenerationUtils.ts";
 
+export const TranscriptionPostProcessingOutput = Schema.Struct({ transcription: Schema.String });
+
 export type Operation = Exclude<
   keyof ProviderTextGeneration,
   "generateOrganizationArchitectTurn" | "generateOrganizationPatchProposal"
@@ -160,6 +162,17 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     };
   });
 
+  const generateTranscriptionPostProcessing: ProviderTextGeneration["generateTranscriptionPostProcessing"] =
+    Effect.fn(`${name}.generateTranscriptionPostProcessing`)(function* (input) {
+      return yield* run({
+        operation: "generateTranscriptionPostProcessing",
+        cwd: input.cwd,
+        prompt: input.prompt,
+        outputSchema: TranscriptionPostProcessingOutput,
+        modelSelection: input.modelSelection,
+      });
+    });
+
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = Effect.fn(
     `${name}.generateReviewGuide`,
   )(function* (input) {
@@ -178,5 +191,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateTranscriptionPostProcessing,
   } satisfies ProviderTextGeneration;
 }

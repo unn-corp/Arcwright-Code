@@ -16,7 +16,7 @@ export const fetchEnvironmentDictationStatus = (
 ) =>
   executeAuthenticatedEnvironmentHttpRequest({
     ...input,
-    group: "voice",
+    group: "openWhispr",
     method: "GET",
     url: (urls) => urls.status(),
     timeoutMs: 10_000,
@@ -40,7 +40,7 @@ export const fetchEnvironmentTranscription = Effect.fn("clientRuntime.voice.tran
   }) {
     return yield* executeAuthenticatedEnvironmentHttpRequest({
       ...input,
-      group: "voice",
+      group: "openWhispr",
       method: "POST",
       url: (urls) => urls.transcribe(),
       timeoutMs: OPENWHISPR_TIMEOUT_MS + 5_000,

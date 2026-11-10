@@ -1,4 +1,4 @@
-import type { DatabaseStorageStatus } from "@t3tools/contracts";
+import { DatabaseReclaimError, type DatabaseStorageStatus } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
@@ -15,6 +16,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { resolveHostCliCommand } from "../cli/invocation.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
+import * as DatabaseMaintenance from "./DatabaseMaintenance.ts";
 import { forkParked } from "../serverActivation.ts";
 
 // Bound each reclaim pass to one minute of churn.
@@ -28,10 +30,18 @@ export class DatabaseStorage extends Context.Service<
     readonly reclaim: Effect.Effect<void>;
     /** Current file accounting, re-published after each maintenance pass. Null until first read. */
     readonly status: Stream.Stream<DatabaseStorageStatus | null>;
+    /** Checks free space, then stops the server; its shutdown runs the offline repair. */
+    readonly requestReclaim: Effect.Effect<void, DatabaseReclaimError>;
   }
 >()("t3/persistence/DatabaseStorage") {}
 
 // Deleted events have newer retained replacements; old cursors replay to the same state.
+/** Stops this server so its desktop app or background service starts it again; null when run by hand. */
+export const ServerRestart = Context.Reference<Effect.Effect<void> | null>(
+  "t3/persistence/DatabaseStorage/ServerRestart",
+  { defaultValue: () => null },
+);
+
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
@@ -39,6 +49,10 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const statusRef = yield* SubscriptionRef.make<DatabaseStorageStatus | null>(null);
+  const reclaimFiles = DatabaseMaintenance.reclaimFiles(path, config.dbPath);
+  let reclaimFailure = Option.getOrUndefined(
+    yield* fs.readFileString(reclaimFiles.failure).pipe(Effect.option),
+  );
 
   // The notice shows host-shell quoting verbatim; desktop needs its launcher because t3 is absent from PATH.
   const { command: compactCommand } = yield* resolveHostCliCommand("doctor", [
@@ -50,30 +64,48 @@ const make = Effect.gen(function* () {
     path.resolve(config.dbPath) ===
     path.resolve(config.baseDir, "userdata", path.basename(config.dbPath));
   // Only VACUUM changes these, and doctor refuses to VACUUM while a server has the database open.
-  let layout: { readonly pageSize: number; readonly incrementalVacuum: boolean } | undefined;
+  let layout:
+    | {
+        readonly pageSize: number;
+        readonly autoVacuum: number;
+        readonly incrementalVacuum: boolean;
+      }
+    | undefined;
   const readLayout = Effect.suspend(() =>
     layout !== undefined
       ? Effect.succeed(layout)
       : Effect.gen(function* () {
           const size = yield* sql<{ readonly page_size: number }>`PRAGMA page_size`;
           const mode = yield* sql<{ readonly auto_vacuum: number }>`PRAGMA auto_vacuum`;
+          const autoVacuum = mode[0]?.auto_vacuum ?? 0;
           layout = {
             pageSize: size[0]?.page_size ?? 0,
-            incrementalVacuum: mode[0]?.auto_vacuum === 2,
+            autoVacuum,
+            incrementalVacuum: autoVacuum === 2,
           };
           return layout;
         }),
   );
-  const publishStatus = Effect.gen(function* () {
-    if (!doctorTargetsThisDatabase) return;
+  const readPages = Effect.gen(function* () {
     const { pageSize, incrementalVacuum } = yield* readLayout;
     const pages = yield* sql<{ readonly page_count: number }>`PRAGMA page_count`;
     const free = yield* sql<{ readonly freelist_count: number }>`PRAGMA freelist_count`;
-    const next: DatabaseStorageStatus = {
+    return {
       databaseBytes: (pages[0]?.page_count ?? 0) * pageSize,
       reclaimableBytes: (free[0]?.freelist_count ?? 0) * pageSize,
+      incrementalVacuum,
+    };
+  });
+  const publishStatus = Effect.gen(function* () {
+    if (!doctorTargetsThisDatabase) return;
+    const { databaseBytes, reclaimableBytes, incrementalVacuum } = yield* readPages;
+    const next: DatabaseStorageStatus = {
+      databaseBytes,
+      reclaimableBytes,
       incrementalVacuumEnabled: incrementalVacuum,
       compactCommand,
+      canReclaim: false,
+      ...(reclaimFailure === undefined ? {} : { reclaimFailure }),
     };
     // Every set reaches each open Storage page; most passes change nothing.
     if (!Equal.equals(yield* SubscriptionRef.get(statusRef), next)) {
@@ -150,7 +182,19 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  return DatabaseStorage.of({ reclaim, status: SubscriptionRef.changes(statusRef) });
+  // Reclaim needs a shutdown fence spanning the offline repair. A momentary idle
+  // check cannot stop new work from starting before the delayed restart.
+  const requestReclaim = Effect.fail(
+    new DatabaseReclaimError({
+      reason: `Automatic restart for reclaim is unavailable until maintenance admission supports it. Stop Arcwright Code safely, then run: ${compactCommand}`,
+    }),
+  );
+
+  return DatabaseStorage.of({
+    reclaim,
+    status: SubscriptionRef.changes(statusRef),
+    requestReclaim,
+  });
 });
 
 export const layer = Layer.effect(DatabaseStorage, make);

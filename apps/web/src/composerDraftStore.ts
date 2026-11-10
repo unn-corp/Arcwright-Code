@@ -535,6 +535,8 @@ interface ComposerDraftStoreState {
       replaceOptions?: boolean;
     },
   ) => void;
+  /** Lets the thread's model show again once the server accepted this exact pick. */
+  releaseModelSelection: (threadRef: ScopedThreadRef, modelSelection: ModelSelection) => void;
   applyStickyState: (threadRef: ComposerThreadTarget) => void;
   clearModelSelectionIntent: (
     threadRef: ComposerThreadTarget,
@@ -3083,9 +3085,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             }
             const nextActiveProvider = normalized?.instanceId ?? base.activeProvider;
             if (
+              opts?.explicit !== true &&
               Equal.equals(base.modelSelectionByProvider, nextMap) &&
               base.activeProvider === nextActiveProvider &&
-              (base.modelSelectionExplicit ?? false) === (opts?.explicit === true) &&
+              !base.modelSelectionExplicit &&
               base.modelSelectionBase === opts?.selectionBase
             ) {
               return state;
@@ -3114,6 +3117,25 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftsByThreadKey[threadKey] = nextDraft;
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        releaseModelSelection: (threadRef, modelSelection) => {
+          const threadKey = scopedThreadKey(threadRef);
+          set((state) => {
+            const draft = state.draftsByThreadKey[threadKey];
+            // A newer pick, even of the same model, is still waiting for its own reply.
+            if (
+              !draft?.activeProvider ||
+              draft.modelSelectionByProvider[draft.activeProvider] !== modelSelection
+            ) {
+              return state;
+            }
+            const { modelSelectionExplicit: _explicit, ...retained } = draft;
+            const next = { ...retained, activeProvider: null, modelSelectionByProvider: {} };
+            const draftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(next)) delete draftsByThreadKey[threadKey];
+            else draftsByThreadKey[threadKey] = next;
+            return { draftsByThreadKey };
           });
         },
         setProviderModelOptions: (threadRef, provider, nextProviderOptions, options) => {
@@ -3190,17 +3212,6 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextStickyActiveProvider = options.instanceId
                 ? instanceKey
                 : (base.activeProvider ?? instanceKey);
-            }
-
-            if (
-              Equal.equals(base.modelSelectionByProvider, nextMap) &&
-              Equal.equals(state.stickyModelSelectionByProvider, nextStickyMap) &&
-              Equal.equals(state.stickyOptionsByModelByProvider, nextOptionsByModel) &&
-              state.stickyActiveProvider === nextStickyActiveProvider &&
-              base.modelSelectionExplicit === true &&
-              base.modelSelectionBase === options?.selectionBase
-            ) {
-              return state;
             }
 
             // Trait edits are user-driven intent: mark the selection explicit
@@ -4347,6 +4358,7 @@ export function subscribeComposerDraftModelReconciliation(input: {
   readonly shellStateAtom: (
     environmentId: EnvironmentId,
   ) => Atom.Atom<AsyncResult.AsyncResult<EnvironmentShellState, unknown>>;
+  readonly pendingThreadIdsAtom: (environmentId: EnvironmentId) => Atom.Atom<ReadonlySet<ThreadId>>;
 }): () => void {
   const draftsAtom = Atom.make(composerDraftStore.getState());
   const unsubscribeDrafts = composerDraftStore.subscribe((state) =>
@@ -4368,6 +4380,8 @@ export function subscribeComposerDraftModelReconciliation(input: {
       if (!ref || !pick || !threadKeys.has(key)) continue;
       const thread = get(input.threadShellAtom(ref));
       if (!thread || !draftModelPickMatchesThread(pick, thread.modelSelection)) continue;
+      // The pick can match an old model while an earlier pick in flight still replaces it.
+      if (get(input.pendingThreadIdsAtom(ref.environmentId)).has(ref.threadId)) continue;
       // Status and selection must come from the same emission; derived atoms can update apart.
       const shell = AsyncResult.getOrElse(get(input.shellStateAtom(ref.environmentId)), () => null);
       if (shell?.status !== "live") continue;

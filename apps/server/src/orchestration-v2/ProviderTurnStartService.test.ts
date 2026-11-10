@@ -970,6 +970,15 @@ function makeLocalCommandHarness(input: {
                   (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
               ),
             }),
+          getHandoffHistory: () =>
+            input.sideChat !== undefined
+              ? Effect.succeed({ items: [], omittedItems: 0 })
+              : Effect.fail(
+                  new ProjectionStore.ProjectionStoreReadError({
+                    threadId,
+                    cause: input.historyReadFailureAfterFallback,
+                  }),
+                ),
           getTurnStartHistory: () =>
             input.sideChat !== undefined
               ? Effect.succeed([])

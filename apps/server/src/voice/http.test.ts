@@ -19,7 +19,7 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as OpenWhispr from "./OpenWhispr.ts";
 import { voiceHttpApiLayer } from "./http.ts";
 
-const testApi = HttpApi.make("environment").add(EnvironmentHttpApi.groups.voice);
+const testApi = HttpApi.make("environment").add(EnvironmentHttpApi.groups.openWhispr);
 const makeHandler = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
   transcribe: OpenWhispr.OpenWhispr["Service"]["transcribe"],

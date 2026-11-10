@@ -66,6 +66,7 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
         | "generatePrContent"
         | "generateBranchName"
         | "generateReviewGuide"
+        | "generateTranscriptionPostProcessing"
         | "generateThreadTitle"
         | "generateOrganizationArchitectTurn";
       cwd: string;
@@ -341,6 +342,12 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
   });
 
   return {
+    generateTranscriptionPostProcessing: TextGenerationOperations.fromRunner(
+      "HermesTextGeneration",
+      TextGenerationOperations.withoutInvestigation("Hermes", (request) =>
+        runHermesJson({ ...request, outputSchemaJson: request.outputSchema }),
+      ),
+    ).generateTranscriptionPostProcessing,
     generateReviewGuide: TextGenerationOperations.fromRunner(
       "HermesTextGeneration",
       TextGenerationOperations.withoutInvestigation("Hermes", (request) =>

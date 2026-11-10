@@ -1,13 +1,17 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 
 import { isAndroidPwa } from "~/env";
 import { AndroidPreviewView } from "~/android/AndroidPreviewView";
+import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+import type { DesktopPreviewAnnotationVoiceConfig } from "@t3tools/contracts";
 import { previewStreamDownloadUrl } from "@t3tools/client-runtime/preview/server-browser-stream";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
+  AuthOrchestrationOperateScope,
   DEFAULT_BROWSER_PROFILE_ID,
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
@@ -56,6 +60,12 @@ import {
 } from "~/previewMiniPlayerStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
+import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
+import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
+import { effectiveShortcutsForCommand } from "~/keybindings";
+import { randomUUID } from "~/lib/utils";
+import { primaryServerKeybindingsAtom } from "~/state/server";
+import { PreviewAnnotationSpeech } from "./PreviewAnnotationSpeech";
 import { previewBridge } from "./previewBridge";
 import { usePreviewAnnotationEditorStore } from "~/previewAnnotationEditorStore";
 import { PreviewRemoteSurface } from "./PreviewRemoteSurface";
@@ -78,6 +88,8 @@ import { PreviewFileNotShown, PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Mic } from "lucide-react";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { alternatePreviewRuntime, useRendersServerTabNatively } from "~/browser/previewRuntime";
 import { ServerBrowserSurface, type ServerBrowserHandle } from "~/browser/ServerBrowserSurface";
@@ -149,9 +161,18 @@ export function PreviewView(props: Props) {
   return isAndroidPwa ? <AndroidPreviewView {...props} /> : <DesktopPreviewView {...props} />;
 }
 
-function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, visible }: Props) {
+function DesktopPreviewView({
+  threadRef,
+  tabId: requestedTabId,
+  configuredUrls,
+  visible,
+  onSendAnnotation,
+}: Props) {
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const [pickActive, setPickActive] = useState(false);
+  const canSendAnnotation =
+    useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope) &&
+    Boolean(onSendAnnotation);
   const annotationOpen = usePreviewAnnotationEditorStore(
     (state) =>
       state.session?.threadRef.environmentId === threadRef.environmentId &&
@@ -166,6 +187,10 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   useLayoutEffect(() => {
     threadRefRef.current = threadRef;
   }, [threadRef]);
+  const pickActiveRef = useRef<{ cancelled: boolean } | null>(null);
+  const [annotationVoice, setAnnotationVoice] =
+    useState<DesktopPreviewAnnotationVoiceConfig | null>(null);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const previewState = useThreadPreviewState(threadRef);
   const recentHistoryEntries = useThreadRecentHistory(
     threadRef,
@@ -175,6 +200,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     selectThreadPreviewMiniPlayerTabId(state.byThreadKey, threadRef),
   );
   const addPreviewAnnotation = useComposerDraftStore((store) => store.addPreviewAnnotation);
+  const addImage = useComposerDraftStore((store) => store.addImage);
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(threadRef.environmentId);
   const open = useAtomCommand(previewEnvironment.open);
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
@@ -798,6 +824,10 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
 
   const handlePickElement = () => {
     if (!previewBridge || !runtimeTabId) return;
+    if (!previewBridge.captureAnnotationSnapshot) {
+      handleLegacyPickElement();
+      return;
+    }
     const editor = usePreviewAnnotationEditorStore.getState();
     const id = editor.begin(threadRef, runtimeTabId);
     if (!id) return;
@@ -821,6 +851,125 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       });
     })();
   };
+  const handleLegacyPickElement = () => {
+    if (!previewBridge || !runtimeTabId) return;
+    if (pickActiveRef.current) {
+      pickActiveRef.current.cancelled = true;
+      void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
+      return;
+    }
+    // Capture app focus before main moves it into guest webContents.
+    const previouslyFocused =
+      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    const pickRequest = { cancelled: false };
+    let submitted = false;
+    pickActiveRef.current = pickRequest;
+    setPickActive(true);
+    // The guest learns only the dictation chords, never the whole keybinding config.
+    const voice: DesktopPreviewAnnotationVoiceConfig = {
+      sessionId: randomUUID(),
+      shortcuts: effectiveShortcutsForCommand(keybindings, "composer.dictation", {
+        context: { previewFocus: true, previewOpen: true, editableFocus: true },
+      }),
+    };
+    setAnnotationVoice(voice);
+    const finishPick = () => {
+      const isCurrentPick = pickActiveRef.current === pickRequest;
+      if (isCurrentPick) {
+        pickActiveRef.current = null;
+        setPickActive(false);
+        setAnnotationVoice(null);
+      }
+      if (
+        (isCurrentPick || submitted) &&
+        previouslyFocused &&
+        previouslyFocused.isConnected &&
+        typeof previouslyFocused.focus === "function"
+      ) {
+        try {
+          previouslyFocused.focus({ preventScroll: true });
+        } catch {}
+      }
+    };
+    const bridge = previewBridge;
+    void settlePromise(async () => {
+      await bridge.setAnnotationSendEnabled(
+        runtimeTabId,
+        Boolean(onSendAnnotation) &&
+          readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
+      );
+      if (pickRequest.cancelled) return;
+      const result = await bridge.pickElement(runtimeTabId, voice);
+      if (!result || pickRequest.cancelled) return;
+      // The accepted pick must survive further clicks, tab changes, and unmount; stop cancellation here.
+      if (pickActiveRef.current === pickRequest) {
+        pickActiveRef.current = null;
+        setPickActive(false);
+        setAnnotationVoice(null);
+        submitted = true;
+      }
+      const { annotation: picked, submission, screenshotFailed = false } = result;
+      // Send annotations even if the optional crop fails or stalls; drop failed screenshots so prompts cannot
+      // claim an attachment.
+      const capture = capturePreviewAnnotationScreenshot(picked);
+      const cropDropped = screenshotFailed || capture.status === "failed";
+      const annotation = capture.status === "failed" ? { ...picked, screenshot: null } : picked;
+      addPreviewAnnotation(threadRef, annotation);
+      if (cropDropped) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not capture the picked element",
+            description: "The annotation was kept without the screenshot.",
+          }),
+        );
+      }
+      const screenshotFile = capture.status === "captured" ? capture.file : null;
+      const image =
+        screenshotFile && annotation.screenshot
+          ? ({
+              type: "image",
+              id: annotation.id,
+              name: screenshotFile.name,
+              mimeType: screenshotFile.type,
+              sizeBytes: screenshotFile.size,
+              previewUrl: annotation.screenshot.dataUrl,
+              file: screenshotFile,
+            } satisfies ComposerImageAttachment)
+          : null;
+      if (image) {
+        addImage(threadRef, image);
+      }
+      if (
+        submission === "send" &&
+        readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)
+      ) {
+        onSendAnnotation?.(annotation, image);
+      }
+    }).then(finishPick);
+  };
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the preview bridge whether an element pick may send annotations
+  useEffect(() => {
+    if (!pickActive || !previewBridge || !runtimeTabId) return;
+    void previewBridge
+      .setAnnotationSendEnabled(runtimeTabId, canSendAnnotation)
+      .catch(() => undefined);
+  }, [canSendAnnotation, pickActive, runtimeTabId]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels an in-progress element pick on the preview bridge when the tab changes or on unmount
+  useEffect(() => {
+    return () => {
+      if (!pickActiveRef.current) return;
+      pickActiveRef.current.cancelled = true;
+      pickActiveRef.current = null;
+      if (previewBridge && runtimeTabId) {
+        void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
+      }
+      setPickActive(false);
+      setAnnotationVoice(null);
+    };
+  }, [runtimeTabId]);
 
   // Subscribe only while visible; ChatView always owns URL-aware toggle-panel handling.
   const onPreviewAction = useEffectEvent(
@@ -850,7 +999,7 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   useEffect(() => {
     if (!visible) return;
     const unsubscribeAction = subscribePreviewAction((action) => onPreviewAction(action));
-    const unsubscribeMenu = window.desktopBridge?.onMenuAction((action) => {
+    const unsubscribeMenu = window.desktopBridge?.onMenuAction?.((action) => {
       if (action === "preview.focusUrl") onPreviewAction("focus-url");
     });
     return () => {
@@ -864,6 +1013,15 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-thread-key={scopedThreadKey(threadRef)}
     >
+      {pickActive && runtimeTabId && annotationVoice ? (
+        <PreviewAnnotationSpeech
+          key={annotationVoice.sessionId}
+          threadRef={threadRef}
+          tabId={runtimeTabId}
+          config={annotationVoice}
+          keybindings={keybindings}
+        />
+      ) : null}
       <PreviewChromeRow
         url={url}
         loading={loading || serverStreamPending}
@@ -894,11 +1052,15 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
               : () => setPickActive((active) => !active)
             : undefined
         }
-        pickActive={pickActive || annotationOpen}
+        pickActive={annotationOpen || (!previewBridge?.captureAnnotationSnapshot && pickActive)}
         // Disable when there's no tab (nothing to pick on) OR the page
         // failed to load (a React overlay covers the webview, so the
         // user wouldn't be able to actually click anything underneath).
-        pickDisabled={!tabId || isUnreachable}
+        pickDisabled={
+          !tabId ||
+          isUnreachable ||
+          (pickActive && Boolean(previewBridge?.captureAnnotationSnapshot))
+        }
         pickDisabledReason={
           isUnreachable ? "Page didn't load. Pick is unavailable until the page renders" : undefined
         }
@@ -914,6 +1076,30 @@ function DesktopPreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         }
         trailingActions={
           <>
+            {previewBridge?.captureAnnotationSnapshot && tabId && !isServerTab ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant={pickActive ? "secondary" : "ghost"}
+                      size="icon-xs"
+                      onClick={handleLegacyPickElement}
+                      disabled={isUnreachable || annotationOpen}
+                      aria-label={
+                        pickActive ? "Cancel element selection" : "Pick element with voice"
+                      }
+                      aria-pressed={pickActive ? "true" : "false"}
+                      type="button"
+                    />
+                  }
+                >
+                  <Mic />
+                </TooltipTrigger>
+                <TooltipPopup>
+                  {pickActive ? "Cancel element selection" : "Pick element with voice"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
             {!previewBridge ? (
               <PreviewDeviceMenu
                 viewport={viewport}

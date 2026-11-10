@@ -39,6 +39,14 @@ describe("brand-assets", () => {
         sourceRelativePath: BRAND_ASSET_PATHS.productionWebPwaMaskablePng,
         targetRelativePath: "dist/client/pwa-maskable-512x512.png",
       },
+      {
+        sourceRelativePath: BRAND_ASSET_PATHS.productionWebIcon192Png,
+        targetRelativePath: "dist/client/icon-192x192.png",
+      },
+      {
+        sourceRelativePath: BRAND_ASSET_PATHS.productionWebIcon512Png,
+        targetRelativePath: "dist/client/icon-512x512.png",
+      },
     ]);
   });
 
@@ -78,6 +86,14 @@ describe("brand-assets", () => {
       {
         sourceRelativePath: BRAND_ASSET_PATHS.developmentWebPwaMaskablePng,
         targetRelativePath: "apps/web/public/pwa-maskable-512x512.png",
+      },
+      {
+        sourceRelativePath: BRAND_ASSET_PATHS.developmentWebIcon192Png,
+        targetRelativePath: "apps/web/public/icon-192x192.png",
+      },
+      {
+        sourceRelativePath: BRAND_ASSET_PATHS.developmentWebIcon512Png,
+        targetRelativePath: "apps/web/public/icon-512x512.png",
       },
     ]);
   });

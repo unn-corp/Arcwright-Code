@@ -229,7 +229,7 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
                               provider: entry.driverKind,
                               model,
                               models: entry.models,
-                              planModeEnabled: false,
+                              includePlanAgent: false,
                               modelOptions:
                                 modelSelection.instanceId === instanceId
                                   ? modelSelection.options
@@ -254,7 +254,7 @@ export const AgentFindingQuestionComposer = memo(function AgentFindingQuestionCo
                           model={modelSelection.model}
                           modelOptions={modelSelection.options}
                           models={selectedProviderEntry.models}
-                          planModeEnabled={false}
+                          includePlanAgent={false}
                           onModelOptionsChange={(options) =>
                             setModelSelection(
                               createModelSelection(

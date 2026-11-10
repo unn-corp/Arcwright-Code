@@ -409,6 +409,7 @@ const makeLayer = () => {
     generatePrContent: () => Effect.die("unused"),
     generateBranchName: () => Effect.die("unused"),
     generateThreadTitle: () => Effect.die("unused"),
+    generateTranscriptionPostProcessing: () => Effect.die("unused transcription post-processing"),
     generateOrganizationPatchProposal: (input) =>
       Effect.succeed({
         fileName: input.fileName,

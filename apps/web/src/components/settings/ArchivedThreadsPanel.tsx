@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import { ArchiveIcon, ArchiveX, EllipsisIcon } from "lucide-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { ArchiveIcon, ArchiveX, EllipsisIcon, Trash2Icon } from "lucide-react";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
+  type AtomCommandResult,
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
@@ -34,6 +34,12 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsSection, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { purgeArchivedThreads, selectArchivePurgeTargets } from "./archivePurge";
+
+const ARCHIVE_ACTIONS = [
+  { action: "unarchive", label: "Unarchive", Icon: ArchiveX },
+  { action: "delete", label: "Delete", Icon: Trash2Icon },
+] as const;
+type ArchiveAction = (typeof ARCHIVE_ACTIONS)[number]["action"];
 
 export function ArchivedThreadsPanel() {
   const { scope, groups: projectGroups, environments, connectedEnvironments } = useSettingsScope();
@@ -138,6 +144,10 @@ export function ArchivedThreadsPanel() {
     }));
     return { groups: sortedGroups, hasMultipleEnvironments };
   })();
+
+  type ArchivedThread = (typeof archivedGroups)[number]["threads"][number];
+  const pendingActionsRef = useRef(new Set<string>());
+  const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(new Set());
 
   const [query, setQuery] = useState("");
   const [computer, setComputer] = useState("all");
@@ -254,52 +264,55 @@ export function ArchivedThreadsPanel() {
     }
   };
 
-  const handleArchivedThreadContextMenu = async (
-    threadRef: ScopedThreadRef,
-    position: { x: number; y: number },
-  ) => {
-    const api = readLocalApi();
-    if (!api) return;
-    const clicked = await api.contextMenu.show(
-      [
-        { id: "unarchive", label: "Unarchive" },
-        { id: "delete", label: "Delete", destructive: true },
-      ],
-      position,
+  const reportFailure = (result: AtomCommandResult<unknown, unknown> | null, title: string) => {
+    if (result?._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      }),
     );
+  };
 
-    if (clicked === "unarchive") {
-      const result = await unarchiveThread(threadRef);
-      if (result._tag === "Success") {
-        refreshArchivedThreads();
-      } else if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to unarchive thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-      }
-      return;
-    }
+  const handleThreadAction = async (action: ArchiveAction, thread: ArchivedThread) => {
+    const target = scopeThreadRef(thread.environmentId, thread.id);
+    const key = scopedThreadKey(target);
+    // Context menus can outlive their render, so checks and cleanup use the live set.
+    const pending = pendingActionsRef.current;
+    if (pending.has(key)) return;
+    pending.add(key);
+    setPendingKeys(new Set(pending));
+    const result = await settlePromise(async () => {
+      const result = await (action === "unarchive"
+        ? unarchiveThread(target)
+        : confirmAndDeleteThread(target, thread.title));
+      if (result._tag === "Success") refreshArchivedThreads();
+      return result;
+    }).finally(() => {
+      pending.delete(key);
+      setPendingKeys(new Set(pending));
+    });
+    reportFailure(result._tag === "Failure" ? result : result.value, `Failed to ${action} thread`);
+  };
 
-    if (clicked === "delete") {
-      const result = await confirmAndDeleteThread(threadRef);
-      if (result._tag === "Success") {
-        refreshArchivedThreads();
-      } else if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to delete thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-      }
-    }
+  const handleContextMenu = async (thread: ArchivedThread, position: { x: number; y: number }) => {
+    const pending = pendingActionsRef.current;
+    if (pending.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)))) return;
+    const result = await settlePromise(async () => {
+      const clicked = await readLocalApi()?.contextMenu.show(
+        ARCHIVE_ACTIONS.map(({ action, label }) => ({
+          id: action,
+          label,
+          destructive: action === "delete",
+        })),
+        position,
+      );
+      if (clicked === "unarchive" || clicked === "delete")
+        await handleThreadAction(clicked, thread);
+    });
+    reportFailure(result, "Archived thread action failed");
   };
 
   return (
@@ -525,28 +538,7 @@ export function ArchivedThreadsPanel() {
                 key={`${thread.environmentId}:${thread.id}`}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  void (async () => {
-                    const result = await settlePromise(() =>
-                      handleArchivedThreadContextMenu(
-                        scopeThreadRef(thread.environmentId, thread.id),
-                        {
-                          x: event.clientX,
-                          y: event.clientY,
-                        },
-                      ),
-                    );
-                    if (result._tag === "Failure") {
-                      const error = squashAtomCommandFailure(result);
-                      toastManager.add(
-                        stackedThreadToast({
-                          type: "error",
-                          title: "Archived thread action failed",
-                          description:
-                            error instanceof Error ? error.message : "An error occurred.",
-                        }),
-                      );
-                    }
-                  })();
+                  void handleContextMenu(thread, { x: event.clientX, y: event.clientY });
                 }}
                 title={thread.title}
                 description={
@@ -573,25 +565,10 @@ export function ArchivedThreadsPanel() {
                       </MenuTrigger>
                       <MenuPopup>
                         <MenuItem
-                          onClick={() =>
-                            void (async () => {
-                              const result = await confirmAndDeleteThread(
-                                scopeThreadRef(thread.environmentId, thread.id),
-                              );
-                              if (result._tag === "Success") refreshArchivedThreads();
-                              else if (!isAtomCommandInterrupted(result)) {
-                                const error = squashAtomCommandFailure(result);
-                                toastManager.add(
-                                  stackedThreadToast({
-                                    type: "error",
-                                    title: "Failed to delete thread",
-                                    description:
-                                      error instanceof Error ? error.message : "Deletion failed.",
-                                  }),
-                                );
-                              }
-                            })()
-                          }
+                          disabled={pendingKeys.has(
+                            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                          )}
+                          onClick={() => void handleThreadAction("delete", thread)}
                         >
                           Delete conversation
                         </MenuItem>
@@ -602,28 +579,10 @@ export function ArchivedThreadsPanel() {
                       variant="outline"
                       size="xs"
                       className="shrink-0"
-                      onClick={() => {
-                        void (async () => {
-                          const result = await unarchiveThread(
-                            scopeThreadRef(thread.environmentId, thread.id),
-                          );
-                          if (result._tag === "Success") {
-                            refreshArchivedThreads();
-                            return;
-                          }
-                          if (!isAtomCommandInterrupted(result)) {
-                            const error = squashAtomCommandFailure(result);
-                            toastManager.add(
-                              stackedThreadToast({
-                                type: "error",
-                                title: "Failed to unarchive thread",
-                                description:
-                                  error instanceof Error ? error.message : "An error occurred.",
-                              }),
-                            );
-                          }
-                        })();
-                      }}
+                      disabled={pendingKeys.has(
+                        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                      )}
+                      onClick={() => void handleThreadAction("unarchive", thread)}
                     >
                       <ArchiveX className="size-3.5" />
                       <span>Unarchive</span>

@@ -973,29 +973,31 @@ export const layer: Layer.Layer<
         );
         // Row identity survives recovery; only accepted native input and delivered history occupy the new session.
         const nativeContextEstimate = Effect.gen(function* () {
-          return sameNativeThread
-            ? (yield* projectionStore.getTurnStartHistory(input.threadId)).reduce((sum, item) => {
-                const acceptedNatively =
-                  item.providerThreadId === providerThread.id &&
-                  item.runId !== null &&
-                  (nativeInputRunIds.has(item.runId) ||
-                    (legacyInputRunIds.has(item.runId) &&
-                      !coveredItemIds.has(item.id) &&
-                      !legacyRecoveredRunIds.has(item.runId)));
-                if (item.runId === run.id || (!acceptedNatively && !deliveredItemIds.has(item.id)))
-                  return sum;
-                const historical = historicalMessage(item);
-                const nativeAttachments =
-                  item.type === "user_message" && acceptedNatively
-                    ? attachmentTokenAllowance(item.attachments)
-                    : 0;
-                return (
-                  sum +
-                  (historical === null ? 0 : Buffer.byteLength(historical.text)) +
-                  nativeAttachments
-                );
-              }, 0)
-            : 0;
+          if (!sameNativeThread) return 0;
+          const history = yield* projectionStore.getHandoffHistory(input.threadId);
+          // Incomplete estimates must not understate occupied native context.
+          if (history.omittedItems > 0) return Number.MAX_SAFE_INTEGER;
+          return history.items.reduce((sum, item) => {
+            const acceptedNatively =
+              item.providerThreadId === providerThread.id &&
+              item.runId !== null &&
+              (nativeInputRunIds.has(item.runId) ||
+                (legacyInputRunIds.has(item.runId) &&
+                  !coveredItemIds.has(item.id) &&
+                  !legacyRecoveredRunIds.has(item.runId)));
+            if (item.runId === run.id || (!acceptedNatively && !deliveredItemIds.has(item.id)))
+              return sum;
+            const historical = historicalMessage(item);
+            const nativeAttachments =
+              item.type === "user_message" && acceptedNatively
+                ? attachmentTokenAllowance(item.attachments)
+                : 0;
+            return (
+              sum +
+              (historical === null ? 0 : Buffer.byteLength(historical.text)) +
+              nativeAttachments
+            );
+          }, 0);
         });
         const modelContextWindow =
           knownModelWindow ??
@@ -1043,20 +1045,19 @@ export const layer: Layer.Layer<
       const prepareRetryHandoff = Effect.fn("ProviderTurnStartService.prepareRetryHandoff")(
         function* (context: ReturnType<typeof handoffContextForThread>) {
           const { missedRunIds, coveredItemIds, missedRuns } = context;
-          const missedItems =
+          const missedHistory =
             missedRunIds.size === 0
-              ? []
-              : (yield* projectionStore.getTurnStartHistory(input.threadId, [
-                  ...missedRunIds,
-                ])).filter(
-                  (item) =>
-                    item.runId !== null &&
-                    missedRunIds.has(item.runId) &&
-                    !coveredItemIds.has(item.id) &&
-                    historicalMessage(item) !== null,
-                );
+              ? { items: [], omittedItems: 0 }
+              : yield* projectionStore.getHandoffHistory(input.threadId, [...missedRunIds]);
+          const missedItems = missedHistory.items.filter(
+            (item) =>
+              item.runId !== null &&
+              missedRunIds.has(item.runId) &&
+              !coveredItemIds.has(item.id) &&
+              historicalMessage(item) !== null,
+          );
           const retryHandoff =
-            missedItems.length === 0
+            missedItems.length === 0 && missedHistory.omittedItems === 0
               ? []
               : [
                   yield* contextHandoffService.prepareProviderHandoff({
@@ -1073,6 +1074,7 @@ export const layer: Layer.Layer<
                     },
                     strategy: "delta_since_target_last_seen",
                     items: missedItems,
+                    omittedItems: missedHistory.omittedItems,
                     runs: projection.runs,
                     createdAt: yield* DateTime.now,
                   }),
@@ -1088,6 +1090,7 @@ export const layer: Layer.Layer<
             type: "provider_resume_fallback",
           });
           const createdAt = yield* DateTime.now;
+          const recoveryHistory = yield* projectionStore.getHandoffHistory(input.threadId);
           const handoff = yield* contextHandoffService.prepareProviderHandoff({
             threadId: projection.thread.id,
             targetRunId: run.id,
@@ -1099,7 +1102,8 @@ export const layer: Layer.Layer<
             coveredRunOrdinals: { from: 1, to: Math.max(1, run.ordinal - 1) },
             strategy: "full_thread_summary",
             runs: projection.runs,
-            items: (yield* projectionStore.getTurnStartHistory(input.threadId)).filter(
+            omittedItems: recoveryHistory.omittedItems,
+            items: recoveryHistory.items.filter(
               (item) =>
                 item.runId === null ||
                 projection.runs.some(
@@ -1200,10 +1204,11 @@ export const layer: Layer.Layer<
             toProviderInstanceId: run.providerInstanceId,
             coveredRunOrdinals: ContextHandoffService.visibleDeltaRunOrdinals(
               sourceProjection,
-              sourceItems,
+              sourceItems.items,
             ),
             strategy: "full_thread_summary",
-            items: sourceItems,
+            items: sourceItems.items,
+            omittedItems: sourceItems.omittedItems,
             runs: sourceProjection.runs,
             createdAt,
           });

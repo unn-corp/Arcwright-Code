@@ -3,6 +3,7 @@ import { ProjectId, type PullRequestSummary, type VcsStatusResult } from "@t3too
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  nextThreadChangeRequestSnapshot,
   resolveDisplayedThreadPr,
   resolveDisplayedThreadPrProvider,
 } from "./ThreadStatusIndicators";
@@ -101,6 +102,23 @@ describe("resolveDisplayedThreadPr", () => {
 
     expect(resolveDisplayedThreadPr(input)).toEqual(mergedPr);
     expect(resolveDisplayedThreadPrProvider(input)).toEqual(provider);
+  });
+
+  it("retains a same-branch PR when branch-only polling omits PR data", () => {
+    const snapshot = { branch: featureBranch, pr: mergedPr, sourceControlProvider: provider };
+    const input = {
+      threadBranch: featureBranch,
+      gitStatus: { refName: featureBranch },
+      snapshot,
+      retainTerminalOnBranchMismatch: false,
+    };
+    expect(nextThreadChangeRequestSnapshot(input)).toBeUndefined();
+    expect(resolveDisplayedThreadPr(input)).toEqual(mergedPr);
+    expect(resolveDisplayedThreadPrProvider(input)).toEqual(provider);
+    expect(resolveDisplayedThreadPr({ ...input, gitStatus: { refName: "main" } })).toBeNull();
+    expect(
+      resolveDisplayedThreadPr({ ...input, gitStatus: { refName: featureBranch, pr: null } }),
+    ).toBeNull();
   });
 
   it("never attaches a PR reported by main to the feature thread", () => {

@@ -134,6 +134,9 @@ export const WorktreeStorageUsage = Schema.Struct({
   sampledAt: Schema.Number,
 });
 export type WorktreeStorageUsage = typeof WorktreeStorageUsage.Type;
+export const VcsBranchStatus = Schema.Struct({ refName: Schema.NullOr(Schema.String) });
+export type VcsBranchStatus = typeof VcsBranchStatus.Type;
+
 export const VcsStatusSubscriptionInput = Schema.Struct({
   ...VcsStatusInput.fields,
   /** Passive observers receive cached remote status without retaining its refresh loop. */

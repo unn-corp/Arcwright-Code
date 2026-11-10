@@ -12,6 +12,7 @@ import * as ServerConfig from "../config.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
 import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as DatabaseMaintenance from "./DatabaseMaintenance.ts";
 import * as DatabaseStorage from "./DatabaseStorage.ts";
 import * as Sqlite from "./Sqlite.ts";
 
@@ -112,5 +113,43 @@ it.effect("remembers completion only after the paced pass finishes", () =>
             .pipe(Effect.ensuring(Deferred.succeed(timestampWritten, undefined))),
       }),
     );
+  }).pipe(Effect.provide(testConfig.pipe(Layer.provideMerge(NodeServices.layer)))),
+);
+
+// NONE is a database from before automatic shrinking, which the repair converts.
+const reclaimLayer = (
+  restart: Effect.Effect<void> | null,
+  autoVacuum: "NONE" | "FULL" | "INCREMENTAL" = "NONE",
+) =>
+  DatabaseStorage.layer.pipe(
+    Layer.provide(ProjectionMaintenance.layer),
+    Layer.provide(Layer.merge(EventStore.layer, ProjectionStore.layer)),
+    Layer.provide(Layer.succeed(DatabaseStorage.ServerRestart, restart)),
+    Layer.provide(
+      Layer.effectDiscard(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql.unsafe(`PRAGMA auto_vacuum = ${autoVacuum}`);
+          yield* sql`VACUUM`;
+        }),
+      ).pipe(Layer.provideMerge(Sqlite.layerMemory)),
+    ),
+  );
+
+it.effect("reclaim refuses to restart without a maintenance fence", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const config = yield* ServerConfig.ServerConfig;
+    const files = DatabaseMaintenance.reclaimFiles(path, config.dbPath);
+    const restarted = yield* Deferred.make<void>();
+    const restart = Deferred.succeed(restarted, undefined).pipe(Effect.asVoid);
+    const result = yield* Effect.flatMap(
+      DatabaseStorage.DatabaseStorage,
+      (storage) => storage.requestReclaim,
+    ).pipe(Effect.flip, Effect.provide(reclaimLayer(restart)));
+    assert.equal(result._tag, "DatabaseReclaimError");
+    assert.isFalse(yield* fs.exists(files.request));
+    assert.isFalse(yield* Deferred.isDone(restarted));
   }).pipe(Effect.provide(testConfig.pipe(Layer.provideMerge(NodeServices.layer)))),
 );

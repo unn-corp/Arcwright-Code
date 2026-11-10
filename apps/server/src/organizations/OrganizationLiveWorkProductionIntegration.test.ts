@@ -297,6 +297,8 @@ it.effect.skipIf(!available)(
           generatePrContent: () => Effect.die("unused"),
           generateBranchName: () => Effect.die("unused"),
           generateThreadTitle: () => Effect.die("unused"),
+          generateTranscriptionPostProcessing: () =>
+            Effect.die("unused transcription post-processing"),
           generateOrganizationPatchProposal: (input) => {
             providerCalls++;
             return Effect.succeed({

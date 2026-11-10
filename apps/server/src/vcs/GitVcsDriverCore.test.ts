@@ -9,6 +9,7 @@ import * as VcsProcess from "./VcsProcess.ts";
 import * as ProcessRunner from "../processRunner.ts";
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
 import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -33,6 +34,7 @@ import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as Tracer from "effect/Tracer";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import {
   GitCommandError,
@@ -140,6 +142,60 @@ const makeDriverReleasingLock = (
       failures,
     };
   });
+
+it.effect("runs background Git in its own lane so user commands never queue behind it", () =>
+  Effect.gen(function* () {
+    const gate = yield* Deferred.make<void>();
+    const starts = yield* Queue.unbounded<string>();
+    const spawner = ChildProcessSpawner.make((command) =>
+      Effect.gen(function* () {
+        yield* Queue.offer(
+          starts,
+          ChildProcess.isStandardCommand(command) ? String(command.args[1]) : "",
+        );
+        return ChildProcessSpawner.makeHandle({
+          ...makeSuccessfulHandle("ok"),
+          exitCode: Deferred.await(gate).pipe(Effect.as(ChildProcessSpawner.ExitCode(0))),
+        });
+      }),
+    );
+    const driver = yield* makeGitVcsDriverCore().pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provide(layerServerConfig),
+    );
+    const run = (args: ReadonlyArray<string>) =>
+      driver.execute({ operation: "test.gitLane", cwd: "/repo", args: [...args] });
+    const background = yield* Effect.forEach(
+      Array.from({ length: 12 }),
+      () => run(["rev-parse", "background"]),
+      {
+        concurrency: "unbounded",
+      },
+    ).pipe(Effect.provideService(GitVcsDriver.BackgroundGitWork, true), Effect.forkChild);
+    const foreground = yield* Effect.forEach(
+      Array.from({ length: 4 }),
+      () => run(["rev-parse", "foreground"]),
+      {
+        concurrency: "unbounded",
+      },
+    ).pipe(Effect.forkChild);
+
+    yield* TestClock.adjust("2 seconds");
+    const started = yield* Queue.takeAll(starts);
+    assert.deepStrictEqual([...started].toSorted(), [
+      "background",
+      "background",
+      "foreground",
+      "foreground",
+      "foreground",
+      "foreground",
+    ]);
+    yield* Deferred.succeed(gate, undefined);
+    assert.equal((yield* Fiber.join(background)).length, 12);
+    assert.equal((yield* Fiber.join(foreground)).length, 4);
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+);
+
 describe("Git output collection", () => {
   // Git writes in arbitrary chunk sizes; one byte per chunk splits every
   // multibyte character across reads.
@@ -4969,6 +5025,45 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.equal(status.behindCount, 0);
       }),
     );
+
+    it.effect("records no failed span reading status of a repository without a remote", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["checkout", "-b", "feature"]);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const spans: Array<Tracer.NativeSpan> = [];
+        const tracer = Tracer.make({
+          span: (options) => {
+            const span = new Tracer.NativeSpan(options);
+            spans.push(span);
+            return span;
+          },
+        });
+        const traced = <A, E>(effect: Effect.Effect<A, E>) =>
+          Effect.gen(function* () {
+            spans.length = 0;
+            const exit = yield* effect.pipe(Effect.withTracer(tracer), Effect.exit);
+            const failedSpans = spans.flatMap((span) =>
+              span.status._tag === "Ended" && Exit.isFailure(span.status.exit) ? [span.name] : [],
+            );
+            return { exit, failedSpans };
+          });
+
+        const status = yield* traced(driver.statusDetailsRemote(cwd));
+        assert.isTrue(Exit.isSuccess(status.exit));
+        assert.deepStrictEqual(status.failedSpans, []);
+
+        // A caller that needs a remote still fails, in its own span.
+        const fetch = yield* traced(driver.fetchRefCommit({ cwd, ref: "refs/pull/1/head" }));
+        assert.include(
+          Exit.isFailure(fetch.exit) ? Cause.pretty(fetch.exit.cause) : "",
+          "No git remote is configured for this repository.",
+        );
+        assert.deepStrictEqual(fetch.failedSpans, ["GitVcsDriver.fetchRefCommit"]);
+      }),
+    );
+
     it.effect("can read cached remote divergence without fetching upstream", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -5432,13 +5527,14 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.equal(renamed.branch, "Julius/ABC-124.v2");
       }),
     );
-    it.effect("flattens a generated name when a branch at its parent path blocks it", () =>
+
+    it.effect.each(["t3", "T3"])("flattens a generated name when parent %s blocks it", (parent) =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
         // A local `t3` branch is why launches start on the flat `t3-<hex>` temporary branch.
-        yield* git(cwd, ["branch", "t3"]);
+        yield* git(cwd, ["branch", parent]);
         yield* git(cwd, ["checkout", "-b", "t3-abcd1234"]);
         yield* git(cwd, ["branch", "t3-fix-login"]);
         const renamed = yield* driver.renameBranch({
@@ -5450,23 +5546,113 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.equal(yield* git(cwd, ["branch", "--show-current"]), "t3-fix-login-1");
       }),
     );
-    it.effect("skips a flattened name that a nested branch blocks", () =>
+
+    it.effect.each(["t3-fix-login/child", "T3-Fix-Login/child", "T3-FIX-LOGIN"])(
+      "skips a flattened name blocked by %s",
+      (occupied) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          yield* git(cwd, ["branch", "t3"]);
+          yield* git(cwd, ["checkout", "-b", "t3-abcd1234"]);
+          yield* git(cwd, ["branch", occupied]);
+
+          const renamed = yield* driver.renameBranch({
+            cwd,
+            oldBranch: "t3-abcd1234",
+            newBranch: "t3/fix-login",
+          });
+
+          assert.equal(renamed.branch, "t3-fix-login-1");
+          assert.equal(yield* git(cwd, ["branch", "--show-current"]), "t3-fix-login-1");
+        }),
+    );
+
+    it.effect("refuses exhausted automatic suffixes without changing existing branches", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
-        yield* initRepoWithCommit(cwd);
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
         const driver = yield* GitVcsDriver.GitVcsDriver;
-        yield* git(cwd, ["branch", "t3"]);
-        yield* git(cwd, ["checkout", "-b", "t3-abcd1234"]);
-        yield* git(cwd, ["branch", "t3-fix-login/child"]);
-        const renamed = yield* driver.renameBranch({
-          cwd,
-          oldBranch: "t3-abcd1234",
-          newBranch: "t3/fix-login",
-        });
-        assert.equal(renamed.branch, "t3-fix-login-1");
-        assert.equal(yield* git(cwd, ["branch", "--show-current"]), "t3-fix-login-1");
+        const oid = yield* git(cwd, ["rev-parse", "HEAD"]);
+        for (let index = 0; index <= 100; index += 1) {
+          yield* git(cwd, [
+            "update-ref",
+            `refs/heads/${index === 0 ? "topic" : `topic-${index}`}`,
+            oid,
+          ]);
+        }
+        const result = yield* driver
+          .renameBranch({ cwd, oldBranch: initialBranch, newBranch: "topic" })
+          .pipe(Effect.result);
+        assert.isTrue(Result.isFailure(result));
+        if (Result.isFailure(result))
+          assert.include(result.failure.detail, "Could not find an available branch name");
+        assert.equal(yield* git(cwd, ["branch", "--show-current"]), initialBranch);
+        assert.equal((yield* driver.listLocalBranchNames(cwd)).length, 102);
       }),
     );
+
+    it.effect.each(["rename", "createWorktree"] as const)(
+      "preserves a concurrent creator's branch when %s loses the atomic ref operation",
+      (operation) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          const expected = yield* git(cwd, [
+            "commit-tree",
+            "HEAD^{tree}",
+            "-m",
+            "concurrent winner",
+          ]);
+          const original = yield* GitVcsDriver.GitVcsDriver;
+          const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+          let claimed = false;
+          const spawner = ChildProcessSpawner.make((command) =>
+            Effect.gen(function* () {
+              if (
+                !claimed &&
+                ChildProcess.isStandardCommand(command) &&
+                command.args[0] === "branch" &&
+                command.args.includes(operation === "rename" ? "-m" : "--no-track")
+              ) {
+                claimed = true;
+                yield* original
+                  .execute({
+                    cwd,
+                    operation: "test.concurrentCreator",
+                    args: ["update-ref", "refs/heads/topic", expected, ""],
+                  })
+                  .pipe(Effect.orDie);
+              }
+              return yield* delegate.spawn(command);
+            }),
+          );
+          const driver = yield* makeGitVcsDriverCore().pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.provide(layerServerConfig),
+          );
+          const result = yield* (
+            operation === "rename"
+              ? driver
+                  .renameBranch({ cwd, oldBranch: initialBranch, newBranch: "topic" })
+                  .pipe(Effect.asVoid)
+              : driver
+                  .createWorktree({
+                    cwd,
+                    refName: initialBranch,
+                    newRefName: "topic",
+                    path: NodePath.join(cwd, "checkout"),
+                  })
+                  .pipe(Effect.asVoid)
+          ).pipe(Effect.result);
+          assert.isTrue(claimed);
+          assert.isTrue(Result.isFailure(result));
+          assert.equal(yield* git(cwd, ["rev-parse", "refs/heads/topic"]), expected);
+          assert.equal(yield* git(cwd, ["branch", "--show-current"]), initialBranch);
+        }),
+    );
+
     it.effect("rejects a missing branch without restoring a matching dirty file", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -6181,13 +6367,16 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             worktreesDirectory,
           },
         );
-        const expected = pathService.join(
-          worktreesDirectory,
-          pathService.basename(cwd),
-          "feature-custom-dir",
+        assert.equal(
+          pathService.dirname(created.worktree.path),
+          pathService.join(worktreesDirectory, pathService.basename(cwd)),
         );
-        assert.equal(created.worktree.path, expected);
-        assert.equal(yield* fileSystem.exists(expected), true);
+        assert.match(
+          pathService.basename(created.worktree.path),
+          /^feature-custom-dir-[0-9a-f]{16}$/,
+        );
+        assert.equal(yield* fileSystem.exists(created.worktree.path), true);
+
         const error = yield* driver
           .createWorktree(
             {
@@ -6218,6 +6407,34 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         assert.match(rootError.detail, /not a drive root/);
       }),
     );
+
+    it.effect(
+      "keeps generated paths distinct across branch spellings and equal repository basenames",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const root = yield* makeTmpDir();
+          const worktreesDirectory = yield* makeTmpDir();
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const paths = new Set<string>();
+          for (const owner of ["one", "two"]) {
+            const cwd = path.join(root, owner, "repository");
+            yield* fs.makeDirectory(cwd, { recursive: true });
+            const { initialBranch } = yield* initRepoWithCommit(cwd);
+            for (const branch of ["feat/a", "feat-a"]) {
+              const created = yield* driver.createWorktree(
+                { cwd, path: null, refName: initialBranch, newRefName: branch },
+                { worktreesDirectory },
+              );
+              paths.add(created.worktree.path);
+              assert.equal(yield* git(created.worktree.path, ["branch", "--show-current"]), branch);
+            }
+          }
+          assert.equal(paths.size, 4);
+        }),
+    );
+
     it.effect("keeps generated worktree folders short without changing long branch names", () =>
       Effect.gen(function* () {
         const pathService = yield* Path.Path;
@@ -6232,6 +6449,8 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           `feature/${"a".repeat(40)}/5fac`,
           `feature/${"a".repeat(40)}/18828`,
           `${"a".repeat(22)}😀/${"b".repeat(30)}`,
+          "😀".repeat(60),
+          "界".repeat(80),
           "z".repeat(40),
           "z".repeat(41),
         ];
@@ -6248,8 +6467,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
             },
           );
           const folder = pathService.basename(created.worktree.path);
-          assert.isAtMost(folder.length, 40);
-          if (branch.length <= 40) assert.equal(folder, branch);
+          assert.isAtMost(Buffer.byteLength(folder), 40);
           assert.equal(yield* git(created.worktree.path, ["branch", "--show-current"]), branch);
           assert.include(
             yield* git(cwd, ["-c", "core.quotePath=false", "worktree", "list", "--porcelain"]),

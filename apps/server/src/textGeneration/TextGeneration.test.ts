@@ -14,6 +14,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as TextGeneration from "./TextGeneration.ts";
+import * as TextGenerators from "./TextGenerators.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as Layer from "effect/Layer";
 
@@ -27,6 +28,7 @@ const makeStubTextGeneration = (
     generateBranchName: () => Effect.die("generateBranchName stub not configured for this test"),
     generateThreadTitle: () => Effect.die("generateThreadTitle stub not configured for this test"),
     generateReviewGuide: () => Effect.die("generateReviewGuide stub not configured for this test"),
+    generateTranscriptionPostProcessing: () => Effect.die("transcription stub not configured"),
     ...overrides,
   });
 
@@ -77,6 +79,10 @@ describe("TextGeneration.make", () => {
       };
       const registry = makeStubRegistry([makeStubInstance(instanceId, makeStubTextGeneration({}))]);
       const tg = yield* TextGeneration.make.pipe(
+        Effect.provideService(TextGenerators.TextGenerators, {
+          runner: () => Effect.undefined,
+          listModels: () => Effect.die("unused"),
+        }),
         Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, registry),
         Effect.provide(
@@ -94,6 +100,10 @@ describe("TextGeneration.make", () => {
         },
       ]);
       const disabledService = yield* TextGeneration.make.pipe(
+        Effect.provideService(TextGenerators.TextGenerators, {
+          runner: () => Effect.undefined,
+          listModels: () => Effect.die("unused"),
+        }),
         Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(ProviderInstanceRegistry.ProviderInstanceRegistry, disabledRegistry),
         Effect.provide(
@@ -112,6 +122,10 @@ describe("TextGeneration.make", () => {
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("codex");
       const tg = yield* TextGeneration.make.pipe(
+        Effect.provideService(TextGenerators.TextGenerators, {
+          runner: () => Effect.undefined,
+          listModels: () => Effect.die("unused"),
+        }),
         Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(
           ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -151,6 +165,10 @@ describe("TextGeneration.make", () => {
         enabled: false,
       };
       const tg = yield* TextGeneration.make.pipe(
+        Effect.provideService(TextGenerators.TextGenerators, {
+          runner: () => Effect.undefined,
+          listModels: () => Effect.die("unused"),
+        }),
         Effect.provide(ServerSettings.layerTest()),
         Effect.provideService(
           ProviderInstanceRegistry.ProviderInstanceRegistry,

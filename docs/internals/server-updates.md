@@ -45,7 +45,10 @@ background service, development servers). Constraints that are easy to get wrong
   they run and are never replaced. The home is the directory that _contains_ `userdata`, canonicalized.
 - **Liveness is process creation identity**, not PID or a heartbeat. A stale heartbeat is never proof of
   exit, and a reused PID is a different process. An unreadable owner or lock blocks; locks are not stolen
-  on a timeout (`t3 maintenance repair-lock` removes one whose owner is proven exited).
+  on a timeout. A lock whose owner is proven exited is recovered through a shared immutable
+  claim before normal acquisition retries. A crashed recovery claimant requires explicit
+  `t3 maintenance repair-lock`; unknown identities and damaged records still block. Recovery
+  preserves the registry, active maintenance fence, transaction journals, and activity checks.
 - **Processes a runtime started outlive it as blockers.** Terminals, provider CLIs and background
   commands are reported with the runtime's observations; if the runtime exits first, its registration
   is kept as an orphan tombstone until each is verified gone. The complete owned-process census is

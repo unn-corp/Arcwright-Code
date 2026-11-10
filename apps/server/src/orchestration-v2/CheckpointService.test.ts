@@ -71,6 +71,8 @@ it.effect(
       const existing = yield* service.materializeBaselineCheckpoint({
         scope,
         ordinalWithinScope: 0,
+        nodeId: scope.nodeId!,
+        capturedAt: scope.createdAt,
       });
       assert.equal(existing.status, "ready");
       yield* service.restore({ scope, checkpoint: existing });
@@ -148,6 +150,8 @@ it.effect(
             const materialized = yield* checkpoints.materializeBaselineCheckpoint({
               scope,
               ordinalWithinScope: 0,
+              nodeId: scope.nodeId,
+              capturedAt: scope.createdAt,
             });
             assert.strictEqual(materialized.status, "missing");
           }

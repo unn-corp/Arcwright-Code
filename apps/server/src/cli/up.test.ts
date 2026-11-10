@@ -1,3 +1,4 @@
+import * as Option from "effect/Option";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -10,7 +11,44 @@ import { afterEach, vi } from "vite-plus/test";
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import { upsertServiceEnv } from "./service.ts";
-import { connectEnabled, upCommand } from "./up.ts";
+import { connectEnabled, planRoutes, upCommand } from "./up.ts";
+
+const none = Option.none<boolean>();
+
+it.each([
+  {
+    label: "a new machine starts from T3 Connect and asks",
+    setup: { installed: false, connect: false, lan: false },
+    flags: { connect: none, lan: none },
+    expected: { routes: { connect: true, lan: false }, ask: ["connect", "lan"] },
+  },
+  {
+    label: "a build without T3 Connect never offers it",
+    setup: { installed: false, connect: null, lan: false },
+    flags: { connect: none, lan: none },
+    expected: { routes: { connect: false, lan: false }, ask: ["lan"] },
+  },
+  {
+    label: "a rerun starts from the current setup",
+    setup: { installed: true, connect: false, lan: true },
+    flags: { connect: none, lan: none },
+    expected: { routes: { connect: false, lan: true }, ask: ["connect", "lan"] },
+  },
+  {
+    label: "a route flag on a new machine turns on only that route",
+    setup: { installed: false, connect: false, lan: false },
+    flags: { connect: none, lan: Option.some(true) },
+    expected: { routes: { connect: false, lan: true }, ask: [] },
+  },
+  {
+    label: "a route flag asks nothing and keeps the other route",
+    setup: { installed: true, connect: true, lan: true },
+    flags: { connect: none, lan: Option.some(false) },
+    expected: { routes: { connect: true, lan: false }, ask: [] },
+  },
+])("$label", ({ setup, flags, expected }) => {
+  expect(planRoutes(setup, flags)).toEqual(expected);
+});
 
 it.each([
   {

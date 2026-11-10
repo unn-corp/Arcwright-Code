@@ -3,14 +3,15 @@ import type { UnifiedSettings } from "@t3tools/contracts";
 import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
 import {
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
   type ServerProvider,
   type ThreadId,
-  ProviderInteractionMode,
   RuntimeMode,
+  ProviderInteractionMode,
 } from "@t3tools/contracts";
 import type { deriveThreadStructureRuntime } from "@t3tools/client-runtime/state/thread-execution";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -55,7 +56,7 @@ interface ComposerSelectionInput {
 }
 
 /**
- * The composer's choices for the next turn: provider and model, runtime and interaction mode,
+ * The composer's choices for the next turn: provider and model, runtime mode,
  * and where a new thread runs (local or a new worktree, from the remote's tip or not).
  */
 export function useComposerSelection(input: ComposerSelectionInput) {
@@ -90,6 +91,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     (store) => store.setInteractionMode,
   );
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const applyThreadModelPick = useApplyThreadModelPick();
 
   const handleRuntimeModeChange = (mode: RuntimeMode) => {
     if (mode === runtimeMode) return;
@@ -105,17 +107,15 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     if (mode === "plan" && !interactionModeEnabled) return;
     if (mode === interactionMode) return;
     setComposerDraftInteractionMode(composerDraftTarget, mode);
-    if (isLocalDraftThread) {
-      setDraftThreadContext(composerDraftTarget, { interactionMode: mode });
-    }
+    if (isLocalDraftThread) setDraftThreadContext(composerDraftTarget, { interactionMode: mode });
     scheduleComposerFocus();
   };
   const handleInteractionModeChangeStable = useStableCallback(handleInteractionModeChange);
-  const toggleInteractionMode = () => {
-    if (!interactionModeEnabled) return;
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
-  };
-  const toggleInteractionModeStable = useStableCallback(toggleInteractionMode);
+  const toggleInteractionModeStable = useStableCallback(() => {
+    if (interactionModeEnabled)
+      handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
+  });
+
   const openProviderSetup = (instanceId: ProviderInstanceId) => {
     void navigate({
       to: "/settings/providers",
@@ -206,16 +206,14 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
       return;
     }
-    setComposerDraftModelSelection(
-      scopeThreadRef(activeThread.environmentId, activeThread.id),
-      nextModelSelection,
-      {
-        explicit: true,
-        replaceOptions: true,
-        ...(!isLocalDraftThread ? { selectionBase: composerModelSelectionBase(activeThread) } : {}),
-      },
-    );
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    setComposerDraftModelSelection(threadRef, nextModelSelection, {
+      explicit: true,
+      replaceOptions: true,
+      ...(!isLocalDraftThread ? { selectionBase: composerModelSelectionBase(activeThread) } : {}),
+    });
     setStickyComposerModelSelection(nextModelSelection);
+    if (!isLocalDraftThread) applyThreadModelPick(threadRef);
     if (options?.focusComposer !== false) scheduleComposerFocus();
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
@@ -262,11 +260,11 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     getModelDisabledReason,
     handleInteractionModeChange,
     handleInteractionModeChangeStable,
+    toggleInteractionModeStable,
     handleRuntimeModeChangeStable,
     onEnvModeChangeStable,
     onProviderModelSelectStable,
     onStartFromOriginChange,
     openProviderSetupStable,
-    toggleInteractionModeStable,
   };
 }

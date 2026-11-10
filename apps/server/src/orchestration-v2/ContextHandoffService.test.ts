@@ -99,6 +99,29 @@ it.layer(layerTest)("ContextHandoffService legacy import", (it) => {
     }),
   );
 
+  it.effect("reports source items omitted before the provider handoff", () =>
+    Effect.gen(function* () {
+      const service = yield* ContextHandoffService.ContextHandoffServiceV2;
+      const handoff = yield* service.prepareProviderHandoff({
+        threadId: ThreadId.make("thread:legacy-context"),
+        targetRunId: RunId.make("run:target"),
+        transferId: null,
+        fromProviderThreadIds: [],
+        toProviderThreadId: ProviderThreadId.make("provider-thread:target"),
+        fromProviderInstanceId: ProviderInstanceId.make("codex"),
+        toProviderInstanceId: ProviderInstanceId.make("claude"),
+        coveredRunOrdinals: { from: 1, to: 10 },
+        strategy: "full_thread_summary",
+        items: [importedItem({ role: "user", id: "brief", text: "Original brief", ordinal: 1 })],
+        omittedItems: 73,
+        createdAt: DateTime.makeUnsafe(0),
+      });
+      assert.equal(handoff.history?.omittedItems, 73);
+      assert.include(handoff.summaryText, "omitted 73 items");
+      assert.include(handoff.summaryText, "Original brief");
+    }),
+  );
+
   it.effect("preserves role attribution when truncating imported history", () =>
     Effect.gen(function* () {
       const service = yield* ContextHandoffService.ContextHandoffServiceV2;
@@ -295,9 +318,10 @@ it.effect("inherited history stops at a missing fork ancestor", () =>
       {
         getThreadRecords: (missing) =>
           Effect.fail(new ProjectionStoreThreadNotFoundError({ threadId: missing })),
+        getHandoffHistory: () => Effect.die("unused"),
       },
       thread,
     );
-    assert.deepEqual(items, []);
+    assert.deepEqual(items, { items: [], omittedItems: 0 });
   }),
 );

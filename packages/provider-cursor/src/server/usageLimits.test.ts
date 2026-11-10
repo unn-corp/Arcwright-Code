@@ -298,4 +298,32 @@ describe("Cursor usage limits", () => {
       }
     }),
   );
+  it.effect("requires explicit credentials and accepts an auth token", () =>
+    withNodeServices(
+      Effect.gen(function* () {
+        for (const token of [undefined, "explicit-token"]) {
+          const limits = yield* readCursorUsageLimits(
+            { apiEndpoint: "" },
+            token ? { CURSOR_AUTH_TOKEN: token } : { AGENT_CLI_CREDENTIAL_STORE: "memory" },
+          ).pipe(
+            Effect.provideService(
+              HttpClient.HttpClient,
+              HttpClient.make((request) => {
+                expect(token).toBe("explicit-token");
+                expect(request.headers.authorization).toBe("Bearer explicit-token");
+                return Effect.succeed(
+                  HttpClientResponse.fromWeb(
+                    request,
+                    Response.json({ planUsage: { totalPercentUsed: 10 } }),
+                  ),
+                );
+              }),
+            ),
+          );
+          if (token) expect(limits.windows[0]?.usedPercent).toBe(10);
+          else expect(limits.unavailable?.reason).toBe("unsupported");
+        }
+      }),
+    ),
+  );
 });

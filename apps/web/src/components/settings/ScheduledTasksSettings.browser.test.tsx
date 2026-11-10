@@ -139,6 +139,17 @@ vi.mock(import("../../state/environments"), async (original) => ({
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
   useProjects: (() => [{ id: projectId, environmentId, title: "Project" }]) as never,
+  useVisibleThreadShells: (() => [
+    {
+      id: task.threadId,
+      environmentId,
+      projectId,
+      title: "Fix login bug",
+      archivedAt: null,
+      lineage: { parentThreadId: null },
+      updatedAt: "2026-09-17T00:00:00.000Z",
+    },
+  ]) as never,
 }));
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
@@ -164,7 +175,7 @@ describe("ScheduledTasksSettings", () => {
     await act(() => registry.set(permissions.get(secondaryId)!, true));
     await expect.element(create).toBeEnabled();
     await create.click();
-    await expect.element(page.getByLabelText("Runs on")).toHaveTextContent("Secondary");
+    await expect.element(page.getByLabelText("Computer")).toHaveTextContent("Secondary");
   });
 
   it("keeps the permitted representative as the creation target", async () => {
@@ -172,7 +183,26 @@ describe("ScheduledTasksSettings", () => {
     state.secondary = true;
     await using screen = await render(<ScheduledTasksSettings />);
     await screen.getByRole("button", { name: "New task" }).click();
-    await expect.element(page.getByLabelText("Runs on")).toHaveTextContent("Laptop");
+    await expect.element(page.getByLabelText("Computer")).toHaveTextContent("Laptop");
+  });
+
+  it("clears the selected thread when the computer changes", async () => {
+    setup();
+    state.secondary = true;
+    await using screen = await render(<ScheduledTasksSettings />);
+    await screen.getByRole("button", { name: "New task" }).click();
+    await page.getByRole("combobox", { name: "Project" }).click();
+    await page.getByRole("option", { name: "Project", exact: true }).click();
+    await page.getByRole("combobox", { name: "Destination" }).click();
+    await page.getByRole("option", { name: "Fix login bug" }).click();
+    await expect
+      .element(page.getByRole("combobox", { name: "Destination" }))
+      .toHaveTextContent("Fix login bug");
+    await page.getByRole("combobox", { name: "Computer" }).click();
+    await page.getByRole("option", { name: /Secondary/ }).click();
+    await expect
+      .element(page.getByRole("combobox", { name: "Destination" }))
+      .not.toHaveTextContent("Fix login bug");
   });
 
   it("disables creation without a connected target", async () => {
@@ -185,8 +215,10 @@ describe("ScheduledTasksSettings", () => {
   it("keeps a linked task's unsaved edits across a disconnect and reconnect", async () => {
     setup();
     await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await expect.element(page.getByRole("dialog").getByText("Fix login bug")).toBeVisible();
-    const name = page.getByRole("dialog").getByRole("textbox", { name: "Name" });
+    await expect
+      .element(page.getByRole("combobox", { name: "Destination" }).getByText("Fix login bug"))
+      .toBeVisible();
+    const name = page.getByRole("textbox", { name: "Name" });
     await expect.element(name).toHaveValue("Review issues");
     await userEvent.fill(name, "Review stale issues");
 

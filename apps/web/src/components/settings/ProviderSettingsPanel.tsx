@@ -35,6 +35,11 @@ import {
   resolveProviderInstanceEnabled,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
+import {
+  getBackgroundActivityPresetSettings,
+  resolveServerBackgroundActivitySettings,
+} from "@t3tools/shared/backgroundActivitySettings";
+import * as Duration from "effect/Duration";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { ArrowLeftIcon, PlusIcon } from "lucide-react";
@@ -47,6 +52,7 @@ import {
   useUpdateEnvironmentModelPreferences,
   useToggleEnvironmentModelFavorite,
 } from "../../hooks/useSettings";
+import { cn } from "../../lib/utils";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { ensureLocalApi } from "../../localApi";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
@@ -92,8 +98,10 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { useManagedPolicy } from "~/state/managedPolicy";
 import { ExpandableText } from "./ExpandableText";
+import { IntervalSecondsField } from "./IntervalSecondsField";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
+import { TextGeneratorsSettings } from "./TextGeneratorsSettings";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
@@ -101,9 +109,15 @@ import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSectio
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { providerClients } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
-import { buildProviderInstanceUpdatePatch } from "./SettingsPanels.logic";
+import {
+  backgroundActivityOverrideSettings,
+  durationToSeconds,
+  PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
+  buildProviderInstanceUpdatePatch,
+} from "./SettingsPanels.logic";
 import { CompactIdleThreadsRow } from "./SettingsPanels";
 import {
+  PolicyTooltip,
   SettingResetButton,
   SettingsPageContainer,
   SettingsRow,
@@ -349,7 +363,8 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
       searchRedirectEnvironmentId = searchableCursorEnvironmentId;
     } else if (
       !target.scoped &&
-      searchTargetId === searchableSetting("usage-providers").id &&
+      (searchTargetId === searchableSetting("provider-health-check-interval").id ||
+        searchTargetId === searchableSetting("usage-providers").id) &&
       !selectedEnvironmentCanRenderSettings &&
       searchableEnvironmentId !== undefined
     ) {
@@ -615,6 +630,15 @@ export function EnvironmentProviderSettings({
           provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
       ),
   );
+  const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
+  const providerHealthPreset = getBackgroundActivityPresetSettings(
+    resolvedBackgroundActivity.profile,
+  ).providerHealthRefreshInterval;
+  const providerHealthRefreshIntervalSeconds = durationToSeconds(
+    resolvedBackgroundActivity.providerHealthRefreshInterval,
+  );
+  const defaultProviderHealthRefreshIntervalSeconds = durationToSeconds(providerHealthPreset);
+
   const refreshProviders = () => {
     if (refreshingRef.current || !readEnvironmentScope(environmentId, AuthOrchestrationReadScope))
       return;
@@ -1108,6 +1132,84 @@ export function EnvironmentProviderSettings({
             cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
             readOnly={readOnly}
           />
+
+          {/* The server drops text generators under a provider allow-list. */}
+          {managedPolicy?.limits?.providers?.allowedDrivers === undefined ? (
+            <TextGeneratorsSettings
+              key={`text-generators:${environmentId}`}
+              environmentId={environmentId}
+              environmentLabel={environmentLabel}
+              providers={serverProviders}
+              readOnly={readOnly}
+            />
+          ) : null}
+
+          <SettingsSection title="Advanced">
+            <SettingsRow
+              id={searchableSetting("provider-health-check-interval").id}
+              title={
+                <span className="inline-flex items-center gap-1.5">
+                  {searchableSetting("provider-health-check-interval").title}
+                  <PolicyTooltip>
+                    This interval is configured here, then the shared Background activity policy
+                    decides whether provider probes may run when the timer fires. Custom intervals
+                    appear as Advanced in Maintenance settings.
+                  </PolicyTooltip>
+                </span>
+              }
+              description="Refresh provider status, versions, and models in the background. Set to 0 to disable."
+              resetAction={
+                providerHealthRefreshIntervalSeconds !==
+                defaultProviderHealthRefreshIntervalSeconds ? (
+                  <span
+                    inert={!canWriteSettings}
+                    className={!canWriteSettings ? "opacity-50" : undefined}
+                  >
+                    <SettingResetButton
+                      label="provider health check interval"
+                      onClick={() =>
+                        updateSettings(
+                          backgroundActivityOverrideSettings(
+                            settings.backgroundActivity,
+                            resolvedBackgroundActivity,
+                            { providerHealthRefreshInterval: undefined },
+                          ),
+                        )
+                      }
+                    />
+                  </span>
+                ) : null
+              }
+              control={
+                <div
+                  inert={!canWriteSettings}
+                  aria-disabled={!canWriteSettings || undefined}
+                  className={cn(
+                    "flex shrink-0 items-center gap-2",
+                    !canWriteSettings && "opacity-50 select-none",
+                  )}
+                >
+                  <IntervalSecondsField
+                    label="provider health check interval"
+                    value={providerHealthRefreshIntervalSeconds}
+                    min={0}
+                    step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
+                    onCommit={(seconds, options) =>
+                      updateSettings(
+                        backgroundActivityOverrideSettings(
+                          settings.backgroundActivity,
+                          resolvedBackgroundActivity,
+                          { providerHealthRefreshInterval: Duration.seconds(seconds) },
+                        ),
+                        options,
+                      )
+                    }
+                  />
+                  <span className="text-xs text-muted-foreground">seconds</span>
+                </div>
+              }
+            />
+          </SettingsSection>
 
           <SettingsSection id="provider-updates-discovery" title="Updates & discovery">
             <ProviderDiscoverySettings />

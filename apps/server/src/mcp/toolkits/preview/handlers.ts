@@ -174,11 +174,15 @@ const handlers = {
   preview_snapshot: McpToolAccess.readsAsCaller((input) => {
     const {
       includeImage: _includeImage,
-      save: _save,
+      save,
       saveToConversationEvidence: _saveToConversationEvidence,
       ...operationInput
     } = input ?? {};
-    return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
+    // The saved file is for people, so it keeps the resolution the agent's image is capped below.
+    return invokeTargeted<PreviewAutomationSnapshot>("snapshot", {
+      ...operationInput,
+      ...(save === true ? { fullScreenshot: true } : {}),
+    });
   }),
   preview_act: McpToolAccess.actsAsCaller(({ action, ...input }) =>
     decodeActInput[action](input).pipe(

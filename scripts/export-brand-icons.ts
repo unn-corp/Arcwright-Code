@@ -82,6 +82,8 @@ const variants = [
     mac: BRAND_ASSET_PATHS.developmentDesktopIconPng,
     universal: BRAND_ASSET_PATHS.developmentUniversalIconPng,
     appleTouch: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
+    webIcon192: BRAND_ASSET_PATHS.developmentWebIcon192Png,
+    webIcon512: BRAND_ASSET_PATHS.developmentWebIcon512Png,
     favicon16: BRAND_ASSET_PATHS.developmentWebFavicon16Png,
     favicon32: BRAND_ASSET_PATHS.developmentWebFavicon32Png,
     faviconIco: BRAND_ASSET_PATHS.developmentWebFaviconIco,
@@ -93,6 +95,8 @@ const variants = [
     mac: BRAND_ASSET_PATHS.nightlyMacIconPng,
     universal: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
     appleTouch: BRAND_ASSET_PATHS.nightlyWebAppleTouchIconPng,
+    webIcon192: BRAND_ASSET_PATHS.nightlyWebIcon192Png,
+    webIcon512: BRAND_ASSET_PATHS.nightlyWebIcon512Png,
     favicon16: BRAND_ASSET_PATHS.nightlyWebFavicon16Png,
     favicon32: BRAND_ASSET_PATHS.nightlyWebFavicon32Png,
     faviconIco: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
@@ -104,6 +108,8 @@ const variants = [
     mac: BRAND_ASSET_PATHS.productionMacIconPng,
     universal: BRAND_ASSET_PATHS.productionLinuxIconPng,
     appleTouch: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
+    webIcon192: BRAND_ASSET_PATHS.productionWebIcon192Png,
+    webIcon512: BRAND_ASSET_PATHS.productionWebIcon512Png,
     favicon16: BRAND_ASSET_PATHS.productionWebFavicon16Png,
     favicon32: BRAND_ASSET_PATHS.productionWebFavicon32Png,
     faviconIco: BRAND_ASSET_PATHS.productionWebFaviconIco,
@@ -141,6 +147,8 @@ for (const variant of variants) {
   outputs.set(variant.universal, desktopIcon);
   outputs.set(variant.mac, macIcon);
   outputs.set(variant.appleTouch, appleTouch);
+  outputs.set(variant.webIcon192, await iconAtSize(192));
+  outputs.set(variant.webIcon512, await iconAtSize(512));
   outputs.set(variant.favicon16, favicon16);
   outputs.set(variant.favicon32, favicon32);
   outputs.set(variant.faviconIco, ico);

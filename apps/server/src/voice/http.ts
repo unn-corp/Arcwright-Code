@@ -6,7 +6,7 @@ import * as OpenWhispr from "./OpenWhispr.ts";
 
 export const voiceHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
-  "voice",
+  "openWhispr",
   Effect.fnUntraced(function* (handlers) {
     const voice = yield* OpenWhispr.OpenWhispr;
     return handlers

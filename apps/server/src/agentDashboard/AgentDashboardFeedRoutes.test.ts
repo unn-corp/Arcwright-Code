@@ -82,7 +82,6 @@ const makeAuthLayer = (mode: "reject" | "allow" | "no-read-scope") =>
     authenticateMcpClient: unusedAuthOperation as never,
     issueMcpClientSession: unusedAuthOperation as never,
     consumeMcpApprovalCode: unusedAuthOperation as never,
-    authenticateBrowserSession: unusedAuthOperation as never,
   } satisfies EnvironmentAuth.EnvironmentAuth["Service"]);
 
 const runWithFeedRoutes = <A, E>(

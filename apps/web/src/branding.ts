@@ -36,3 +36,5 @@ export const APP_BUILD_IDENTITY: import("@t3tools/contracts").BuildIdentity = im
   label: APP_BUILD_LABEL,
 };
 export const DESKTOP_DOWNLOAD_URL = "https://github.com/unn-corp/Arcwright-Code/releases";
+// Redirects to the App Store or Google Play to match the phone that opens it.
+export const MOBILE_APP_URL = "https://t3.codes/mobile";

@@ -42,13 +42,17 @@ function captureRendererErrors(page: Page) {
 const { values } = NodeUtil.parseArgs({
   options: {
     executable: { type: "string" },
+    // An unpackaged app directory for a plain Electron executable, as PR CI runs it.
+    app: { type: "string" },
     "artifacts-dir": { type: "string" },
     "server-entry": { type: "string" },
   },
 });
 const executable = values.executable;
 if (!executable)
-  throw new Error("Usage: smoke-desktop-app.ts --executable <app> [--artifacts-dir <dir>]");
+  throw new Error(
+    "Usage: smoke-desktop-app.ts --executable <app> [--app <dir>] [--artifacts-dir <dir>]",
+  );
 const artifactsDir = NodePath.resolve(values["artifacts-dir"] ?? "desktop-launch-check");
 
 const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-launch-"));
@@ -137,7 +141,7 @@ try {
   app = await _electron.launch({
     executablePath: executable,
     // Linux CI runners do not allow the Chromium sandbox's user namespaces.
-    args: ["--no-sandbox"],
+    args: [...(values.app ? [NodePath.resolve(values.app)] : []), "--no-sandbox"],
     env,
     timeout: STEP_TIMEOUT_MS,
   });

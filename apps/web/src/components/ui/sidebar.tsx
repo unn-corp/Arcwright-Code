@@ -20,13 +20,15 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
-import { setLocalStorageItem } from "~/hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  setLocalStorageItem,
+  writeLocalStorageValue,
+} from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
 import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state";
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = "16rem";
 /* Cap phone sheets so a strip of the conversation remains visible and dismissible. Screens narrower than the cap still use nearly the full width. */
 const SIDEBAR_WIDTH_MOBILE = "min(calc(100vw - 0.75rem), 22rem)";
@@ -108,13 +110,14 @@ function isMobileViewport(): boolean {
   return typeof window !== "undefined" && window.matchMedia(SIDEBAR_MOBILE_QUERY).matches;
 }
 
-async function persistSidebarOpen(open: boolean) {
-  await cookieStore.set({
-    expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
-    name: SIDEBAR_COOKIE_NAME,
-    path: "/",
-    value: String(open),
-  });
+function readStoredSidebarOpen(storageKey: string | undefined): boolean | null {
+  if (!storageKey) return null;
+  try {
+    return getLocalStorageItem(storageKey, Schema.Boolean);
+  } catch (error) {
+    console.error("Could not restore persisted sidebar state.", error);
+    return null;
+  }
 }
 
 // An offcanvas sidebar turns inert once collapsed, which drops focus to the body.
@@ -138,10 +141,14 @@ interface SidebarOpenState {
 /** Per-provider open state, kept outside React so shortcuts can toggle it at event time. */
 function createSidebarOpenStore(
   defaultOpen: boolean,
+  storageKey: string | undefined,
   initialReadMobile = isMobileViewport,
   beforeOpenMobile?: () => void,
 ) {
-  let state: SidebarOpenState = { open: defaultOpen, openMobile: false };
+  let state: SidebarOpenState = {
+    open: readStoredSidebarOpen(storageKey) ?? defaultOpen,
+    openMobile: false,
+  };
   const listeners = new Set<() => void>();
   const collapseListeners = new Set<() => void>();
   const publish = (next: SidebarOpenState) => {
@@ -157,7 +164,7 @@ function createSidebarOpenStore(
       if (!readMobile()) announceSidebarVisibility(open);
       publish({ ...state, open });
     }
-    void persistSidebarOpen(open);
+    if (storageKey) writeLocalStorageValue(storageKey, open, defaultOpen, Schema.Boolean);
   };
   let readMobile = initialReadMobile;
   const setOpenMobile = (openMobile: boolean) => {
@@ -190,6 +197,7 @@ function createSidebarOpenStore(
 function SidebarProvider({
   defaultOpen = true,
   mobileBreakpoint,
+  storageKey,
   className,
   style,
   children,
@@ -197,6 +205,7 @@ function SidebarProvider({
 }: React.ComponentProps<"div"> & {
   defaultOpen?: boolean;
   mobileBreakpoint?: number;
+  storageKey?: string;
 }) {
   const mobileQuery =
     mobileBreakpoint === undefined ? "(width < 672px)" : `(width < ${mobileBreakpoint}px)`;
@@ -205,6 +214,7 @@ function SidebarProvider({
   const [store] = React.useState(() =>
     createSidebarOpenStore(
       defaultOpen,
+      storageKey,
       () => window.matchMedia(mobileQuery).matches,
       () => setMobileSheetVisible(true),
     ),
@@ -595,7 +605,7 @@ function SidebarRail({
             aria-label={railLabel}
             className={cn(
               /* A collapsed offcanvas rail overlaps the native scrollbar on Windows and Linux. */
-              "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
+              "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
               /* Without touch-action:none the browser claims a finger drag as a
                  pan and fires pointercancel, so the rail only ever resized with
                  a mouse. The before: block widens the grab zone to a finger on
@@ -603,6 +613,7 @@ function SidebarRail({
               "touch-none",
               "pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:absolute pointer-coarse:before:inset-y-0 pointer-coarse:before:left-1/2 pointer-coarse:before:w-11",
               "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+              "[[data-panel-animations=true]_&]:transition-all [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
               "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
               "group-data-[collapsible=offcanvas]:translate-x-0 hover:group-data-[collapsible=offcanvas]:bg-sidebar group-data-[collapsible=offcanvas]:after:left-full",
               "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",

@@ -19,7 +19,7 @@ import { PULL_REQUESTS_PANEL_REF } from "~/rightPanelStore";
 
 import ChatMarkdown from "../ChatMarkdown";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
-import { splitPullRequestBody } from "./pullRequestMarkdown.logic";
+import { splitPullRequestBody, type PullRequestBodySegment } from "./pullRequestMarkdown.logic";
 
 export const PullRequestMarkdownContext = createContext<{
   /** Stable per repository, so comments share one renderer and its parse cache. */
@@ -27,6 +27,8 @@ export const PullRequestMarkdownContext = createContext<{
   lineBreaks: boolean;
   threadRef: ScopedThreadRef | null;
   githubAccountId?: GitHubAccountId | null;
+  /** The change request's `owner/name`, which can differ from the checkout the body renders in. */
+  repository: string | null;
 } | null>(null);
 
 function PullRequestHostVideo({
@@ -34,13 +36,20 @@ function PullRequestHostVideo({
   cwd,
   url,
   fetchUrl,
+  repository,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
   url: string;
   fetchUrl: string;
+  repository: string | undefined;
 }) {
-  const resource: AssetResource = { _tag: SOURCE_CONTROL_MEDIA_ASSET, cwd, url: fetchUrl };
+  const resource: AssetResource = {
+    _tag: SOURCE_CONTROL_MEDIA_ASSET,
+    cwd,
+    url: fetchUrl,
+    ...(repository ? { repository } : {}),
+  };
   const assetUrl = useAssetUrlState(environmentId, resource);
   const refreshAssetUrl = useAssetUrlRefresh(environmentId, resource);
   const src =
@@ -54,6 +63,133 @@ function PullRequestHostVideo({
       videoClassName="rounded-lg border border-border/60"
       onRetry={refreshAssetUrl}
     />
+  );
+}
+
+function PullRequestBodySegmentView({
+  segment,
+  cwd,
+  environmentId,
+  threadRef,
+  lineBreaks,
+  onTaskListChange,
+}: {
+  segment: PullRequestBodySegment;
+  cwd: string;
+  environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef | undefined;
+  lineBreaks: boolean;
+  onTaskListChange: ((input: { markerOffset: number; checked: boolean }) => void) | undefined;
+}) {
+  const context = useContext(PullRequestMarkdownContext);
+  const repository = context?.repository ?? undefined;
+  const githubAccountId = context?.githubAccountId;
+  if (segment.kind === "table") {
+    return (
+      <div className="space-y-3">
+        {segment.rows.map((cells, rowIndex) => (
+          <div
+            // oxlint-disable-next-line react/no-array-index-key -- rows have no identity besides position
+            key={rowIndex}
+            className="grid gap-3"
+            style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
+          >
+            {cells.map((cell, cellIndex) => (
+              <div
+                // oxlint-disable-next-line react/no-array-index-key -- cells have no identity besides position
+                key={cellIndex}
+                className={cn("min-w-0 space-y-3", cell.header && "font-medium")}
+              >
+                {cell.segments.map((cellSegment) => (
+                  <PullRequestBodySegmentView
+                    key={cellSegment.id}
+                    segment={cellSegment}
+                    cwd={cwd}
+                    environmentId={environmentId}
+                    threadRef={threadRef}
+                    lineBreaks={lineBreaks}
+                    onTaskListChange={onTaskListChange}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (segment.kind === "markdown" || segment.media === "image") {
+    return (
+      <ChatMarkdown
+        text={segment.kind === "markdown" ? segment.text : `![](<${segment.url}>)`}
+        cwd={cwd}
+        threadRef={threadRef}
+        pullRequestPanelRef={threadRef ?? PULL_REQUESTS_PANEL_REF}
+        environmentId={environmentId}
+        {...(context ? { extraRemarkPlugins: context.remarkPlugins } : {})}
+        lineBreaks={lineBreaks}
+        sourceControlMedia
+        sourceControlMediaRepository={repository}
+        onTaskListChange={
+          onTaskListChange && segment.kind === "markdown"
+            ? ({ markerOffset, checked }) =>
+                onTaskListChange({
+                  markerOffset: segment.sourceOffset + markerOffset,
+                  checked,
+                })
+            : undefined
+        }
+      />
+    );
+  }
+  const hostMedia = sourceControlClients.mediaUrl(segment.url);
+  if (segment.media === "video" && hostMedia !== null) {
+    return (
+      <PullRequestHostVideo
+        key={`${segment.id}:${segment.url}`}
+        environmentId={environmentId}
+        cwd={cwd}
+        url={segment.url}
+        fetchUrl={hostMedia.fetchUrl}
+        repository={repository}
+      />
+    );
+  }
+  if (segment.media === "video") {
+    return (
+      <MediaVideoPlayer
+        key={`${segment.id}:${segment.url}`}
+        src={segment.url}
+        originalUrl={segment.url}
+        label="Pull request video"
+        className="w-full"
+        videoClassName="rounded-lg border border-border/60"
+      />
+    );
+  }
+  return (
+    // Desktop converts blocked _blank navigation to openExternal.
+    <a
+      href={segment.url}
+      rel="noreferrer noopener"
+      target="_blank"
+      onClick={(event) => {
+        if (!githubAccountId) return;
+        const api = readLocalApi();
+        if (!api) return;
+        event.preventDefault();
+        void openExternalWithGitHubAccount(api.shell, segment.url, githubAccountId).catch(
+          () => undefined,
+        );
+      }}
+      className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm hover:bg-muted/60"
+    >
+      <PaperclipIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">
+        Open attachment on {hostMedia?.definition.label ?? new URL(segment.url).hostname}
+      </span>
+      <ExternalLinkIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+    </a>
   );
 }
 
@@ -77,7 +213,6 @@ export function PullRequestMarkdown({
 }) {
   const segments = splitPullRequestBody(text);
   const context = useContext(PullRequestMarkdownContext);
-  const githubAccountId = context?.githubAccountId;
   const resolvedThreadRef = threadRef ?? context?.threadRef ?? undefined;
   return (
     <div
@@ -87,81 +222,17 @@ export function PullRequestMarkdown({
       )}
       data-image-gallery
     >
-      {segments.map((segment) => {
-        if (segment.kind === "markdown" || segment.media === "image") {
-          return (
-            <ChatMarkdown
-              key={segment.id}
-              text={segment.kind === "markdown" ? segment.text : `![](<${segment.url}>)`}
-              cwd={cwd}
-              threadRef={resolvedThreadRef}
-              pullRequestPanelRef={resolvedThreadRef ?? PULL_REQUESTS_PANEL_REF}
-              environmentId={environmentId}
-              {...(context ? { extraRemarkPlugins: context.remarkPlugins } : {})}
-              lineBreaks={lineBreaks ?? context?.lineBreaks ?? false}
-              sourceControlMedia
-              onTaskListChange={
-                onTaskListChange && segment.kind === "markdown"
-                  ? ({ markerOffset, checked }) =>
-                      onTaskListChange({
-                        markerOffset: segment.sourceOffset + markerOffset,
-                        checked,
-                      })
-                  : undefined
-              }
-            />
-          );
-        }
-        const hostMedia = sourceControlClients.mediaUrl(segment.url);
-        if (segment.media === "video" && hostMedia !== null) {
-          return (
-            <PullRequestHostVideo
-              key={`${segment.id}:${segment.url}`}
-              environmentId={environmentId}
-              cwd={cwd}
-              url={segment.url}
-              fetchUrl={hostMedia.fetchUrl}
-            />
-          );
-        }
-        if (segment.media === "video") {
-          return (
-            <MediaVideoPlayer
-              key={`${segment.id}:${segment.url}`}
-              src={segment.url}
-              originalUrl={segment.url}
-              label="Pull request video"
-              className="w-full"
-              videoClassName="rounded-lg border border-border/60"
-            />
-          );
-        }
-        return (
-          // Desktop converts blocked _blank navigation to openExternal.
-          <a
-            key={segment.id}
-            href={segment.url}
-            rel="noreferrer noopener"
-            target="_blank"
-            onClick={(event) => {
-              if (!githubAccountId) return;
-              const api = readLocalApi();
-              if (!api) return;
-              event.preventDefault();
-              void openExternalWithGitHubAccount(api.shell, segment.url, githubAccountId).catch(
-                () => undefined,
-              );
-            }}
-            className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm hover:bg-muted/60"
-          >
-            <PaperclipIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">
-              Open attachment on {hostMedia?.definition.label ?? new URL(segment.url).hostname}
-            </span>
-            <ExternalLinkIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-          </a>
-        );
-      })}
+      {segments.map((segment) => (
+        <PullRequestBodySegmentView
+          key={segment.id}
+          segment={segment}
+          cwd={cwd}
+          environmentId={environmentId}
+          threadRef={resolvedThreadRef}
+          lineBreaks={lineBreaks ?? context?.lineBreaks ?? false}
+          onTaskListChange={onTaskListChange}
+        />
+      ))}
     </div>
   );
 }

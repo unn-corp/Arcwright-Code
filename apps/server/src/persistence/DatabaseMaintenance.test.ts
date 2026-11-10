@@ -104,6 +104,37 @@ it.layer(DatabaseMaintenance.layer.pipe(Layer.provideMerge(NodeServices.layer)))
       }).pipe(Effect.scoped),
     );
 
+    it.effect("does not execute a stale reclaim marker without admission", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-stale-reclaim-" });
+        const dbPath = path.join(baseDir, "statev2.sqlite");
+        const files = DatabaseMaintenance.reclaimFiles(path, dbPath);
+        yield* fs.writeFileString(dbPath, "unchanged database bytes");
+        yield* fs.writeFileString(files.request, "stale request");
+        yield* DatabaseMaintenance.runRequestedReclaim(dbPath);
+        assert.equal(yield* fs.readFileString(dbPath), "unchanged database bytes");
+        assert.equal(yield* fs.readFileString(files.request), "stale request");
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("refuses a repair whose copies would not fit on disk", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const dbPath = path.join(
+          yield* fs.makeTempDirectoryScoped({ prefix: "t3-reclaim-space-" }),
+          "statev2.sqlite",
+        );
+        assert.isNull(yield* DatabaseMaintenance.reclaimSpaceShortfall(dbPath, 1024));
+        const huge = 2 ** 60;
+        const shortfall = yield* DatabaseMaintenance.reclaimSpaceShortfall(dbPath, huge);
+        assert.isAtLeast(shortfall?.neededBytes ?? 0, huge);
+        assert.isBelow(shortfall?.freeBytes ?? Infinity, huge);
+      }).pipe(Effect.scoped),
+    );
+
     it.effect("compacts an existing database offline only once its server has stopped", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;

@@ -38,7 +38,12 @@ const threadAModel = { instanceId: ProviderInstanceId.make("codex"), model: "gpt
 const threadBModel = { instanceId: ProviderInstanceId.make("claudeAgent"), model: "claude-opus" };
 
 function composerShowing(selectedModelSelection: typeof threadAModel) {
-  return { getSendContext: () => ({ selectedModelSelection }) } as never;
+  return {
+    getSendContext: () => ({
+      selectedModelSelection,
+      getModelSelectionForDispatch: () => selectedModelSelection,
+    }),
+  } as never;
 }
 
 function ResumeButton(props: {
@@ -85,9 +90,11 @@ it("continues on the resumed thread's model after the composer moves to another 
   composerRef.current = composerShowing(threadBModel);
   settingsPersisted.resolve(AsyncResult.success(undefined));
 
-  expect(await startedTurn.promise).toMatchObject({
-    threadId: threadA,
-    manualContinuationOfRunId: "run:interrupted",
-    modelSelection: threadAModel,
-  });
+  const input = (await startedTurn.promise) as {
+    threadId: ThreadId;
+    manualContinuationOfRunId: string;
+    getModelSelectionForDispatch: () => typeof threadAModel;
+  };
+  expect(input).toMatchObject({ threadId: threadA, manualContinuationOfRunId: "run:interrupted" });
+  expect(input.getModelSelectionForDispatch()).toEqual(threadAModel);
 });

@@ -63,6 +63,9 @@ type Registry = typeof Registry.Type;
 type Fence = typeof Fence.Type;
 const decodeRegistry = Schema.decodeUnknownSync(Registry);
 const decodeOwner = Schema.decodeUnknownSync(Owner);
+const decodeLockRecovery = Schema.decodeUnknownSync(
+  Schema.Struct({ owner: Owner, exitedOwner: Owner }),
+);
 const exec = NodeUtil.promisify(NodeChildProcess.execFile);
 const PROCESS_IDENTITY_TIMEOUT_MS = 10_000;
 /** Startup may pay the cold Windows PowerShell launch cost; uncertainty still refuses registration. */
@@ -505,7 +508,11 @@ export class CoordinatorStore {
         await new Promise((resolve) => setTimeout(resolve, 10));
         return this.locked(run, attempt + 1);
       }
-      throw new Error("Exited coordinator lock requires offline repair.", { cause });
+      if (attempt >= 100) throw new Error("Coordinator lock recovery is busy.", { cause });
+      if (!(await this.recoverExitedLock(owner))) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return this.locked(run, attempt + 1);
     }
     await NodeFSP.unlink(candidate);
     try {
@@ -536,18 +543,107 @@ export class CoordinatorStore {
     return this.atomicWrite(NodePath.join(this.directory, "registry.json"), registry);
   }
 
-  /** Removes a lock whose owner is proven exited. Offline operator action; never automatic. */
-  async repairExitedLock(): Promise<boolean> {
+  private async recoverExitedLock(
+    exitedOwner: Owner,
+    allowInterruptedRepair = false,
+  ): Promise<boolean> {
+    if (
+      exitedOwner.pid <= 0 ||
+      !exitedOwner.started ||
+      exitedOwner.started === UNKNOWN_PROCESS_IDENTITY
+    ) {
+      throw new Error("Cannot verify the exited coordinator lock owner.");
+    }
     const lockPath = NodePath.join(this.directory, "registry.lock");
+    const ownerKey = JSON.stringify(exitedOwner);
+    let key = NodeCrypto.createHash("sha256").update(ownerKey).digest("hex");
+    const candidate = NodePath.join(this.directory, `.repair-${NodeCrypto.randomUUID()}`);
+    const handle = await NodeFSP.open(candidate, "wx", 0o600);
+    try {
+      await handle.writeFile(JSON.stringify({ owner: this.owner, exitedOwner }));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    let claimed = false;
+    try {
+      // Automatic and explicit repairs claim the same exited identity before either can remove its lock.
+      for (let generation = 0; generation < 100; generation++) {
+        const claimPath = NodePath.join(this.directory, `lock-recovery-${key}.json`);
+        try {
+          await NodeFSP.link(candidate, claimPath);
+          claimed = true;
+          break;
+        } catch (cause) {
+          if (!isCode(cause, "EEXIST")) throw cause;
+        }
+        const claim = decodeLockRecovery(JSON.parse(await NodeFSP.readFile(claimPath, "utf8")));
+        if (
+          claim.exitedOwner.pid !== exitedOwner.pid ||
+          claim.exitedOwner.started !== exitedOwner.started
+        ) {
+          throw new Error("Coordinator lock recovery claim does not match its owner.");
+        }
+        let current: Owner;
+        try {
+          current = decodeOwner(JSON.parse(await this.readLockFile(lockPath)));
+        } catch (cause) {
+          if (isCode(cause, "ENOENT")) return true;
+          throw cause;
+        }
+        if (current.pid !== exitedOwner.pid || current.started !== exitedOwner.started) return true;
+        if (
+          claim.owner.pid <= 0 ||
+          !claim.owner.started ||
+          claim.owner.started === UNKNOWN_PROCESS_IDENTITY
+        ) {
+          throw new Error("Cannot verify the coordinator lock recovery owner.");
+        }
+        if (await this.alive(claim.owner)) return false;
+        if (!allowInterruptedRepair) {
+          throw new Error("Coordinator lock recovery was interrupted; offline repair is required.");
+        }
+        // A deterministic successor serializes explicit recovery after a repairer itself exited.
+        key = NodeCrypto.createHash("sha256")
+          .update(key + JSON.stringify(claim.owner))
+          .digest("hex");
+      }
+    } finally {
+      await NodeFSP.unlink(candidate);
+    }
+    if (!claimed) throw new Error("Coordinator lock recovery has too many interrupted claims.");
+    let current: Owner;
+    try {
+      current = decodeOwner(JSON.parse(await this.readLockFile(lockPath)));
+    } catch (cause) {
+      if (isCode(cause, "ENOENT")) return true;
+      throw cause;
+    }
+    if (current.pid !== exitedOwner.pid || current.started !== exitedOwner.started) return true;
+    if (await this.alive(current)) throw new Error("The coordinator lock owner is still running.");
+    try {
+      await NodeFSP.unlink(lockPath);
+    } catch (cause) {
+      if (!isCode(cause, "ENOENT")) throw cause;
+    }
+    return true;
+  }
+
+  /** Explicit recovery can take over a repair claim only after its owner is proven exited. */
+  async repairExitedLock(): Promise<boolean> {
     let owner: Owner;
     try {
-      owner = decodeOwner(JSON.parse(await NodeFSP.readFile(lockPath, "utf8")));
+      owner = decodeOwner(
+        JSON.parse(await NodeFSP.readFile(NodePath.join(this.directory, "registry.lock"), "utf8")),
+      );
     } catch (cause) {
       if (isCode(cause, "ENOENT")) return false;
       throw cause;
     }
     if (await this.alive(owner)) throw new Error("The coordinator lock owner is still running.");
-    await NodeFSP.unlink(lockPath);
+    if (!(await this.recoverExitedLock(owner, true))) {
+      throw new Error("Coordinator lock recovery is already in progress.");
+    }
     return true;
   }
 

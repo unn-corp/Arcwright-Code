@@ -200,16 +200,22 @@ describe("DesktopSettings", () => {
     withSettings(
       Effect.gen(function* () {
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
-        yield* writeSettingsPatch({
-          mainWindowBounds: { x: 10, y: 20, width: 599, height: 620 },
-          mainWindowMaximized: true,
-          serverExposureMode: "network-accessible",
-        });
+        for (const bounds of [
+          { x: 10.5, y: 20, width: 600, height: 620 },
+          { x: 10, y: 20, width: 599, height: 620 },
+          { x: 10, y: 20, width: 600, height: 619 },
+        ]) {
+          yield* writeSettingsPatch({
+            mainWindowBounds: bounds,
+            mainWindowMaximized: true,
+            serverExposureMode: "network-accessible",
+          });
 
-        const loaded = yield* settings.load;
-        assert.isNull(loaded.mainWindowBounds);
-        assert.isFalse(loaded.mainWindowMaximized);
-        assert.equal(loaded.serverExposureMode, "network-accessible");
+          const loaded = yield* settings.load;
+          assert.isNull(loaded.mainWindowBounds);
+          assert.isFalse(loaded.mainWindowMaximized);
+          assert.equal(loaded.serverExposureMode, "network-accessible");
+        }
       }),
     ),
   );

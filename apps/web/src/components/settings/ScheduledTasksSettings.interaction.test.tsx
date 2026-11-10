@@ -23,7 +23,7 @@ const environment = {
   environmentId,
   label: "Test computer",
   connection: { phase: "connected" },
-  serverConfig: { environment: { platform: "linux" } },
+  serverConfig: { environment: { platform: "linux", capabilities: {} } },
 };
 let task: ScheduledTask;
 let otherTask: ScheduledTask | null;
@@ -31,6 +31,9 @@ vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("../../state/session", () => ({ readEnvironmentScope: () => true }));
 vi.mock("../../state/environments", () => ({ useEnvironment: () => environment }));
 vi.mock("../../state/entities", () => ({
+  useServerConfigs: () => new Map(),
+  useThreadShell: () => null,
+  useVisibleThreadShells: () => [],
   useProjects: () => [
     { id: projectId, environmentId, title: "Project", workspaceRoot: "/fixture" },
   ],
@@ -46,9 +49,10 @@ vi.mock("./SettingsScopeContext", () => ({
     environment,
   }),
 }));
+vi.mock("../../state/queries", () => ({ useThreadSearch: () => undefined }));
 vi.mock("../../state/query", () => ({
   useEnvironmentQuery: () => ({
-    data: { tasks: otherTask ? [task, otherTask] : [task] },
+    data: { tasks: otherTask ? [task, otherTask] : [task], threads: [] },
     error: null,
   }),
 }));
@@ -67,6 +71,7 @@ vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: ({ name }: { name: "save" | "toggle" | "run" | "remove" }) => commands[name],
 }));
 vi.mock("../../providerInstances", () => ({
+  providerInstanceEntriesFor: () => [],
   deriveProviderInstanceEntries: () => [],
   applyProviderInstanceSettings: () => [],
   sortProviderInstanceEntries: () => [],

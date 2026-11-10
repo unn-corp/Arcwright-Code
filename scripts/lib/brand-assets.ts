@@ -26,6 +26,8 @@ export const BRAND_ASSET_PATHS = {
   productionWebPwa192Png: "assets/prod/t3-black-web-pwa-192.png",
   productionWebPwa512Png: "assets/prod/t3-black-web-pwa-512.png",
   productionWebPwaMaskablePng: "assets/prod/t3-black-web-pwa-maskable-512.png",
+  productionWebIcon192Png: "assets/prod/t3-black-web-icon-192x192.png",
+  productionWebIcon512Png: "assets/prod/t3-black-web-icon-512x512.png",
 
   nightlyIconComposerProject: "assets/nightly/app-icon.icon",
   nightlyIosIconPng: "assets/nightly/nightly-ios-1024.png",
@@ -39,6 +41,8 @@ export const BRAND_ASSET_PATHS = {
   nightlyWebPwa192Png: "assets/nightly/nightly-web-pwa-192.png",
   nightlyWebPwa512Png: "assets/nightly/nightly-web-pwa-512.png",
   nightlyWebPwaMaskablePng: "assets/nightly/nightly-web-pwa-maskable-512.png",
+  nightlyWebIcon192Png: "assets/nightly/nightly-web-icon-192x192.png",
+  nightlyWebIcon512Png: "assets/nightly/nightly-web-icon-512x512.png",
 
   developmentDesktopIconPng: "assets/dev/blueprint-macos-1024.png",
   developmentWindowsIconIco: "assets/dev/blueprint-windows.ico",
@@ -46,6 +50,8 @@ export const BRAND_ASSET_PATHS = {
   developmentWebFavicon16Png: "assets/dev/blueprint-web-favicon-16x16.png",
   developmentWebFavicon32Png: "assets/dev/blueprint-web-favicon-32x32.png",
   developmentWebAppleTouchIconPng: "assets/dev/blueprint-web-apple-touch-180.png",
+  developmentWebIcon192Png: "assets/dev/blueprint-web-icon-192x192.png",
+  developmentWebIcon512Png: "assets/dev/blueprint-web-icon-512x512.png",
 } as const;
 
 export type WebAssetBrand = "development" | "nightly" | "production";
@@ -71,6 +77,8 @@ const WEB_ICON_TARGET_FILENAMES = {
   pwa192Png: "pwa-192x192.png",
   pwa512Png: "pwa-512x512.png",
   pwaMaskablePng: "pwa-maskable-512x512.png",
+  icon192Png: "icon-192x192.png",
+  icon512Png: "icon-512x512.png",
 } as const;
 
 const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
@@ -82,6 +90,8 @@ const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
     pwa192Png: BRAND_ASSET_PATHS.developmentWebPwa192Png,
     pwa512Png: BRAND_ASSET_PATHS.developmentWebPwa512Png,
     pwaMaskablePng: BRAND_ASSET_PATHS.developmentWebPwaMaskablePng,
+    icon192Png: BRAND_ASSET_PATHS.developmentWebIcon192Png,
+    icon512Png: BRAND_ASSET_PATHS.developmentWebIcon512Png,
   },
   nightly: {
     faviconIco: BRAND_ASSET_PATHS.nightlyWebFaviconIco,
@@ -91,6 +101,8 @@ const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
     pwa192Png: BRAND_ASSET_PATHS.nightlyWebPwa192Png,
     pwa512Png: BRAND_ASSET_PATHS.nightlyWebPwa512Png,
     pwaMaskablePng: BRAND_ASSET_PATHS.nightlyWebPwaMaskablePng,
+    icon192Png: BRAND_ASSET_PATHS.nightlyWebIcon192Png,
+    icon512Png: BRAND_ASSET_PATHS.nightlyWebIcon512Png,
   },
   production: {
     faviconIco: BRAND_ASSET_PATHS.productionWebFaviconIco,
@@ -100,6 +112,8 @@ const WEB_ICON_SOURCE_PATHS_BY_BRAND = {
     pwa192Png: BRAND_ASSET_PATHS.productionWebPwa192Png,
     pwa512Png: BRAND_ASSET_PATHS.productionWebPwa512Png,
     pwaMaskablePng: BRAND_ASSET_PATHS.productionWebPwaMaskablePng,
+    icon192Png: BRAND_ASSET_PATHS.productionWebIcon192Png,
+    icon512Png: BRAND_ASSET_PATHS.productionWebIcon512Png,
   },
 } as const satisfies Record<WebAssetBrand, Record<keyof typeof WEB_ICON_TARGET_FILENAMES, string>>;
 
@@ -136,6 +150,14 @@ export function resolveWebIconOverrides(
     {
       sourceRelativePath: sourcePaths.pwaMaskablePng,
       targetRelativePath: `${targetDirectory}/${WEB_ICON_TARGET_FILENAMES.pwaMaskablePng}`,
+    },
+    {
+      sourceRelativePath: sourcePaths.icon192Png,
+      targetRelativePath: `${targetDirectory}/${WEB_ICON_TARGET_FILENAMES.icon192Png}`,
+    },
+    {
+      sourceRelativePath: sourcePaths.icon512Png,
+      targetRelativePath: `${targetDirectory}/${WEB_ICON_TARGET_FILENAMES.icon512Png}`,
     },
   ];
 }

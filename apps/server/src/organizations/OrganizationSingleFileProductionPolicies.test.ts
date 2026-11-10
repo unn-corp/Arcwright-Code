@@ -209,6 +209,7 @@ it.effect("never calls a provider before admission, and never repeats a dispatch
     generatePrContent: () => Effect.die("not used"),
     generateBranchName: () => Effect.die("not used"),
     generateThreadTitle: () => Effect.die("not used"),
+    generateTranscriptionPostProcessing: () => Effect.die("unused transcription post-processing"),
     generateOrganizationPatchProposal: (input) => {
       providerCalls++;
       return Effect.succeed({

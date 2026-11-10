@@ -149,6 +149,7 @@ it.effect("refreshes relay credentials and signs the audio request on retry", ()
     let requests = 0;
     const proofs: string[] = [];
     const remoteAuthorization = RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization.of({
+      rememberCheckedDescriptor: () => Effect.void,
       authorizeBearer: () => Effect.die("Unexpected bearer authorization"),
       authorizeDpop: () => Effect.die("Unexpected socket preparation"),
       renewDpopBeforeExpiry: () => Effect.die("Unexpected socket renewal"),

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "schemaSha256": "d4aa1c27323519bf1b4c8dd6ac9480f2b356554b461f68c23bf56f6e56d8fffe",
+  "schemaSha256": "c54c8e24418e1604272e606334b6b5aab75d28bc7a693678debf50d63c1d0475",
   "objects": [
     {
       "type": "index",
@@ -1656,7 +1656,7 @@
       "type": "table",
       "name": "scheduled_tasks",
       "tbl_name": "scheduled_tasks",
-      "sql": "CREATE TABLE scheduled_tasks (\n      task_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      enabled INTEGER NOT NULL,\n      schedule_json TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      thread_id TEXT,\n      workspace_strategy_json TEXT NOT NULL,\n      model_selection_json TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      created_by TEXT NOT NULL,\n      creation_source TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      next_run_at TEXT,\n      last_run_at TEXT,\n      last_run_status TEXT NOT NULL,\n      last_run_error TEXT,\n      run_count INTEGER NOT NULL\n    , webhook_token TEXT, webhook_secret TEXT, last_run_webhook_delivery_id TEXT)"
+      "sql": "CREATE TABLE scheduled_tasks (\n      task_id TEXT PRIMARY KEY,\n      title TEXT NOT NULL,\n      prompt TEXT NOT NULL,\n      enabled INTEGER NOT NULL,\n      schedule_json TEXT NOT NULL,\n      project_id TEXT NOT NULL,\n      thread_id TEXT,\n      workspace_strategy_json TEXT NOT NULL,\n      model_selection_json TEXT NOT NULL,\n      runtime_mode TEXT NOT NULL,\n      interaction_mode TEXT NOT NULL,\n      created_by TEXT NOT NULL,\n      creation_source TEXT NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      next_run_at TEXT,\n      last_run_at TEXT,\n      last_run_status TEXT NOT NULL,\n      last_run_error TEXT,\n      run_count INTEGER NOT NULL\n    , webhook_token TEXT, webhook_secret TEXT, last_run_webhook_delivery_id TEXT, thread_mode TEXT NOT NULL DEFAULT 'new_thread')"
     },
     {
       "type": "trigger",

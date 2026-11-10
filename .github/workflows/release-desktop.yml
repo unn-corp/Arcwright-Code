@@ -75,6 +75,10 @@ on:
         required: false
         default: false
         type: boolean
+      save_pnpm_store:
+        required: false
+        default: true
+        type: boolean
       version:
         required: true
         type: string
@@ -119,11 +123,12 @@ jobs:
     name: Build ${{ inputs.label }}
     # Fork releases support Linux/Windows x64 only, including the host architecture.
     if: >-
-      (github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') ||
-      ((inputs.runner == 'linux' || inputs.runner == 'windows') &&
-      inputs.runner_arch == 'x64' &&
-      (inputs.platform == 'linux' || inputs.platform == 'win') &&
-      inputs.arch == 'x64')
+      inputs.runner_arch == inputs.arch &&
+      ((inputs.runner == 'linux' && inputs.platform == 'linux') ||
+       (inputs.runner == 'windows' && inputs.platform == 'win') ||
+       (inputs.runner == 'macOS' && inputs.platform == 'mac')) &&
+      ((github.repository != 'unn-corp/Arcwright-Code' && github.repository != 'unn-corp/t3code') ||
+       ((inputs.runner == 'linux' || inputs.runner == 'windows') && inputs.arch == 'x64'))
     runs-on:
       [
         self-hosted,
@@ -214,6 +219,7 @@ jobs:
         uses: ./.github/actions/setup-ci-deps
         with:
           install-args: --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+          save-pnpm-store: ${{ inputs.save_pnpm_store }}
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
 
@@ -256,6 +262,20 @@ jobs:
             native/kde-snap-shot/target/${{ inputs.rust_target }}/release/t3-kde-snap-shot
             native/hyprland-snap-shot/target/${{ inputs.rust_target }}/release/t3-hyprland-snap-shot
           key: linux-capture-helpers-${{ inputs.rust_target }}-${{ hashFiles('native/kde-snap-shot/Cargo.lock', 'native/kde-snap-shot/Cargo.toml', 'native/kde-snap-shot/src/**', 'native/hyprland-snap-shot/Cargo.lock', 'native/hyprland-snap-shot/Cargo.toml', 'native/hyprland-snap-shot/src/**', 'native/hyprland-snap-shot/protocols/**') }}
+
+      # Every Linux build makes electron-builder fetch the AppImage runtime, FPM
+      # for the deb, and the 7-Zip that unpacks FPM from GitHub releases. It
+      # checks an archive found here against the SHA-256 pinned in those toolset
+      # files and downloads again on a mismatch, so only raw archives are cached.
+      - name: Cache Linux packaging tool archives
+        if: inputs.platform == 'linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/electron-builder/appimage@*/appimage-tools-runtime-*.tar.gz
+            ~/.cache/electron-builder/fpm@*/fpm-*.7z
+            ~/.cache/electron-builder/7zip@*/7zip-linux-*.tar.gz
+          key: electron-builder-linux-tools-${{ inputs.arch }}-${{ hashFiles('node_modules/.pnpm/app-builder-lib@*/node_modules/app-builder-lib/out/toolsets/linux.js', 'node_modules/.pnpm/app-builder-lib@*/node_modules/app-builder-lib/out/toolsets/7zip.js') }}
 
       - name: Ensure Rosetta for macOS x64 bytecode generation
         if: inputs.platform == 'mac' && inputs.arch == 'x64'
@@ -588,6 +608,23 @@ jobs:
 
           vp run dist:desktop:artifact "${args[@]}"
 
+      # Warm installs only touch the store index, so new content means a fetch.
+      - name: Check staged install cache for new content
+        id: stage_pnpm_changed
+        shell: bash
+        run: |
+          dir="${{ steps.stage_pnpm.outputs.dir }}"
+          new=$(find "$dir/cache/v12" "$dir/store/v11/files" -type f -newer "$RUNNER_TEMP/desktop-stage-pnpm.marker" 2>/dev/null | wc -l | tr -d ' ')
+          echo "Staged installs added $new cached files."
+          echo "changed=$([[ "$new" -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Save staged install cache
+        if: steps.stage_pnpm_changed.outputs.changed == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.stage_pnpm.outputs.dir }}
+          key: ${{ steps.stage_pnpm_cache.outputs.cache-primary-key }}
+
       # A build can package fine and still not open (a missing module in the
       # backend or the bundle). This launches the app from the shipped
       # AppImage or DMG.
@@ -746,6 +783,7 @@ jobs:
           echo "$RUNNER_TEMP/patchelf/bin" >> "$GITHUB_PATH"
 
       - name: Build CLI archive
+        id: build_cli
         if: inputs.cli_archive
         shell: bash
         env:
@@ -768,12 +806,39 @@ jobs:
             printf '%s' "$APPLE_API_KEY" > "$key_path"
             export APPLE_API_KEY="$key_path"
           fi
+          extra_args=()
+          if [[ "${{ inputs.platform }}" == "mac" ]]; then
+            cli_help="$(node scripts/build-cli-archive.ts --help)"
+            if [[ "$cli_help" == *--notary-submission-file* ]]; then
+              extra_args=(--notary-submission-file "$RUNNER_TEMP/t3-cli-notary-submission")
+              echo "deferred_notarization=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
           node scripts/build-cli-archive.ts \
             --platform "${{ inputs.platform }}" \
             --arch "${{ inputs.arch }}" \
             --version "${{ inputs.version }}" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
-            --output-dir release-cli
+            --output-dir release-cli \
+            ${extra_args[@]+"${extra_args[@]}"}
+
+      - name: Await CLI notarization
+        if: inputs.cli_archive && inputs.platform == 'mac' && steps.build_cli.outputs.deferred_notarization == 'true'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${APPLE_API_KEY:-}" ]]; then
+            key_dir="$(mktemp -d "$RUNNER_TEMP/t3-cli-notary.XXXXXXXX")"
+            trap 'rm -rf "$key_dir"' EXIT
+            key_path="$key_dir/AuthKey.p8"
+            (umask 077 && printf '%s' "$APPLE_API_KEY" > "$key_path")
+            export APPLE_API_KEY="$key_path"
+          fi
+          node scripts/build-cli-archive.ts await-notarization --submission-file "$RUNNER_TEMP/t3-cli-notary-submission"
 
       - name: Smoke-test CLI archive
         id: cli_smoke
@@ -864,6 +929,8 @@ jobs:
           name: desktop-${{ inputs.platform }}-${{ inputs.arch }}
           path: release-publish/*
           if-no-files-found: error
+          # Installers, zips and blockmaps are already compressed; deflating them again saves under 0.3%.
+          compression-level: 0
 
       - name: Upload resource monitor
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -18,6 +18,9 @@ import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import { headlessFlag } from "./connect.ts";
 import * as CliService from "./service.ts";
 
+type Route = "connect" | "lan";
+type Routes = Readonly<Record<Route, boolean>>;
+
 /** How other devices reach this machine now. */
 interface Setup {
   readonly service: BootService.BootServiceStatus;
@@ -63,18 +66,53 @@ const readSetup = Effect.fn("cli.up.read_setup")(function* () {
         revoked: connectRevoked,
       })
     : null;
+  // Another home's service doesn't read this home's service.env.
+  const servesThisHome = service.installed && service.otherBaseDir === undefined;
   return {
     service,
     connect,
     connectRevoked,
-    lan: Option.getOrElse(lan, () => service.installed),
-    lanFromOldDefault: Option.isNone(lan) && service.installed,
+    lan: Option.getOrElse(lan, () => servesThisHome),
+    lanFromOldDefault: Option.isNone(lan) && servesThisHome,
     host: entries.T3CODE_HOST,
   } satisfies Setup;
 });
 
+/**
+ * The routes `t3 up` starts from. With no route flag it asks about every
+ * route, starting a machine with no service from T3 Connect. Any route flag
+ * means it asks nothing and keeps the routes not named as they are.
+ */
+export const planRoutes = (
+  setup: { readonly installed: boolean; readonly connect: boolean | null; readonly lan: boolean },
+  flags: { readonly connect: Option.Option<boolean>; readonly lan: Option.Option<boolean> },
+) => {
+  const ask = Option.isNone(flags.connect) && Option.isNone(flags.lan);
+  const start = {
+    connect: setup.connect === true || (ask && !setup.installed && setup.connect !== null),
+    lan: setup.lan,
+  };
+  return {
+    routes: {
+      connect: Option.getOrElse(flags.connect, () => start.connect),
+      lan: Option.getOrElse(flags.lan, () => start.lan),
+    } satisfies Routes,
+    ask: ask
+      ? (["connect", "lan"] as const).filter((r) => r !== "connect" || setup.connect !== null)
+      : [],
+  };
+};
+
 const formatSetup = (setup: Setup) => {
   const { service } = setup;
+  // This home's access settings reach no service, so only the service is shown.
+  if (service.otherBaseDir !== undefined) {
+    return [
+      `  ${"Service".padEnd(15)}installed for another T3 home · ${service.otherBaseDir}`,
+      "",
+      `Pass \`${BootService.formatBootServiceBaseDirOption(service.otherBaseDir)}\` to manage it.`,
+    ].join("\n");
+  }
   const rows: ReadonlyArray<readonly [string, string]> = [
     [
       "Service",
@@ -164,6 +202,7 @@ const setupJson = (setup: Setup) =>
         supported: setup.service.supported,
         installed: setup.service.installed,
         installedVersion: setup.service.installedVersion ?? null,
+        otherBaseDir: setup.service.otherBaseDir ?? null,
       },
       connect:
         setup.connect === null ? null : { enabled: setup.connect, revoked: setup.connectRevoked },
@@ -202,7 +241,13 @@ export const statusCommand = Command.make("status", {
           ),
         ),
       );
-      yield* Console.log(flags.json ? setupJson(setup) : `This machine\n${formatSetup(setup)}`);
+      yield* Console.log(
+        flags.json
+          ? setupJson(setup)
+          : setup.service.otherBaseDir !== undefined
+            ? `This machine\n${formatSetup(setup)}`
+            : `This machine\n${formatSetup(setup)}\n\nChange access: \`t3 up\`.`,
+      );
     }),
   ),
 );

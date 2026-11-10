@@ -37,8 +37,8 @@ import { makeCursorAuth } from "./auth.ts";
 import * as CursorCredentialStore from "./credentialStore.ts";
 import * as CursorAgentSdk from "./CursorAgentSdk.ts";
 import * as CursorSdk from "./CursorSdk.ts";
-import * as CursorKeychain from "./CursorKeychain.ts";
 import * as CursorUsageAccounts from "./CursorUsageAccounts.ts";
+import * as CursorKeychain from "./CursorKeychain.ts";
 
 const decodeCursorSettings = Schema.decodeSync(CursorSettings);
 const isSdkRunnerError = Schema.is(CursorAgentSdk.CursorAgentSdkRunnerError);
@@ -96,10 +96,10 @@ export const CursorDriver: ProviderDriver<
     config,
   }) {
     const host = yield* ProviderHost.ProviderHost;
+    const keychain = yield* CursorKeychain.CursorKeychain;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const httpClient = yield* HttpClient.HttpClient;
-    const keychain = yield* CursorKeychain.CursorKeychain;
     const sdkRunner = yield* CursorAgentSdk.CursorAgentSdkRunner;
     const processEnv = yield* mergeProviderInstanceEnvironment(environment);
     const continuationIdentity = defaultProviderContinuationIdentity({
@@ -237,7 +237,10 @@ export const CursorDriver: ProviderDriver<
                 Effect.flatMap((settings) =>
                   readCursorUsageLimits(
                     effectiveConfig,
-                    { ...processEnv, CURSOR_API_KEY: apiKey },
+                    {
+                      ...processEnv,
+                      CURSOR_API_KEY: apiKey,
+                    },
                     settings.cursorKeychainUsageEnabled,
                   ),
                 ),
