@@ -108,7 +108,10 @@ snapshot only when its omissions match what the session asks for.
 subscription lifetime from cache lifetime. Mounted consumers share one live
 stream, which stops when the last consumer unmounts; hidden mounted routes still
 count. A registry-local cache retains state and its replay cursor for five idle
-minutes so back navigation can resume without another snapshot download.
+minutes so back navigation can show retained messages while reconnecting. Clients
+that support bounded snapshots refresh from the current window before following
+live events. Their synchronization does not wait for the device-wide historical
+gap check required by event replay; older history remains available on demand.
 
 The desktop app adds one consumer: a
 [keep-alive](../../apps/web/src/state/threads.ts) mounts every thread whose

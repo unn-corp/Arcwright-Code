@@ -8,6 +8,7 @@ import { assert, it } from "@effect/vitest";
 import {
   AuthSessionId,
   EnvironmentId,
+  EventId,
   ProjectId,
   ThreadId,
   ProviderDriverKind,
@@ -247,6 +248,76 @@ it.effect("runs editor, remote open target and direct endpoint discovery side by
 
 const ReplayTestLayer = OrchestrationEventStore.layer.pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
+);
+
+it.effect("synchronizes bounded thread resumes without waiting for historical replay checks", () =>
+  Effect.gen(function* () {
+    const threadId = ThreadId.make("thread:bounded-resume");
+    const now = DateTime.makeUnsafe("2026-11-10T05:00:00.000Z");
+    const projection = ProjectionStoreV2.emptyProjection({
+      id: EventId.make("event:bounded-resume-created"),
+      type: "thread.created",
+      threadId,
+      occurredAt: now,
+      payload: {
+        id: threadId,
+        projectId: ProjectId.make("project:bounded-resume"),
+        title: "Current conversation",
+        providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "claude-opus-5-5",
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        createdBy: "user",
+        creationSource: "web",
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      },
+    });
+    const items = yield* subscribeOrchestrationV2Thread({
+      threadId,
+      afterSequence: 10,
+      acceptBoundedSnapshot: true,
+      requestCompletionMarker: true,
+    }).pipe(
+      Effect.flatMap((stream) => stream.pipe(Stream.take(2), Stream.runCollect)),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            ensureLegacyTranscript: () => Effect.void,
+            getThreadSnapshotWindow: () =>
+              Effect.succeed({ schemaVersion: 1, snapshotSequence: 20, projection }),
+            streamStoredEventsFrom: () => Stream.empty,
+          }),
+          Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
+            latestAgentSequence: () => Effect.succeed(20),
+            prunedThroughSequence: Effect.die("Historical scanning is unavailable"),
+          }),
+        ),
+      ),
+    );
+    assert.deepEqual(
+      items.map((item) => item.kind),
+      ["snapshot", "synchronized"],
+    );
+    const snapshot = items[0];
+    assert.equal(snapshot?.kind, "snapshot");
+    if (snapshot?.kind !== "snapshot") return yield* Effect.die("Missing current snapshot");
+    assert.equal(snapshot.snapshotSequence, 20);
+    assert.equal(snapshot.projection.thread.title, "Current conversation");
+  }),
 );
 
 it.live.each(["thread", "shell"] as const)(

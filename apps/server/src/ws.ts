@@ -1083,6 +1083,11 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
       );
     });
 
+    // Bounded snapshots avoid scanning device-wide history before a cached thread can resume.
+    if (shouldUseBoundedThreadSnapshot(input)) {
+      return yield* snapshotThenLive();
+    }
+
     // Subscribe before reading persisted events to retain concurrent publishes; clients dedupe overlap by sequence.
     if (input.afterSequence !== undefined) {
       const highWater = yield* applicationEvents.latestAgentSequence(input.threadId).pipe(
